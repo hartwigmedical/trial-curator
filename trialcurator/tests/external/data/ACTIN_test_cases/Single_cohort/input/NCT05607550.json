@@ -1,0 +1,3792 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT05607550",
+      "orgStudyIdInfo": {
+        "id": "FURMO-004"
+      },
+      "secondaryIdInfos": [
+        {
+          "id": "2022-502977-41-00",
+          "type": "CTIS"
+        }
+      ],
+      "organization": {
+        "fullName": "ArriVent BioPharma, Inc.",
+        "class": "INDUSTRY"
+      },
+      "briefTitle": "Study to Compare Furmonertinib to Platinum-Based Chemotherapy for Patients with Locally Advanced or Metastatic Non-Small Cell Lung Cancer (NSCLC) with Epidermal Growth Factor Receptor (EGFR) Exon 20 Insertion Mutations (FURVENT)",
+      "officialTitle": "A Global, Phase 3, Randomized, Multicenter, Open-Label Study to Investigate the Efficacy and Safety of Furmonertinib Compared to Platinum-Based Chemotherapy As First-Line Treatment for Patients with Locally Advanced or Metastatic Non-Small Cell Lung Cancer (NSCLC) with Epidermal Growth Factor Receptor (EGFR) Exon 20 Insertion Mutations (FURVENT)"
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2025-01",
+      "overallStatus": "RECRUITING",
+      "expandedAccessInfo": {
+        "hasExpandedAccess": false
+      },
+      "startDateStruct": {
+        "date": "2023-06-01",
+        "type": "ACTUAL"
+      },
+      "primaryCompletionDateStruct": {
+        "date": "2025-08-15",
+        "type": "ESTIMATED"
+      },
+      "completionDateStruct": {
+        "date": "2028-02-15",
+        "type": "ESTIMATED"
+      },
+      "studyFirstSubmitDate": "2022-10-31",
+      "studyFirstSubmitQcDate": "2022-11-04",
+      "studyFirstPostDateStruct": {
+        "date": "2022-11-07",
+        "type": "ACTUAL"
+      },
+      "lastUpdateSubmitDate": "2025-01-27",
+      "lastUpdatePostDateStruct": {
+        "date": "2025-03-25",
+        "type": "ACTUAL"
+      }
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {
+        "type": "SPONSOR"
+      },
+      "leadSponsor": {
+        "name": "ArriVent BioPharma, Inc.",
+        "class": "INDUSTRY"
+      },
+      "collaborators": [
+        {
+          "name": "Allist Pharmaceuticals, Inc.",
+          "class": "INDUSTRY"
+        }
+      ]
+    },
+    "oversightModule": {
+      "oversightHasDmc": true,
+      "isFdaRegulatedDrug": true,
+      "isFdaRegulatedDevice": false,
+      "isUsExport": false
+    },
+    "descriptionModule": {
+      "briefSummary": "Global, Phase 3, randomized, multicenter, open-label study evaluating the efficacy and safety of furmonertinib (firmonertinib) at 2 dose levels (160 mg once daily \\[QD\\] and 240 mg QD) compared to platinum-based chemotherapy in previously untreated patients with locally advanced or metastatic non-squamous Non-Small Cell Lung Cancer (NSCLC) with Epidermal Growth Factor Receptor (EGFR) exon 20 insertion mutations. A target of approximately 375 patients will be randomized in a 1:1:1 ratio to treatment with furmonertinib 240 mg QD, furmonertinib 160 mg QD, or platinum-based chemotherapy."
+    },
+    "conditionsModule": {
+      "conditions": [
+        "Metastatic Non-Small Cell Lung Cancer",
+        "Advanced Non-Small Cell Lung Cancer",
+        "EGFR Exon 20 Mutations"
+      ],
+      "keywords": [
+        "Non-Small Cell Lung Cancer (NSCLC)",
+        "Exon 20",
+        "Furmonertinib",
+        "Firmonertinib",
+        "AST2818",
+        "FURMO-004",
+        "Drug-Therapy"
+      ]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": [
+        "PHASE3"
+      ],
+      "designInfo": {
+        "allocation": "RANDOMIZED",
+        "interventionModel": "PARALLEL",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {
+          "masking": "NONE"
+        }
+      },
+      "enrollmentInfo": {
+        "count": 375,
+        "type": "ESTIMATED"
+      }
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "furmonertinib 240 mg",
+          "type": "EXPERIMENTAL",
+          "interventionNames": [
+            "Drug: furmonertinib 240 mg oral, daily"
+          ]
+        },
+        {
+          "label": "furmonertinib 160 mg",
+          "type": "EXPERIMENTAL",
+          "interventionNames": [
+            "Drug: furmonertinib 160 mg oral, daily"
+          ]
+        },
+        {
+          "label": "platinum-based chemotherapy",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "carboplatin or cisplatin based on investigator's choice + pemetrexed intravenously",
+          "interventionNames": [
+            "Drug: platinum-based chemotherapy"
+          ]
+        }
+      ],
+      "interventions": [
+        {
+          "type": "DRUG",
+          "name": "furmonertinib 240 mg oral, daily",
+          "description": "furmonertinib tablet",
+          "armGroupLabels": [
+            "furmonertinib 240 mg"
+          ],
+          "otherNames": [
+            "AST2818"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "furmonertinib 160 mg oral, daily",
+          "description": "furmonertinib tablet",
+          "armGroupLabels": [
+            "furmonertinib 160 mg"
+          ],
+          "otherNames": [
+            "AST2818"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "platinum-based chemotherapy",
+          "description": "(carboplatin or cisplatin based on investigator's choice) + pemetrexed intravenously (IV)",
+          "armGroupLabels": [
+            "platinum-based chemotherapy"
+          ]
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Progression Free Survival (PFS) determined by blinded independent central review (BICR)",
+          "timeFrame": "Up to 32 months after first dose"
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Overall Survival (OS)",
+          "timeFrame": "Up to 62 months after first dose"
+        },
+        {
+          "measure": "PFS determined by investigator assessment",
+          "timeFrame": "Up to 36 months after first dose"
+        },
+        {
+          "measure": "Overall response rate (ORR)",
+          "timeFrame": "Up to 36 months after first dose"
+        },
+        {
+          "measure": "Duration of response (DOR)",
+          "timeFrame": "Up to 36 months after first dose"
+        },
+        {
+          "measure": "Time to second Progression Free Survival (PFS2)",
+          "timeFrame": "Up to 36 months after first dose"
+        },
+        {
+          "measure": "PFS by blinded independent central review (BICR) in patients with a history or presence of brain metastases at baseline",
+          "timeFrame": "Up to 36 months after first dose"
+        },
+        {
+          "measure": "Time to central nervous system (CNS) metastases by BICR",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "CNS ORR evaluated by BICR",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "CNS DOR evaluated by BICR",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "CNS PFS evaluated by BICR",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "Change in European Organisation for Research and Treatment of Cancer Quality of Life Questionnaire Core 30 (QLQ-C30)",
+          "description": "QLQ-C30 is a cancer-specific questionnaire comprised of 5 functional scales (physical, role, cognitive, emotional, and social functioning); 3 symptom scales (fatigue, pain, and nausea/vomiting); and a global health status/quality-of-life (QoL) scale. Six single-item scales are also included (dyspnea, insomnia, appetite loss, constipation, diarrhea, and financial difficulties).",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "Change in EORTC QLQ Lung Cancer Module Core 13 (QLQ LC13)",
+          "description": "QLQ-LC13 is a cancer-specific questionnaire which comprises of 13 questions assessing lung cancer-associated symptoms (cough, hemoptysis, dyspnea, and site-specific pain), treatment-related side effects (sore mouth, dysphagia, peripheral neuropathy, and alopecia), and use of pain medication.",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "Change in Non-Small Cell Lung Cancer Symptom Assessment Questionnaire (NSCLC SAQ)",
+          "description": "NSCLC-SAQ consists of 7 items assessing 5 NSCLC symptom concepts: cough, pain, dyspnea, fatigue, and poor appetite.",
+          "timeFrame": "Randomization up to \u226430 days after last dose"
+        },
+        {
+          "measure": "Number of incidence and severity of adverse events (AEs) as a measure of safety and tolerability of Furmonertinib",
+          "timeFrame": "Up to 36 months after first dose"
+        },
+        {
+          "measure": "Plasma concentrations of furmonertinib and its major metabolite (AST5902)",
+          "timeFrame": "Up to 36 months after first dose"
+        }
+      ]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Key Inclusion Criteria:\n\n* Histologically or cytologically documented, locally advanced or metastatic non-squamous Non-Small Cell Lung Cancer (NSCLC) not amenable to curative surgery or radiotherapy.\n* Documented results of the presence of an Epidermal Growth Factor Receptor (EGFR) exon 20 insertion mutation in tumor tissue or blood from local or central testing.\n* No prior systemic anticancer therapy regimens received for locally advanced or metastatic Non-Small Cell Lung Cancer (NSCLC) including prior treatment with any Epidermal Growth Factor Receptor (EGFR)-targeting agents (e.g., previous (EGFR) TKIs, monoclonal antibodies, or bispecific antibodies).\n* Patients who have received prior neo-adjuvant and/or adjuvant chemotherapy, immunotherapy, or chemo radiotherapy for non-metastatic disease (excluding EGFR-TKIs) must have experienced a treatment free interval of at least 12 months.\n* Patients with a history of treated CNS metastases or new asymptomatic CNS metastases are eligible.",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "18 Years",
+      "stdAges": [
+        "ADULT",
+        "OLDER_ADULT"
+      ]
+    },
+    "contactsLocationsModule": {
+      "centralContacts": [
+        {
+          "name": "Vanessa Esquibel",
+          "role": "CONTACT",
+          "phone": "6195403451",
+          "email": "FURMO004CT@arrivent.com"
+        }
+      ],
+      "overallOfficials": [
+        {
+          "name": "Morgan Lam",
+          "affiliation": "ArriVent BioPharm",
+          "role": "STUDY_DIRECTOR"
+        }
+      ],
+      "locations": [
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Daphne",
+          "state": "Alabama",
+          "zip": "36526",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 30.60353,
+            "lon": -87.9036
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Yuma",
+          "state": "Arizona",
+          "zip": "85364",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 32.72532,
+            "lon": -114.6244
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Fayetteville",
+          "state": "Arkansas",
+          "zip": "72703",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 36.06258,
+            "lon": -94.15743
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Beverly Hills",
+          "state": "California",
+          "zip": "90212",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 34.07362,
+            "lon": -118.40036
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Fullerton",
+          "state": "California",
+          "zip": "92835",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 33.87029,
+            "lon": -117.92534
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Long Beach",
+          "state": "California",
+          "zip": "90806",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 33.76696,
+            "lon": -118.18923
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Los Alamitos",
+          "state": "California",
+          "zip": "90720",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 33.80307,
+            "lon": -118.07256
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Napa",
+          "state": "California",
+          "zip": "94558",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 38.29714,
+            "lon": -122.28553
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Orange",
+          "state": "California",
+          "zip": "90868",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 33.78779,
+            "lon": -117.85311
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Orange",
+          "state": "California",
+          "zip": "92868",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 33.78779,
+            "lon": -117.85311
+          }
+        },
+        {
+          "facility": "Arrivent Investigative site",
+          "status": "RECRUITING",
+          "city": "Sacramento",
+          "state": "California",
+          "zip": "95817",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 38.58157,
+            "lon": -121.4944
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "San Diego",
+          "state": "California",
+          "zip": "92123",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 32.71533,
+            "lon": -117.15726
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Santa Barbara",
+          "state": "California",
+          "zip": "93105",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 34.42083,
+            "lon": -119.69819
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Santa Monica",
+          "state": "California",
+          "zip": "90404",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.01945,
+            "lon": -118.49119
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Santa Rosa",
+          "state": "California",
+          "zip": "95403",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 38.44047,
+            "lon": -122.71443
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Whittier",
+          "state": "California",
+          "zip": "90602",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 33.97918,
+            "lon": -118.03284
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Hartford",
+          "state": "Connecticut",
+          "zip": "06102",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.76371,
+            "lon": -72.68509
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Norwich",
+          "state": "Connecticut",
+          "zip": "06360",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.52426,
+            "lon": -72.07591
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Fort Myers",
+          "state": "Florida",
+          "zip": "33901",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 26.62168,
+            "lon": -81.84059
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Saint Petersburg",
+          "state": "Florida",
+          "zip": "33705",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 27.77086,
+            "lon": -82.67927
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "The Villages",
+          "state": "Florida",
+          "zip": "32159",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 28.93408,
+            "lon": -81.95994
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Peoria",
+          "state": "Illinois",
+          "zip": "61615",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.69365,
+            "lon": -89.58899
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Rolling Meadows",
+          "state": "Illinois",
+          "zip": "60008",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 42.08419,
+            "lon": -88.01313
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Fort Wayne",
+          "state": "Indiana",
+          "zip": "46804",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.1306,
+            "lon": -85.12886
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Indianapolis",
+          "state": "Indiana",
+          "zip": "46250",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.76838,
+            "lon": -86.15804
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "South Bend",
+          "state": "Indiana",
+          "zip": "46601",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.68338,
+            "lon": -86.25001
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bethesda",
+          "state": "Maryland",
+          "zip": "20817",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 38.98067,
+            "lon": -77.10026
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Frederick",
+          "state": "Maryland",
+          "zip": "21702",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.41427,
+            "lon": -77.41054
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Rockville",
+          "state": "Maryland",
+          "zip": "20850",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.084,
+            "lon": -77.15276
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Fairhaven",
+          "state": "Massachusetts",
+          "zip": "02719",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.6376,
+            "lon": -70.90365
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Lansing",
+          "state": "Michigan",
+          "zip": "48912",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 42.73253,
+            "lon": -84.55553
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Bolivar",
+          "state": "Missouri",
+          "zip": "65613",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 37.61448,
+            "lon": -93.41047
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Kansas City",
+          "state": "Missouri",
+          "zip": "64111",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.09973,
+            "lon": -94.57857
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Saint Joseph",
+          "state": "Missouri",
+          "zip": "64507",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.76861,
+            "lon": -94.84663
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Saint Louis",
+          "state": "Missouri",
+          "zip": "63110",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 38.62727,
+            "lon": -90.19789
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Omaha",
+          "state": "Nebraska",
+          "zip": "68114",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 41.25626,
+            "lon": -95.94043
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Belleville",
+          "state": "New Jersey",
+          "zip": "07109",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.79371,
+            "lon": -74.15014
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Englewood",
+          "state": "New Jersey",
+          "zip": "07631",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.89288,
+            "lon": -73.97264
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Florham Park",
+          "state": "New Jersey",
+          "zip": "07932",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.78788,
+            "lon": -74.38821
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bronx",
+          "state": "New York",
+          "zip": "10461",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 40.84985,
+            "lon": -73.86641
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Goldsboro",
+          "state": "North Carolina",
+          "zip": "27534",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 35.38488,
+            "lon": -77.99277
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Pinehurst",
+          "state": "North Carolina",
+          "zip": "28374",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.19543,
+            "lon": -79.46948
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Canton",
+          "state": "Ohio",
+          "zip": "44708",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.79895,
+            "lon": -81.37845
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Cincinnati",
+          "state": "Ohio",
+          "zip": "45220",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.12713,
+            "lon": -84.51435
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Cincinnati",
+          "state": "Ohio",
+          "zip": "45242",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 39.12713,
+            "lon": -84.51435
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Cleveland",
+          "state": "Ohio",
+          "zip": "44195",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.4995,
+            "lon": -81.69541
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Columbus",
+          "state": "Ohio",
+          "zip": "43214",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.96118,
+            "lon": -82.99879
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Oklahoma City",
+          "state": "Oklahoma",
+          "zip": "73102",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 35.46756,
+            "lon": -97.51643
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Tulsa",
+          "state": "Oklahoma",
+          "zip": "74146",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 36.15398,
+            "lon": -95.99277
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Salem",
+          "state": "Oregon",
+          "zip": "97301",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 44.9429,
+            "lon": -123.0351
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Gettysburg",
+          "state": "Pennsylvania",
+          "zip": "17325",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.83093,
+            "lon": -77.2311
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Langhorne",
+          "state": "Pennsylvania",
+          "zip": "19047",
+          "country": "United States",
+          "contacts": [
+            {
+              "name": "ArriVent I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 40.17455,
+            "lon": -74.92267
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "York",
+          "state": "Pennsylvania",
+          "zip": "17403",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 39.9626,
+            "lon": -76.72774
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Greenville",
+          "state": "South Carolina",
+          "zip": "29607",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 34.85262,
+            "lon": -82.39401
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Sioux Falls",
+          "state": "South Dakota",
+          "zip": "57117",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 43.54997,
+            "lon": -96.70033
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Memphis",
+          "state": "Tennessee",
+          "zip": "38120",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 35.14953,
+            "lon": -90.04898
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Nashville",
+          "state": "Tennessee",
+          "zip": "37203",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.16589,
+            "lon": -86.78444
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Abilene",
+          "state": "Texas",
+          "zip": "79606",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 32.44874,
+            "lon": -99.73314
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Austin",
+          "state": "Texas",
+          "zip": "78745",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 30.26715,
+            "lon": -97.74306
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Houston",
+          "state": "Texas",
+          "zip": "77030",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 29.76328,
+            "lon": -95.36327
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Plano",
+          "state": "Texas",
+          "zip": "75093",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 33.01984,
+            "lon": -96.69889
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Ogden",
+          "state": "Utah",
+          "zip": "84405",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.223,
+            "lon": -111.97383
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Salt Lake City",
+          "state": "Utah",
+          "zip": "84106",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.76078,
+            "lon": -111.89105
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Fairfax",
+          "state": "Virginia",
+          "zip": "22031",
+          "country": "United States",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 38.84622,
+            "lon": -77.30637
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Fredericksburg",
+          "state": "Virginia",
+          "zip": "22408",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 38.30318,
+            "lon": -77.46054
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Bellingham",
+          "state": "Washington",
+          "zip": "98225",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 48.75955,
+            "lon": -122.48822
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Spokane Valley",
+          "state": "Washington",
+          "zip": "99216",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 47.67323,
+            "lon": -117.23937
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Tacoma",
+          "state": "Washington",
+          "zip": "98405",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 47.25288,
+            "lon": -122.44429
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "ENROLLING_BY_INVITATION",
+          "city": "Appleton",
+          "state": "Wisconsin",
+          "zip": "54911",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 44.26193,
+            "lon": -88.41538
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Heidelberg",
+          "state": "Victoria",
+          "zip": "3084",
+          "country": "Australia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -37.75,
+            "lon": 145.06667
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Blacktown",
+          "zip": "2148",
+          "country": "Australia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -33.76667,
+            "lon": 150.91667
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "St Leonards",
+          "zip": "NSW 2065",
+          "country": "Australia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -33.82344,
+            "lon": 151.19836
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Woolloongabba",
+          "zip": "4102",
+          "country": "Australia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -27.48855,
+            "lon": 153.03655
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Salvador",
+          "state": "Bahia",
+          "zip": "40170-110",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -12.97111,
+            "lon": -38.51083
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Belo Horizonte",
+          "state": "Minas Gerais",
+          "zip": "30130-090",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -19.92083,
+            "lon": -43.93778
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Porto Alegre",
+          "state": "Rio Grande",
+          "zip": "90035-903",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -30.03306,
+            "lon": -51.23
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Rio De Janeiro",
+          "state": "RJ",
+          "zip": "20231-050",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -22.90278,
+            "lon": -43.2075
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Rio De Janeiro",
+          "state": "RJ",
+          "zip": "22281-100",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "name": "ArriVent",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -22.90278,
+            "lon": -43.2075
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Pelotas",
+          "state": "RS",
+          "zip": "96020-080",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -31.77194,
+            "lon": -52.3425
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "S\u00e3o Jos\u00e9 Do Rio Preto",
+          "state": "Sao Paulo",
+          "zip": "15090-000",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -20.81972,
+            "lon": -49.37944
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "S\u00e3o Paulo",
+          "state": "Sao Paulo",
+          "zip": "01321-001",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -23.5475,
+            "lon": -46.63611
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Blumenau",
+          "state": "SC cep",
+          "zip": "89015-200",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -26.91944,
+            "lon": -49.06611
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Liberdade",
+          "state": "S\u00e3o Paulo/SP",
+          "zip": "01509-010",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ]
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Taubat\u00e9",
+          "state": "Taubate SP",
+          "zip": "12030-200",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -23.02639,
+            "lon": -45.55528
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Porto Alegre",
+          "zip": "91350-200",
+          "country": "Brazil",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": -30.03306,
+            "lon": -51.23
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Edmonton",
+          "state": "Alberta",
+          "zip": "T6G 1Z2",
+          "country": "Canada",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 53.55014,
+            "lon": -113.46871
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Toronto",
+          "state": "Ontario",
+          "zip": "M5G 1Z5",
+          "country": "Canada",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.70011,
+            "lon": -79.4163
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Beijing",
+          "state": "Beijing",
+          "zip": "101149",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 39.9075,
+            "lon": 116.39723
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Meizhou City",
+          "state": "Guangdong",
+          "zip": "514000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ]
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Xuhui",
+          "state": "Hai City",
+          "zip": "200030",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 31.19594,
+            "lon": 121.44709
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Hangzhou",
+          "state": "Hangzhou",
+          "zip": "310018",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "Allist I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 30.29365,
+            "lon": 120.16142
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Cangzhou",
+          "state": "Hebei",
+          "zip": "061011",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "Allist I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 38.31667,
+            "lon": 116.86667
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Shushan",
+          "state": "Hefei",
+          "zip": "230022",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ]
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Zhengzhou",
+          "state": "Henan",
+          "zip": "450052",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.75778,
+            "lon": 113.64861
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Changchun",
+          "state": "Jilin",
+          "zip": "130000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.88,
+            "lon": 125.32278
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Weihai",
+          "state": "Lingang Economic and Technological Development Zo",
+          "zip": "264200",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.50914,
+            "lon": 122.11356
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Nanning",
+          "state": "Nanning",
+          "zip": "530000",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 22.81667,
+            "lon": 108.31667
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Yangpu",
+          "state": "Shanghai",
+          "zip": "200433",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "Allist I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ]
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Xi'an",
+          "state": "Shanxi",
+          "zip": "710061",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.25833,
+            "lon": 108.92861
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Taiyuan",
+          "state": "Taiyuan",
+          "zip": "030013",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "Allist I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.86944,
+            "lon": 112.56028
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kunming",
+          "state": "Yunnan",
+          "zip": "650100",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 25.03889,
+            "lon": 102.71833
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Zhejiang",
+          "state": "Zhejiang",
+          "zip": "310022",
+          "country": "China",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ]
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Anyang",
+          "zip": "455001",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.096,
+            "lon": 114.38278
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Changchun",
+          "zip": "130000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.88,
+            "lon": 125.32278
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Changsha",
+          "zip": "410008",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 28.19874,
+            "lon": 112.97087
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Changsha",
+          "zip": "410031",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 28.19874,
+            "lon": 112.97087
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Chengdu",
+          "zip": "610041",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 30.66667,
+            "lon": 104.06667
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Chenzhou",
+          "zip": "423099",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 25.8,
+            "lon": 113.03333
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Chongqing",
+          "zip": "400030",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 29.56278,
+            "lon": 106.55278
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Guangzhou",
+          "zip": "510062",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 23.11667,
+            "lon": 113.25
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Guangzhou",
+          "zip": "510285",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 23.11667,
+            "lon": 113.25
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Harbin",
+          "zip": "150081",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 45.75,
+            "lon": 126.65
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Hefei",
+          "zip": "230088",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 31.86389,
+            "lon": 117.28083
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Huai'an",
+          "zip": "223300",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 33.50389,
+            "lon": 119.14417
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Huizhou",
+          "zip": "516000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 23.11147,
+            "lon": 114.41523
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Jinan",
+          "zip": "250013",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.66833,
+            "lon": 116.99722
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Jinan",
+          "zip": "250117",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.66833,
+            "lon": 116.99722
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Jining",
+          "zip": "272000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.405,
+            "lon": 116.58139
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Lanzhou",
+          "zip": "730030",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.05701,
+            "lon": 103.83987
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Lishui",
+          "zip": "323020",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 28.46042,
+            "lon": 119.91029
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Luoyang",
+          "zip": "471000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.68361,
+            "lon": 112.45361
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Nanchang",
+          "zip": "330006",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 28.68396,
+            "lon": 115.85306
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Nanchang",
+          "zip": "330046",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 28.68396,
+            "lon": 115.85306
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Nanjing",
+          "zip": "210009",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 32.06167,
+            "lon": 118.77778
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Ningbo",
+          "zip": "315040",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 29.87819,
+            "lon": 121.54945
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Shanghai",
+          "zip": "200434",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 31.22222,
+            "lon": 121.45806
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Shantou",
+          "zip": "515031",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 23.36814,
+            "lon": 116.71479
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Shenyang",
+          "zip": "110042",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 41.79222,
+            "lon": 123.43278
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Shenzhen",
+          "zip": "518001",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 22.54554,
+            "lon": 114.0683
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Taiyuan",
+          "zip": "030000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.86944,
+            "lon": 112.56028
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Tianjin",
+          "zip": "300061",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 39.14222,
+            "lon": 117.17667
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Weihui",
+          "zip": "453000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.79333,
+            "lon": 108.93833
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Wuhan",
+          "zip": "430023",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 30.58333,
+            "lon": 114.26667
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Xiamen",
+          "zip": "361000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 24.47979,
+            "lon": 118.08187
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Xianyang",
+          "zip": "441138",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.33778,
+            "lon": 108.70261
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Xinxiang",
+          "zip": "453000",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.19033,
+            "lon": 113.80151
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Xuzhou",
+          "zip": "221009",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.18045,
+            "lon": 117.15707
+          }
+        },
+        {
+          "facility": "Allist Investigative Site",
+          "status": "RECRUITING",
+          "city": "Zhengzhou",
+          "zip": "450003",
+          "country": "China",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.75778,
+            "lon": 113.64861
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Caen",
+          "zip": "14000",
+          "country": "France",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 49.18585,
+            "lon": -0.35912
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Lyon",
+          "zip": "69003",
+          "country": "France",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 45.74848,
+            "lon": 4.84669
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Lyon",
+          "zip": "69008",
+          "country": "France",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 45.74848,
+            "lon": 4.84669
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Marseille",
+          "zip": "13915",
+          "country": "France",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.29551,
+            "lon": 5.38958
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Toulouse",
+          "zip": "31059",
+          "country": "France",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.60426,
+            "lon": 1.44367
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Villejuif",
+          "zip": "94800",
+          "country": "France",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 48.7939,
+            "lon": 2.35992
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Be'er Sheva",
+          "zip": "8410101",
+          "country": "Israel",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 31.25181,
+            "lon": 34.7913
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Haifa",
+          "zip": "3109601",
+          "country": "Israel",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 32.81841,
+            "lon": 34.9885
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Jerusalem",
+          "zip": "9103102",
+          "country": "Israel",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 31.76904,
+            "lon": 35.21633
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Rozzano",
+          "state": "Milan",
+          "zip": "20089",
+          "country": "Italy",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 45.38193,
+            "lon": 9.1559
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Aviano",
+          "state": "PN",
+          "zip": "33081",
+          "country": "Italy",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 46.07056,
+            "lon": 12.59472
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Roma",
+          "state": "Rome",
+          "zip": "00144",
+          "country": "Italy",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 41.89193,
+            "lon": 12.51133
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bari",
+          "zip": "70124",
+          "country": "Italy",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 41.11148,
+            "lon": 16.8554
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Meldola",
+          "zip": "47014",
+          "country": "Italy",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 44.12775,
+            "lon": 12.0626
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Milano",
+          "zip": "20141",
+          "country": "Italy",
+          "contacts": [
+            {
+              "name": "ArriVent",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 45.46427,
+            "lon": 9.18951
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kurume",
+          "state": "Fukuoka",
+          "zip": "830-0011",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 33.31667,
+            "lon": 130.51667
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Akashi",
+          "zip": "673-8558",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.65522,
+            "lon": 135.00687
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Hirakata",
+          "zip": "573-1191",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.81352,
+            "lon": 135.64914
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kashiwa",
+          "zip": "277-8577",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.86224,
+            "lon": 139.97732
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Nagoya",
+          "zip": "460-0001",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.18147,
+            "lon": 136.90641
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Sapporo-shi",
+          "zip": "003-0804",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.06667,
+            "lon": 141.35
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Sendai",
+          "zip": "980-0873",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 38.26667,
+            "lon": 140.86667
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Shizuoka",
+          "zip": "4118777",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.98333,
+            "lon": 138.38333
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Tokyo",
+          "zip": "113-8431",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.6895,
+            "lon": 139.69171
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Tokyo",
+          "zip": "113-8677",
+          "country": "Japan",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.6895,
+            "lon": 139.69171
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Ube",
+          "zip": "755-0241",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 33.94306,
+            "lon": 131.25111
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Yokohama",
+          "zip": "241-8515",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.43333,
+            "lon": 139.65
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "\u014csaka-sayama",
+          "zip": "589-8511",
+          "country": "Japan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 34.69374,
+            "lon": 135.50218
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Jungni I Gu",
+          "state": "Seoul",
+          "zip": "03181",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.22022,
+            "lon": 128.94639
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Busan",
+          "zip": "49241",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.10278,
+            "lon": 129.04028
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Hwasun",
+          "zip": "58128",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 35.06125,
+            "lon": 126.98746
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "zip": "2447",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "zip": "3722",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "zip": "5505",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "zip": "6351",
+          "country": "Korea, Republic of",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "George Town",
+          "state": "Pulau Pinang",
+          "zip": "10990",
+          "country": "Malaysia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 5.41123,
+            "lon": 100.33543
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Cheras",
+          "zip": "56000",
+          "country": "Malaysia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 3.05,
+            "lon": 101.76667
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kota Bharu",
+          "zip": "15586",
+          "country": "Malaysia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 6.13328,
+            "lon": 102.2386
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kuala Lumpur",
+          "zip": "50586",
+          "country": "Malaysia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 3.1412,
+            "lon": 101.68653
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kuching",
+          "zip": "93586",
+          "country": "Malaysia",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 1.54999,
+            "lon": 110.33333
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Ciudad de mexico",
+          "state": "Cdmx",
+          "zip": "14080",
+          "country": "Mexico",
+          "contacts": [
+            {
+              "name": "ArriVent I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 19.42847,
+            "lon": -99.12766
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Tuxtla Guti\u00e9rrez",
+          "state": "Chiapas",
+          "zip": "29038",
+          "country": "Mexico",
+          "contacts": [
+            {
+              "name": "ArriVent I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 16.75973,
+            "lon": -93.11308
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Amsterdam",
+          "zip": "1066 CX",
+          "country": "Netherlands",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 52.37403,
+            "lon": 4.88969
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Harderwijk",
+          "zip": "3844DG",
+          "country": "Netherlands",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 52.34167,
+            "lon": 5.62083
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Cebu",
+          "zip": "6000",
+          "country": "Philippines",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 10.31672,
+            "lon": 123.89071
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Davao City",
+          "zip": "8000",
+          "country": "Philippines",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 7.07306,
+            "lon": 125.61278
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Manila",
+          "zip": "1000",
+          "country": "Philippines",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 14.6042,
+            "lon": 120.9822
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Pasig",
+          "zip": "1600",
+          "country": "Philippines",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 14.58691,
+            "lon": 121.0614
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Singapore",
+          "zip": "119074",
+          "country": "Singapore",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 1.28967,
+            "lon": 103.85007
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Singapore",
+          "zip": "169610",
+          "country": "Singapore",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 1.28967,
+            "lon": 103.85007
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "M\u00e1laga",
+          "state": "Malaga",
+          "zip": "29011",
+          "country": "Spain",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.72016,
+            "lon": -4.42034
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "A Coru\u00f1a",
+          "zip": "15006",
+          "country": "Spain",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 43.37135,
+            "lon": -8.396
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Barcelona",
+          "zip": "08035",
+          "country": "Spain",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 41.38879,
+            "lon": 2.15899
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Madrid",
+          "zip": "28020",
+          "country": "Spain",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 40.4165,
+            "lon": -3.70256
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Valencia",
+          "zip": "46026",
+          "country": "Spain",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 39.46975,
+            "lon": -0.37739
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Chang Hua",
+          "zip": "50006",
+          "country": "Taiwan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 24.07327,
+            "lon": 120.56276
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kaohsiung",
+          "zip": "807",
+          "country": "Taiwan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 22.61626,
+            "lon": 120.31333
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Kaohsiung",
+          "zip": "82445",
+          "country": "Taiwan",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 22.61626,
+            "lon": 120.31333
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Taichung",
+          "zip": "407219",
+          "country": "Taiwan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 24.1469,
+            "lon": 120.6839
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Tainan",
+          "zip": "704",
+          "country": "Taiwan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 22.99083,
+            "lon": 120.21333
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Taipei",
+          "zip": "10048",
+          "country": "Taiwan",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 25.04776,
+            "lon": 121.53185
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bangkok",
+          "zip": "10210",
+          "country": "Thailand",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 13.75398,
+            "lon": 100.50144
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bangkok",
+          "zip": "10330",
+          "country": "Thailand",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 13.75398,
+            "lon": 100.50144
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bangkok",
+          "zip": "10400",
+          "country": "Thailand",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 13.75398,
+            "lon": 100.50144
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Hat Yai",
+          "zip": "90110",
+          "country": "Thailand",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 7.00836,
+            "lon": 100.47668
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Guildford",
+          "state": "Surrey",
+          "zip": "GU2 7XX",
+          "country": "United Kingdom",
+          "contacts": [
+            {
+              "name": "ArriVent Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 51.23536,
+            "lon": -0.57427
+          }
+        },
+        {
+          "facility": "Arrivent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Bebington",
+          "state": "Wirral",
+          "zip": "CH63 4JY",
+          "country": "United Kingdom",
+          "contacts": [
+            {
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 53.35,
+            "lon": -3.01667
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "London",
+          "zip": "SW3 6JJ",
+          "country": "United Kingdom",
+          "contacts": [
+            {
+              "name": "ArriVent I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 51.50853,
+            "lon": -0.12574
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Manchester",
+          "zip": "M20 4BX",
+          "country": "United Kingdom",
+          "contacts": [
+            {
+              "name": "ArriVent",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 53.48095,
+            "lon": -2.23743
+          }
+        },
+        {
+          "facility": "ArriVent Investigative Site",
+          "status": "RECRUITING",
+          "city": "Sutton",
+          "zip": "SM2 5PT",
+          "country": "United Kingdom",
+          "contacts": [
+            {
+              "name": "ArriVent I Site",
+              "role": "CONTACT",
+              "email": "FURMO004CT@arrivent.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 51.35,
+            "lon": -0.2
+          }
+        }
+      ]
+    },
+    "ipdSharingStatementModule": {
+      "ipdSharing": "UNDECIDED"
+    }
+  },
+  "derivedSection": {
+    "miscInfoModule": {
+      "versionHolder": "2025-04-02"
+    },
+    "conditionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D008175",
+          "term": "Lung Neoplasms"
+        },
+        {
+          "id": "D002289",
+          "term": "Carcinoma, Non-Small-Cell Lung"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D012142",
+          "term": "Respiratory Tract Neoplasms"
+        },
+        {
+          "id": "D013899",
+          "term": "Thoracic Neoplasms"
+        },
+        {
+          "id": "D009371",
+          "term": "Neoplasms by Site"
+        },
+        {
+          "id": "D009369",
+          "term": "Neoplasms"
+        },
+        {
+          "id": "D008171",
+          "term": "Lung Diseases"
+        },
+        {
+          "id": "D012140",
+          "term": "Respiratory Tract Diseases"
+        },
+        {
+          "id": "D002283",
+          "term": "Carcinoma, Bronchogenic"
+        },
+        {
+          "id": "D001984",
+          "term": "Bronchial Neoplasms"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M11172",
+          "name": "Lung Neoplasms",
+          "asFound": "Lung Cancer",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M5546",
+          "name": "Carcinoma, Non-Small-Cell Lung",
+          "asFound": "Non-small Cell Lung Cancer",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M5534",
+          "name": "Carcinoma",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14979",
+          "name": "Respiratory Tract Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M16658",
+          "name": "Thoracic Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M11168",
+          "name": "Lung Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14977",
+          "name": "Respiratory Tract Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M5540",
+          "name": "Carcinoma, Bronchogenic",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M5260",
+          "name": "Bronchial Neoplasms",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "BC04",
+          "name": "Neoplasms"
+        },
+        {
+          "abbrev": "BC08",
+          "name": "Respiratory Tract (Lung and Bronchial) Diseases"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Conditions"
+        }
+      ]
+    },
+    "interventionBrowseModule": {
+      "meshes": [
+        {
+          "id": "C000705711",
+          "term": "Aflutinib"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D047428",
+          "term": "Protein Kinase Inhibitors"
+        },
+        {
+          "id": "D004791",
+          "term": "Enzyme Inhibitors"
+        },
+        {
+          "id": "D045504",
+          "term": "Molecular Mechanisms of Pharmacological Action"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M18650",
+          "name": "Carboplatin",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M6182",
+          "name": "Cisplatin",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M264",
+          "name": "Pemetrexed",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M11900",
+          "name": "Mitogens",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M352860",
+          "name": "Aflutinib",
+          "asFound": "Febuxostat",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M25820",
+          "name": "Protein Kinase Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7951",
+          "name": "Enzyme Inhibitors",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "ANeo",
+          "name": "Antineoplastic Agents"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Drugs and Chemicals"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}

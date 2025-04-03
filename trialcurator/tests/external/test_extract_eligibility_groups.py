@@ -35,7 +35,16 @@ class TestEligibilityGroups(unittest.TestCase):
     def setUp(self):
         pass
 
+<<<<<<< Updated upstream
     def test_extract_eligibility_groups(self):
+=======
+    # load up the test samples and write out json files as needed
+    def write_test_json(self):
+        print("writing test json files")
+
+        input_json_dir = os.path.expanduser('~/hartwig/omico_trial/nct_json')
+        output_json_dir = os.path.expanduser('~/hartwig/omico_trial/nct_json_test')
+>>>>>>> Stashed changes
 
         client = OpenaiClient(TEMPERATURE, TOP_P)
         # load up all the trial data

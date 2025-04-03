@@ -12,5 +12,5 @@ class LlmClient(ABC):
     """
 
     @abstractmethod
-    def llm_ask(self, prompt: str) -> str:
+    def llm_ask(self, user_prompt: str, system_prompt: str=None) -> str:
         pass
