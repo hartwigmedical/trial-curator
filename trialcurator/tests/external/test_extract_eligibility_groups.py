@@ -1,12 +1,11 @@
 import argparse
 import unittest
-import os
-from trialcurator import eligibility_curator
 import pandas as pd
 
 from pathlib import Path
 
 from trialcurator.eligibility_curator import *
+from trialcurator.utils import load_trial_data
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
@@ -35,16 +34,7 @@ class TestEligibilityGroups(unittest.TestCase):
     def setUp(self):
         pass
 
-<<<<<<< Updated upstream
     def test_extract_eligibility_groups(self):
-=======
-    # load up the test samples and write out json files as needed
-    def write_test_json(self):
-        print("writing test json files")
-
-        input_json_dir = os.path.expanduser('~/hartwig/omico_trial/nct_json')
-        output_json_dir = os.path.expanduser('~/hartwig/omico_trial/nct_json_test')
->>>>>>> Stashed changes
 
         client = OpenaiClient(TEMPERATURE, TOP_P)
         # load up all the trial data

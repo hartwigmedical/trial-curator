@@ -31,7 +31,7 @@ class PrimaryTumorCriterion(BaseCriterion):
     primary_tumor_location: Optional[str] = None  # e.g. lung, beast
     primary_tumor_type: Optional[str] = None      # e.g. NSCLC, LUAD, melanoma, lymphoma
     stage: Optional[int] = None
-    disease_extent: Optional[str] = None
+    disease_extent: Optional[str] = None          # e.g. "locally advanced"
 
 class HistologyCriterion(BaseCriterion):
     histology_types: str  # e.g., ["small cell", "combined small cell and non-small cell"
@@ -40,9 +40,9 @@ class MolecularCriterion(BaseCriterion):
     biomarker: str  # e.g., "PD-L1", "MSI", "KRAS", "TMB"
     alteration: str  # e.g. "mutation", "fusion", "deletion", "amplification", "overexpression", "loss", "MSI-H", "TMB-H", "CNV", "methylation"
 
-class ClinicalFindingsCriterion(BaseCriterion):
-    finding: str = ''                     # e.g., "measurable disease"
-    method: Optional[str] = None   # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
+class DiagnosticFindingCriterion(BaseCriterion):
+    finding: str = ''                 # e.g., "measurable disease"
+    method: Optional[str] = None      # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
     modality: Optional[str] = None    # e.g., "CT", "MRI", "NGS", "H&E stain"
     location: Optional[str] = None    # e.g., "lung", "liver", "brain"
 

@@ -1,11 +1,11 @@
 import inspect
 import json
 import logging
-import re
 import sys
 
 from trialcurator import clinical_trial_schema
 from trialcurator.llm_client import LlmClient
+from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
@@ -15,12 +15,10 @@ logging.basicConfig(stream=sys.stdout,
                     datefmt='%H:%M:%S',
                     level=logging.INFO)
 
-logger.setLevel(logging.DEBUG)
-
 #openai.api_key = os.environ["OPENAI_API_KEY"]
 
 TEMPERATURE = 0.0
-TOP_P = 0.1
+TOP_P = 1.0
 
 '''
 documentation of common errors that I cannot easily fix by changing prompt:
@@ -35,12 +33,6 @@ documentation of common errors that I cannot easily fix by changing prompt:
 # 2: curate each cohort criteria
 # 3: refine criteria cause gemini struggle to use the full extent of the schema
 
-def load_trial_data(json_file: str) -> dict:
-    with open(json_file, 'r', encoding='utf-8') as f:
-        json_data = json.load(f)
-        #logger.info(json.dumps(json_data, indent=2))
-        return json_data
-
 # for eligibility that have different groups, extract them
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
 
@@ -51,7 +43,7 @@ def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
     prompt += '''### Instructions for Sanitization of Eligibility Criteria Text
 - Remove any criteria related to informed consent.
 - Only include criteria that explicitly define inclusion or exclusion rules.
-- Remove permissive statements such as "X is allowed" or "Y may be permitted.".
+- Remove permissive statements that do not restrict eligibility (e.g., "X is allowed", "Y may be permitted", "X are eligible").
 - Fix typos and misspellings, especially in units, medical terms, and lab tests.
 - Use ^ for power instead of superscript, i.e. 10^9 instead of 10⁹.
 - For lab values, use x for times instead of * or times, i.e. "5 x" instead of "5 *" or "5 times".
@@ -153,7 +145,7 @@ def llm_curate_from_text(eligibility_criteria: str, client: LlmClient) -> str:
     prompt += 'Create an object called inclusion_criteria to represent the following inclusion criteria:\n'
     prompt += f"```\n{eligibility_criteria}\n```\n"
     prompt += '''
-Remember:
+INSTRUCTIONS:
 - Focus strictly on the inclusion and exclusion criteria and ignore any descriptive or background details and non requirements.
 - Exclusion criteria should be converted into inclusion criteria with negation using the `NotCriterion` class.
 - DO NOT create a separate object for exclusion criteria.
@@ -162,6 +154,7 @@ Remember:
 - Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
 - Use PrimaryTumorCriterion for any mention of tumor type (e.g., "melanoma", "solid tumor", "lymphoma").
 - Use MolecularCriterion for biomarker-based eligibility (e.g., "PD-L1-positive") and set gene and alteration accordingly.
+- If the criterion contains conditional logic (e.g., "if X"), represent this using an IfCriterion.
 - Use PrimaryTumorCriterion AND MolecularCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma"). 
 - Answer should be given in a single code block with no explanation.'''
 
@@ -259,25 +252,6 @@ def prepend_schema_if_missing(trial_code: str) -> str:
         if search_str not in trial_code:
             raise Exception(f'{search_str} not in schema')
     return trial_code
-
-def extract_code_blocks(text: str, lang: str) -> str:
-    """
-    Extracts and returns a list of <lang> code snippets found within
-    i.e. triple backtick Python code blocks (```python ... ```).
-    """
-    pattern = re.compile(r"```" + lang + "(.*?)```", re.DOTALL)
-    return "".join(pattern.findall(text))
-
-# not sure why it is not unescaped correctly
-def unescape_json_str(json_str: str) -> str:
-    return (json_str.replace("\\'", "'")
-            .replace('\\"', '"')
-            .replace("\\n", "\n")
-            .replace("\\t", "\t")
-            .replace("\\>", ">")
-            .replace("\\<", "<")
-            .replace("\\[", "[")
-            .replace("\\]", "]"))
 
 def main():
     import argparse
