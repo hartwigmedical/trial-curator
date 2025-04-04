@@ -1,0 +1,829 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT06275958",
+      "orgStudyIdInfo": {
+        "id": "2023-506115-17"
+      },
+      "secondaryIdInfos": [
+        {
+          "id": "2023-506115-17",
+          "type": "EUDRACT_NUMBER"
+        }
+      ],
+      "organization": {
+        "fullName": "Leiden University Medical Center",
+        "class": "OTHER"
+      },
+      "briefTitle": "DOSAGE Study: Upfront Dose-Reduced Chemotherapy in Older Patients with Metastatic Colorectal Cancer",
+      "officialTitle": "DOSAGE Study: a Multicenter Randomized Phase III Trial of DOSe-reduced Chemotherapy for Advanced Colorectal Cancer in Older Patients",
+      "acronym": "DOSAGE"
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2024-10",
+      "overallStatus": "RECRUITING",
+      "expandedAccessInfo": {
+        "hasExpandedAccess": false
+      },
+      "startDateStruct": {
+        "date": "2024-07-01",
+        "type": "ACTUAL"
+      },
+      "primaryCompletionDateStruct": {
+        "date": "2028-06",
+        "type": "ESTIMATED"
+      },
+      "completionDateStruct": {
+        "date": "2028-12",
+        "type": "ESTIMATED"
+      },
+      "studyFirstSubmitDate": "2024-02-06",
+      "studyFirstSubmitQcDate": "2024-02-16",
+      "studyFirstPostDateStruct": {
+        "date": "2024-02-23",
+        "type": "ACTUAL"
+      },
+      "lastUpdateSubmitDate": "2024-10-14",
+      "lastUpdatePostDateStruct": {
+        "date": "2024-10-16",
+        "type": "ACTUAL"
+      }
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {
+        "type": "PRINCIPAL_INVESTIGATOR",
+        "investigatorFullName": "Johanna E A Portielje, MD PhD",
+        "investigatorTitle": "Professor Medical Oncology",
+        "investigatorAffiliation": "Leiden University Medical Center"
+      },
+      "leadSponsor": {
+        "name": "Leiden University Medical Center",
+        "class": "OTHER"
+      },
+      "collaborators": [
+        {
+          "name": "Dutch Colorectal Cancer Group",
+          "class": "OTHER"
+        }
+      ]
+    },
+    "oversightModule": {
+      "oversightHasDmc": false,
+      "isFdaRegulatedDrug": false,
+      "isFdaRegulatedDevice": false,
+      "isUsExport": false
+    },
+    "descriptionModule": {
+      "briefSummary": "The goal of this phase III, open-label, non-inferiority randomized controlled clinical trial is compare upfront dose-reduced chemotherapy with the standard dose chemotherapy in older patients ( \u226570 years) with metastasized colorectal cancer, with regard to progression-free survival (PFS). The choice between monotherapy (a fluoropyrimidine) and doublet chemotherapy (a fluoropyrimidine with oxaliplatin) will be made for each individual patient based on expected risk of chemotherapy toxicity (according to the G8 screening). Patients classified as low risk of toxicity will be randomized between doublet chemotherapy in either full-dose, or with an upfront dose-reduction of 25%. Patients classified as high risk will be randomized between monotherapy in either full-dose or upfront dose-reduction.\n\nPrimary outcome is PFS. Secondary endpoints include grade \u22653 toxicity, QoL, physical functioning, overall survival, number of treatment cycles, dose reductions, hospital admissions, cumulative received dosage and cost-effectiveness.",
+      "detailedDescription": "Treating older adults with chemotherapy remains a challenge, as they are strongly underrepresented in clinical trials and no robust guidelines for treating older patients exist. Moreover, older adults are at increased risk of chemotherapy-related toxicity, resulting in decreased quality of life (QoL), increased hospital admissions and high health care costs. Therefore, the aim of the DOSAGE study is to demonstrate that upfront dose-reduced chemotherapy in patients with metastasized colorectal cancer is non-inferior to full-dose treatment with regard to progression-free survival (PFS). Treatment plans (monotherapy or doublet chemotherapy) will be based on expected risk of treatment toxicity for the individual patient (according to the Geriatric 8 (G8) questionnaire). The investigators expect that this treatment strategy will lead to less grade \u22653 toxicity, less early treatment continuation and hospitalizations and a better QoL and physical functioning.\n\nThe DOSAGE study is a phase III, open-label, non-inferiority, randomized controlled clinical trial in patients aged \u226570 years with metastasized colorectal cancer eligible for palliative chemotherapy. All participating patients will undergo geriatric screening by the G8 questionnaire and will be classified as \"low risk of toxicity\" (G8-score of 15 or higher) or \"high risk of toxicity\" (G8-score of 14 or lower or judged as \"high toxicity risk\" by their treating oncologist). Patients classified as low risk will be randomized between a fluoropyrimidine and oxaliplatin in either full-dose, or with an upfront dose-reduction of 25%. Patients classified as high risk will be randomized between fluoropyrimidine monotherapy in either full-dose or upfront dose-reduction. Addition of targeted treatment (bevacizumab or epidermal growth factor receptor (EGFR) inhibition) is allowed. Patients with a moderate renal impairment (GFR 30- 50 mL/min) will be treated with 25% reduced starting dose of capecitabine when randomized for full dose treatment and treated with 40% reduced starting dose when randomized for upfront dose reduction.\n\nPrimary outcome is PFS. Secondary endpoints include grade \u22653 toxicity, QoL, physical functioning, overall survival, number of treatment cycles, dose reductions, hospital admissions, cumulative received dosage and cost-effectiveness. Given a non-inferiority margin of 8 weeks, 587 patients will be included (293/292 patients per arm)."
+    },
+    "conditionsModule": {
+      "conditions": [
+        "Older Patients",
+        "Colorectal Cancer",
+        "Metastatic Cancer",
+        "Candidates for Palliative Chemotherapy"
+      ],
+      "keywords": [
+        "Dose-reduced Chemotherapy",
+        "Upfront Reduction",
+        "Palliative Chemotherapy",
+        "Non-inferiority"
+      ]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": [
+        "PHASE3"
+      ],
+      "designInfo": {
+        "allocation": "RANDOMIZED",
+        "interventionModel": "PARALLEL",
+        "interventionModelDescription": "A phase III, open-label, non-inferiority, randomized controlled clinical trial comparing dose-reduced chemotherapy versus standard dose chemotherapy in older adults with metastasized colorectal cancer",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {
+          "masking": "NONE"
+        }
+      },
+      "enrollmentInfo": {
+        "count": 587,
+        "type": "ESTIMATED"
+      }
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "Doublet therapy, full dose (low toxicity risk based on G8)",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Low risk of toxicity: G8-score of 15 or higher",
+          "interventionNames": [
+            "Drug: Doublet Chemotherapy, Standard Dose (100%)"
+          ]
+        },
+        {
+          "label": "Doublet therapy, dose-reduced (low toxicity risk based on G8)",
+          "type": "EXPERIMENTAL",
+          "description": "Low risk of toxicity: G8-score of 15 or higher",
+          "interventionNames": [
+            "Drug: Doublet Chemotherapy, Dose-reduced (75%)"
+          ]
+        },
+        {
+          "label": "Fluoropyrimidine monotherapy, full dose (high toxicity risk based on G8)",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "High risk of toxicity: G8-score of 14 or lower or judged as \"high toxicity risk\" by their treating oncologist",
+          "interventionNames": [
+            "Drug: Monotherapy, Standard Dose (100%)"
+          ]
+        },
+        {
+          "label": "Fluoropyrimidine monotherapy, dose-reduced (high toxicity risk based on G8)",
+          "type": "EXPERIMENTAL",
+          "description": "High risk of toxicity: G8-score of 14 or lower or judged as \"high toxicity risk\" by their treating oncologist",
+          "interventionNames": [
+            "Drug: Monotherapy, Dose-reduced (75%)"
+          ]
+        }
+      ],
+      "interventions": [
+        {
+          "type": "DRUG",
+          "name": "Doublet Chemotherapy, Standard Dose (100%)",
+          "description": "Capecitabine 1000mg / m2 oral at day 1-14 (every 3 weeks) Oxaliplatin 130mg/m2 at day 1 (every 3 weeks) OR 5-FU 400mg/m2 IV bolus at day 1 followed by 2400mg/m2 in 46 hours (every 2 weeks) Leucovorin 400mg/m2 day 1 (every 2 weeks) Oxaliplatin 85mg/m2 day 1 (every 2 weeks)",
+          "armGroupLabels": [
+            "Doublet therapy, full dose (low toxicity risk based on G8)"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Doublet Chemotherapy, Dose-reduced (75%)",
+          "description": "75% of: Capecitabine 1000mg / m2 oral at day 1-14 (every 3 weeks) Oxaliplatin 130mg/m2 at day 1 (every 3 weeks) OR 5-FU 400mg/m2 IV bolus at day 1 followed by 2400mg/m2 in 46 hours (every 2 weeks) Leucovorin 400mg/m2 day 1 (every 2 weeks) Oxaliplatin 85mg/m2 day 1 (every 2 weeks)",
+          "armGroupLabels": [
+            "Doublet therapy, dose-reduced (low toxicity risk based on G8)"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Monotherapy, Standard Dose (100%)",
+          "description": "- Capecitabine 1000mg/m2 oral at day 1-14 (every 3 weeks)",
+          "armGroupLabels": [
+            "Fluoropyrimidine monotherapy, full dose (high toxicity risk based on G8)"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Monotherapy, Dose-reduced (75%)",
+          "description": "75% of:\n\n- Capecitabine 1000mg/m2 oral at day 1-14 (every 3 weeks)",
+          "armGroupLabels": [
+            "Fluoropyrimidine monotherapy, dose-reduced (high toxicity risk based on G8)"
+          ]
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Progression-Free Survival",
+          "timeFrame": "Time from randomization until either radiological or clinical progression or death, whichever occurs first, assessed up to at least one year."
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Quality of Life Questionnaire",
+          "description": "Measured by EQ-5D questionnaire",
+          "timeFrame": "At 1, 3, 6 and 12 months after randomization"
+        },
+        {
+          "measure": "Quality of Life Questionnaire",
+          "description": "Measured by EORTC Core QLQ-C30 questionnaire",
+          "timeFrame": "At 1, 3, 6 and 12 months after randomization"
+        },
+        {
+          "measure": "Physical functioning Questionnaire",
+          "description": "Measured by Lawton-Instrumental Activities of Daily Living (IADL) questionnaire",
+          "timeFrame": "At 1, 3, 6 and 12 months after randomization"
+        },
+        {
+          "measure": "Physical functioning Questionnaire",
+          "description": "Measured by Katz-Activities of Daily Living (ADL) questionnaire",
+          "timeFrame": "At 1, 3, 6 and 12 months after randomization"
+        },
+        {
+          "measure": "Grade 3-5 chemotherapy-related toxicity",
+          "description": "According to the CTCAE V5",
+          "timeFrame": "Through study duration, an average of 8 months"
+        },
+        {
+          "measure": "Overall Survival",
+          "timeFrame": "Time between randomization until death, assessed up to at least one year."
+        },
+        {
+          "measure": "Number of completed treatment cycles",
+          "timeFrame": "Through study duration, an average of 8 months"
+        },
+        {
+          "measure": "Dose reductions during treatment",
+          "description": "Defined as \u226525% reduction of the initial dosage",
+          "timeFrame": "Through study duration, an average of 8 months"
+        },
+        {
+          "measure": "Dose delay during treatment",
+          "timeFrame": "Through study duration, an average of 8 months"
+        },
+        {
+          "measure": "Unplanned hospitalizations",
+          "timeFrame": "The first year after treatment initiation"
+        },
+        {
+          "measure": "Cumulative received dosage",
+          "description": "Adjusted for BSA",
+          "timeFrame": "Through study duration, an average of 8 months"
+        },
+        {
+          "measure": "Cost-effectiveness",
+          "timeFrame": "1 year"
+        }
+      ]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Inclusion Criteria:\n\n* Patients aged 70 years or older with colorectal cancer and distant metastases without localized treatment options.\n* Patients who are candidates for first-line palliative chemotherapy as judged by their treating oncologist\n* Being able to understand the Dutch language\n* Adequate bone marrow and organ function: Absolute neutrophil count (ANC) \\> 1.5 x 10\\^9 mmol/L, Hemoglobin (Hb) \\> 6.0 mmol/L, Platelets \\>100 x 109 / L, Serum bilirubin \u2264 2 x upper limit of normal (ULN), serum transaminases \u2264 3 x ULN without presence of liver metastases or \u2264 5x ULN with presence of liver metastases.\n\nExclusion Criteria:\n\n* Patients who received prior palliative chemotherapy\n* Patients in whom local treatment of metastases is scheduled (i.e. liver surgery or stereotactic radiotherapy)\n* Candidates for triple chemotherapy\n* Patients who received prior adjuvant chemotherapy in the one year before inclusion in the study (chemotherapy before that time is allowed)\n* Patients with complete or incomplete dihydropyrimidine dehydrogenase (DPD) deficiency\n* Patients with Microsatellite instable (MSI)-high colorectal cancer\n* Patients with HIV or active hepatitis\n* Patients with severe kidney failure (defined as GFR \u226430ml/min)\n* Patients with severe cognitive deficits making informed consent not possible",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "70 Years",
+      "stdAges": [
+        "OLDER_ADULT"
+      ]
+    },
+    "contactsLocationsModule": {
+      "centralContacts": [
+        {
+          "name": "Joosje Baltussen",
+          "role": "CONTACT",
+          "phone": "071 - 526 35 23",
+          "email": "DOSAGE@lumc.nl"
+        },
+        {
+          "name": "Data Management: Clinical Research Center LUMC",
+          "role": "CONTACT",
+          "email": "ClinicalResearchCenter@lumc.nl"
+        }
+      ],
+      "overallOfficials": [
+        {
+          "name": "Johanneke Portielje, Professor",
+          "affiliation": "Leiden University Medical Center",
+          "role": "PRINCIPAL_INVESTIGATOR"
+        },
+        {
+          "name": "Joosje Baltussen, MD",
+          "affiliation": "Leiden University Medical Center",
+          "role": "STUDY_DIRECTOR"
+        }
+      ],
+      "locations": [
+        {
+          "facility": "Jeroen Bosch Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "'s-Hertogenbosch",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.69917,
+            "lon": 5.30417
+          }
+        },
+        {
+          "facility": "Noordwest Ziekenhuisgroep",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Alkmaar",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.63167,
+            "lon": 4.74861
+          }
+        },
+        {
+          "facility": "Ziekenhuis Amstelland",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Amstelveen",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.30083,
+            "lon": 4.86389
+          }
+        },
+        {
+          "facility": "Amsterdam UMC",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Amsterdam",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.37403,
+            "lon": 4.88969
+          }
+        },
+        {
+          "facility": "Rijnstate",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Arnhem",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.98,
+            "lon": 5.91111
+          }
+        },
+        {
+          "facility": "Wilhelmina Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Assen",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.99667,
+            "lon": 6.5625
+          }
+        },
+        {
+          "facility": "Rode Kruis Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Beverwijk",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.48333,
+            "lon": 4.65694
+          }
+        },
+        {
+          "facility": "Haaglanden Medisch Centrum",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Den Haag",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.07667,
+            "lon": 4.29861
+          }
+        },
+        {
+          "facility": "Hagaziekenhuis",
+          "status": "RECRUITING",
+          "city": "Den Haag",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.07667,
+            "lon": 4.29861
+          }
+        },
+        {
+          "facility": "Slingeland Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Doetinchem",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.965,
+            "lon": 6.28889
+          }
+        },
+        {
+          "facility": "Ziekenhuis Gelderse Vallei",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Ede",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.03333,
+            "lon": 5.65833
+          }
+        },
+        {
+          "facility": "Catharina Ziekenhuis",
+          "status": "RECRUITING",
+          "city": "Eindhoven",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.44083,
+            "lon": 5.47778
+          }
+        },
+        {
+          "facility": "Treant",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Emmen",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.77917,
+            "lon": 6.90694
+          }
+        },
+        {
+          "facility": "Admiraal de Ruyter Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Goes",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.50417,
+            "lon": 3.88889
+          }
+        },
+        {
+          "facility": "Beatrixziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Gorinchem",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.83652,
+            "lon": 4.97243
+          }
+        },
+        {
+          "facility": "Groene Hart Ziekenhuis",
+          "status": "RECRUITING",
+          "city": "Gouda",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.01667,
+            "lon": 4.70833
+          }
+        },
+        {
+          "facility": "Saxenburgh",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Hardenberg",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.57583,
+            "lon": 6.61944
+          }
+        },
+        {
+          "facility": "St. Jansdal Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Harderwijk",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.34167,
+            "lon": 5.62083
+          }
+        },
+        {
+          "facility": "Elkerliek Ziekenhuis",
+          "status": "RECRUITING",
+          "city": "Helmond",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.48167,
+            "lon": 5.66111
+          }
+        },
+        {
+          "facility": "Tergooi MC",
+          "status": "RECRUITING",
+          "city": "Hilversum",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.22333,
+            "lon": 5.17639
+          }
+        },
+        {
+          "facility": "Medisch Centrum Leeuwarden",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Leeuwarden",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 53.20139,
+            "lon": 5.80859
+          }
+        },
+        {
+          "facility": "Leiden University Medical Center",
+          "status": "RECRUITING",
+          "city": "Leiden",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.15833,
+            "lon": 4.49306
+          }
+        },
+        {
+          "facility": "Alrijne Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Leiderdorp",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.15833,
+            "lon": 4.52917
+          }
+        },
+        {
+          "facility": "Canisius Wilhelmina Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Nijmegen",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.8425,
+            "lon": 5.85278
+          }
+        },
+        {
+          "facility": "Laurentius Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Roermond",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.19417,
+            "lon": 5.9875
+          }
+        },
+        {
+          "facility": "Bravis ziekenhuis",
+          "status": "RECRUITING",
+          "city": "Roosendaal",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.53083,
+            "lon": 4.46528
+          }
+        },
+        {
+          "facility": "Ikazia Ziekenhuis",
+          "status": "RECRUITING",
+          "city": "Rotterdam",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.9225,
+            "lon": 4.47917
+          }
+        },
+        {
+          "facility": "Maasstad Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Rotterdam",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.9225,
+            "lon": 4.47917
+          }
+        },
+        {
+          "facility": "Ommelander Ziekenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Scheemda",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 53.17333,
+            "lon": 6.97222
+          }
+        },
+        {
+          "facility": "ZorgSaam Zorggroep Zeeuws-Vlaanderen",
+          "status": "RECRUITING",
+          "city": "Terneuzen",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.33583,
+            "lon": 3.82778
+          }
+        },
+        {
+          "facility": "Bernhoven",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Uden",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.66083,
+            "lon": 5.61944
+          }
+        },
+        {
+          "facility": "Diakonessenhuis",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Utrecht",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.09083,
+            "lon": 5.12222
+          }
+        },
+        {
+          "facility": "St Antonius",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Utrecht",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.09083,
+            "lon": 5.12222
+          }
+        },
+        {
+          "facility": "VieCuri Medisch Centrum",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Venlo",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.37,
+            "lon": 6.16806
+          }
+        },
+        {
+          "facility": "Streekziekenhuis Koninging Beatrix",
+          "status": "RECRUITING",
+          "city": "Winterswijk",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.9725,
+            "lon": 6.71944
+          }
+        },
+        {
+          "facility": "Zaans Medisch Centrum",
+          "status": "NOT_YET_RECRUITING",
+          "city": "Zaandam",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.43854,
+            "lon": 4.82643
+          }
+        }
+      ]
+    },
+    "referencesModule": {
+      "seeAlsoLinks": [
+        {
+          "label": "DCCG Website",
+          "url": "https://dccg.nl/trial/dosage"
+        }
+      ]
+    },
+    "ipdSharingStatementModule": {
+      "ipdSharing": "YES",
+      "description": "Which parts of your data(sets) will you select for publication?\n\nThe datasets generated during and/or analysed during the study will not be publicly available due to participant privacy but will be available from the corresponding author on reasonable request\n\nAre there any restrictions placed on sharing/reuse of some/all of your data due to one or more of the following options? Signed informed consent Research agreement\n\nWill you publish your data open access or with restricted access? Restricted access\n\nPublishing your data (partly) with 'restricted access': what is the reason for this? Data contains privacy-sensitive information Contractual obligations Reuse by third-party through DSA.\n\nWhere will you publish your (meta)data? I will not publish (meta)data outside the LUMC",
+      "infoTypes": [
+        "STUDY_PROTOCOL",
+        "ICF"
+      ],
+      "timeFrame": "The datasets generated and/or analysed during the current study are not publicly available due to patient privacy but are available from the corresponding author on reasonable request"
+    }
+  },
+  "derivedSection": {
+    "miscInfoModule": {
+      "versionHolder": "2025-04-03"
+    },
+    "conditionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D015179",
+          "term": "Colorectal Neoplasms"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D007414",
+          "term": "Intestinal Neoplasms"
+        },
+        {
+          "id": "D005770",
+          "term": "Gastrointestinal Neoplasms"
+        },
+        {
+          "id": "D004067",
+          "term": "Digestive System Neoplasms"
+        },
+        {
+          "id": "D009371",
+          "term": "Neoplasms by Site"
+        },
+        {
+          "id": "D009369",
+          "term": "Neoplasms"
+        },
+        {
+          "id": "D004066",
+          "term": "Digestive System Diseases"
+        },
+        {
+          "id": "D005767",
+          "term": "Gastrointestinal Diseases"
+        },
+        {
+          "id": "D003108",
+          "term": "Colonic Diseases"
+        },
+        {
+          "id": "D007410",
+          "term": "Intestinal Diseases"
+        },
+        {
+          "id": "D012002",
+          "term": "Rectal Diseases"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M12307",
+          "name": "Neoplasm Metastasis",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M17890",
+          "name": "Colorectal Neoplasms",
+          "asFound": "Colorectal Cancer",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M10448",
+          "name": "Intestinal Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M8886",
+          "name": "Gastrointestinal Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7256",
+          "name": "Digestive System Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M8883",
+          "name": "Gastrointestinal Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7255",
+          "name": "Digestive System Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M6336",
+          "name": "Colonic Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M10444",
+          "name": "Intestinal Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14844",
+          "name": "Rectal Diseases",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "BC04",
+          "name": "Neoplasms"
+        },
+        {
+          "abbrev": "BC23",
+          "name": "Symptoms and General Pathology"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Conditions"
+        },
+        {
+          "abbrev": "BC06",
+          "name": "Digestive System Diseases"
+        }
+      ]
+    },
+    "interventionBrowseModule": {
+      "browseLeaves": [
+        {
+          "id": "M1674",
+          "name": "Oxaliplatin",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M6191",
+          "name": "Leucovorin",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M377",
+          "name": "Capecitabine",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M8600",
+          "name": "Fluorouracil",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "ANeo",
+          "name": "Antineoplastic Agents"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Drugs and Chemicals"
+        },
+        {
+          "abbrev": "Micro",
+          "name": "Micronutrients"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}

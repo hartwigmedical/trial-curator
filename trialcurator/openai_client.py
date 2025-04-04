@@ -16,9 +16,9 @@ class OpenaiClient(LlmClient):
     MODEL = "gpt-4o"
     FREQUENCY_PENALTY = 0.0  # I anticipate future deviation from default values when mapping to, say, ACTIN rules
     PRESENCE_PENALTY = 0.0
+    TOP_P = 1.0
 
-    def __init__(self, temperature, top_p=1.0, frequency_penalty=FREQUENCY_PENALTY, presence_penalty=PRESENCE_PENALTY,
-                 model=MODEL):
+    def __init__(self, temperature, top_p=TOP_P, frequency_penalty=FREQUENCY_PENALTY, presence_penalty=PRESENCE_PENALTY, model=MODEL):
         """
         Initialize the OpenaiClient class with specific model and tuning parameters.
 

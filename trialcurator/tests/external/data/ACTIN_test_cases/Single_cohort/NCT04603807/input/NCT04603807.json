@@ -1,0 +1,1431 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT04603807",
+      "orgStudyIdInfo": {
+        "id": "MO41552"
+      },
+      "secondaryIdInfos": [
+        {
+          "id": "2019-003859-11",
+          "type": "EUDRACT_NUMBER"
+        }
+      ],
+      "organization": {
+        "fullName": "Hoffmann-La Roche",
+        "class": "INDUSTRY"
+      },
+      "briefTitle": "A Study to Compare the Efficacy and Safety of Entrectinib and Crizotinib in Participants With Advanced or Metastatic ROS1 Non-small Cell Lung Cancer (NSCLC) With and Without Central Nervous System (CNS) Metastases",
+      "officialTitle": "Randomized, Open Label, Multicenter, Phase III Study of Entrectinib Versus Crizotinib in Patients With Locally-Advanced or Metastatic Non-Small Cell Lung Cancer Harboring ROS1 Gene Rearrangements With and Without Central Nervous System Metastases"
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2025-03",
+      "overallStatus": "RECRUITING",
+      "expandedAccessInfo": {
+        "hasExpandedAccess": false
+      },
+      "startDateStruct": {
+        "date": "2021-09-30",
+        "type": "ACTUAL"
+      },
+      "primaryCompletionDateStruct": {
+        "date": "2027-12-01",
+        "type": "ESTIMATED"
+      },
+      "completionDateStruct": {
+        "date": "2027-12-01",
+        "type": "ESTIMATED"
+      },
+      "studyFirstSubmitDate": "2020-10-22",
+      "studyFirstSubmitQcDate": "2020-10-22",
+      "studyFirstPostDateStruct": {
+        "date": "2020-10-27",
+        "type": "ACTUAL"
+      },
+      "lastUpdateSubmitDate": "2025-03-13",
+      "lastUpdatePostDateStruct": {
+        "date": "2025-03-25",
+        "type": "ACTUAL"
+      }
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {
+        "type": "SPONSOR"
+      },
+      "leadSponsor": {
+        "name": "Hoffmann-La Roche",
+        "class": "INDUSTRY"
+      }
+    },
+    "oversightModule": {
+      "isFdaRegulatedDrug": true,
+      "isFdaRegulatedDevice": false
+    },
+    "descriptionModule": {
+      "briefSummary": "The study will compare the efficacy and safety of entrectinib with crizotinib in participants with advanced or metastatic ROS1 non-small cell lung cancer (NSCLC). The participants will self-administer oral entrectinib or crizotinib as described in the protocol and local prescribing information. Treatments will continue until progressive disease, unacceptable toxicity, death, or withdrawal from the study, whichever occurs first."
+    },
+    "conditionsModule": {
+      "conditions": [
+        "Carcinoma, Non-Small-Cell Lung"
+      ],
+      "keywords": [
+        "ROS1 Non-small-cell lung"
+      ]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": [
+        "PHASE3"
+      ],
+      "designInfo": {
+        "allocation": "RANDOMIZED",
+        "interventionModel": "PARALLEL",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {
+          "masking": "NONE"
+        }
+      },
+      "enrollmentInfo": {
+        "count": 220,
+        "type": "ESTIMATED"
+      }
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "Entrectinib",
+          "type": "EXPERIMENTAL",
+          "description": "Participants will be enrolled to receive 600 mg entrectinib orally once daily until progressive disease, unacceptable toxicity, death, or withdrawal from the study, whichever occurs first.",
+          "interventionNames": [
+            "Drug: Entrectinib"
+          ]
+        },
+        {
+          "label": "Crizotinib",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Participants will be enrolled to receive 250 mg crizotinib orally twice daily until progressive disease, unacceptable toxicity, death, or withdrawal from the study, whichever occurs first.",
+          "interventionNames": [
+            "Drug: Crizotinib"
+          ]
+        }
+      ],
+      "interventions": [
+        {
+          "type": "DRUG",
+          "name": "Entrectinib",
+          "description": "Entrectinib will be self-administered orally at a dose of 600 mg (three 200 mg capsules per day) once daily with or without food.",
+          "armGroupLabels": [
+            "Entrectinib"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Crizotinib",
+          "description": "Crizotinib will be self-administered orally at a dose of 250 mg twice daily with or without food.",
+          "armGroupLabels": [
+            "Crizotinib"
+          ]
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Progression-free survival (PFS) in participants with central nervous system (CNS) metastases at baseline",
+          "description": "PFS is defined as the time from randomization to the first documented disease progression (extracranial or intracranial) or death from any cause whichever occurs first determined by a blinded independent review committee (BIRC) using Response Evaluation Criteria in Solid Tumors, Version 1.1 (RECIST v1.1).",
+          "timeFrame": "Up to 7 years"
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Progression-free survival in the Central Nervous System (CNS-PFS)",
+          "description": "CNS-PFS is defined as the time from randomization to the first documented disease progression in the CNS or death from any cause, whichever occurs first, as determined by the BIRC using RECIST v1.1",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Overall response rate (ORR)",
+          "description": "ORR is defined as the percentage of participants who attain Complete Response (CR) or Partial Response (PR) as assessed by the BIRC and the investigator per RECIST v1.1",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Duration of response (DOR)",
+          "description": "DOR is defined as the time from when response (CR or PR) is first documented to disease progression or death, whichever occurs first, as assessed by the BIRC and the investigator per RECIST v1.1",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Progression-free survival (PFS)",
+          "description": "PFS is defined as the time from randomization to the first documented disease progression (extracranial or intracranial) or death from any cause, whichever occurs first, as determined by the BICR and investigator using RECIST v1.1",
+          "timeFrame": "Up to 7 years"
+        },
+        {
+          "measure": "Overall survival (OS)",
+          "description": "OS is defined as the time from randomization to death from any cause",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Percentage of participants with confirmed deterioration as assessed by the European Organization for Research and Treatment of Cancer (EORTC) Quality of Life Questionnaire Core 30 (QLQ-C30)",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Percentage of participants with impact on lung cancer-specific symptoms assessed by the EORTC QLQ-LC13",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Objective response rate in the CNS-ORR in participants with CNS metastases at baseline",
+          "description": "CNS-ORR is defined as the percentage of participants who attain CR or PR for lesions in the CNS, as determined by the BIRC per RECIST v1.1",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Duration of response in the CNS (CNS-DOR) in participants with CNS metastases at baseline",
+          "description": "CNS-DOR is defined as the time from when a CNS response (CR or PR) is first documented to disease progression in the CNS, as determined by the BIRC per RECIST v1.1",
+          "timeFrame": "Up to 7 Years"
+        },
+        {
+          "measure": "Percentage of participants with Adverse Events and Serious Adverse Events and Adverse Events leading to dose modifications/interruptions, study drug withdrawal or death",
+          "description": "Assessed by the investigator according to the NCI CTCAE v5.0",
+          "timeFrame": "Up to 7 Years"
+        }
+      ],
+      "otherOutcomes": [
+        {
+          "measure": "Change in the scores of EuroQol 5-Dimension Questionnaire, 5-level version (EQ-5D-5L)",
+          "description": "To evaluate health status utility scores of participants to inform pharmacoeconomic modeling using the EuroQol 5-Dimension Questionnaire (5-level version; EQ-5D-5L) index-based and visual analog scale (VAS) scores",
+          "timeFrame": "Up to 7 Years"
+        }
+      ]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Inclusion Criteria:\n\n* Histologically or cytologically-confirmed diagnosis of advanced or recurrent (Stage IIIB/C not amenable for radical treatment) or metastatic (Stage IV) NSCLC that harbors a documented ROS1 gene rearrangement.\n* No prior treatment with a ROS1 tyrosine kinase inhibitor, chemotherapy or other systemic therapy for advanced or recurrent (Stage IIIB/C not amenable for radical treatment) or metastatic (Stage IV) NSCLC\n* Prior radiotherapy is allowed if more than 14 days have elapsed between the end of treatment and randomization\n* Measurable systemic disease according to RECIST v1.1\n* Participants with measurable and non-measurable CNS lesions per RECIST v1.1, including leptomeningeal carcinomatosis\n* Life expectancy of at least 12 weeks\n* Eastern Cooperative Oncology Group (ECOG) performance status of 0, 1 or 2\n* Adequate hematologic, renal, liver functions\n* Participants must have recovered from effects of any major surgery or significant traumatic injury at least 28 days before the first dose of study treatment\n* Ability to swallow entrectinib and crizotinib intact without chewing, crushing, or opening the capsules\n* For women of childbearing potential: agreement to remain abstinent (refrain from heterosexual intercourse) or use contraceptive methods with a failure rate of \\<1% per year during the treatment period and for up to 5 weeks after the last dose of entrectinib or for at least 90 days after the last dose of crizotinib\n* For men: agreement to remain abstinent (refrain from heterosexual intercourse) or use contraceptive measures, and agreement to refrain from donating sperm.\n\nExclusion Criteria:\n\n* Prior treatment with a ROS1 tyrosine kinase inhibitor, chemotherapy or other systemic therapy for advanced or recurrent (Stage IIIB/C not amenable for radical treatment) or metastatic (Stage IV) NSCLC\n* NCI-CTCAE v5.0 Grade 3 or higher toxicities due to any prior therapy (excluding alopecia, fatigue, nausea and lack of appetite), which have not shown improvement and are strictly considered to interfere with current study drug\n* History of recent (within the past 3 months) symptomatic congestive heart failure or ejection fraction \u2264 50% observed during screening for the study\n* History of prolonged corrected QTc interval\n* Peripheral sensory neuropathy \u2265 Grade 2\n* Known interstitial lung disease, interstitial fibrosis, or history of tyrosine kinase inhibitor-induced pneumonitis\n* Previous malignancy within the past 3 years\n* Incomplete recovery from any surgery prior to the start of study treatment\n* Active GI disease (e.g., Crohn's disease, ulcerative colitis or short gut syndrome) or other malabsorption syndrome that would reasonably impact drug absorption\n* History of prior therapy-induced pneumonitis\n* Any condition (in the past 3 months) e.g., myocardial infarction, unstable angina, coronary/peripheral artery bypass graft, cerebrovascular accident or transient ischemic attack, stroke, symptomatic bradycardia, or uncontrolled arrhythmias requiring medication\n* Known active infections (bacterial, fungal or viral, including human immunodeficiency virus positive)\n* History of hypersensitivity to any of the additives in the entrectinib and/or crizotinib drug formulations\n* Pregnant or lactating women\n* Known human immunodeficiency virus (HIV) positivity or acquired immunodeficiency syndrome (AIDS)-related illness\n* Any clinically significant concomitant disease or condition that could interfere with, or for which the treatment might interfere with, the conduct of the study or the absorption of oral medications.",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "18 Years",
+      "stdAges": [
+        "ADULT",
+        "OLDER_ADULT"
+      ]
+    },
+    "contactsLocationsModule": {
+      "centralContacts": [
+        {
+          "name": "Reference Study ID Number: MO41552 https://forpatients.roche.com/",
+          "role": "CONTACT",
+          "phone": "888-662-6728 (U.S. and Canada)",
+          "email": "global-roche-genentech-trials@gene.com"
+        }
+      ],
+      "overallOfficials": [
+        {
+          "name": "Clinical Trials",
+          "affiliation": "Hoffmann-La Roche",
+          "role": "STUDY_DIRECTOR"
+        }
+      ],
+      "locations": [
+        {
+          "facility": "Hospital Sao Rafael - HSR",
+          "status": "RECRUITING",
+          "city": "Salvador",
+          "state": "Bahia",
+          "zip": "41253-190",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -12.97111,
+            "lon": -38.51083
+          }
+        },
+        {
+          "facility": "Oncocentro Servi\u00e7os M\u00e9dicos e Hospitalares Ltda",
+          "status": "RECRUITING",
+          "city": "Fortaleza",
+          "state": "Cear\u00e1",
+          "zip": "60130-241",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -3.71722,
+            "lon": -38.54306
+          }
+        },
+        {
+          "facility": "Hospitais Integrados da Gavea S/A",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Brasilia",
+          "state": "Distrito Federal",
+          "zip": "70390-140",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -15.77972,
+            "lon": -47.92972
+          }
+        },
+        {
+          "facility": "Oncocentro Belo Horizonte",
+          "status": "WITHDRAWN",
+          "city": "Belo Horizonte",
+          "state": "Minas Gerais",
+          "zip": "30360-680",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -19.92083,
+            "lon": -43.93778
+          }
+        },
+        {
+          "facility": "Oncosite - Centro de Pesquisa Clinica Em Oncologia Ltda",
+          "status": "WITHDRAWN",
+          "city": "Ijui",
+          "state": "Rio Grande Do Sul",
+          "zip": "98700-000",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -28.38778,
+            "lon": -53.91472
+          }
+        },
+        {
+          "facility": "Centro de Pesquisa e Ensino em Oncologia de Santa Catarina - CEPEN",
+          "status": "RECRUITING",
+          "city": "Florianopolis",
+          "state": "Santa Catarina",
+          "zip": "88020-210",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -27.59667,
+            "lon": -48.54917
+          }
+        },
+        {
+          "facility": "Hospital de Cancer de Barretos",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Barretos",
+          "state": "S\u00e3o Paulo",
+          "zip": "14784-400",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -20.55722,
+            "lon": -48.56778
+          }
+        },
+        {
+          "facility": "Instituto do Cancer do Estado de Sao Paulo - ICESP",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Sao Paulo",
+          "state": "S\u00e3o Paulo",
+          "zip": "01246-000",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -23.5475,
+            "lon": -46.63611
+          }
+        },
+        {
+          "facility": "Oncoclinicas Rio de Janeiro S.A.",
+          "status": "COMPLETED",
+          "city": "Rio de Janeiro",
+          "zip": "22250-905",
+          "country": "Brazil",
+          "geoPoint": {
+            "lat": -22.90278,
+            "lon": -43.2075
+          }
+        },
+        {
+          "facility": "Beijing Union Hospital",
+          "status": "WITHDRAWN",
+          "city": "Beijing",
+          "zip": "100730",
+          "country": "China",
+          "geoPoint": {
+            "lat": 39.9075,
+            "lon": 116.39723
+          }
+        },
+        {
+          "facility": "Jilin Cancer Hospital",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Changchun",
+          "zip": "132013",
+          "country": "China",
+          "geoPoint": {
+            "lat": 43.88,
+            "lon": 125.32278
+          }
+        },
+        {
+          "facility": "Hunan Cancer Hospital",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Changsha City",
+          "zip": "410013",
+          "country": "China"
+        },
+        {
+          "facility": "The Second Xiangya Hospital of Central South University",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Changsha",
+          "zip": "410011",
+          "country": "China",
+          "geoPoint": {
+            "lat": 28.19874,
+            "lon": 112.97087
+          }
+        },
+        {
+          "facility": "West China Hospital, Sichuan University",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Chengdu",
+          "zip": "610041",
+          "country": "China",
+          "geoPoint": {
+            "lat": 30.66667,
+            "lon": 104.06667
+          }
+        },
+        {
+          "facility": "The First Affiliated Hospital of Guangzhou Medical University",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Guangzhou",
+          "zip": "510120",
+          "country": "China",
+          "geoPoint": {
+            "lat": 23.11667,
+            "lon": 113.25
+          }
+        },
+        {
+          "facility": "Harbin Medical University Cancer Hospital",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Harbin",
+          "zip": "150081",
+          "country": "China",
+          "geoPoint": {
+            "lat": 45.75,
+            "lon": 126.65
+          }
+        },
+        {
+          "facility": "Affiliated Hospital of Jining Medical University",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Jining",
+          "zip": "272029",
+          "country": "China",
+          "geoPoint": {
+            "lat": 35.405,
+            "lon": 116.58139
+          }
+        },
+        {
+          "facility": "Nanjing Drum Tower Hospital, the Affiliated Hospital of Nanjing University Medical School",
+          "status": "COMPLETED",
+          "city": "Nanjing City",
+          "zip": "210008",
+          "country": "China"
+        },
+        {
+          "facility": "Guangxi Cancer Hospital of Guangxi Medical University",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Nanning",
+          "zip": "530021",
+          "country": "China",
+          "geoPoint": {
+            "lat": 22.81667,
+            "lon": 108.31667
+          }
+        },
+        {
+          "facility": "Shanghai Pulmonary Hospital",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Shanghai",
+          "zip": "200433",
+          "country": "China",
+          "geoPoint": {
+            "lat": 31.22222,
+            "lon": 121.45806
+          }
+        },
+        {
+          "facility": "Taihe Hospital of Hubei University of Medicine",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Shiyan",
+          "zip": "442000",
+          "country": "China",
+          "geoPoint": {
+            "lat": 32.6475,
+            "lon": 110.77806
+          }
+        },
+        {
+          "facility": "Union Hospital Tongji Medical College Huazhong University of Science and Technology",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Wuhan City",
+          "zip": "430023",
+          "country": "China"
+        },
+        {
+          "facility": "Clinical Hospital Centre Zagreb",
+          "status": "RECRUITING",
+          "city": "Zagreb",
+          "zip": "10000",
+          "country": "Croatia",
+          "geoPoint": {
+            "lat": 45.81444,
+            "lon": 15.97798
+          }
+        },
+        {
+          "facility": "Institut Bergonie",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Bordeaux",
+          "zip": "33076",
+          "country": "France",
+          "geoPoint": {
+            "lat": 44.84044,
+            "lon": -0.5805
+          }
+        },
+        {
+          "facility": "CHRU Lille",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Lille",
+          "zip": "59037",
+          "country": "France",
+          "geoPoint": {
+            "lat": 50.63297,
+            "lon": 3.05858
+          }
+        },
+        {
+          "facility": "Centre Leon Berard",
+          "status": "RECRUITING",
+          "city": "Lyon",
+          "zip": "69008",
+          "country": "France",
+          "geoPoint": {
+            "lat": 45.74848,
+            "lon": 4.84669
+          }
+        },
+        {
+          "facility": "Hopital Nord AP-HM",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Marseille",
+          "zip": "13015",
+          "country": "France",
+          "geoPoint": {
+            "lat": 43.29551,
+            "lon": 5.38958
+          }
+        },
+        {
+          "facility": "CHU Rennes - Hopital Pontchaillou",
+          "status": "RECRUITING",
+          "city": "Rennes cedex 09",
+          "zip": "35033",
+          "country": "France",
+          "geoPoint": {
+            "lat": 48.11198,
+            "lon": -1.67429
+          }
+        },
+        {
+          "facility": "Hopital Larrey",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Toulouse",
+          "zip": "31059",
+          "country": "France",
+          "geoPoint": {
+            "lat": 43.60426,
+            "lon": 1.44367
+          }
+        },
+        {
+          "facility": "Hopital Robert Schuman",
+          "status": "RECRUITING",
+          "city": "Vantoux",
+          "zip": "57070",
+          "country": "France"
+        },
+        {
+          "facility": "HELIOS Klinikum Emil von Behring Klinik f.Pneumologie Onkologie u.Infektiologie",
+          "status": "RECRUITING",
+          "city": "Berlin",
+          "zip": "14165",
+          "country": "Germany",
+          "geoPoint": {
+            "lat": 52.52437,
+            "lon": 13.41053
+          }
+        },
+        {
+          "facility": "Universitaetsklinikum Giessen und Marburg GmbH",
+          "status": "RECRUITING",
+          "city": "Gie\u00dfen",
+          "zip": "35392",
+          "country": "Germany",
+          "geoPoint": {
+            "lat": 50.58727,
+            "lon": 8.67554
+          }
+        },
+        {
+          "facility": "Universit\u00e4tsklinikum Hamburg-Eppendorf",
+          "status": "RECRUITING",
+          "city": "Hamburg",
+          "zip": "20246",
+          "country": "Germany",
+          "geoPoint": {
+            "lat": 53.57532,
+            "lon": 10.01534
+          }
+        },
+        {
+          "facility": "Kliniken Maria Hilf",
+          "status": "RECRUITING",
+          "city": "M\u00f6nchengladbach",
+          "zip": "41063",
+          "country": "Germany",
+          "geoPoint": {
+            "lat": 51.18539,
+            "lon": 6.44172
+          }
+        },
+        {
+          "facility": "Pius-Hospital",
+          "status": "RECRUITING",
+          "city": "Oldenburg",
+          "zip": "26121",
+          "country": "Germany",
+          "geoPoint": {
+            "lat": 53.14118,
+            "lon": 8.21467
+          }
+        },
+        {
+          "facility": "Uoa Sotiria Hospital",
+          "status": "RECRUITING",
+          "city": "Athens",
+          "zip": "115 27",
+          "country": "Greece",
+          "geoPoint": {
+            "lat": 37.97945,
+            "lon": 23.71622
+          }
+        },
+        {
+          "facility": "Metropolitan Hospital",
+          "status": "RECRUITING",
+          "city": "Athens",
+          "zip": "185 47",
+          "country": "Greece",
+          "geoPoint": {
+            "lat": 37.97945,
+            "lon": 23.71622
+          }
+        },
+        {
+          "facility": "University Hospital of Larissa",
+          "status": "RECRUITING",
+          "city": "Larissa",
+          "zip": "411 10",
+          "country": "Greece",
+          "geoPoint": {
+            "lat": 39.63689,
+            "lon": 22.41761
+          }
+        },
+        {
+          "facility": "Euromedical General Clinic of Thessaloniki",
+          "status": "RECRUITING",
+          "city": "Thessaloniki",
+          "zip": "546 45",
+          "country": "Greece",
+          "geoPoint": {
+            "lat": 40.64361,
+            "lon": 22.93086
+          }
+        },
+        {
+          "facility": "American Oncology Institute",
+          "status": "WITHDRAWN",
+          "city": "Hyderabad",
+          "state": "Andhra Pradesh",
+          "zip": "500019",
+          "country": "India",
+          "geoPoint": {
+            "lat": 17.38405,
+            "lon": 78.45636
+          }
+        },
+        {
+          "facility": "All India Institute Of Medical Sciences (AIIMS)",
+          "status": "RECRUITING",
+          "city": "New Delhi",
+          "state": "Delhi",
+          "zip": "110029",
+          "country": "India",
+          "geoPoint": {
+            "lat": 28.63576,
+            "lon": 77.22445
+          }
+        },
+        {
+          "facility": "MVR Cancer Centre and Research Institute",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Kozhikode",
+          "state": "Kerala",
+          "zip": "673601",
+          "country": "India",
+          "geoPoint": {
+            "lat": 11.24802,
+            "lon": 75.7804
+          }
+        },
+        {
+          "facility": "MOC Cancer Care & Research Centre (Unit of Cellcure Cancer Centre Pvt Ltd)",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Mumbai",
+          "state": "Maharashtra",
+          "zip": "400036",
+          "country": "India",
+          "geoPoint": {
+            "lat": 19.07283,
+            "lon": 72.88261
+          }
+        },
+        {
+          "facility": "Mahamana Pandit Madan Mohan Malaviya Cancer Centre-TMC",
+          "status": "RECRUITING",
+          "city": "Varanasi",
+          "state": "Uttar Pradesh",
+          "zip": "221005",
+          "country": "India",
+          "geoPoint": {
+            "lat": 25.31668,
+            "lon": 83.01041
+          }
+        },
+        {
+          "facility": "Tata Medical Center",
+          "status": "RECRUITING",
+          "city": "Kolkata",
+          "state": "WEST Bengal",
+          "zip": "700160",
+          "country": "India",
+          "geoPoint": {
+            "lat": 22.56263,
+            "lon": 88.36304
+          }
+        },
+        {
+          "facility": "Postgraduate Institute of Medical Education and Research",
+          "status": "WITHDRAWN",
+          "city": "Chandigarh",
+          "zip": "160012",
+          "country": "India",
+          "geoPoint": {
+            "lat": 30.73629,
+            "lon": 76.7884
+          }
+        },
+        {
+          "facility": "Istituto Nazionale per lo Studio e la Cura dei Tumori Fondazione G. Pascale",
+          "status": "RECRUITING",
+          "city": "Napoli",
+          "state": "Campania",
+          "zip": "80131",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 40.85216,
+            "lon": 14.26811
+          }
+        },
+        {
+          "facility": "IRCCS Istituto Regina Elena (IFO)",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Roma",
+          "state": "Lazio",
+          "zip": "00144",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 41.89193,
+            "lon": 12.51133
+          }
+        },
+        {
+          "facility": "Azienda Ospedaliera San Camillo Forlanini",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Roma",
+          "state": "Lazio",
+          "zip": "00152",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 41.89193,
+            "lon": 12.51133
+          }
+        },
+        {
+          "facility": "IRCCS Istituto Nazionale Per La Ricerca Sul Cancro (IST)",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Genova",
+          "state": "Liguria",
+          "zip": "16132",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 44.40478,
+            "lon": 8.94438
+          }
+        },
+        {
+          "facility": "Irccs Istituto Europeo di Oncologia (IEO)",
+          "status": "WITHDRAWN",
+          "city": "Milano",
+          "state": "Lombardia",
+          "zip": "20141",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 45.46427,
+            "lon": 9.18951
+          }
+        },
+        {
+          "facility": "Asst Grande Ospedale Metropolitano Niguarda",
+          "status": "RECRUITING",
+          "city": "Milano",
+          "state": "Lombardia",
+          "zip": "20162",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 45.46427,
+            "lon": 9.18951
+          }
+        },
+        {
+          "facility": "Asst Di Monza",
+          "status": "WITHDRAWN",
+          "city": "Monza",
+          "state": "Lombardia",
+          "zip": "20900",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 45.58005,
+            "lon": 9.27246
+          }
+        },
+        {
+          "facility": "Azienda Sanitaria Ospedaliera S Luigi Gonzaga",
+          "status": "RECRUITING",
+          "city": "Orbassano",
+          "state": "Piemonte",
+          "zip": "10043",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 45.00547,
+            "lon": 7.53813
+          }
+        },
+        {
+          "facility": "Azienda Ospedaliera Universitaria Pisana - Ospedale Cisanello",
+          "status": "WITHDRAWN",
+          "city": "Pisa",
+          "state": "Toscana",
+          "zip": "56124",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 43.70853,
+            "lon": 10.4036
+          }
+        },
+        {
+          "facility": "IRCCS Istituto Oncologico Veneto (IOV)",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Padova",
+          "state": "Veneto",
+          "zip": "35128",
+          "country": "Italy",
+          "geoPoint": {
+            "lat": 45.40797,
+            "lon": 11.88586
+          }
+        },
+        {
+          "facility": "King Hussein Cancer Center",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Amman",
+          "zip": "1269",
+          "country": "Jordan",
+          "geoPoint": {
+            "lat": 31.95522,
+            "lon": 35.94503
+          }
+        },
+        {
+          "facility": "Hotel Dieu de France",
+          "status": "RECRUITING",
+          "city": "Beirut",
+          "country": "Lebanon",
+          "geoPoint": {
+            "lat": 33.88894,
+            "lon": 35.49442
+          }
+        },
+        {
+          "facility": "Hospital Civil de Guadalajara Fray Antonio Alcalde",
+          "status": "RECRUITING",
+          "city": "Guadalajara",
+          "state": "Jalisco",
+          "zip": "44280",
+          "country": "Mexico",
+          "geoPoint": {
+            "lat": 20.66682,
+            "lon": -103.39182
+          }
+        },
+        {
+          "facility": "Health Pharma Professional Research",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Cdmx",
+          "state": "Mexico CITY (federal District)",
+          "zip": "03100",
+          "country": "Mexico"
+        },
+        {
+          "facility": "SUPERARE",
+          "status": "WITHDRAWN",
+          "city": "Ciudad de M\u00e9xico",
+          "state": "Mexico CITY (federal District)",
+          "zip": "06760",
+          "country": "Mexico",
+          "geoPoint": {
+            "lat": 19.42847,
+            "lon": -99.12766
+          }
+        },
+        {
+          "facility": "Hospital Universitario",
+          "status": "RECRUITING",
+          "city": "Monterrey",
+          "state": "Nuevo LEON",
+          "zip": "64460",
+          "country": "Mexico",
+          "geoPoint": {
+            "lat": 25.67507,
+            "lon": -100.31847
+          }
+        },
+        {
+          "facility": "NKI/AvL",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Amsterdam",
+          "zip": "1066 CX",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.37403,
+            "lon": 4.88969
+          }
+        },
+        {
+          "facility": "UMC St Radboud",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Nijmegen",
+          "zip": "6525 GA",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.8425,
+            "lon": 5.85278
+          }
+        },
+        {
+          "facility": "Erasmus MC",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Rotterdam",
+          "zip": "3015 GD",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 51.9225,
+            "lon": 4.47917
+          }
+        },
+        {
+          "facility": "Amethyst Cluj",
+          "status": "RECRUITING",
+          "city": "Cluj County",
+          "zip": "407280",
+          "country": "Romania"
+        },
+        {
+          "facility": "Institutul Oncologic Prof. Dr. Ion Chiricuta Cluj Napoca",
+          "status": "RECRUITING",
+          "city": "Cluj Napoca",
+          "zip": "400015",
+          "country": "Romania",
+          "geoPoint": {
+            "lat": 46.76667,
+            "lon": 23.6
+          }
+        },
+        {
+          "facility": "Centrul de Oncologie Sfantul Nectarie",
+          "status": "RECRUITING",
+          "city": "Craiova",
+          "zip": "200542",
+          "country": "Romania",
+          "geoPoint": {
+            "lat": 44.31667,
+            "lon": 23.8
+          }
+        },
+        {
+          "facility": "Emergency County Clinical Hospital Ploiesti",
+          "status": "RECRUITING",
+          "city": "Ploiesti",
+          "country": "Romania",
+          "geoPoint": {
+            "lat": 44.95,
+            "lon": 26.01667
+          }
+        },
+        {
+          "facility": "Centrul de Oncologie Oncohelp",
+          "status": "RECRUITING",
+          "city": "Timisoara",
+          "zip": "300239",
+          "country": "Romania",
+          "geoPoint": {
+            "lat": 45.75372,
+            "lon": 21.22571
+          }
+        },
+        {
+          "facility": "AV Medical Ltd.",
+          "status": "WITHDRAWN",
+          "city": "Sankt-peterburg",
+          "state": "Leningrad",
+          "zip": "199034",
+          "country": "Russian Federation",
+          "geoPoint": {
+            "lat": 59.93863,
+            "lon": 30.31413
+          }
+        },
+        {
+          "facility": "Univerzitna nemocnica Bratislava",
+          "status": "RECRUITING",
+          "city": "Bratislava",
+          "zip": "826 06",
+          "country": "Slovakia",
+          "geoPoint": {
+            "lat": 48.14816,
+            "lon": 17.10674
+          }
+        },
+        {
+          "facility": "Vychodoslovensky onkologicky ustav",
+          "status": "WITHDRAWN",
+          "city": "Ko\u0161ice",
+          "zip": "040 01",
+          "country": "Slovakia",
+          "geoPoint": {
+            "lat": 48.71395,
+            "lon": 21.25808
+          }
+        },
+        {
+          "facility": "Hospital del Mar",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Barcelona",
+          "zip": "08003",
+          "country": "Spain",
+          "geoPoint": {
+            "lat": 41.38879,
+            "lon": 2.15899
+          }
+        },
+        {
+          "facility": "Institut Catala d Oncologia Hospital Duran i Reynals",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Barcelona",
+          "zip": "08908",
+          "country": "Spain",
+          "geoPoint": {
+            "lat": 41.38879,
+            "lon": 2.15899
+          }
+        },
+        {
+          "facility": "Complejo Hospitalario Universitario A Coru\u00f1a (CHUAC)",
+          "status": "RECRUITING",
+          "city": "La Coruna",
+          "zip": "15006",
+          "country": "Spain",
+          "geoPoint": {
+            "lat": 43.37135,
+            "lon": -8.396
+          }
+        },
+        {
+          "facility": "Hospital Ramon y Cajal",
+          "status": "RECRUITING",
+          "city": "Madrid",
+          "zip": "28034",
+          "country": "Spain",
+          "geoPoint": {
+            "lat": 40.4165,
+            "lon": -3.70256
+          }
+        },
+        {
+          "facility": "Hospital Regional Universitario Carlos Haya",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Malaga",
+          "zip": "29010",
+          "country": "Spain",
+          "geoPoint": {
+            "lat": 36.72016,
+            "lon": -4.42034
+          }
+        },
+        {
+          "facility": "Karolinska Universitetssjukhuset, Solna",
+          "status": "RECRUITING",
+          "city": "Stockholm",
+          "zip": "171 76",
+          "country": "Sweden",
+          "geoPoint": {
+            "lat": 59.33258,
+            "lon": 18.0649
+          }
+        },
+        {
+          "facility": "Chulalongkorn Hospital",
+          "status": "RECRUITING",
+          "city": "Bangkok",
+          "zip": "10330",
+          "country": "Thailand",
+          "geoPoint": {
+            "lat": 13.75398,
+            "lon": 100.50144
+          }
+        },
+        {
+          "facility": "Faculty of Med. Siriraj Hosp.",
+          "status": "RECRUITING",
+          "city": "Bangkok",
+          "zip": "10700",
+          "country": "Thailand",
+          "geoPoint": {
+            "lat": 13.75398,
+            "lon": 100.50144
+          }
+        },
+        {
+          "facility": "Prapokklao Hospital",
+          "status": "RECRUITING",
+          "city": "Chanthaburi",
+          "zip": "22000",
+          "country": "Thailand",
+          "geoPoint": {
+            "lat": 12.60961,
+            "lon": 102.10447
+          }
+        },
+        {
+          "facility": "Songklanagarind Hospital",
+          "status": "RECRUITING",
+          "city": "Songkhla",
+          "zip": "90110",
+          "country": "Thailand",
+          "geoPoint": {
+            "lat": 7.19882,
+            "lon": 100.5951
+          }
+        },
+        {
+          "facility": "Bangkok Metropolitan Administration Medical College and Vajira Hospital",
+          "status": "RECRUITING",
+          "city": "Wachira Phayaban",
+          "zip": "10300",
+          "country": "Thailand"
+        },
+        {
+          "facility": "Baskent University Adana Dr. Turgut Noyan Practice and Research Hospital",
+          "status": "WITHDRAWN",
+          "city": "Adana",
+          "zip": "01250",
+          "country": "Turkey",
+          "geoPoint": {
+            "lat": 37.00167,
+            "lon": 35.32889
+          }
+        },
+        {
+          "facility": "Gazi University Medical Faculty, Oncology Hospital",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Ankara",
+          "zip": "06500",
+          "country": "Turkey",
+          "geoPoint": {
+            "lat": 39.91987,
+            "lon": 32.85427
+          }
+        },
+        {
+          "facility": "Liv Hospital Ankara",
+          "status": "ACTIVE_NOT_RECRUITING",
+          "city": "Ankara",
+          "zip": "06680",
+          "country": "Turkey",
+          "geoPoint": {
+            "lat": 39.91987,
+            "lon": 32.85427
+          }
+        },
+        {
+          "facility": "Ege Uni Medical Faculty Hospital",
+          "status": "WITHDRAWN",
+          "city": "Izmir",
+          "zip": "35100",
+          "country": "Turkey",
+          "geoPoint": {
+            "lat": 38.41273,
+            "lon": 27.13838
+          }
+        },
+        {
+          "facility": "Inonu University Medical Faculty Turgut Ozal Medical Center Medical Oncology Department",
+          "status": "WITHDRAWN",
+          "city": "Malatya",
+          "zip": "44280",
+          "country": "Turkey",
+          "geoPoint": {
+            "lat": 38.35018,
+            "lon": 38.31667
+          }
+        },
+        {
+          "facility": "Ac?badem Maslak Hastanesi B\u00fcy\u00fckdere",
+          "status": "WITHDRAWN",
+          "city": "Sar?yer/?stanbul",
+          "zip": "34457",
+          "country": "Turkey"
+        },
+        {
+          "facility": "Medical Park Seyhan Hospital",
+          "status": "RECRUITING",
+          "city": "Seyhan",
+          "zip": "01140",
+          "country": "Turkey"
+        }
+      ]
+    },
+    "ipdSharingStatementModule": {
+      "ipdSharing": "YES",
+      "description": "For eligible studies, qualified researchers may request access to individual patient level clinical data. See Roche's commitment to transparency of clinical study information here: https://go.roche.com/data_sharing",
+      "infoTypes": [
+        "STUDY_PROTOCOL"
+      ]
+    }
+  },
+  "derivedSection": {
+    "miscInfoModule": {
+      "versionHolder": "2025-04-03"
+    },
+    "conditionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D002289",
+          "term": "Carcinoma, Non-Small-Cell Lung"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D002283",
+          "term": "Carcinoma, Bronchogenic"
+        },
+        {
+          "id": "D001984",
+          "term": "Bronchial Neoplasms"
+        },
+        {
+          "id": "D008175",
+          "term": "Lung Neoplasms"
+        },
+        {
+          "id": "D012142",
+          "term": "Respiratory Tract Neoplasms"
+        },
+        {
+          "id": "D013899",
+          "term": "Thoracic Neoplasms"
+        },
+        {
+          "id": "D009371",
+          "term": "Neoplasms by Site"
+        },
+        {
+          "id": "D009369",
+          "term": "Neoplasms"
+        },
+        {
+          "id": "D008171",
+          "term": "Lung Diseases"
+        },
+        {
+          "id": "D012140",
+          "term": "Respiratory Tract Diseases"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M11172",
+          "name": "Lung Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M5546",
+          "name": "Carcinoma, Non-Small-Cell Lung",
+          "asFound": "Carcinoma, Non-Small-Cell Lung",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M5534",
+          "name": "Carcinoma",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M12307",
+          "name": "Neoplasm Metastasis",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M5540",
+          "name": "Carcinoma, Bronchogenic",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M5260",
+          "name": "Bronchial Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14979",
+          "name": "Respiratory Tract Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M16658",
+          "name": "Thoracic Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M11168",
+          "name": "Lung Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14977",
+          "name": "Respiratory Tract Diseases",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "BC04",
+          "name": "Neoplasms"
+        },
+        {
+          "abbrev": "BC08",
+          "name": "Respiratory Tract (Lung and Bronchial) Diseases"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Conditions"
+        },
+        {
+          "abbrev": "BC23",
+          "name": "Symptoms and General Pathology"
+        }
+      ]
+    },
+    "interventionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D000077547",
+          "term": "Crizotinib"
+        },
+        {
+          "id": "C000607349",
+          "term": "Entrectinib"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D000092004",
+          "term": "Tyrosine Kinase Inhibitors"
+        },
+        {
+          "id": "D047428",
+          "term": "Protein Kinase Inhibitors"
+        },
+        {
+          "id": "D004791",
+          "term": "Enzyme Inhibitors"
+        },
+        {
+          "id": "D045504",
+          "term": "Molecular Mechanisms of Pharmacological Action"
+        },
+        {
+          "id": "D000970",
+          "term": "Antineoplastic Agents"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M275492",
+          "name": "Entrectinib",
+          "asFound": "Quadriceps muscle",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M1825",
+          "name": "Crizotinib",
+          "asFound": "Inside",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M2889",
+          "name": "Tyrosine Kinase Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M25820",
+          "name": "Protein Kinase Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7951",
+          "name": "Enzyme Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "T22",
+          "name": "Tyrosine",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "All",
+          "name": "All Drugs and Chemicals"
+        },
+        {
+          "abbrev": "ANeo",
+          "name": "Antineoplastic Agents"
+        },
+        {
+          "abbrev": "AA",
+          "name": "Amino Acids"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}

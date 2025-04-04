@@ -1,0 +1,485 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT05916313",
+      "orgStudyIdInfo": {
+        "id": "1438-0003"
+      },
+      "secondaryIdInfos": [
+        {
+          "id": "U1111-1290-7234",
+          "type": "REGISTRY",
+          "domain": "WHO International Clinical Trials Registry Platform (ICTRP)"
+        },
+        {
+          "id": "2022-501766-22-01",
+          "type": "CTIS"
+        }
+      ],
+      "organization": {
+        "fullName": "Boehringer Ingelheim",
+        "class": "INDUSTRY"
+      },
+      "briefTitle": "A Study to Test How Well Different Doses of BI 764532 Are Tolerated by People With a Tumour in the Brain That is Positive for DLL3",
+      "officialTitle": "A Phase Ib Open-label, Multi-center, Dose Escalation Trial of BI 764532 Given as Monotherapy Administered by Repeated Intravenous Infusions in Patients With Glioma Expressing DLL3"
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2025-02",
+      "overallStatus": "RECRUITING",
+      "expandedAccessInfo": {
+        "hasExpandedAccess": false
+      },
+      "startDateStruct": {
+        "date": "2024-02-21",
+        "type": "ACTUAL"
+      },
+      "primaryCompletionDateStruct": {
+        "date": "2025-09-29",
+        "type": "ESTIMATED"
+      },
+      "completionDateStruct": {
+        "date": "2025-09-29",
+        "type": "ESTIMATED"
+      },
+      "studyFirstSubmitDate": "2023-06-15",
+      "studyFirstSubmitQcDate": "2023-06-15",
+      "studyFirstPostDateStruct": {
+        "date": "2023-06-23",
+        "type": "ACTUAL"
+      },
+      "lastUpdateSubmitDate": "2025-03-11",
+      "lastUpdatePostDateStruct": {
+        "date": "2025-03-25",
+        "type": "ACTUAL"
+      }
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {
+        "type": "SPONSOR"
+      },
+      "leadSponsor": {
+        "name": "Boehringer Ingelheim",
+        "class": "INDUSTRY"
+      }
+    },
+    "oversightModule": {
+      "oversightHasDmc": false,
+      "isFdaRegulatedDrug": true,
+      "isFdaRegulatedDevice": false
+    },
+    "descriptionModule": {
+      "briefSummary": "This study (1438-0003) is open to adults with a tumour in the brain that is positive for the tumour marker delta-like 3 (DLL3). This study is in people with advanced cancer for whom previous treatment was not successful.\n\nThe purpose of this study is to find out the highest dose of BI 764532 that people with a brain tumour that is positive for DLL3 can tolerate. BI 764532 is an antibody-like molecule that can attach and link together the cancer cells and T-cells of the immune system (DLL3/CD3 bispecific). This may help the immune system fight cancer.\n\nParticipants get BI 764532 infusions into a vein when starting treatment. If there is benefit for the participants and if they can tolerate it, the treatment is continued. During this time, participants visit the study site at regular intervals. The total number of visits depends on how they respond to and tolerate the treatment. The first study visits include staying to monitor participants' safety. Doctors record any unwanted effects and regularly check the general health of the participants."
+    },
+    "conditionsModule": {
+      "conditions": [
+        "Glioma"
+      ]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": [
+        "PHASE1"
+      ],
+      "designInfo": {
+        "allocation": "NA",
+        "interventionModel": "SINGLE_GROUP",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {
+          "masking": "NONE"
+        }
+      },
+      "enrollmentInfo": {
+        "count": 20,
+        "type": "ESTIMATED"
+      }
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "BI 764532: Part A - Dose escalation cohort",
+          "type": "EXPERIMENTAL",
+          "description": "Part B of the trial was removed via amendment/new protocol version from February 2025.",
+          "interventionNames": [
+            "Drug: BI 764532"
+          ]
+        }
+      ],
+      "interventions": [
+        {
+          "type": "DRUG",
+          "name": "BI 764532",
+          "description": "BI 764532",
+          "armGroupLabels": [
+            "BI 764532: Part A - Dose escalation cohort"
+          ],
+          "otherNames": [
+            "Obrixtamig"
+          ]
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Part A: Occurrence of dose-limiting toxicity (DLT) during the maximum tolerated dose (MTD) evaluation period",
+          "timeFrame": "up to 4 weeks"
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Part A: Occurrence of dose-limiting toxicity (DLT) during the entire treatment period",
+          "timeFrame": "up to 26 months"
+        }
+      ]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Inclusion Criteria:\n\n1. Male or female participants \u226518 years old and at least at the legal age of consent in countries where it is greater than 18 years at the time of signature of the first informed consent form (ICF1).\n2. Signed and dated written informed consent (ICF1 and ICF2) in accordance with International Council for Harmonisation-Good clinical practice (ICH-GCP) and local legislation prior to admission to the trial.\n3. Patients with histologically confirmed primary progressive diffuse glioma who have failed standard of care therapies.\n4. Availability of archival tumour tissue for Delta-like 3 (DLL3) expression by central assessment.\n5. Tumours must be positive for DLL3 expression by immunohistochemistry (IHC) on archived tumour tissue according to central pathology review.\n6. Documented unequivocal progression after radiotherapy and/or chemotherapy with measurable disease by response assessment in neuro-oncology (RANO) criteria.\n7. Karnofsky performance score \u226570. Further inclusion criteria apply.\n\nExclusion Criteria:\n\n1. Previous treatment in this trial.\n2. Current enrolment in another investigational device or drug trial.\n3. Presence of extracranial metastatic or leptomeningeal disease.\n4. Previous treatment with therapies targeting DLL3.\n5. Prior treatment with bevacizumab or other anti-vascular endothelial growth factor (anti-VEGF) or anti-angiogenic treatment within 6 months prior to first administration of BI 764532.\n6. Recent anti-cancer therapy: treatment with any other anticancer drug within 21 days or within 5 half-life periods (whichever is shorter) prior to first administration of BI 764532.\n7. Radiotherapy within the 3 months prior to the diagnosis of progression; unless tumour progression is clearly outside the radiation field or tumour progression is unequivocally proven by surgery/biopsy.\n\nFurther exclusion criteria apply.",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "18 Years",
+      "stdAges": [
+        "ADULT",
+        "OLDER_ADULT"
+      ]
+    },
+    "contactsLocationsModule": {
+      "centralContacts": [
+        {
+          "name": "Boehringer Ingelheim",
+          "role": "CONTACT",
+          "phone": "1-800-243-0127",
+          "email": "clintriage.rdg@boehringer-ingelheim.com"
+        }
+      ],
+      "locations": [
+        {
+          "facility": "University of California Irvine",
+          "status": "RECRUITING",
+          "city": "Orange",
+          "state": "California",
+          "zip": "92868",
+          "country": "United States",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "833-602-2368",
+              "email": "unitedstates@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 33.78779,
+            "lon": -117.85311
+          }
+        },
+        {
+          "facility": "SCRI Oncology Partners",
+          "status": "RECRUITING",
+          "city": "Nashville",
+          "state": "Tennessee",
+          "zip": "37203",
+          "country": "United States",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "833-602-2368",
+              "email": "unitedstates@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 36.16589,
+            "lon": -86.78444
+          }
+        },
+        {
+          "facility": "Salzburg Cancer Research Institute",
+          "status": "RECRUITING",
+          "city": "Salzburg",
+          "zip": "5020",
+          "country": "Austria",
+          "geoPoint": {
+            "lat": 47.79941,
+            "lon": 13.04399
+          }
+        },
+        {
+          "facility": "Universit\u00e4tsklinikum Frankfurt",
+          "status": "RECRUITING",
+          "city": "Frankfurt am Main",
+          "zip": "60528",
+          "country": "Germany",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "08007234742",
+              "email": "deutschland@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 50.11552,
+            "lon": 8.68417
+          }
+        },
+        {
+          "facility": "Klinikum der Universit\u00e4t M\u00fcnchen A\u00d6R",
+          "status": "RECRUITING",
+          "city": "M\u00fcnchen",
+          "zip": "81377",
+          "country": "Germany",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "08007234742",
+              "email": "deutschland@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 48.13743,
+            "lon": 11.57549
+          }
+        },
+        {
+          "facility": "Erasmus Medisch Centrum-ROTTERDAM-50697",
+          "status": "RECRUITING",
+          "city": "Rotterdam",
+          "zip": "3015 GD",
+          "country": "Netherlands",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "08000204613",
+              "email": "nederland@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 51.9225,
+            "lon": 4.47917
+          }
+        },
+        {
+          "facility": "Hospital del Mar",
+          "status": "RECRUITING",
+          "city": "Barcelona",
+          "zip": "08003",
+          "country": "Spain",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "900876092",
+              "email": "espana@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 41.38879,
+            "lon": 2.15899
+          }
+        },
+        {
+          "facility": "Hospital Universitario 12 de Octubre",
+          "status": "RECRUITING",
+          "city": "Madrid",
+          "zip": "28041",
+          "country": "Spain",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "900876092",
+              "email": "espana@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 40.4165,
+            "lon": -3.70256
+          }
+        },
+        {
+          "facility": "Cantonal Hospital of Aarau",
+          "status": "RECRUITING",
+          "city": "Aarau",
+          "zip": "CH-5001",
+          "country": "Switzerland",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "0800005900",
+              "email": "suisse@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 47.39254,
+            "lon": 8.04422
+          }
+        },
+        {
+          "facility": "University Hospital of Lausanne",
+          "status": "RECRUITING",
+          "city": "Lausanne",
+          "zip": "1101",
+          "country": "Switzerland",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "0800005900",
+              "email": "suisse@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 46.516,
+            "lon": 6.63282
+          }
+        },
+        {
+          "facility": "University Hosp. Zurich",
+          "status": "RECRUITING",
+          "city": "Zurich",
+          "zip": "8901",
+          "country": "Switzerland",
+          "contacts": [
+            {
+              "name": "Boehringer Ingelheim",
+              "role": "CONTACT",
+              "phone": "0800005900",
+              "email": "suisse@bitrialsupport.com"
+            }
+          ],
+          "geoPoint": {
+            "lat": 47.36667,
+            "lon": 8.54999
+          }
+        }
+      ]
+    },
+    "referencesModule": {
+      "seeAlsoLinks": [
+        {
+          "label": "Related Info",
+          "url": "http://www.mystudywindow.com"
+        }
+      ]
+    },
+    "ipdSharingStatementModule": {
+      "ipdSharing": "NO",
+      "description": "Clinical studies sponsored by Boehringer Ingelheim, phases I to IV, interventional and non-interventional, are in scope for sharing of the raw clinical study data and clinical study documents. Exceptions might apply, e.g. studies in products where Boehringer Ingelheim is not the license holder; studies regarding pharmaceutical formulations and associated analytical methods, and studies pertinent to pharmacokinetics using human biomaterials; studies conducted in a single center or targeting rare diseases (in case of low number of patients and therefore limitations with anonymization).\n\nFor more details refer to:\n\nhttps://www.mystudywindow.com/msw/datatransparency"
+    }
+  },
+  "derivedSection": {
+    "miscInfoModule": {
+      "versionHolder": "2025-04-03"
+    },
+    "conditionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D005910",
+          "term": "Glioma"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D018302",
+          "term": "Neoplasms, Neuroepithelial"
+        },
+        {
+          "id": "D017599",
+          "term": "Neuroectodermal Tumors"
+        },
+        {
+          "id": "D009373",
+          "term": "Neoplasms, Germ Cell and Embryonal"
+        },
+        {
+          "id": "D009370",
+          "term": "Neoplasms by Histologic Type"
+        },
+        {
+          "id": "D009369",
+          "term": "Neoplasms"
+        },
+        {
+          "id": "D009375",
+          "term": "Neoplasms, Glandular and Epithelial"
+        },
+        {
+          "id": "D009380",
+          "term": "Neoplasms, Nerve Tissue"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M9020",
+          "name": "Glioma",
+          "asFound": "Glioma",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M20446",
+          "name": "Neoplasms, Neuroepithelial",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M20388",
+          "name": "Neuroectodermal Tumors, Primitive",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M19845",
+          "name": "Neuroectodermal Tumors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M12318",
+          "name": "Neoplasms, Germ Cell and Embryonal",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M12315",
+          "name": "Neoplasms by Histologic Type",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M12320",
+          "name": "Neoplasms, Glandular and Epithelial",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M12325",
+          "name": "Neoplasms, Nerve Tissue",
+          "relevance": "LOW"
+        },
+        {
+          "id": "T2519",
+          "name": "Glioma",
+          "asFound": "Glioma",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "T4092",
+          "name": "Neuroepithelioma",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "BC04",
+          "name": "Neoplasms"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Conditions"
+        },
+        {
+          "abbrev": "Rare",
+          "name": "Rare Diseases"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}

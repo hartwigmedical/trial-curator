@@ -1,0 +1,555 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT06003998",
+      "orgStudyIdInfo": {
+        "id": "NL81672.100.22"
+      },
+      "organization": {
+        "fullName": "Catharina Ziekenhuis Eindhoven",
+        "class": "OTHER"
+      },
+      "briefTitle": "Intraperitoneal Irinotecan With Concomitant FOLFOX and Bevacizumab",
+      "officialTitle": "Intraperitoneal Irinotecan With Concomitant FOLFOX and Bevacizumab for Patients With Unresectable Colorectal Peritoneal Metastases",
+      "acronym": "INTERACT-II"
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2023-08",
+      "overallStatus": "RECRUITING",
+      "expandedAccessInfo": {
+        "hasExpandedAccess": false
+      },
+      "startDateStruct": {
+        "date": "2022-12-27",
+        "type": "ACTUAL"
+      },
+      "primaryCompletionDateStruct": {
+        "date": "2025-01-01",
+        "type": "ESTIMATED"
+      },
+      "completionDateStruct": {
+        "date": "2025-01-01",
+        "type": "ESTIMATED"
+      },
+      "studyFirstSubmitDate": "2022-11-08",
+      "studyFirstSubmitQcDate": "2023-08-15",
+      "studyFirstPostDateStruct": {
+        "date": "2023-08-22",
+        "type": "ACTUAL"
+      },
+      "lastUpdateSubmitDate": "2023-08-15",
+      "lastUpdatePostDateStruct": {
+        "date": "2023-08-22",
+        "type": "ACTUAL"
+      }
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {
+        "type": "PRINCIPAL_INVESTIGATOR",
+        "investigatorFullName": "J. W. A. Burger",
+        "investigatorTitle": "Principal Investigator",
+        "investigatorAffiliation": "Catharina Ziekenhuis Eindhoven"
+      },
+      "leadSponsor": {
+        "name": "Catharina Ziekenhuis Eindhoven",
+        "class": "OTHER"
+      }
+    },
+    "oversightModule": {
+      "oversightHasDmc": false,
+      "isFdaRegulatedDrug": false,
+      "isFdaRegulatedDevice": false
+    },
+    "descriptionModule": {
+      "briefSummary": "The rationale of the current study is that the addition of intraperitoneal irinotecan (75 mg) to palliative systemic therapy is feasible and safe, and might result in an increased overall and progression free survival in patients with unresectable colorectal peritoneal metastases. The primary objectives are to explore the overall survival for the addition of intraperitoneal irinotecan (75 mg) to palliative systemic therapy in patients with unresectable colorectal peritoneal metastases. Secondary objectives are to assess the progression-free survival, toxicity profile, patient reported outcomes, costs, tumor response during trial treatment, and the systemic and intraperitoneal pharmacokinetics of irinotecan and SN-38. This is a single-arm, open-label, phase II study and patients will receive intraperitoneal irinotecan (75 mg) in combination with modified FOLFOX4 + bevacizumab."
+    },
+    "conditionsModule": {
+      "conditions": [
+        "Colorectal Cancer",
+        "Peritoneal Metastases"
+      ],
+      "keywords": [
+        "Peritoneal metastases",
+        "colorectal cancer",
+        "Intraperitoneal",
+        "Irinotecan"
+      ]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": [
+        "PHASE2"
+      ],
+      "designInfo": {
+        "allocation": "NA",
+        "interventionModel": "SINGLE_GROUP",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {
+          "masking": "NONE"
+        }
+      },
+      "enrollmentInfo": {
+        "count": 85,
+        "type": "ESTIMATED"
+      }
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "Intraperitoneal irinotecan 75 mg + mFOLFOX-4 and bevacizumab",
+          "type": "EXPERIMENTAL",
+          "description": "Intraperitoneal irinotecan, 75 mg flat dose + systemic oxaliplatin, 5-Fluorouracil and bevacizumab (mFOLFOX+beva) (dose via standard of care)",
+          "interventionNames": [
+            "Drug: Irinotecan",
+            "Drug: FOLFOX regimen",
+            "Drug: Bevacizumab"
+          ]
+        }
+      ],
+      "interventions": [
+        {
+          "type": "DRUG",
+          "name": "Irinotecan",
+          "description": "2 weekly IP irinotecan (max 12 cycles), dose 75 mg flat dose",
+          "armGroupLabels": [
+            "Intraperitoneal irinotecan 75 mg + mFOLFOX-4 and bevacizumab"
+          ],
+          "otherNames": [
+            "Intraperitoneal irinotecan"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "FOLFOX regimen",
+          "description": "FOLFOX-4 regimens consist of 85 mg/m2 oxaliplatin plus 200 mg/m2 LV and 5-FU 400 mg/m2 bolus on day 1 followed by 1600 mg/m2 5-FU as a 46-h infusion",
+          "armGroupLabels": [
+            "Intraperitoneal irinotecan 75 mg + mFOLFOX-4 and bevacizumab"
+          ],
+          "otherNames": [
+            "5-FU + oxaliplatin"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Bevacizumab",
+          "description": "Bevacizumab according to standard of care",
+          "armGroupLabels": [
+            "Intraperitoneal irinotecan 75 mg + mFOLFOX-4 and bevacizumab"
+          ],
+          "otherNames": [
+            "Avastin"
+          ]
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Overall survival",
+          "description": "calculated from (a) the interval from diagnosis of peritoneal metastases until death or last follow-up; (b) the interval from the first day of the first cycle until death or last follow-up).",
+          "timeFrame": "3 year"
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Progression-free survival",
+          "description": "calculated from the interval from the start of trial treatment until first evidence of intraperitoneal and/or systemic disease progression, and/or start of second-line systemic therapy, or last follow-up",
+          "timeFrame": "3 year"
+        },
+        {
+          "measure": "Toxicity in CTCAE grading",
+          "description": "Defined as the number of patients who experience / the total number of Common Terminology Criteria for Adverse Events (CTCAE, version 5.0) grade 3-5 adverse events, measured up to four weeks after the last cycle of intraperitoneal irinotecan (75 mg) with concomitant palliative systemic therapy. With the exception of peripheral neuropathy, which will be reported indefinitely, ranging from CTCAE grade 1-5.",
+          "timeFrame": "28 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Toxicity measured up to four weeks after last cycle."
+        },
+        {
+          "measure": "Patient-reported outcomes (PROs) with EQ-5D-5L",
+          "description": "Assessed with the 5-level EQ-5D by EuroQol group (EQ-5D-5L) at baseline, one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle. The EQ-5D-5L essentially consists of 2 pages: the EQ-5D descriptive system and the EQ visual analogue scale (EQ VAS).The descriptive system comprises five dimensions: mobility, self-care, usual activities, pain/discomfort and anxiety/depression. Each dimension has 5 levels: no problems, slight problems, moderate problems, severe problems and extreme problems. The digits for the five dimensions can be combined into a 5-digit number that describes the patient's health state.The EQ VAS records the patient's self-rated health on a vertical visual analogue scale, where the endpoints are labelled 'The best health you can imagine' and 'The worst health you can imagine'. The VAS can be used as a quantitative measure of health outcome that reflect the patient's own judgement.",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Measured one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle."
+        },
+        {
+          "measure": "Patient-reported outcomes (PROs) with EORTC QLQ-C30",
+          "description": "Assessed with the European Organization for Research and Treatment for Cancer Quality of Life Questionnaire (EORTC QLQ-C30) at baseline, one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle. The EORTC QLQ-C30 comprises 30 items, 24 of which are aggregated into nine multi-item scales, that is, five functioning scales, three symptom scales and one global health status scale. The remaining six single-item assess symptoms. All of the scales and single-item measures range in score from 0 to 100. Higher score for the functioning scales and global health status denote a better level of functioning (i.e. a better state of the patient), while higher scores on the symptom and single-item scales indicate a higher level of symptoms (i.e. a worse state of the patient).",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Measured one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle."
+        },
+        {
+          "measure": "Patient-reported outcomes (PROs) with EORTC QLQ-CR29",
+          "description": "Assessed with the European Organization for Research and Treatment for Cancer Quality of Life Questionnaire, specifically for colorectal cancer (EORTC QLQ-CR29) at baseline, one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle. The resulting QLQ-CR29 consisted of four scales and 19 individual items. Higher scores indicate a higher level of symptoms (i.e. a worse state of the patient).",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Measured one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle."
+        },
+        {
+          "measure": "Healthcare costs",
+          "description": "According to the Dutch manual for cost analysis in health care research, and assessed with the iMTA Medical Consumption Questionnaire at baseline, one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle. The volumes of used healthcare costs were multiplied with the unit costs of these corresponding services.",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Measured one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle."
+        },
+        {
+          "measure": "Productivity loss costs.",
+          "description": "Assessed with the iMTA Productivity Cost Questionnaire at baseline, one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle.",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Measured one week after the first cycle, one week after the fourth cycle, one week after the eighth cycle, and one week after the twelfth cycle."
+        },
+        {
+          "measure": "Occurrence and degree of nephrotoxicity",
+          "description": "Assessed during standard-of-care laboratory assessment for nephrotoxicity (creatinine, eGFR, and ureum) analysis before each subsequent cycle and graded according to Common Terminology Criteria for Adverse Events (CTCAE, version 5.0).",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles."
+        },
+        {
+          "measure": "Occurrence and degree of hepatotoxicity",
+          "description": "Assessed during standard-of-care laboratory assessment for hepatotoxicity (albumin, bilirubin, AST, ALT, LD, AF, yGT) analysis before each subsequent cycle and graded according to Common Terminology Criteria for Adverse Events (CTCAE, version 5.0).",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles."
+        },
+        {
+          "measure": "Occurrence and degree of haematological toxicity",
+          "description": "Assessed during standard-of-care laboratory assessment for haematological toxicity (haemoglobin, leucocytes, thrombocyte) analysis before each subsequent cycle and graded according to Common Terminology Criteria for Adverse Events (CTCAE, version 5.0).",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles."
+        },
+        {
+          "measure": "Response of Tumor marker during treatment",
+          "description": "Assessed by carcino-embryonic antigen (CEA) analysis during standard laboratory analysis before each subsequent cycle",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles."
+        },
+        {
+          "measure": "Number of patients that completed twelve cycles",
+          "description": "To determine the number of patients completing twelve cycles of treatment with intraperitoneal irinotecan (75 mg) and concomitant palliative systemic therapy, required dose reductions, and reasons for discontinuation.",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles."
+        },
+        {
+          "measure": "Objective radiological response",
+          "description": "assessed by thoracoabdominal CT at baseline, after the fourth cycle, after the eighth cycle, and after the twelfth cycle according to RECIST.",
+          "timeFrame": "24 weeks. Each cycle is 2 weeks, maximum of 12 cycles. Measured at baseline, after the fourth cycle, after the eighth cycle, and after the twelfth cycle."
+        },
+        {
+          "measure": "Peritoneum/plasma ratio of intraperitoneal irinotecan",
+          "description": "To determine the the peritoneum/plasma ratio of intraperitoneal during the first and fourth cycle of intraperitoneal irinotecan (75 mg) and concomitant palliative systemic therapy. Whole blood and peritoneal fluid will be drawn from a peripheral intravenous access and the peritoneal access port, respectively, and collected in 3 mL lithium heparin tubes and 2 mL cryotubes, respectively, at the following moments after the start of irinotecan infusion; t=0, at the end of infusion (EOI), t=30 minutes after EOI and t =2 hrs after EOI and t = 4hrs after EOI. The ratio between the Area Under the Curve (AUC) between irinotecan measured in the peritoneum and measured in the plasma is taken.",
+          "timeFrame": "8 weeks. Each cycles is 2 weeks. Measured during cycle 1 and cycle 4."
+        }
+      ]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Inclusion Criteria:\n\n* Histologically confirmed colorectal cancer;\n* Radiologically and clinically or pathologically confirmed unresectable colorectal peritoneal metastases (e.g. PCI \\>20, extensive small bowel involvement, unresectable disease due to anatomical location);\n* WHO performance score of 0-1 with a life expectancy of \\>3 months;\n* Aged 18 years or older;\n* Written informed consent;\n\nExclusion Criteria:\n\n* Presence of extensive systemic metastases that are deemed to be the dominant factor determining prognosis in terms of life expectancy and performance status \\[e.g. no imminent threat of impaired organ functioning due to the presence of systemic metastases\\]);\n* Prior cytoreductive surgery;\n* Prior palliative systemic therapy for colorectal cancer;\n* Prior neo-adjuvant/adjuvant systemic therapy for colorectal cancer within the last 6 months;\n* Homozygous UGT1A1\\*28 genotype;\n* Homozygous dihydropyrimidine dehydrogenase (DPD) deficiency\n* Microsatellite instable (MSI) primary tumor\n* Any contra-indication for the planned chemotherapy (e.g. active infection, serious concomitant disease, severe allergy), as determined by the medical oncologist;\n* Inadequate organ functions, defined as an haemoglobin of \\<5 mmol/L, an absolute neutrophil count of \\<1.5 x 109/L, platelet count of \\<100 x 109/L, serum creatinine of \\>1.5 x ULN, creatinine clearance of \\<30 ml/min, Bilirubin \\> 2x ULN and liver transaminases of \\>5 x ULN.",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "18 Years",
+      "stdAges": [
+        "ADULT",
+        "OLDER_ADULT"
+      ]
+    },
+    "contactsLocationsModule": {
+      "centralContacts": [
+        {
+          "name": "Pim Burger, MD, PhD",
+          "role": "CONTACT",
+          "phone": "0031402397150",
+          "email": "pim.burger@catharinaziekenhuis.nl"
+        }
+      ],
+      "locations": [
+        {
+          "facility": "Catharina Hospital",
+          "status": "RECRUITING",
+          "city": "Eindhoven",
+          "country": "Netherlands",
+          "contacts": [
+            {
+              "name": "Teun van den Heuvel, MD",
+              "role": "CONTACT",
+              "phone": "0031 40 239 6351",
+              "email": "teun.vd.heuvel@catharinaziekenhuis.nl"
+            }
+          ],
+          "geoPoint": {
+            "lat": 51.44083,
+            "lon": 5.47778
+          }
+        },
+        {
+          "facility": "Erasmus Medical Centre",
+          "status": "RECRUITING",
+          "city": "Rotterdam",
+          "country": "Netherlands",
+          "contacts": [
+            {
+              "name": "Niels Guchelaar",
+              "role": "CONTACT",
+              "phone": "0031 10 703 9640",
+              "email": "n.guchelaar@erasmusmc.nl"
+            }
+          ],
+          "geoPoint": {
+            "lat": 51.9225,
+            "lon": 4.47917
+          }
+        }
+      ]
+    },
+    "ipdSharingStatementModule": {
+      "ipdSharing": "NO"
+    }
+  },
+  "derivedSection": {
+    "miscInfoModule": {
+      "versionHolder": "2025-04-03"
+    },
+    "conditionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D015179",
+          "term": "Colorectal Neoplasms"
+        },
+        {
+          "id": "D009362",
+          "term": "Neoplasm Metastasis"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D007414",
+          "term": "Intestinal Neoplasms"
+        },
+        {
+          "id": "D005770",
+          "term": "Gastrointestinal Neoplasms"
+        },
+        {
+          "id": "D004067",
+          "term": "Digestive System Neoplasms"
+        },
+        {
+          "id": "D009371",
+          "term": "Neoplasms by Site"
+        },
+        {
+          "id": "D009369",
+          "term": "Neoplasms"
+        },
+        {
+          "id": "D004066",
+          "term": "Digestive System Diseases"
+        },
+        {
+          "id": "D005767",
+          "term": "Gastrointestinal Diseases"
+        },
+        {
+          "id": "D003108",
+          "term": "Colonic Diseases"
+        },
+        {
+          "id": "D007410",
+          "term": "Intestinal Diseases"
+        },
+        {
+          "id": "D012002",
+          "term": "Rectal Diseases"
+        },
+        {
+          "id": "D009385",
+          "term": "Neoplastic Processes"
+        },
+        {
+          "id": "D010335",
+          "term": "Pathologic Processes"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M12307",
+          "name": "Neoplasm Metastasis",
+          "asFound": "Metastases",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M17890",
+          "name": "Colorectal Neoplasms",
+          "asFound": "Colorectal Cancer",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M10448",
+          "name": "Intestinal Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M8886",
+          "name": "Gastrointestinal Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7256",
+          "name": "Digestive System Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M8883",
+          "name": "Gastrointestinal Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7255",
+          "name": "Digestive System Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M6336",
+          "name": "Colonic Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M10444",
+          "name": "Intestinal Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14844",
+          "name": "Rectal Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M12330",
+          "name": "Neoplastic Processes",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "BC04",
+          "name": "Neoplasms"
+        },
+        {
+          "abbrev": "BC23",
+          "name": "Symptoms and General Pathology"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Conditions"
+        },
+        {
+          "abbrev": "BC06",
+          "name": "Digestive System Diseases"
+        }
+      ]
+    },
+    "interventionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D000068258",
+          "term": "Bevacizumab"
+        },
+        {
+          "id": "D000077150",
+          "term": "Oxaliplatin"
+        },
+        {
+          "id": "D000077146",
+          "term": "Irinotecan"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D000074322",
+          "term": "Antineoplastic Agents, Immunological"
+        },
+        {
+          "id": "D000970",
+          "term": "Antineoplastic Agents"
+        },
+        {
+          "id": "D020533",
+          "term": "Angiogenesis Inhibitors"
+        },
+        {
+          "id": "D043924",
+          "term": "Angiogenesis Modulating Agents"
+        },
+        {
+          "id": "D006133",
+          "term": "Growth Substances"
+        },
+        {
+          "id": "D045505",
+          "term": "Physiological Effects of Drugs"
+        },
+        {
+          "id": "D006131",
+          "term": "Growth Inhibitors"
+        },
+        {
+          "id": "D059004",
+          "term": "Topoisomerase I Inhibitors"
+        },
+        {
+          "id": "D059003",
+          "term": "Topoisomerase Inhibitors"
+        },
+        {
+          "id": "D004791",
+          "term": "Enzyme Inhibitors"
+        },
+        {
+          "id": "D045504",
+          "term": "Molecular Mechanisms of Pharmacological Action"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M246",
+          "name": "Bevacizumab",
+          "asFound": "Non-",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M1674",
+          "name": "Oxaliplatin",
+          "asFound": "Outcomes",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M8600",
+          "name": "Fluorouracil",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M1671",
+          "name": "Irinotecan",
+          "asFound": "Infection",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M1346",
+          "name": "Antineoplastic Agents, Immunological",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M22318",
+          "name": "Angiogenesis Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M9231",
+          "name": "Growth Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M29349",
+          "name": "Topoisomerase I Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M7951",
+          "name": "Enzyme Inhibitors",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "ANeo",
+          "name": "Antineoplastic Agents"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Drugs and Chemicals"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}

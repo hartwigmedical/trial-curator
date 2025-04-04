@@ -26,3 +26,9 @@ def extract_code_blocks(text: str, lang: str) -> str:
     """
     pattern = re.compile(r"```" + lang + "(.*?)```", re.DOTALL)
     return "".join(pattern.findall(text))
+
+
+def load_eligibility_criteria(trial_data):
+    protocol_section = trial_data['protocolSection']
+    eligibility_module = protocol_section['eligibilityModule']
+    return unescape_json_str(eligibility_module['eligibilityCriteria'])

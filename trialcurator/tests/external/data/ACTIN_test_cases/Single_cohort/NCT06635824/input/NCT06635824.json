@@ -1,0 +1,752 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT06635824",
+      "orgStudyIdInfo": {
+        "id": "GCT1046-06"
+      },
+      "secondaryIdInfos": [
+        {
+          "id": "2024-512998-27-00",
+          "type": "CTIS"
+        },
+        {
+          "id": "jRCT2051240178",
+          "type": "REGISTRY",
+          "domain": "Japan Registry of Clinical Trials"
+        }
+      ],
+      "organization": {
+        "fullName": "Genmab",
+        "class": "INDUSTRY"
+      },
+      "briefTitle": "Trial to Evaluate Acasunlimab and Pembrolizumab Combination Superiority Over Standard of Care Docetaxel in Non-Small Cell Lung Cancer (ABBIL1TY NSCLC-06)",
+      "officialTitle": "A Prospective, Open-Label, Randomized, Phase 3 Trial of Acasunlimab (GEN1046) in Combination With Pembrolizumab Versus Docetaxel in Subjects With PD-L1 Positive Metastatic Non-Small Cell Lung Cancer After Treatment With a PD-1/PD-L1 Inhibitor and Platinum-Containing Chemotherapy (ABBIL1TY NSCLC-06)"
+    },
+    "statusModule": {
+      "statusVerifiedDate": "2025-03",
+      "overallStatus": "RECRUITING",
+      "expandedAccessInfo": {
+        "hasExpandedAccess": false
+      },
+      "startDateStruct": {
+        "date": "2024-11-25",
+        "type": "ACTUAL"
+      },
+      "primaryCompletionDateStruct": {
+        "date": "2027-01-31",
+        "type": "ESTIMATED"
+      },
+      "completionDateStruct": {
+        "date": "2029-10-31",
+        "type": "ESTIMATED"
+      },
+      "studyFirstSubmitDate": "2024-10-08",
+      "studyFirstSubmitQcDate": "2024-10-08",
+      "studyFirstPostDateStruct": {
+        "date": "2024-10-10",
+        "type": "ACTUAL"
+      },
+      "lastUpdateSubmitDate": "2025-03-03",
+      "lastUpdatePostDateStruct": {
+        "date": "2025-03-25",
+        "type": "ACTUAL"
+      }
+    },
+    "sponsorCollaboratorsModule": {
+      "responsibleParty": {
+        "type": "SPONSOR"
+      },
+      "leadSponsor": {
+        "name": "Genmab",
+        "class": "INDUSTRY"
+      },
+      "collaborators": [
+        {
+          "name": "BioNTech SE",
+          "class": "INDUSTRY"
+        }
+      ]
+    },
+    "oversightModule": {
+      "oversightHasDmc": true,
+      "isFdaRegulatedDrug": true,
+      "isFdaRegulatedDevice": false
+    },
+    "descriptionModule": {
+      "briefSummary": "This is a multicenter, randomized, open-label, international, Phase 3 trial to evaluate the efficacy and safety of acasunlimab in combination with pembrolizumab versus docetaxel (standard of care) in participants with programmed death ligand 1 (PD-L1)-positive metastatic non-small cell lung cancer (NSCLC) who have been treated with programmed cell death protein 1 (PD-1)/PD-L1 inhibitor and platinum-containing chemotherapy, administered either in combination or sequentially in the metastatic setting.",
+      "detailedDescription": "The goal of this trial is to determine the efficacy and safety of acasunlimab (an experimental antibody also known as GEN1046 or DuoBody\u00ae PDL1x4-1BB) in combination with pembrolizumab (an antibody known as KEYTRUDA\u00ae) compared to that of docetaxel (a standard of care chemotherapy). During the trial, the participant's quality of life will also be evaluated using industry-standard scales of measurement. To be eligible, participants:\n\n1. must have lung cancer that has metastasized (spread)\n2. have tumors that are positive for the PD-L1 protein (a biomarker that may be predictive of response to therapy)\n3. will have been previously treated with a PD-1/PD-L1-inhibitor and a platinum-containing cancer therapy administered in combination or sequentially.\n\nOther eligibility criteria will also apply.\n\nParticipants will be assigned to 1 of 2 active therapies, also known as treatment arms, as follows:\n\n* Acasunlimab (100 mg) and pembrolizumab (400 mg) once every 6 weeks (Q6W), or\n* Docetaxel 75 mg/m\\^2 once every 3 weeks (Q3W).\n\nThe estimated trial duration for a participant will vary but may be up to 5 years, consisting of:\n\n* An optional 56-day pre-screening period\n* A 28-day screening period\n* Up to 2 years of treatment\n* A 90-day safety follow-up period\n* Post-treatment follow-up."
+    },
+    "conditionsModule": {
+      "conditions": [
+        "PD-L1-positive Metastatic NSCLC"
+      ],
+      "keywords": [
+        "Lung Cancer",
+        "Solid Tumors",
+        "PD-L1",
+        "4-1BB"
+      ]
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": [
+        "PHASE3"
+      ],
+      "designInfo": {
+        "allocation": "RANDOMIZED",
+        "interventionModel": "PARALLEL",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {
+          "masking": "NONE"
+        }
+      },
+      "enrollmentInfo": {
+        "count": 702,
+        "type": "ESTIMATED"
+      }
+    },
+    "armsInterventionsModule": {
+      "armGroups": [
+        {
+          "label": "Arm A",
+          "type": "EXPERIMENTAL",
+          "description": "Acasunlimab, 100 mg and pembrolizumab, 400 mg will be administered via intravenous (IV) infusion, once every 6 weeks (Q6W) (Cycle length=42 days).",
+          "interventionNames": [
+            "Drug: Acasunlimab",
+            "Drug: Pembrolizumab"
+          ]
+        },
+        {
+          "label": "Arm B",
+          "type": "ACTIVE_COMPARATOR",
+          "description": "Docetaxel, 75 mg/m\\^2 will be administered via IV infusion, once every 3 weeks (Q3W) (Cycle length=21 days).",
+          "interventionNames": [
+            "Drug: Docetaxel"
+          ]
+        }
+      ],
+      "interventions": [
+        {
+          "type": "DRUG",
+          "name": "Acasunlimab",
+          "description": "IV infusion",
+          "armGroupLabels": [
+            "Arm A"
+          ],
+          "otherNames": [
+            "GEN1046",
+            "DuoBody\u00ae-PD-L1\u00d74-1BB"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Pembrolizumab",
+          "description": "IV infusion",
+          "armGroupLabels": [
+            "Arm A"
+          ]
+        },
+        {
+          "type": "DRUG",
+          "name": "Docetaxel",
+          "description": "IV infusion",
+          "armGroupLabels": [
+            "Arm B"
+          ]
+        }
+      ]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [
+        {
+          "measure": "Overall Survival (OS)",
+          "description": "OS is defined as the time from date of randomization to date of death due to any cause.",
+          "timeFrame": "Up to approximately 5 years"
+        }
+      ],
+      "secondaryOutcomes": [
+        {
+          "measure": "Progression-Free Survival (PFS)",
+          "description": "PFS is defined as the time from the date of randomization to the date of the first documented progression or death due to any cause, whichever occurs first based on response evaluation criteria in solid tumors (RECIST) version 1.1 as assessed by the investigator.",
+          "timeFrame": "Up to approximately 5 years"
+        },
+        {
+          "measure": "Confirmed Overall Response Rate (ORR)",
+          "description": "Confirmed ORR is defined as the proportion of participants with best overall response (BOR) of complete response (CR) or partial response (PR) based on RECIST v1.1 as assessed by the investigator.",
+          "timeFrame": "Up to approximately 5 years"
+        },
+        {
+          "measure": "Duration of Response (DOR)",
+          "description": "DOR is defined as the time from the onset date of response to the date of the first documented progression or death due to any cause based on RECIST v1.1 as assessed by the investigator.",
+          "timeFrame": "Up to approximately 5 years"
+        },
+        {
+          "measure": "Number of Participants With Adverse Events (AEs)",
+          "timeFrame": "From first dose until the end of the study (approximately 5 years)"
+        },
+        {
+          "measure": "Plasma Concentration of Acasunlimab",
+          "timeFrame": "Predose and postdose at multiple timepoints in Cycles 1-4, then every other cycle starting Cycle 5 (Cycle length=42 days)"
+        },
+        {
+          "measure": "Number of Participants With Anti-drug Antibodies (ADAs) to Acasunlimab",
+          "description": "Serum samples will be analyzed using validated, specific, and sensitive immunoassay method. Samples will be screened for ADAs binding to acasunlimab and the titer of confirmed positive/negative samples will be reported.",
+          "timeFrame": "Up to approximately 5 years"
+        },
+        {
+          "measure": "Change From Baseline in Functional Assessment of Cancer Therapy Item GP5 (FACIT-GP5; Version 4) Score",
+          "description": "Participant's global assessment of treatment tolerability will be assessed by FACIT-GP5. FACIT-GP5 asks participants to rate their agreement with the following statement, \"I am bothered by side effects of treatment\" in the past 7 days. Responses will be captured on a 5-point Likert scale ranging from 0 to 4 indicating 0 as not at all to 4 as very much bothered by side effects.",
+          "timeFrame": "Up to approximately 2 years"
+        },
+        {
+          "measure": "Patient-Reported Outcomes Version of the Common Terminology Criteria for Adverse Events (PRO-CTCAE)",
+          "description": "The PRO-CTCAE allows participants to report on the frequency, severity, and interference of patient-reported symptoms. For each AE, there are between one and three items to assess the frequency, severity, and/or interference with activities related to that AE. All PRO-CTCAE responses will be scored from 0 to 4 for frequency indicating (0= never to 4= almost constantly), severity (0= none to 4= very severe) and interference with usual or daily activities (0= not at all to 4= very much).",
+          "timeFrame": "Up to approximately 2 years"
+        }
+      ]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Key Inclusion Criteria:\n\n* Participant has histologically or cytologically confirmed metastatic NSCLC (stage IV).\n* Participant has progressed on or after receiving:\n\n  * One prior line of therapy (PD-1/PD-L1 inhibitor and platinum-based chemotherapy concomitantly) in the metastatic disease setting; OR\n  * No more than 2 prior lines of therapy (PD-1/PD-L1 inhibitor and platinum-based chemotherapy sequentially, irrespective of the order) in the metastatic disease setting.\n* Participant must have positive tumor PD-L1 expression (tumor cells \u22651%) determined prospectively on a tumor sample from the metastatic setting at a sponsor-designated central laboratory.\n* Participant has measurable disease according to RECIST v1.1 as assessed by the investigator at baseline.\n* Participant has an Eastern Cooperative Oncology Group (ECOG) performance status 0 or 1 within 7 days of Cycle 1 Day 1.\n* Participant has a life expectancy of \u22653 months.\n* Participant must have adequate organ and bone marrow function, per laboratory test results within 7 days of trial treatment.\n\nKey Exclusion Criteria:\n\n* Documentation of known targetable epidermal growth factor receptor (EGFR) sensitizing mutations, anaplastic lymphoma kinase (ALK), RET proto-oncogene (RET), ROS proto-oncogene 1; receptor tyrosine kinase (ROS1) rearrangement, Kirsten rat sarcoma virus (KRAS), BRAF mutations, and MET exon 14 skipping mutations/MET amplification. NOTE: MET amplification testing is optional based on local availability of the test.\n\n  * Participants with known KRAS/BRAF mutations are eligible for the trial if they do not have access to approved targeted therapies.\n* Participants with newly identified or known unstable or symptomatic central nervous system (CNS) metastases or history of carcinomatous meningitis.\n* Prior treatment with docetaxel for NSCLC.\n* Prior treatment with a 4-1BB (CD137) targeted agent, any type of antitumor vaccine, autologous cell immunotherapy, or any unapproved immunotherapy.\n* Treatment with an anticancer agent within 28 days prior to the first dose of trial treatment.\n\nNote: Other protocol-defined inclusion and exclusion criteria may apply.",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "18 Years",
+      "stdAges": [
+        "ADULT",
+        "OLDER_ADULT"
+      ]
+    },
+    "contactsLocationsModule": {
+      "centralContacts": [
+        {
+          "name": "Genmab Trial Information",
+          "role": "CONTACT",
+          "phone": "+4570202728",
+          "email": "clinicaltrials@genmab.com"
+        }
+      ],
+      "overallOfficials": [
+        {
+          "name": "Study Official",
+          "affiliation": "Genmab",
+          "role": "STUDY_DIRECTOR"
+        }
+      ],
+      "locations": [
+        {
+          "facility": "Ocala Oncology Center P.L.",
+          "status": "RECRUITING",
+          "city": "Ocala",
+          "state": "Florida",
+          "zip": "34474",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 29.1872,
+            "lon": -82.14009
+          }
+        },
+        {
+          "facility": "Norton Cancer Institute",
+          "status": "RECRUITING",
+          "city": "Louisville",
+          "state": "Kentucky",
+          "zip": "40202",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 38.25424,
+            "lon": -85.75941
+          }
+        },
+        {
+          "facility": "Washington University School of Medicine",
+          "status": "RECRUITING",
+          "city": "Saint Louis",
+          "state": "Missouri",
+          "zip": "63110",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 38.62727,
+            "lon": -90.19789
+          }
+        },
+        {
+          "facility": "Oncology Hematology West",
+          "status": "RECRUITING",
+          "city": "Omaha",
+          "state": "Nebraska",
+          "zip": "68124",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 41.25626,
+            "lon": -95.94043
+          }
+        },
+        {
+          "facility": "Clinical Research Alliance",
+          "status": "RECRUITING",
+          "city": "Westbury",
+          "state": "New York",
+          "zip": "11590",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 40.75566,
+            "lon": -73.58763
+          }
+        },
+        {
+          "facility": "Avera Cancer Institute",
+          "status": "RECRUITING",
+          "city": "Sioux Falls",
+          "state": "South Dakota",
+          "zip": "57105",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 43.54997,
+            "lon": -96.70033
+          }
+        },
+        {
+          "facility": "University of Tennessee Medical Center Cancer Institute",
+          "status": "RECRUITING",
+          "city": "Knoxville",
+          "state": "Tennessee",
+          "zip": "37920",
+          "country": "United States",
+          "geoPoint": {
+            "lat": 35.96064,
+            "lon": -83.92074
+          }
+        },
+        {
+          "facility": "MHAT for women's health - Nadezhda, OOD",
+          "status": "RECRUITING",
+          "city": "Sofia",
+          "country": "Bulgaria",
+          "geoPoint": {
+            "lat": 42.69751,
+            "lon": 23.32415
+          }
+        },
+        {
+          "facility": "CHU Angers - H\u00f4pital Larrey",
+          "status": "RECRUITING",
+          "city": "Angers",
+          "country": "France",
+          "geoPoint": {
+            "lat": 47.46667,
+            "lon": -0.55
+          }
+        },
+        {
+          "facility": "H\u00f4pital Ambroise Par\u00e9",
+          "status": "RECRUITING",
+          "city": "Boulogne Billancourt",
+          "country": "France",
+          "geoPoint": {
+            "lat": 48.83333,
+            "lon": 2.25
+          }
+        },
+        {
+          "facility": "H\u00f4pital Priv\u00e9 du Confluent",
+          "status": "RECRUITING",
+          "city": "Nantes",
+          "country": "France",
+          "geoPoint": {
+            "lat": 47.21725,
+            "lon": -1.55336
+          }
+        },
+        {
+          "facility": "CHU Rennes - Hopital Pontchaillou",
+          "status": "RECRUITING",
+          "city": "Rennes",
+          "country": "France",
+          "geoPoint": {
+            "lat": 48.11198,
+            "lon": -1.67429
+          }
+        },
+        {
+          "facility": "Nippon Medical School Hospital",
+          "status": "RECRUITING",
+          "city": "Bunkyo-ku",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 35.37517,
+            "lon": 139.92991
+          }
+        },
+        {
+          "facility": "NHO Kyushu Cancer Center",
+          "status": "RECRUITING",
+          "city": "Fukuoka-shi",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 33.6,
+            "lon": 130.41667
+          }
+        },
+        {
+          "facility": "NHO Hokkaido Cancer Center",
+          "status": "RECRUITING",
+          "city": "Hokkaido",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 43.41104,
+            "lon": 142.88878
+          }
+        },
+        {
+          "facility": "Cancer Institute Hospital of JFCR",
+          "status": "RECRUITING",
+          "city": "Koto City",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 35.66667,
+            "lon": 139.81718
+          }
+        },
+        {
+          "facility": "NHO Nagoya Medical Center",
+          "status": "RECRUITING",
+          "city": "Nagoya",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 35.18147,
+            "lon": 136.90641
+          }
+        },
+        {
+          "facility": "Miyagi Cancer Center",
+          "status": "RECRUITING",
+          "city": "Natori-shi",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 38.16667,
+            "lon": 140.88333
+          }
+        },
+        {
+          "facility": "Okayama University Hospital",
+          "status": "RECRUITING",
+          "city": "Okayama",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 34.65,
+            "lon": 133.93333
+          }
+        },
+        {
+          "facility": "Osaka Medical and Pharmaceutical University Hospital",
+          "status": "RECRUITING",
+          "city": "Osaka",
+          "country": "Japan",
+          "geoPoint": {
+            "lat": 34.69374,
+            "lon": 135.50218
+          }
+        },
+        {
+          "facility": "Ajou University Hospital",
+          "status": "RECRUITING",
+          "city": "Suwon",
+          "state": "Gyeonggi-do",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 37.29111,
+            "lon": 127.00889
+          }
+        },
+        {
+          "facility": "Chungbuk National University Hospital",
+          "status": "RECRUITING",
+          "city": "Cheongju-si",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 36.63722,
+            "lon": 127.48972
+          }
+        },
+        {
+          "facility": "Keimyung University Dongsan Hospital",
+          "status": "RECRUITING",
+          "city": "Daegu",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 35.87028,
+            "lon": 128.59111
+          }
+        },
+        {
+          "facility": "National Cancer Center Korea",
+          "status": "RECRUITING",
+          "city": "Goyang-si",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 37.65639,
+            "lon": 126.835
+          }
+        },
+        {
+          "facility": "Asan Medical Center",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "Samsung Medical Center",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "Severance Hospital, Yonsei University Health System",
+          "status": "RECRUITING",
+          "city": "Seoul",
+          "country": "Korea, Republic of",
+          "geoPoint": {
+            "lat": 37.566,
+            "lon": 126.9784
+          }
+        },
+        {
+          "facility": "Antoni van Leeuwenhoek",
+          "status": "RECRUITING",
+          "city": "Amsterdam",
+          "country": "Netherlands",
+          "geoPoint": {
+            "lat": 52.37403,
+            "lon": 4.88969
+          }
+        },
+        {
+          "facility": "Pan American Oncology Trials, LLC",
+          "status": "RECRUITING",
+          "city": "San Juan",
+          "zip": "902",
+          "country": "Puerto Rico",
+          "geoPoint": {
+            "lat": 18.46633,
+            "lon": -66.10572
+          }
+        },
+        {
+          "facility": "Auxilio Mutuo Cancer Center",
+          "status": "RECRUITING",
+          "city": "San Juan",
+          "zip": "917",
+          "country": "Puerto Rico",
+          "geoPoint": {
+            "lat": 18.46633,
+            "lon": -66.10572
+          }
+        },
+        {
+          "facility": "Barts Hospital",
+          "status": "RECRUITING",
+          "city": "London",
+          "country": "United Kingdom",
+          "geoPoint": {
+            "lat": 51.50853,
+            "lon": -0.12574
+          }
+        },
+        {
+          "facility": "Guy's Hospital",
+          "status": "RECRUITING",
+          "city": "London",
+          "country": "United Kingdom",
+          "geoPoint": {
+            "lat": 51.50853,
+            "lon": -0.12574
+          }
+        }
+      ]
+    },
+    "ipdSharingStatementModule": {
+      "ipdSharing": "NO"
+    }
+  },
+  "derivedSection": {
+    "miscInfoModule": {
+      "versionHolder": "2025-04-03"
+    },
+    "conditionBrowseModule": {
+      "meshes": [
+        {
+          "id": "D008175",
+          "term": "Lung Neoplasms"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D012142",
+          "term": "Respiratory Tract Neoplasms"
+        },
+        {
+          "id": "D013899",
+          "term": "Thoracic Neoplasms"
+        },
+        {
+          "id": "D009371",
+          "term": "Neoplasms by Site"
+        },
+        {
+          "id": "D009369",
+          "term": "Neoplasms"
+        },
+        {
+          "id": "D008171",
+          "term": "Lung Diseases"
+        },
+        {
+          "id": "D012140",
+          "term": "Respiratory Tract Diseases"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M11172",
+          "name": "Lung Neoplasms",
+          "asFound": "Lung Cancer",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M5546",
+          "name": "Carcinoma, Non-Small-Cell Lung",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14979",
+          "name": "Respiratory Tract Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M16658",
+          "name": "Thoracic Neoplasms",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M11168",
+          "name": "Lung Diseases",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M14977",
+          "name": "Respiratory Tract Diseases",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "BC04",
+          "name": "Neoplasms"
+        },
+        {
+          "abbrev": "BC08",
+          "name": "Respiratory Tract (Lung and Bronchial) Diseases"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Conditions"
+        }
+      ]
+    },
+    "interventionBrowseModule": {
+      "meshes": [
+        {
+          "id": "C582435",
+          "term": "Pembrolizumab"
+        },
+        {
+          "id": "D000077143",
+          "term": "Docetaxel"
+        }
+      ],
+      "ancestors": [
+        {
+          "id": "D000074322",
+          "term": "Antineoplastic Agents, Immunological"
+        },
+        {
+          "id": "D000970",
+          "term": "Antineoplastic Agents"
+        },
+        {
+          "id": "D000082082",
+          "term": "Immune Checkpoint Inhibitors"
+        },
+        {
+          "id": "D045504",
+          "term": "Molecular Mechanisms of Pharmacological Action"
+        },
+        {
+          "id": "D050257",
+          "term": "Tubulin Modulators"
+        },
+        {
+          "id": "D050256",
+          "term": "Antimitotic Agents"
+        },
+        {
+          "id": "D050258",
+          "term": "Mitosis Modulators"
+        }
+      ],
+      "browseLeaves": [
+        {
+          "id": "M1668",
+          "name": "Docetaxel",
+          "asFound": "Pressure",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M349416",
+          "name": "Pembrolizumab",
+          "asFound": "Part",
+          "relevance": "HIGH"
+        },
+        {
+          "id": "M1346",
+          "name": "Antineoplastic Agents, Immunological",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M2342",
+          "name": "Immune Checkpoint Inhibitors",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M26197",
+          "name": "Tubulin Modulators",
+          "relevance": "LOW"
+        },
+        {
+          "id": "M26196",
+          "name": "Antimitotic Agents",
+          "relevance": "LOW"
+        }
+      ],
+      "browseBranches": [
+        {
+          "abbrev": "ANeo",
+          "name": "Antineoplastic Agents"
+        },
+        {
+          "abbrev": "All",
+          "name": "All Drugs and Chemicals"
+        }
+      ]
+    }
+  },
+  "hasResults": false
+}
