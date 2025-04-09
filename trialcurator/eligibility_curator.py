@@ -4,6 +4,7 @@ import logging
 import sys
 
 from trialcurator import clinical_trial_schema
+from trialcurator.eligibility_sanitiser import llm_sanitise_text
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
 from trialcurator.openai_client import OpenaiClient
@@ -14,8 +15,6 @@ logging.basicConfig(stream=sys.stdout,
                     format='%(asctime)s %(levelname)5s - %(message)s',
                     datefmt='%H:%M:%S',
                     level=logging.INFO)
-
-#openai.api_key = os.environ["OPENAI_API_KEY"]
 
 TEMPERATURE = 0.0
 TOP_P = 1.0
@@ -33,65 +32,36 @@ documentation of common errors that I cannot easily fix by changing prompt:
 # 2: curate each cohort criteria
 # 3: refine criteria cause gemini struggle to use the full extent of the schema
 
-# for eligibility that have different groups, extract them
-def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
-
-    logger.info(f"eligibility criteria: {eligibility_criteria}")
-
-    prompt = 'Following are the eligibility criteria for a clinical trial:\n'
-    prompt += f"```\n{eligibility_criteria}\n```\n"
-    prompt += '''### Instructions for Sanitization of Eligibility Criteria Text
-- Remove any criteria related to informed consent.
-- Only include criteria that explicitly define inclusion or exclusion rules.
-- Remove permissive statements that do not restrict eligibility (e.g., "X is allowed", "Y may be permitted", "X are eligible").
-- Fix typos and misspellings, especially in units, medical terms, and lab tests.
-- Use ^ for power instead of superscript, i.e. 10^9 instead of 10⁹.
-- For lab values, use x for times instead of * or times, i.e. "5 x" instead of "5 *" or "5 times".
-- Use uppercase L for liter units (e.g., "mg/dL").
-- Replace well-known phrases with accepted abbreviations where appropriate, i.e. "ECOG", "HIV", "HBV", "HCV", "x ULN".
-- If a criterion includes multiple conditions that can logically stand alone, separate them into distinct bullet points.
-- Maintain consistent bulleting and indentation, use `-` instead of `*` for bullet points.
-- Maintain distinct eligibility groups (cohorts, parts, phase etc) if provided in the original text.
-- Answer in one text block with no additional explanation.
-'''
-
-    sanitised_text = client.llm_ask(prompt).replace("```", "")
-    return sanitised_text
 
 # for eligibility that have different groups, extract them
 def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> list[str]:
 
     logger.info(eligibility_criteria)
 
-    #prompt = 'Following are the eligibility criteria for a clinical trial:\n'
+    system_prompt = '''You are a medical text processing assistant.'''
+
     prompt = f"```\n{eligibility_criteria}\n```\n"
-
-    '''Instructions:
-- Some clinical trials have different eligibility criteria for distinct groups (e.g., part, phase, cohort). Extract the names of these eligibility groups into a JSON list of strings, but only if they are explicitly defined and have mutually exclusive eligibility criteria.
-- If no distinct eligibility groups are described, return a single-item list containing "default".
-- Only list groups that have distinct eligibility criteria.
-- Do not create general or umbrella groups that overlap or encompass more specific groups.
-- Each group must be mutually exclusive and based only on criteria that differ from other groups.
-- Answer should be a single code block with no explanation.'''
-
     prompt += '''
 You are given the inclusion and exclusion criteria of a clinical trial. Some trials define different eligibility groups (e.g., "part 1", "cohort A", "phase 2") with distinct sets of eligibility criteria.
-**Your task** is to extract the names of these eligibility groups into a JSON list of strings, but only under the following conditions:
-1. Explicit Labeling: Only extract a group if it is explicitly named (e.g., "part 1", "cohort A", "arm B"). Do not infer or create names.
+YOUR TASK is to extract the names of these eligibility groups into a JSON list of strings, but only under the following conditions:
+1. Explicit Labeling: Only extract a group if it is explicitly named (e.g., "part 1", "cohort A", "arm B"). Do not infer\
+ or create names.
 2. Distinct Eligibility Criteria: Groups must have meaningfully different eligibility criteria.
-3. Preserve Full Group Names: If a group name contains a parent group and one or more subgroups, capture the full hierarchical name as it appears in the text. For example, if the text uses a structure like:
-   - `GROUP A:`  
-     under which appears `Subtype X:`  
-     and then `Condition Y`,  
-   then the group name should be extracted as: "GROUP A: Subtype X: Condition Y"
-   Do NOT shorten this to `"GROUP A"` or `"Subtype X"`.
+3. Preserve Full Group Names: If a group name contains a parent group and one or more subgroups, capture the full \
+hierarchical name as it appears in the text. For example:
+   - If `GROUP A:` contains `Subtype X:` which contains `Condition Y`, then the group name should be extracted as: \
+"GROUP A: Subtype X: Condition Y"
+   - Do NOT shorten this to "GROUP A" or "Subtype X".
 4. Do NOT Merge or Generalize:
    - Do NOT create general or umbrella categories (e.g., combining "part 1" and "part 2" into one group).
    - Do NOT list a group just because it has a different name — the criteria must actually differ.
 5. Default Case: If no distinct groups are defined, return a single-item list `["default"]`
-**Output format**: Return a JSON array of group names (as strings), exactly as they appear in the text (e.g., `"part 1"`, `"cohort A"`).
-    '''
-    response = client.llm_ask(prompt)
+
+Output format: Return a JSON array of group names (as strings), exactly as they appear in the text (e.g., "part 1", \
+"cohort A"). Do not include any explanation or formatting outside the JSON array.
+'''
+
+    response = client.llm_ask(prompt, system_prompt=system_prompt)
 
     try:
         eligibility_groups = json.loads(extract_code_blocks(response, 'json'))
@@ -140,6 +110,10 @@ Instructions:
 
 def llm_curate_from_text(eligibility_criteria: str, client: LlmClient) -> str:
 
+    system_prompt = '''
+You are an expert clinical trial curator. Your role is to convert unstructured inclusion and exclusion criteria into a \
+structured format using a predefined Python schema.'''
+
     # print the clinical trial schema
     prompt = f'{inspect.getsource(clinical_trial_schema)}\n'
     prompt += 'Create an object called inclusion_criteria to represent the following inclusion criteria:\n'
@@ -147,18 +121,34 @@ def llm_curate_from_text(eligibility_criteria: str, client: LlmClient) -> str:
     prompt += '''
 INSTRUCTIONS:
 - Focus strictly on the inclusion and exclusion criteria and ignore any descriptive or background details and non requirements.
-- Exclusion criteria should be converted into inclusion criteria with negation using the `NotCriterion` class.
+- Exclusion criteria should be converted into inclusion criteria with negation.
+- However, if an exclusion criterion is already a negation (e.g., "patients who do not have X", "who will not receive \
+X"), do NOT wrap it in a `NotCriterion`.
+  Instead, resolve the double negation and include it as a positive criterion.
+  For example:
+    - "Exclude patients who do NOT have X" →
+        ✅ Criterion(condition='X')
+        ❌ NotCriterion(criterion=Criterion(condition='X')
+- Similarly, when an exclusion criterion describes a negated comparison (e.g., "exclude patients < X"), do not use a NotCriterion.
+  Instead, resolve the negation into its logical positive equivalent and express it as a direct inclusion using the appropriate operator.
 - DO NOT create a separate object for exclusion criteria.
 - `description` field should be complete and self-contained.
 - Ensure that criterion to do with lab measurements use the `LabValueCriterion` class.
-- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
+- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
+ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
 - Use PrimaryTumorCriterion for any mention of tumor type (e.g., "melanoma", "solid tumor", "lymphoma").
-- Use MolecularCriterion for biomarker-based eligibility (e.g., "PD-L1-positive") and set gene and alteration accordingly.
+- Use MolecularBiomarkerCriterion for expression based biomarker eligibility (e.g., "PD-L1-positive").
+- Use MolecularSignatureCriterion for composite molecular features or signatures (e.g., "MSI-H", "HRD").
+- Use GeneAlterationCriterion for gene alteration-based eligibility (e.g., "BRCA1 mutation", ALK fusion).
+- When specifying protein variants, always use the HGVS protein notation format.
 - If the criterion contains conditional logic (e.g., "if X"), represent this using an IfCriterion.
-- Use PrimaryTumorCriterion AND MolecularCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma"). 
+- Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").
+- Use SymptomCriterion only for symptom related to the tumor. Use ComobidityCriterion for conditions not related to the tumor.
+- Use ClinicalJudgementCriterion for clinical judgement such as adequate organ function.
+- When an inclusion criterion includes an exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
 - Answer should be given in a single code block with no explanation.'''
 
-    response = client.llm_ask(prompt)
+    response = client.llm_ask(prompt, system_prompt=system_prompt)
 
     python_code = extract_code_blocks(response, 'python')
 
@@ -166,21 +156,29 @@ INSTRUCTIONS:
 
 def llm_refine_answer(clinical_trial_code: str, client: LlmClient) -> str:
 
+    system_prompt = '''
+You are a clinical trial curation validator and assistant. Your task is to review and improve Python objects representing structured eligibility criteria based on a predefined schema (modeled using Pydantic).
+These objects are created from free-text eligibility criteria in oncology trials.'''
+
     # make sure the schema is included
     clinical_trial_code = prepend_schema_if_missing(clinical_trial_code)
     prompt = 'Given the following code:\n\n'
     prompt += f"```python\n{clinical_trial_code}\n```\n"
     prompt += '''
 Refactor the above code with the following rules:
-- Replace instances of `OtherCriterion` with more specific criterion types where applicable.
+- Correct misuse of fields or criterion types (e.g., replacing OtherCriterion with a specific one if appropriate)
+- Improve logical structure (e.g., use IfCriterion for conditional thresholds, combine related rules with AndCriterion)
 - Wrap any criterion expressing negation (e.g., using "not", "no") in a `NotCriterion`, and populate the `description` field accordingly.
+- Standardize field values (e.g., stage names, confirmation methods)
+- Preserve the original meaning exactly — do not infer or generalize beyond what is stated
 - For criteria that contain disjunctive logic (e.g., "X or Y"), split them into individual criteria and wrap them in an `OrCriterion`.
 - For medication criteria that contain disjunctive medications (e.g., "X or Y"), split them into individual medication criteria and wrap them in an `OrCriterion`.
 - Normalize lab value expressions to use `"x ULN"` for any upper limit of normal comparisons.
+- Adhere strictly to the pydantic schema defined in the code.
 - Return a single code block with no explanation.
 '''
 
-    response = client.llm_ask(prompt)
+    response = client.llm_ask(prompt, system_prompt)
     python_code = extract_code_blocks(response, 'python')
 
     return python_code
@@ -189,21 +187,24 @@ Refactor the above code with the following rules:
 Simplify lab values
 '''
 def llm_simplify(clinical_trial_code: str, client: LlmClient) -> str:
+    system_prompt = '''You are a clinical trial curation validator and assistant. Your task is to review and improve \
+    Python objects representing structured eligibility criteria based on a predefined schema (modeled using Pydantic)'''
 
     clinical_trial_code = prepend_schema_if_missing(clinical_trial_code)
     prompt = 'Given the following code:\n\n'
     prompt += f"```python\n{clinical_trial_code}\n```\n"
     prompt += '''
 Refactor the above code with the following improvements:
-- Simplify `LabValueCriterion` expressions inside `NotCriterion`, e.g., `NOT(x > 20)` → `x <= 20`, make sure the meaning is unchanged.
+- Simplify `LabValueCriterion` or `AgeCriterion` expressions inside `NotCriterion`, e.g., `NOT(x > 20)` → `x <= 20`, make sure the meaning is unchanged.
 - Simplify disjunctive `LabValueCriterion` inside `NotCriterion`, e.g., `NOT(x > 20 OR y > 10)` → `x <= 20 AND y <= 10`, make sure the meaning is unchanged.
 - For criteria nested inside `NotCriterion`, fill in `description` text to the inner criteria, removing negation from the wording. Do not modify the `NotCriterion` description.
 - Replace generic `OtherCriterion` inside `NotCriterion` with more specific types (e.g., `ComorbidityCriterion`, `MetastasesCriterion`) when applicable.
-- Make sure the code conforms to the pydantic schema.
+- Adhere strictly to the pydantic schema defined in the code.
 - Return only a single code block as the output, with no explanation.
+- Fill in the timing_info field of `PriorTherapyCriterion` and `PriorMedicationCriterion` if available from description.
 '''
 
-    response = client.llm_ask(prompt)
+    response = client.llm_ask(prompt, system_prompt)
     python_code = extract_code_blocks(response, 'python')
     print(f"refined python code = {python_code}")
 

@@ -29,32 +29,34 @@ DO NOT:
 - Change the meaning of any restrictive criteria
 - Remove headers like 'Inclusion Criteria:' or 'Exclusion Criteria:'
 """
-
     user_prompt = """
-Please clean the eligibility criteria text below using the following instructions.
+Clean the eligibility criteria text below using the following instructions.
 
 DISTINGUISH INCLUSION & EXCLUSION CRITERIA
 - Ensure that 'Inclusion Criteria:' and 'Exclusion Criteria:' each appear on their own line.
 - If these headers appear inside a bullet point, move them to their own line before the related section.
 - Do not duplicate, paraphrase, or remove headers.
+- Maintain distinct eligibility groups (cohorts, parts, phase etc) if provided in the original text.
 
 TYPO CORRECTION & NORMALIZATION
 - Fix typos and misspellings in units, medical terms, and lab test names.
 - Use ^ for power instead of superscript (e.g., 10^9 not 10⁹).
 - Use 'x' for multiplication instead of '*' or 'times' (e.g., 5 x ULN).
 - Use uppercase 'L' for liters (e.g., mg/dL).
-- Replace well-known terms with standard abbreviations (e.g., ECOG, HIV, HBV, HCV, ULN).
+- Use SI unit for lab measurements.
+- Replace well-known terms with standard abbreviations (e.g., ECOG, HIV, HBV, HCV, ULN, CNS).
 
 FORMATTING & BULLETING
 - Normalize all bullet points to use '-' consistently.
 - Ensure each bullet starts on a new line.
-- If a bullet contains multiple logically distinct conditions, split them into separate lines.
+- If a criterion includes multiple conditions that can logically stand alone, split them into \
+distinct bullet points.
 
 REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Only include criteria that explicitly define inclusion or exclusion rules.
-- Remove any statements that describe what is allowed or may be permitted (e.g., "X is allowed", "Y are eligible").
-- Remove any descriptive/contextual lines that don’t impose inclusion or exclusion requirements.
-- Remove any lines about informed consent (e.g., "Patient must be able to provide informed consent").
+- Remove permissive statements that do not restrict eligibility (e.g., "X is allowed", "Y may be permitted", "X are eligible")
+- Remove any descriptive/contextual statement that don’t impose inclusion or exclusion requirements.
+- Remove any statement about informed consent (e.g., "Patient must be able to provide informed consent").
 
 OUTPUT STRUCTURE
 - Answer in one text block with no additional explanation.

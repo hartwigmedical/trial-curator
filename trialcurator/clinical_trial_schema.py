@@ -6,13 +6,9 @@ class IntRange(BaseModel):
     min_inclusive: Optional[int] = None
     max_inclusive: Optional[int] = None
 
+# this class is abstract
 class BaseCriterion(BaseModel, ABC):
     description: str = ''
-
-    def __init__(self, **kwargs):
-        if type(self) is BaseCriterion:
-            raise TypeError("BaseCriterion is abstract and cannot be instantiated directly.")
-        super().__init__(**kwargs)
 
 class AgeCriterion(BaseCriterion):
     age: int
@@ -34,17 +30,30 @@ class PrimaryTumorCriterion(BaseCriterion):
     disease_extent: Optional[str] = None          # e.g. "locally advanced"
 
 class HistologyCriterion(BaseCriterion):
-    histology_types: str  # e.g., ["small cell", "combined small cell and non-small cell"
+    histology_type: str  # e.g., "small cell", "combined small cell and non-small cell"
 
-class MolecularCriterion(BaseCriterion):
-    biomarker: str  # e.g., "PD-L1", "MSI", "KRAS", "TMB"
-    alteration: str  # e.g. "mutation", "fusion", "deletion", "amplification", "overexpression", "loss", "MSI-H", "TMB-H", "CNV", "methylation"
+# Expression-based biomarkers (mostly protein-level)
+class MolecularBiomarkerCriterion(BaseCriterion):
+    biomarker: str                          # e.g., "PD-L1", "HER2", "ER", "AR"
+    expression_type: Optional[str] = None   # e.g., "positive", "high", "low", "≥1%", "overexpression", "IHC 3+"
+    method: Optional[str] = None            # e.g., "IHC", "FISH", "RNAseq"
+
+# gene-based alterations (DNA or mRNA-level)
+class GeneAlterationCriterion(BaseCriterion):
+    gene: str                               # e.g., "EGFR", "KRAS"
+    alteration: str                         # e.g., "mutation", "fusion", "amplification", "deletion", "overexpression"
+    variant: Optional[str] = None           # e.g., "p.G12C", "exon 20 insertion"
+    detection_method: Optional[str] = None  # e.g., "NGS", "RT-PCR", "FISH"
+
+# Composite molecular features or signatures
+class MolecularSignatureCriterion(BaseCriterion):
+    signature: str    # e.g. "MSI-H", "TMB-H", "HRD", "LOH", "Genomic Instability"
 
 class DiagnosticFindingCriterion(BaseCriterion):
-    finding: str = ''                 # e.g., "measurable disease"
-    method: Optional[str] = None      # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
-    modality: Optional[str] = None    # e.g., "CT", "MRI", "NGS", "H&E stain"
-    location: Optional[str] = None    # e.g., "lung", "liver", "brain"
+    finding: str = ''               # e.g., "measurable disease"
+    method: Optional[str] = None    # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
+    modality: Optional[str] = None  # e.g., "CT", "MRI", "NGS", "H&E stain"
+    location: Optional[str] = None  # e.g., "lung", "liver", "brain"
 
 class SurgeryCriterion(BaseCriterion):
     surgical_procedure: Optional[str] = None
@@ -57,11 +66,12 @@ class MetastasesCriterion(BaseCriterion):
 
 class ComorbidityCriterion(BaseCriterion):
     comorbidity: str  # diabetes, heart failure, organ transplant
-    within_last_n_months: Optional[int] = None
+    timing_info: Optional[str] = None
     severity: Optional[str] = None  # e.g. "severe", "uncontrolled"
 
 class PriorMedicationCriterion(BaseCriterion):
     medications: str
+    timing_info: Optional[str] = None
 
 class CurrentMedicationCriterion(BaseCriterion):
     medications: str
@@ -111,11 +121,9 @@ class TissueAvailabilityCriterion(BaseCriterion):
 class OtherCriterion(BaseCriterion):
     reason: Optional[str] = None  # Optional metadata for why it's "Other"
 
-# conjunction of multiple criteria
 class AndCriterion(BaseCriterion):
     criteria: List[BaseCriterion]
 
-# disjunction of multiple criteria
 class OrCriterion(BaseCriterion):
     criteria: List[BaseCriterion]
 
