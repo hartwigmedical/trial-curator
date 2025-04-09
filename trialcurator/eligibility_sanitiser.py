@@ -5,12 +5,6 @@ from trialcurator.utils import extract_code_blocks, unescape_json_str
 
 logger = logging.getLogger(__name__)
 
-# 7 April 2025:
-# Moved across llm_sanitise_text(), llm_extract_eligibility_groups(), llm_extract_text_for_groups() from eligibility_curator.py
-# Moved across clean_raw_text(), validate_and_fix_formatting(), remove_permissive_conditions() from eligibility_curator_ACTIN.py
-# clean_raw_text() & validate_and_fix_formatting() merged into llm_sanitise_text()
-# Prompts such as "Remove any criteria related to informed consent" are included in the standalone function remove_permissive_conditions()
-
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
 
     logger.info(f"eligibility criteria: {eligibility_criteria}")
@@ -30,7 +24,7 @@ DO NOT:
 - Remove headers like 'Inclusion Criteria:' or 'Exclusion Criteria:'
 """
     user_prompt = """
-Clean the eligibility criteria text below using the following instructions.
+Clean the eligibility criteria text below using the following instructions
 
 DISTINGUISH INCLUSION & EXCLUSION CRITERIA
 - Ensure that 'Inclusion Criteria:' and 'Exclusion Criteria:' each appear on their own line.

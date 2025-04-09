@@ -63,24 +63,73 @@ def map_to_actin(input_eligibility_criteria: str, client: LlmClient, rel_path: s
 
     actin_rules = load_actin_rules(rel_path)
 
-    # Examples to guide the LLM
-    example_block = """
-Input: 
-    EXCLUDE Has ongoing androgen deprivation with serum testosterone <50 ng/dL
-ACTIN Output:
-    HAS_ONGOING_ANDROGEN_DEPRIVATION_WITH_TESTOSTERONE_BELOW_X_NG_DL[50]
-New rule: 
-    HAS_ONGOING_ANDROGEN_DEPRIVATION_WITH_TESTOSTERONE_BELOW_X_NG_DL[50]
+    system_prompt = """
+You are a clinical trial curation assistant.
+Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
 
-Input: 
-    INCLUDE Male patients aged 18 years and older
+TASKS
+- Translate each line into one or more ACTIN rules.
+- Match to the existing ACTIN RULE LIST.
+- Only create a new rule if there is truly no match — search for semantic equivalents.
+- Always indicate new rules with a full rule name after `New rule:`.
+
+RULE MATCHING
+- Match based on **rule name pattern**, not literal string tokens.
+- A rule is NOT new if its name exists in ACTIN, even with different parameter values.
+- Prefer using **general rules** (e.g. HAS_HAD_TREATMENT_WITH_ANY_DRUG_X) over disease-specific variants unless those are explicitly required.
+
+LOGICAL STRUCTURE
+- Use `OR` if multiple alternatives are valid (e.g., “histological OR cytological” confirmation).
+    - Example:
+      `(HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE OR HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE)`
+- Use `AND` when all conditions must be met.
+- Combine logical groups using parentheses when mixing `AND` and `OR`:
+    - Correct: `(A OR B) AND C`
+    - Incorrect: `A OR B AND C`
+
+NUMERIC COMPARISON LOGIC
+- “≥ X” → `IS_AT_LEAST_X[...]`
+- “> X” → `IS_AT_LEAST_X[...]` with increased value if needed
+- “≤ X” → `IS_AT_MOST_X[...]`
+- “< X” → `IS_AT_MOST_X[...]` with decreased value if needed
+
+FALLBACK RULES (use when no ACTIN rule matches)
+- Treatment eligibility:  
+    `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]`
+- Gene rearrangement:  
+    `HAS_GENE_REARRANGEMENT_IN_X[ROS1]`
+- Broad compliance-impacting condition:  
+    `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`
+- Prior drug exposure (general):  
+    `HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[ros1 tyrosine kinase inhibitor]`
+
+FORMATTING
+- Use square brackets `[...]` for rule parameters.
+- Use `AND`, `OR`, and `NOT` on their own lines.
+- Never paraphrase or omit important medical or logical detail.
+- Do not mark rules as new unless they introduce a completely new rule name.
+
+OUTPUT FORMAT (strictly follow this):
+Input:
+    [original line]
 ACTIN Output:
-    IS_MALE
-    AND
-    IS_AT_LEAST_X_YEARS_OLD[18]
+    [rule 1]
+    AND/OR
+    [rule 2]
 New rule:
-    False
-    
+    [False OR full rule name]
+"""
+
+    user_prompt = """
+You are given a list of clinical trial eligibility criteria, each tagged with INCLUDE or EXCLUDE.
+
+Instructions:
+- Map each line to ACTIN rules.
+- Use `NOT(...)` for exclusion lines.
+- Combine logic with `AND` or `OR` according to the text.
+- Use fallback rules or create new rule names only if no ACTIN match is possible.
+
+FORMAT EXAMPLES:
 Input: 
     EXCLUDE Body weight over 150 kg
 ACTIN Output:
@@ -101,88 +150,22 @@ ACTIN Output:
     NOT(HAS_SEVERE_CONCOMITANT_CONDITION)
 New rule:
     False
-"""
-
-    system_prompt = """
-You are a clinical trial curation assistant.
-Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
-
-TASKS
-- Translate each line into one or more ACTIN rules.
-- Match to the existing ACTIN RULE LIST.
-- If no match exists, create a new rule name with full details and parameters.
-- Mark new rules by writing them fully after `New rule:`.
-
-RULE MATCHING GUIDELINES
-- Match based on **rule name structure**, not the values inside [brackets].
-- A rule is NOT new if the rule name already exists in ACTIN — even if values differ.
-- Do NOT mark rules as new if the only change is in bracket values, wording, or synonyms.
-
-LOGICAL COMPARISON LOGIC
-Use these conversions for numeric conditions:
-- “≥ X” → `IS_AT_LEAST_X[...]`
-- “> X”  → `IS_AT_LEAST_X[...] + 1` (or a custom rule if needed)
-- “≤ X” → `IS_AT_MOST_X[...]`
-- “< X”  → `IS_AT_MOST_X[...] - 1` (or a custom rule if needed)
-
-EXAMPLES:
-- “Excludes weight over 150 kg” → `NOT(HAS_BODY_WEIGHT_OF_AT_LEAST_X[150])`
-- “Hemoglobin < 5” → `NOT(HAS_HEMOGLOBIN_OF_AT_LEAST_X[5])`
-- “Creatinine > 1.5 x ULN” → `NOT(HAS_CREATININE_ULN_OF_AT_MOST_X[1.5])`
-
-FALLBACK RULES FOR NEW CONDITIONS
-Use standard formats when no rule exists:
-- Eligibility for specific regimens:
-    `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]`
-- Broad condition impacting compliance (e.g., mental illness, severe disease):
-    `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`
-
-LOGIC & FORMATTING
-- Use AND, OR, and NOT as needed.
-- Use NOT(...) for exclusion lines.
-- Group conditions with parentheses when mixing AND and OR.
-- Use square brackets for rule parameters.
-- Place each logical operator on its own line.
-- Never summarize, paraphrase, or omit important qualifiers.
-
-OUTPUT FORMAT
-Each item must follow this format:
 
 Input: 
-    [original line]
+    INCLUDE Histologically or cytologically confirmed diagnosis of advanced NSCLC
 ACTIN Output:
-    [structured rule logic]
-New rule:
-    [False OR full rule name]
-"""
-
-    user_prompt = """
-You are given a list of eligibility criteria, each starting with INCLUDE or EXCLUDE.
-
-For each line:
-- Generate the matching ACTIN rules.
-- Use NOT(...) for EXCLUDE-tagged conditions.
-- Follow comparison logic and fallback rules when needed.
-
-FORMAT REQUIREMENTS
-Input: 
-    [original line]
-ACTIN Output:
-    [ACTIN_RULE_1]
+    (HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE
+    OR
+    HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE)
     AND
-    [ACTIN_RULE_2]
+    HAS_ADVANCED_NSCLC
 New rule:
-    [False OR full rule name]
-"""
+    False
 
-    user_prompt += f"""
-EXAMPLES:
-{example_block}
 """
-
     user_prompt += "\nACTIN RULES:\n" + "\n".join(actin_rules)
 
-    user_prompt += f"""       
+    user_prompt += f"""
 Now map the following eligibility criteria:
 {input_eligibility_criteria}
 """
@@ -216,7 +199,6 @@ def parse_actin_output_to_json(trial_id: str, mapped_text: str) -> dict:
         })
 
     return result
-
 
 
 def main():
