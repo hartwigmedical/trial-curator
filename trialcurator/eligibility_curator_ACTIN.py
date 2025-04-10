@@ -78,6 +78,11 @@ RULE MATCHING
 - A rule is NOT new if its name exists in ACTIN, even with different parameter values.
 - Prefer using **general rules** (e.g. HAS_HAD_TREATMENT_WITH_ANY_DRUG_X) over disease-specific variants unless those are explicitly required.
 
+WHAT COUNTS AS A NEW RULE
+- A rule is NEW if its rule name (before square brackets) does not appear in the ACTIN RULE LIST.
+- Always output this rule name (not False) after `New rule:` when this occurs.
+- Do not mark the rule as "False" unless the exact rule name already exists in the ACTIN RULE LIST.
+
 LOGICAL STRUCTURE
 - Use `OR` if multiple alternatives are valid (e.g., “histological OR cytological” confirmation).
     - Example:
@@ -161,7 +166,13 @@ ACTIN Output:
     HAS_ADVANCED_NSCLC
 New rule:
     False
-
+    
+Input: 
+    INCLUDE Must be able to swallow oral tablets
+ACTIN Output:
+    CAN_SWALLOW_ORAL_TABLETS
+New rule:
+    CAN_SWALLOW_ORAL_TABLETS
 """
     user_prompt += "\nACTIN RULES:\n" + "\n".join(actin_rules)
 
