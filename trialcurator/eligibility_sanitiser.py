@@ -1,9 +1,16 @@
 import json
 import logging
+import sys
+
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import extract_code_blocks, unescape_json_str
 
 logger = logging.getLogger(__name__)
+
+logging.basicConfig(stream=sys.stdout,
+                    format='%(asctime)s %(levelname)5s - %(message)s',
+                    datefmt='%H:%M:%S',
+                    level=logging.INFO)
 
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
 
@@ -62,3 +69,77 @@ INPUT TEXT
     sanitised_text = client.llm_ask(user_prompt, system_prompt).replace("```", "")
     return sanitised_text
 
+
+def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> list[str]:
+
+    logger.info(eligibility_criteria)
+
+    system_prompt = '''You are a medical text processing assistant.'''
+
+    prompt = f"```\n{eligibility_criteria}\n```\n"
+    prompt += '''
+You are given the inclusion and exclusion criteria of a clinical trial. Some trials define different eligibility groups (e.g., "part 1", "cohort A", "phase 2") with distinct sets of eligibility criteria.
+YOUR TASK is to extract the names of these eligibility groups into a JSON list of strings, but only under the following conditions:
+1. Explicit Labeling: Only extract a group if it is explicitly named (e.g., "part 1", "cohort A", "arm B"). Do not infer\
+ or create names.
+2. Distinct Eligibility Criteria: Groups must have meaningfully different eligibility criteria.
+3. Preserve Full Group Names: If a group name contains a parent group and one or more subgroups, capture the full \
+hierarchical name as it appears in the text. For example:
+   - If `GROUP A:` contains `Subtype X:` which contains `Condition Y`, then the group name should be extracted as: \
+"GROUP A: Subtype X: Condition Y"
+   - Do NOT shorten this to "GROUP A" or "Subtype X".
+4. Do NOT Merge or Generalize:
+   - Do NOT create general or umbrella categories (e.g., combining "part 1" and "part 2" into one group).
+   - Do NOT list a group just because it has a different name — the criteria must actually differ.
+5. Default Case: If no distinct groups are defined, return a single-item list `["default"]`
+
+Output format: Return a JSON array of group names (as strings), exactly as they appear in the text (e.g., "part 1", \
+"cohort A"). Do not include any explanation or formatting outside the JSON array.
+'''
+
+    response = client.llm_ask(prompt, system_prompt=system_prompt)
+
+    try:
+        eligibility_groups = json.loads(extract_code_blocks(response, 'json'))
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to decode JSON from response text: {e}")
+        eligibility_groups = []
+
+    logger.info(f"found the following eligibility groups: {eligibility_groups}")
+    return eligibility_groups
+
+
+def llm_extract_text_for_groups(eligibility_criteria: str, groups: [str], client: LlmClient) -> dict:
+
+    prompt = 'Following are the eligibility criteria for a clinical trial:\n'
+    prompt += f"```\n{eligibility_criteria}\n```\n"
+    prompt += '''Given the above clinical trial eligibility criteria and list of cohort-specific eligibility groups:
+Eligibility Groups: '''
+    prompt += json.dumps(groups, indent=2)
+    prompt += '''
+Instructions:
+- Extract the eligibility criteria (both general and group-specific inclusion/exclusion criteria) for each group.
+- Each group's criteria should be self-contained: include all relevant general and group-specific criteria.
+- Return the result in a JSON object with the format:
+{
+  "GROUP NAME": "Eligibility text...",
+  ...
+}
+- The eligibility text should maintain consistent bulleting and indentation.
+- Remove references to the eligibility group names themselves. e.g. "Inclusion Criteria (Cohort 1)". should be changed to just "Inclusion Criteria".
+- Output only the final JSON (no explanation or extra text).
+'''
+    response = client.llm_ask(prompt)
+
+    try:
+        group_text_dict = json.loads(extract_code_blocks(response, 'json'))
+        # replace \\n with \n, not sure why this is needed
+        for g in group_text_dict.keys():
+            group_text_dict[g] = unescape_json_str(group_text_dict[g])
+        logger.info(f"group text dict: {group_text_dict}")
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to decode JSON from response text: {e}")
+        group_text_dict = {}
+
+    return group_text_dict

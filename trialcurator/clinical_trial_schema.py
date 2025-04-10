@@ -50,7 +50,7 @@ class MolecularSignatureCriterion(BaseCriterion):
     signature: str    # e.g. "MSI-H", "TMB-H", "HRD", "LOH", "Genomic Instability"
 
 class DiagnosticFindingCriterion(BaseCriterion):
-    finding: str = ''               # e.g., "measurable disease"
+    finding: str                    # e.g., "measurable disease"
     method: Optional[str] = None    # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
     modality: Optional[str] = None  # e.g., "CT", "MRI", "NGS", "H&E stain"
     location: Optional[str] = None  # e.g., "lung", "liver", "brain"
@@ -78,7 +78,7 @@ class CurrentMedicationCriterion(BaseCriterion):
 
 # prior treatment / therapy that are not drug specific, such as systemic therapy or radiotherapy
 class PriorTherapyCriterion(BaseCriterion):
-    therapy: str = ''
+    therapy: str      # e.g. "systemic therapy", "radiotherapy"
     number_of_prior_lines: Optional[IntRange] = None
     timing_info: Optional[str] = None
     therapy_outcome: Optional[str] = None
