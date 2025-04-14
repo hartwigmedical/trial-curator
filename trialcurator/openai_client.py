@@ -14,26 +14,20 @@ class OpenaiClient(LlmClient):
     It extends the `LlmClient` abstract base class.
     """
     MODEL = "gpt-4o"
-    FREQUENCY_PENALTY = 0.0  # I anticipate future deviation from default values when mapping to, say, ACTIN rules
-    PRESENCE_PENALTY = 0.0
     TOP_P = 1.0
 
-    def __init__(self, temperature, top_p=TOP_P, frequency_penalty=FREQUENCY_PENALTY, presence_penalty=PRESENCE_PENALTY, model=MODEL):
+    def __init__(self, temperature, top_p=TOP_P, model=MODEL):
         """
         Initialize the OpenaiClient class with specific model and tuning parameters.
 
         Parameters:
             temperature (float): Sampling temperature, controlling randomness in generated responses.
             top_p (float): Nucleus sampling value, controlling diversity in generated responses.
-            frequency_penalty (float): used to control the likelihood of repetition via PROPORTIONAL penalty. (defaults to 0.0)
-            presence_penalty (float): used to control the likelihood of repetition via CONSTANT penalty. (defaults to 0.0)
             model (str): The name of the OpenAI model to use (defaults to "gpt-4o").
         """
         self.wrapped_client = openai.Client()
         self.temperature = temperature
         self.top_p = top_p
-        self.frequency_penalty = frequency_penalty
-        self.presence_penalty = presence_penalty
         self.model = model
 
     def llm_ask(self, user_prompt: str, system_prompt: str = None) -> str:

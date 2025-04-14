@@ -59,6 +59,12 @@ REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Remove any descriptive/contextual statement that don’t impose inclusion or exclusion requirements.
 - Remove any statement about informed consent (e.g., "Patient must be able to provide informed consent").
 
+LOGICAL CONNECTORS FOR LAB THRESHOLDS
+- When multiple lab values or thresholds are listed (e.g., hemoglobin < 5 mmol/L, platelets < 100, etc.), ensure the correct logical operator is implied:
+  - If these appear under EXCLUSION criteria: join using OR (any of these makes the patient ineligible).
+  - If these appear under INCLUSION criteria: join using AND (all must be satisfied for inclusion).
+- If the original text connects such lab conditions with "and" or lacks explicit connectors, infer the correct logic as above and split into separate bullet points accordingly.
+
 OUTPUT STRUCTURE
 - Answer in one text block with no additional explanation.
 

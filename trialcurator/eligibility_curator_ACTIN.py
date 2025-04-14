@@ -5,11 +5,12 @@ import logging
 import sys
 import argparse
 
+from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
 from trialcurator.tests.external.test_extract_eligibility_groups import get_test_data_path
 from trialcurator.utils import load_trial_data, load_eligibility_criteria
 from trialcurator.llm_client import LlmClient
-from trialcurator.openai_client import OpenaiClient
-from trialcurator.eligibility_sanitiser import llm_sanitise_text
+from trialcurator.eligibility_sanitiser import llm_sanitise_text, llm_extract_eligibility_groups, llm_extract_text_for_groups
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +77,20 @@ TASKS
 RULE MATCHING
 - Match based on **rule name pattern**, not literal string tokens.
 - A rule is NOT new if its name exists in ACTIN, even with different parameter values.
+- When matching to ACTIN rules, interpret biologically equivalent phrases (e.g., "gene rearrangement", "fusion", "translocation") as semantically interchangeable **unless the context specifies otherwise**.
+- For example:
+    - "ROS1 rearrangement", "ROS1 fusion", or "ROS1 translocation" → use: FUSION_IN_GENE_X[ROS1]
 - Prefer using **general rules** (e.g. HAS_HAD_TREATMENT_WITH_ANY_DRUG_X) over disease-specific variants unless those are explicitly required.
 
 WHAT COUNTS AS A NEW RULE
-- A rule is NEW if its rule name (before square brackets) does not appear in the ACTIN RULE LIST.
-- Always output this rule name (not False) after `New rule:` when this occurs.
+- A rule is NEW if the part before square brackets (the rule name) is not found in the ACTIN RULE LIST.
+    - To check: compare the rule name exactly against the list of ACTIN rules provided.
+    - If the rule name is not present in the list, then set:
+        New rule:
+            [RULE_NAME]
+    - If it is present, write:
+        New rule:
+            False
 - Do not mark the rule as "False" unless the exact rule name already exists in the ACTIN RULE LIST.
 
 LOGICAL STRUCTURE
@@ -101,8 +111,8 @@ NUMERIC COMPARISON LOGIC
 FALLBACK RULES (use when no ACTIN rule matches)
 - Treatment eligibility:  
     `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]`
-- Gene rearrangement:  
-    `HAS_GENE_REARRANGEMENT_IN_X[ROS1]`
+- Gene fusion or rearrangement (any chromosomal fusion event):  
+    FUSION_IN_GENE_X[ROS1]
 - Broad compliance-impacting condition:  
     `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`
 - Prior drug exposure (general):  
@@ -156,14 +166,17 @@ ACTIN Output:
 New rule:
     False
 
-Input: 
-    INCLUDE Histologically or cytologically confirmed diagnosis of advanced NSCLC
+Input:
+    INCLUDE Patient has advanced NSCLC
 ACTIN Output:
-    (HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE
-    OR
-    HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE)
-    AND
     HAS_ADVANCED_NSCLC
+New rule:
+    HAS_ADVANCED_NSCLC
+    
+Input: 
+    INCLUDE Documented ROS1 gene rearrangement
+ACTIN Output:
+    FUSION_IN_GENE_X[ROS1]
 New rule:
     False
     
@@ -187,7 +200,6 @@ Now map the following eligibility criteria:
 
     logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria}")
     return output_eligibility_criteria
-
 
 
 def parse_actin_output_to_json(trial_id: str, mapped_text: str) -> dict:
@@ -214,6 +226,7 @@ def parse_actin_output_to_json(trial_id: str, mapped_text: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Clinical trial curator")
+    parser.add_argument('--model', help='Select between GPT and Gemini', required=True)
     parser.add_argument('--trial_json', help='json file containing trial data', required=True)
     parser.add_argument('--out_trial_file', help='output file containing trial data', required=True)
     parser.add_argument('--ACTIN_path', help='Relative path to ACTIN rules', required=True)
@@ -223,30 +236,44 @@ def main():
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
 
-    try:
-        trial_id = trial_data["protocolSection"]["identificationModule"]["nctId"]
-    except KeyError:
-        trial_id = "ERROR_UNKNOWN_TRIAL_ID"
+    trial_id = trial_data["protocolSection"]["identificationModule"]["nctId"]
 
-    client = OpenaiClient(TEMPERATURE)
+    if args.model == "GPT":
+        client = OpenaiClient(TEMPERATURE)
+    elif args.model == "Gemini":
+        client = GeminiClient(TEMPERATURE)
+    else: # OpenAI's model is the fallback/standard option
+        client = OpenaiClient(TEMPERATURE)
 
-    curated_criteria = llm_sanitise_text(eligibility_criteria, client)
-    curated_criteria = tag_inclusion_exclusion(curated_criteria)
 
-    logger.debug(f"Tagged criteria:\n{curated_criteria}")
+    cleaned_text = llm_sanitise_text(eligibility_criteria, client)
+    cohort_names = llm_extract_eligibility_groups(cleaned_text, client)
+    cohort_texts = llm_extract_text_for_groups(cleaned_text, cohort_names, client)
 
-    mapped_output = map_to_actin(curated_criteria, client, args.ACTIN_path)
+    logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
+
+    full_text_output = []
+    all_parsed_json = []
+
+    for cohort_name, cohort_criteria in cohort_texts.items():
+
+        tagged_text = tag_inclusion_exclusion(cohort_criteria)
+        logger.debug(f"Tagged criteria for {cohort_name}:\n{tagged_text}")
+
+        mapped_output = map_to_actin(tagged_text, client, args.ACTIN_path)
+        full_text_output.append(f"===== {cohort_name} =====\n{mapped_output}\n")
+
+        parsed_json = parse_actin_output_to_json(trial_id + f"::{cohort_name}", mapped_output)
+        all_parsed_json.append(parsed_json)
+
+    txt_path = (args.out_trial_file.replace(".json", ".txt"))
+    with open(txt_path, "w") as f:
+        f.write("\n\n".join(full_text_output))
 
     with open(args.out_trial_file, "w") as f:
-        f.write(mapped_output)
+        json.dump(all_parsed_json, f, indent=2, ensure_ascii=False)
 
-    parsed_json = parse_actin_output_to_json(trial_id, mapped_output)
-    json_path = args.out_trial_file.replace(".txt", ".json")
-
-    with open(json_path, "w") as f:
-        json.dump(parsed_json, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"ACTIN JSON saved to {json_path}")
+    logger.info(f"ACTIN results written to {args.out_trial_file} and {txt_path}")
 
 if __name__ == "__main__":
     main()
