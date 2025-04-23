@@ -149,3 +149,37 @@ Instructions:
         group_text_dict = {}
 
     return group_text_dict
+
+def llm_simplify_and_tag_text(eligibility_text: str, client: LlmClient) -> str:
+
+    system_prompt = '''
+You are a clinical trial text simplification and tagging assistant.
+
+GOALS:
+1. Tag each top-level rule with "INCLUDE" or "EXCLUDE" depending on if the criterion is an inclusion or exclusion rule.
+2. For any EXCLUDE rules involving measurement comparisons (e.g., "<", ">"), flip the logic to an equivalent INCLUDE rule for safe processing.
+
+LOGIC CONVERSION RULES:
+- EXCLUDE "Hemoglobin < 5" → INCLUDE "Hemoglobin ≥ 5"
+- EXCLUDE "Creatinine > 1.5" → INCLUDE "Creatinine ≤ 1.5"
+- For multiple lab values joined by OR, flip each clause and join with AND.
+
+DO NOT:
+- Change the medical meaning
+- Drop any important detail
+- Leave a line untagged
+
+OUTPUT FORMAT:
+- Each condition must start with "INCLUDE" or "EXCLUDE"
+- Do not add extra commentary or explanation
+'''
+    user_prompt = f'''
+Below is the eligibility criteria for a clinical trial. Perform tagging and logic flipping as described above.
+{eligibility_text}
+Return the cleaned, tagged lines below:
+'''
+
+    response = client.llm_ask(user_prompt, system_prompt)
+    lines = response.replace("```", "").splitlines()
+    cleaned_lines = [line.strip() for line in lines if line.strip()]
+    return "\n".join(cleaned_lines)
