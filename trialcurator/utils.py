@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Any
 
 
 def load_trial_data(json_file: str) -> dict:
@@ -32,3 +33,14 @@ def load_eligibility_criteria(trial_data):
     protocol_section = trial_data['protocolSection']
     eligibility_module = protocol_section['eligibilityModule']
     return unescape_json_str(eligibility_module['eligibilityCriteria'])
+
+# deeply remove any field with the given field name in a json type structure
+def deep_remove_field(data: Any, field_name) -> Any:
+    if isinstance(data, dict):
+        return {
+            key: deep_remove_field(value, field_name) for key, value in data.items() if key != field_name
+        }
+    elif isinstance(data, list):
+        return [deep_remove_field(item, field_name) for item in data]
+    else:
+        return data

@@ -6,6 +6,10 @@ class IntRange(BaseModel):
     min_inclusive: Optional[int] = None
     max_inclusive: Optional[int] = None
 
+class TimingInfo(BaseModel):
+    reference: Optional[str] = None  # e.g. "now", "last_dose"
+    window_days: Optional[IntRange] = None
+
 # this class is abstract
 class BaseCriterion(BaseModel, ABC):
     description: str = ''
@@ -53,11 +57,10 @@ class DiagnosticFindingCriterion(BaseCriterion):
     finding: str                    # e.g., "measurable disease"
     method: Optional[str] = None    # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
     modality: Optional[str] = None  # e.g., "CT", "MRI", "NGS", "H&E stain"
-    location: Optional[str] = None  # e.g., "lung", "liver", "brain"
 
 class SurgeryCriterion(BaseCriterion):
     surgical_procedure: Optional[str] = None
-    time_from_surgery_in_days: Optional[int] = None
+    timing_info: Optional[TimingInfo] = None
 
 class MetastasesCriterion(BaseCriterion):
     location: str
@@ -66,12 +69,12 @@ class MetastasesCriterion(BaseCriterion):
 
 class ComorbidityCriterion(BaseCriterion):
     comorbidity: str  # diabetes, heart failure, organ transplant
-    timing_info: Optional[str] = None
+    timing_info: Optional[TimingInfo] = None
     severity: Optional[str] = None  # e.g. "severe", "uncontrolled"
 
 class PriorMedicationCriterion(BaseCriterion):
     medications: str
-    timing_info: Optional[str] = None
+    timing_info: Optional[TimingInfo] = None
 
 class CurrentMedicationCriterion(BaseCriterion):
     medications: str
@@ -80,8 +83,9 @@ class CurrentMedicationCriterion(BaseCriterion):
 class PriorTherapyCriterion(BaseCriterion):
     therapy: str      # e.g. "systemic therapy", "radiotherapy"
     number_of_prior_lines: Optional[IntRange] = None
-    timing_info: Optional[str] = None
+    timing_info: Optional[TimingInfo] = None
     therapy_outcome: Optional[str] = None
+    indication: Optional[str] = None
 
 # What treatment is appropriate, as judged by the clinician or protocol
 class TreatmentOptionCriterion(BaseCriterion):

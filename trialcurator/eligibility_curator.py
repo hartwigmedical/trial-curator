@@ -4,7 +4,7 @@ import sys
 
 from trialcurator import clinical_trial_schema
 from trialcurator.eligibility_sanitiser import llm_sanitise_text, llm_extract_eligibility_groups, \
-    llm_extract_text_for_groups
+    llm_extract_text_for_groups, llm_simplify_and_tag_text
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
 from trialcurator.openai_client import OpenaiClient
@@ -46,33 +46,39 @@ structured format using a predefined Python schema.'''
 INSTRUCTIONS:
 
 #### General
-- Focus strictly on the inclusion and exclusion criteria. Ignore descriptive text, background context, and non-requirement statements.
-- Exclusion criteria should be expressed as inclusion criteria wrapped in a `NotCriterion`, unless otherwise specified (see below).
-- Use the `description` field to store a complete, self-contained explanation of the original criterion.
+- Focus strictly on the inclusion and exclusion criteria. Ignore descriptive text, background context, and non-requirement \
+statements.
+- Exclusion criteria should be expressed as inclusion criteria wrapped in a `NotCriterion`, unless otherwise specified \
+(see below).
+- The `description` field should always be populated and store a complete, self-contained explanation of the original criterion.
 - DO NOT create a separate object for exclusion criteria.
 - Answer should be given in a single code block with no explanation.
-
-#### Negation Handling
-- Do **not** use `NotCriterion` for double negatives. Instead, resolve them logically into their positive equivalent.
-  - Example: “Exclude patients who do not have X” → model as just “have X”.
-- Do **not** use `NotCriterion` for negated comparisons (e.g., "exclude patients < X"). Convert to the logically equivalent positive form (e.g., "≥ X").
 
 #### Special Cases
 - When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
 - If a criterion contains **conditional logic** (“if X, then Y”), express it using an `IfCriterion`.
+- If a criterion involves multiple distinct conditions (e.g., disease and medication), model each separately using the \
+appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and combine them with AndCriterion.
+- The above also apply to criteria wrapped inside NotCriterion.
 
 #### Criterion Mapping Rules
-- Use `PrimaryTumorCriterion` for tumor types and locations (e.g., melanoma, colorectal carcinoma, small cell lung).
+- Use `PrimaryTumorCriterion` for tumor types and locations (e.g., melanoma).
 - Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).
 - Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).
 - Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion).
 - When specifying protein variants, always use the HGVS protein notation format.
 - Use `LabValueCriterion` for lab-based requirements with a measurement, unit, value, and operator.
 - Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").
+- Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", "mucinous histology").
+- DiagnosticFindingCriterion for statements like "histological confirmation of cancer".
 - Use SymptomCriterion only for symptom related to the tumor. Use ComobidityCriterion for conditions not related to the tumor.
 - Use ClinicalJudgementCriterion for clinical judgement such as adequate organ function.
 - Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
 ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
+- Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
+explicit “if...then...else”.
+- Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
+not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.
 - Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions,\
  population qualifiers, or general clinical appropriateness.
 '''
@@ -86,7 +92,8 @@ ComorbidityCriterion with a condition like "other active malignancy" and specify
 def llm_refine_answer(clinical_trial_code: str, client: LlmClient) -> str:
 
     system_prompt = '''
-You are a clinical trial curation validator and assistant. Your task is to review and improve Python objects representing structured eligibility criteria based on a predefined schema (modeled using Pydantic).
+You are a clinical trial curation validator and assistant. Your task is to review and improve Python objects representing \
+structured eligibility criteria based on a predefined schema (modeled using Pydantic).
 These objects are created from free-text eligibility criteria in oncology trials.'''
 
     # make sure the schema is included
@@ -97,11 +104,14 @@ These objects are created from free-text eligibility criteria in oncology trials
 Refactor the above code with the following rules:
 - Correct misuse of fields or criterion types (e.g., replacing OtherCriterion with a specific one if appropriate)
 - Improve logical structure (e.g., use IfCriterion for conditional thresholds, combine related rules with AndCriterion)
-- Wrap any criterion expressing negation (e.g., using "not", "no") in a `NotCriterion`, and populate the `description` field accordingly.
+- Wrap any criterion expressing negation (e.g., using "not", "no") in a `NotCriterion`, and populate the `description` \
+field accordingly.
 - Standardize field values (e.g., stage names, confirmation methods)
 - Preserve the original meaning exactly — do not infer or generalize beyond what is stated
-- For criteria that contain disjunctive logic (e.g., "X or Y"), split them into individual criteria and wrap them in an `OrCriterion`.
-- For medication criteria that contain disjunctive medications (e.g., "X or Y"), split them into individual medication criteria and wrap them in an `OrCriterion`.
+- For criteria that contain disjunctive logic (e.g., "X or Y"), split them into individual criteria and wrap them in an \
+`OrCriterion`.
+- For medication criteria that contain disjunctive medications (e.g., "X or Y"), split them into individual medication \
+criteria and wrap them in an `OrCriterion`.
 - Normalize lab value expressions to use `"x ULN"` for any upper limit of normal comparisons.
 - Adhere strictly to the pydantic schema defined in the code. Pay special care that mandatory fields are set.
 - Return a single code block with no explanation.
@@ -112,33 +122,6 @@ Refactor the above code with the following rules:
 
     return python_code
 
-'''
-Simplify lab values
-'''
-def llm_simplify(clinical_trial_code: str, client: LlmClient) -> str:
-    system_prompt = '''You are a clinical trial curation validator and assistant. Your task is to review and improve \
-    Python objects representing structured eligibility criteria based on a predefined schema (modeled using Pydantic)'''
-
-    clinical_trial_code = prepend_schema_if_missing(clinical_trial_code)
-    prompt = 'Given the following code:\n\n'
-    prompt += f"```python\n{clinical_trial_code}\n```\n"
-    prompt += '''
-Refactor the above code with the following improvements:
-- Simplify `LabValueCriterion` or `AgeCriterion` expressions inside `NotCriterion`, e.g., `NOT(x > 20)` → `x <= 20`, make sure the meaning is unchanged.
-- Simplify disjunctive `LabValueCriterion` inside `NotCriterion`, e.g., `NOT(x > 20 OR y > 10)` → `x <= 20 AND y <= 10`, make sure the meaning is unchanged.
-- For criteria nested inside `NotCriterion`, fill in `description` text to the inner criteria, removing negation from the wording. Do not modify the `NotCriterion` description.
-- Replace generic `OtherCriterion` inside `NotCriterion` with more specific types (e.g., `ComorbidityCriterion`, `MetastasesCriterion`) when applicable.
-- Adhere strictly to the pydantic schema defined in the code.
-- Return only a single code block as the output, with no explanation.
-- Fill in the timing_info field of `PriorTherapyCriterion` and `PriorMedicationCriterion` if available from description.
-'''
-
-    response = client.llm_ask(prompt, system_prompt)
-    python_code = extract_code_blocks(response, 'python')
-    print(f"refined python code = {python_code}")
-
-    return python_code
-
 def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
 
     group_eligibility_criteria = {}
@@ -146,9 +129,9 @@ def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
     for g in group_text.keys():
         logger.info(f'eligibility group: {g}')
         eligibility_criteria = group_text[g]
+        eligibility_criteria = llm_simplify_and_tag_text(eligibility_criteria, llm_client)
         clinical_trial_code = llm_curate_from_text(eligibility_criteria, llm_client)
         clinical_trial_code = llm_refine_answer(clinical_trial_code, llm_client)
-        clinical_trial_code = llm_simplify(clinical_trial_code, llm_client)
         group_eligibility_criteria[g] = clinical_trial_code
 
     # now put them all together into nicely printed python code

@@ -3,6 +3,7 @@ import requests
 import json
 import sys
 
+
 def download_trial_json(nct_id: str) -> dict:
     """
     Downloads clinical trial data in JSON format from ClinicalTrials.gov using the given NCT ID.
@@ -20,6 +21,7 @@ def download_trial_json(nct_id: str) -> dict:
         return response.json()
     else:
         raise ValueError(f"Failed to retrieve trial data for {nct_id}. Status code: {response.status_code}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Download clinical trial JSON by NCT ID from ClinicalTrials.gov")
@@ -39,6 +41,7 @@ def main():
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
