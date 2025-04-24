@@ -156,22 +156,49 @@ def llm_simplify_and_tag_text(eligibility_text: str, client: LlmClient) -> str:
 You are a clinical trial text simplification and tagging assistant.
 
 GOALS:
-1. Tag each top-level rule with "INCLUDE" or "EXCLUDE" depending on if the criterion is an inclusion or exclusion rule.
-2. For any EXCLUDE rules involving measurement comparisons (e.g., "<", ">"), flip the logic to an equivalent INCLUDE rule for safe processing.
+1. Tag each top-level bullet with "INCLUDE" or "EXCLUDE" depending on if the criterion is an inclusion or exclusion rule.
+2. Try to convert EXCLUDE rules to INCLUDE rules if it is logically equivalent.
+3. promote any sub-bulleted items to top-level bullets only if doing so does not alter the intended logical structure.
 
 LOGIC CONVERSION RULES:
-- EXCLUDE "Hemoglobin < 5" → INCLUDE "Hemoglobin ≥ 5"
-- EXCLUDE "Creatinine > 1.5" → INCLUDE "Creatinine ≤ 1.5"
-- For multiple lab values joined by OR, flip each clause and join with AND.
+- EXCLUDE "X < 5" → INCLUDE "X ≥ 5"
+- EXCLUDE "X > 1.5" → INCLUDE "X ≤ 1.5"
+- For exclusions with lab values joined by OR, flip each and join with AND.
+- Convert exclusion criteria with negative phrasing into their logically equivalent positive inclusion form. e.g. \
+"Exclude patients who do not have X" → "Include patients who have X"
+- Only flip an EXCLUDE rule to INCLUDE if the logical meaning is exactly preserved. Do NOT flip if doing so could:
+  - Imply a broader or narrower population
+  - Introduce assumptions not present in the original
+  - Change the temporal, clinical, or semantic intent
+  - Examples:
+    - ✅ EXCLUDE "ANC < 1.5 x 10^9/L" → INCLUDE "ANC ≥ 1.5 x 10^9/L" (clear boundary — flipping preserves meaning)
+    - ❌ EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
+  - When in doubt, leave as EXCLUDE.
 
+SUB-BULLET PROMOTION RULES:
+- Unless overridden by parent statement, assume sub-bullets in inclusion criteria are conjunctive, and in exclusion \
+criteria are disjunctive (OR).
+- Only promote sub-bullets to parent-level bullets if:
+  - The parent bullet does not imply conditionality (e.g., “if”, “unless”, “when”).
+  - Promoting the sub-bullets does not change the logical meaning (e.g., “INCLUDE any of the following” vs “INCLUDE all of the following”).
+  - The grouping of sub-bullets doesn't represent a specific medical or logical constraint.
+  - The parent is a vague or general heading (e.g. "adequate organ function") and the sub-bullets are the actual measurable criteria.
+- Do not promote if doing so changes the original clinical meaning or introduces assumptions.
+  
 DO NOT:
 - Change the medical meaning
 - Drop any important detail
-- Leave a line untagged
 
 OUTPUT FORMAT:
-- Each condition must start with "INCLUDE" or "EXCLUDE"
-- Do not add extra commentary or explanation
+- Each top-level bullet must be tagged as "INCLUDE" or "EXCLUDE", with any sub-bullets listed beneath it using hyphenation e.g.
+```
+INCLUDE Age ≥ 18 years
+INCLUDE for female patients:
+  - Negative pregnancy test
+  - Reliable contraceptive methods
+EXCLUDE HIV infection
+```
+- Do not add blank lines. Do not add commentary or explanation.
 '''
     user_prompt = f'''
 Below is the eligibility criteria for a clinical trial. Perform tagging and logic flipping as described above.
@@ -180,6 +207,4 @@ Return the cleaned, tagged lines below:
 '''
 
     response = client.llm_ask(user_prompt, system_prompt)
-    lines = response.replace("```", "").splitlines()
-    cleaned_lines = [line.strip() for line in lines if line.strip()]
-    return "\n".join(cleaned_lines)
+    return response.replace("```", "")
