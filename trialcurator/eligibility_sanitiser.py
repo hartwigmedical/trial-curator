@@ -50,8 +50,7 @@ TYPO CORRECTION & NORMALIZATION
 FORMATTING & BULLETING
 - Normalize all bullet points to use '-' consistently.
 - Ensure each bullet starts on a new line.
-- If a criterion includes multiple conditions that can logically stand alone, split them into \
-distinct bullet points.
+- If a criterion includes multiple conditions that can logically stand alone, split them into distinct bullet points.
 
 REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Only include criteria that explicitly define inclusion or exclusion rules.
@@ -59,11 +58,18 @@ REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Remove any descriptive/contextual statement that don’t impose inclusion or exclusion requirements.
 - Remove any statement about informed consent (e.g., "Patient must be able to provide informed consent").
 
-LOGICAL CONNECTORS FOR LAB THRESHOLDS
-- When multiple lab values or thresholds are listed (e.g., hemoglobin < 5 mmol/L, platelets < 100, etc.), ensure the correct logical operator is implied:
+LAB VALUES
+- When multiple lab values or thresholds are listed (e.g., hemoglobin < 5 mmol/L, platelets < 100, etc.), ensure the \
+correct logical operator is implied:
   - If these appear under EXCLUSION criteria: join using OR (any of these makes the patient ineligible).
   - If these appear under INCLUSION criteria: join using AND (all must be satisfied for inclusion).
-- If the original text connects such lab conditions with "and" or lacks explicit connectors, infer the correct logic as above and split into separate bullet points accordingly.
+- If the original text connects such lab conditions with "and" or lacks explicit connectors, infer the correct logic as \
+above and split into separate bullet points accordingly.
+- If multiple lab values are listed under a general category in a line, convert into parent and sub-bullets, i.e \
+"Sufficient function (X > 10, Y < 5)" should be converted to bullet "Sufficient function" and sub-bullets "X > 10" and "Y < 5".
+- If there are multiple general category each with multiple lab values, convert into multiple parent and sub-bullets, \
+i.e. A (X > 10, Y < 5), B (M < 1, N > 4) should be converted to bullet "A" and sub-bullets "X > 10" and "Y < 5" and \
+bullet "B" and sub-bullets "M < 1" and "N > 4".
 
 OUTPUT STRUCTURE
 - Answer in one text block with no additional explanation.
