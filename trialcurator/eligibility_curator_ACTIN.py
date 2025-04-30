@@ -47,6 +47,18 @@ RULE MATCHING
     - "ROS1 rearrangement", "ROS1 fusion", or "ROS1 translocation" → use: FUSION_IN_GENE_X[ROS1]
 - Prefer using **general rules** (e.g. HAS_HAD_TREATMENT_WITH_ANY_DRUG_X) over disease-specific variants unless those are explicitly required.
 
+FALLBACK RULES (use when no ACTIN rule matches)
+- Treatment eligibility:  
+    `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]`
+- Gene fusion or rearrangement (any chromosomal fusion event):  
+    FUSION_IN_GENE_X[ROS1]
+- Broad compliance-impacting condition:  
+    `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`
+- General fallback rules (e.g., `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`) should be used **when they exactly match the concept described**, and are preferred over unnecessarily listing multiple redundant rules.
+- For example, if the condition lists various types of recent cardiovascular disease (e.g., MI, stroke, arrhythmia), and an existing ACTIN rule such as `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE` captures them all — **use the general rule**.
+- Prior drug exposure (general):  
+    `HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[ros1 tyrosine kinase inhibitor]`
+
 WHAT COUNTS AS A NEW RULE
 - A rule is NEW if the part before square brackets (the rule name) is not found in the ACTIN RULE LIST.
     - To check: compare the rule name exactly against the list of ACTIN rules provided.
@@ -67,25 +79,12 @@ LOGICAL STRUCTURE
     - Correct: `(A OR B) AND C`
     - Incorrect: `A OR B AND C`
     
-EXCLUSION LOGIC (important):
-- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT(...)`, even if rule names already sound negative (e.g., IS_PREGNANT).
+EXCLUSION LOGIC
+- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT(...)`, even if the rule is inherently adverse or negative in name (e.g., HAS_ACTIVE_INFECTION, IS_PREGNANT).
 - For EXCLUDE lines, always use:
-    NOT(condition1 AND condition2 AND ...)  ← preferred
+    NOT(condition1 OR condition2 OR ...)  ← preferred
     or
     NOT(condition)  ← if it's a single clause
-
-Never write:
-    - NOT(A OR B) ← this is logically incorrect
-    - NOT(A) OR NOT(B) ← also incorrect
-Correct alternatives:
-    - NOT(A AND B)
-    - NOT(A) AND NOT(B)
-
-Examples:
-    - EXCLUDE pregnant or lactating
-      → NOT(IS_PREGNANT AND IS_BREASTFEEDING)
-
-- Do NOT omit NOT(...) even if the rule is inherently adverse or negative in name (e.g., HAS_ACTIVE_INFECTION, IS_PREGNANT).
 
 NUMERIC COMPARISON LOGIC
 - “≥ X” → `IS_AT_LEAST_X[...]`
@@ -93,67 +92,16 @@ NUMERIC COMPARISON LOGIC
 - “≤ X” → `IS_AT_MOST_X[...]`
 - “< X” → `IS_AT_MOST_X[...]` with decreased value if needed
 
-FALLBACK RULES (use when no ACTIN rule matches)
-- Treatment eligibility:  
-    `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]`
-- Gene fusion or rearrangement (any chromosomal fusion event):  
-    FUSION_IN_GENE_X[ROS1]
-- Broad compliance-impacting condition:  
-    `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`
-- General fallback rules (e.g., `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`) should be used **when they exactly match the concept described**, and are preferred over unnecessarily listing multiple redundant rules.
-- For example, if the condition lists various types of recent cardiovascular disease (e.g., MI, stroke, arrhythmia), and an existing ACTIN rule such as `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE` captures them all — **use the general rule**.
-- Prior drug exposure (general):  
-    `HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[ros1 tyrosine kinase inhibitor]`
+MULTI-LINE DEFINITIONS
+- If a criterion contains a header phrase (e.g. "Inadequate organ function, defined as:") and is followed by lab values or other restrictive bullets,
+  treat the **entire definition as one unit**.
+- Do NOT map the header line alone. Instead, include the lab values or bullet clauses beneath it when generating ACTIN rules.
 
 FORMATTING
 - Use square brackets `[...]` for rule parameters.
 - Use `AND`, `OR`, and `NOT` on their own lines.
 - Never paraphrase or omit important medical or logical detail.
 - Do not mark rules as new unless they introduce a completely new rule name.
-
-MULTI-LINE DEFINITIONS
-- If a criterion contains a header phrase (e.g. "Inadequate organ function, defined as:") and is followed by lab values or other restrictive bullets,
-  treat the **entire definition as one unit**.
-- Do NOT map the header line alone. Instead, include the lab values or bullet clauses beneath it when generating ACTIN rules.
-- If the bullet points are multiple lab values under EXCLUDE, treat them as part of a compound exclusion clause (see numeric logic).
-
-EXCLUSION LOGIC FOR NUMERIC CONDITIONS
-- For EXCLUDE criteria that list abnormal lab values (e.g., “Hemoglobin < 5”, “Creatinine > 1.5”):
-    1. First, rewrite each clause in its POSITIVE form using `IS_AT_LEAST_X[...]` or `IS_AT_MOST_X[...]` as per the comparison.
-    2. Then determine the correct NOT logic:
-
-    - If the exclusion condition lists multiple abnormal values connected with **OR**:
-        Wrap the ENTIRE positive condition in a single `NOT(...)` with **AND** logic inside.
-        Example:
-        EXCLUDE Hemoglobin <5 OR Neutrophils <1.5
-        → NOT(
-              HAS_HEMOGLOBIN_MMOL_PER_L_OF_AT_LEAST_X[5]
-              AND
-              HAS_NEUTROPHILS_ABS_OF_AT_LEAST_X[1.5]
-          )
-
-    - If the exclusion clause uses **AND** (i.e., ALL of the abnormal values must be true to exclude), apply `NOT(...)` to each positive clause and connect with OR.
-        Example:
-        EXCLUDE Bilirubin >2 AND ALT >3
-        → NOT(HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X[2])
-          OR
-          NOT(HAS_ALT_ULN_OF_AT_MOST_X[3])
-          
-SPECIAL CASES: Combined Measurements
-- If the condition mentions a combined category (e.g., "Liver transaminases >5 ULN"), assume it refers to **both AST and ALT**, unless otherwise specified.
-- Do NOT write:
-    NOT(HAS_ASAT_ULN...) OR NOT(HAS_ALAT_ULN...)
-- Instead, write:
-    NOT(HAS_ASAT_ULN_OF_AT_MOST_X[5] AND HAS_ALAT_ULN_OF_AT_MOST_X[5])
-    OR
-    Use the combined ACTIN rule if one exists:
-    NOT(HAS_ASAT_AND_ALAT_ULN_OF_AT_MOST_X_OR_AT_MOST_Y_WHEN_LIVER_METASTASES_PRESENT[5, 5])
-
-COMMON MISTAKES TO AVOID
-- Do not write: NOT(A OR B) → this implies patient must be BOTH A and B to be excluded, which is incorrect
-- Do not use OR between NOT(...) clauses → logically wrong
-- Always express EXCLUSION as NOT(A AND B), or NOT(single condition)
-- Do NOT fabricate details that are not explicitly or implicitly stated in the original line (e.g., do not infer specific drug classes like corticosteroids unless they are mentioned).
 
 OUTPUT FORMAT (strictly follow this):
 Input:
@@ -208,35 +156,19 @@ New rule:
 Input:
     EXCLUDE Hemoglobin <5 mmol/L OR absolute neutrophil count <1.5 x 10^9/L
 ACTIN Output:
-    NOT(
-        HAS_HEMOGLOBIN_MMOL_PER_L_OF_AT_LEAST_X[5]
-        AND
-        HAS_NEUTROPHILS_ABS_OF_AT_LEAST_X[1.5]
-    )
+    HAS_HEMOGLOBIN_MMOL_PER_L_OF_AT_LEAST_X[5]
+    AND
+    HAS_NEUTROPHILS_ABS_OF_AT_LEAST_X[1.5]
 New rule:
     False
 
 Input:
-    EXCLUDE Liver transaminases >5 x ULN
-ACTIN Output:
-    NOT(HAS_ASAT_ULN_OF_AT_MOST_X[5]
-    AND
-    HAS_ALAT_ULN_OF_AT_MOST_X[5])
-New rule:
-    False
-    
-Input:
     EXCLUDE Pregnant or lactating women.
 ACTIN Output:
-    NOT(IS_PREGNANT AND IS_BREASTFEEDING)
+    NOT(IS_PREGNANT OR IS_BREASTFEEDING)
 New rule:
     False
-    
-OR, if either condition is sufficient to exclude:
-ACTIN Output:
-    NOT(IS_PREGNANT)
-    AND
-    NOT(IS_BREASTFEEDING)
+
 """
     user_prompt += """..."""
     user_prompt += "\nACTIN RULES:\n" + "\n".join(actin_rules)
