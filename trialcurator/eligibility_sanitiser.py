@@ -76,7 +76,7 @@ INPUT TEXT
     return sanitised_text
 
 
-def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> list[str]:
+def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> [str]:
 
     logger.info(eligibility_criteria)
 
@@ -171,8 +171,8 @@ LOGIC CONVERSION RULES:
   - Introduce assumptions not present in the original
   - Change the temporal, clinical, or semantic intent
   - Examples:
-    - ✅ EXCLUDE "ANC < 1.5 x 10^9/L" → INCLUDE "ANC ≥ 1.5 x 10^9/L" (clear boundary — flipping preserves meaning)
-    - ❌ EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
+    - Correct: EXCLUDE "ANC < 1.5 x 10^9/L" → INCLUDE "ANC ≥ 1.5 x 10^9/L" (clear boundary — flipping preserves meaning)
+    - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
   - When in doubt, leave as EXCLUDE.
 
 SUB-BULLET PROMOTION RULES:
