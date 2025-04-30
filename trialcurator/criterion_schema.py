@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, SkipValidation, model_validator, Field
 
 class IntRange(BaseModel):
@@ -72,7 +72,7 @@ class SurgeryCriterion(BaseCriterion):
 class MetastasesCriterion(BaseCriterion):
     location: str
     size_cm: Optional[float] = None
-    additional_details: Optional[List[str]] = None
+    additional_details: Optional[list[str]] = None
 
 class ComorbidityCriterion(BaseCriterion):
     comorbidity: str  # diabetes, heart failure, organ transplant
@@ -102,7 +102,6 @@ class ContraindicationCriterion(BaseCriterion):
     contraindication: str  # e.g. "immunotherapy", "pembrolizumab", "general anesthesia"
     reason: Optional[str] = None  # e.g. "hypersensitivity", "allergic reaction", "significant toxicities"
 
-# clinical judgement such as life expectancy
 class ClinicalJudgementCriterion(BaseCriterion):
     judgement: str = ''
 
@@ -123,6 +122,9 @@ class PerformanceStatusCriterion(BaseCriterion):
     scale: str
     value_range: Optional[IntRange] = None
 
+class LifeExpectancyCriterion(BaseCriterion):
+    min_weeks: int
+
 class RequiredActionCriterion(BaseCriterion):
     action: str
 
@@ -133,10 +135,10 @@ class OtherCriterion(BaseCriterion):
     reason: Optional[str] = None  # Optional metadata for why it's "Other"
 
 class AndCriterion(BaseCriterion):
-    criteria: List[BaseCriterion]
+    criteria: list[BaseCriterion]
 
 class OrCriterion(BaseCriterion):
-    criteria: List[BaseCriterion]
+    criteria: list[BaseCriterion]
 
 class NotCriterion(BaseCriterion):
     criterion: BaseCriterion

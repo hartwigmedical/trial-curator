@@ -82,7 +82,7 @@ INPUT TEXT
     return sanitised_text
 
 
-def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> [str]:
+def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> list[str]:
 
     logger.info(eligibility_criteria)
 
@@ -121,7 +121,7 @@ Output format: Return a JSON array of group names (as strings), exactly as they 
     return eligibility_groups
 
 
-def llm_extract_text_for_groups(eligibility_criteria: str, groups: [str], client: LlmClient) -> dict:
+def llm_extract_text_for_groups(eligibility_criteria: str, groups: list[str], client: LlmClient) -> dict:
 
     prompt = 'Following are the eligibility criteria for a clinical trial:\n'
     prompt += f"```\n{eligibility_criteria}\n```\n"
