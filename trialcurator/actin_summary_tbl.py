@@ -94,7 +94,8 @@ def save_summary_tbl(trial_id: str, cohort: str, parsed_rows: list[dict], csv_pa
 def main():
     parser = argparse.ArgumentParser(description="Generate mapping summary table for clinical trials.")
     parser.add_argument('--model', help='Select between GPT and Gemini', required=True)
-    parser.add_argument('--trial_json_dir', help='Directory containing input trial JSON files', required=True)
+    parser.add_argument('--trial_json_dir', help='Directory containing input trial JSON files', required=False)
+    parser.add_argument('--trial_json', help='Single trial JSON file', required=False)
     parser.add_argument('--out_csv', help='Output CSV file path', required=True)
     parser.add_argument('--ACTIN_path', help='Full path to ACTIN rules CSV', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
@@ -107,12 +108,20 @@ def main():
     else:
         client = OpenaiClient(TEMPERATURE)
 
-    trial_files = [f for f in os.listdir(args.trial_json_dir) if f.endswith('.json')]
+    if args.trial_json:
+        trial_files = [args.trial_json]
+    elif args.trial_json_dir:
+        trial_files = [
+            os.path.join(args.trial_json_dir, f)
+            for f in os.listdir(args.trial_json_dir)
+            if f.endswith('.json')
+        ]
+    else:
+        raise ValueError("You must provide either --trial_json or --trial_json_dir")
+
     logger.info(f"There are {len(trial_files)} trial files.\n")
 
-    for trial in trial_files:
-
-        trial_path = os.path.join(args.trial_json_dir, trial)
+    for trial_path in trial_files:
         logger.info(f"Processing {trial_path}...")
         trial_data = load_trial_data(trial_path)
         eligibility_criteria = load_eligibility_criteria(trial_data)
