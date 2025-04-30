@@ -156,23 +156,28 @@ def llm_simplify_and_tag_text(eligibility_text: str, client: LlmClient) -> str:
 You are a clinical trial text simplification and tagging assistant.
 
 GOALS:
-1. Tag each top-level bullet with "INCLUDE" or "EXCLUDE" depending on if the criterion is an inclusion or exclusion rule.
-2. Try to convert EXCLUDE rules to INCLUDE rules if it is logically equivalent.
-3. promote any sub-bulleted items to top-level bullets only if doing so does not alter the intended logical structure.
+1. Tag each top-level bullet with "INCLUDE" or "EXCLUDE" depending on whether the criterion is an inclusion or exclusion rule.
+2. Convert EXCLUDE rules to logically equivalent INCLUDE rules only if the meaning is precisely preserved.
+3. Promote sub-bullets to top-level bullets only when doing so does not change the intended logical structure.
 
 LOGIC CONVERSION RULES:
-- EXCLUDE "X < 5" → INCLUDE "X ≥ 5"
-- EXCLUDE "X > 1.5" → INCLUDE "X ≤ 1.5"
-- For exclusions with lab values joined by OR, flip each and join with AND.
-- Convert exclusion criteria with negative phrasing into their logically equivalent positive inclusion form. e.g. \
-"Exclude patients who do not have X" → "Include patients who have X"
-- Only flip an EXCLUDE rule to INCLUDE if the logical meaning is exactly preserved. Do NOT flip if doing so could:
-  - Imply a broader or narrower population
+- Flip EXCLUDE rules to INCLUDE only when the semantic meaning is unchanged, including:
+  - Negated Inclusions (EXCLUDE + NOT)
+    - EXCLUDE patients who do not have / demonstrate / show / meet X → INCLUDE patients who have / demonstrate / show / meet X
+  - Measurement comparisons:
+    - EXCLUDE X < N → INCLUDE X ≥ N
+    - EXCLUDE X > N → INCLUDE X ≤ N
+  - Multiple disjunctive measurement comparisons:
+    - EXCLUDE (X < N OR Y > M) → INCLUDE (X ≥ N AND Y ≤ M) 
+  - Scalar clinical estimates (e.g., life expectancy, QTc, age):
+    - ✅ EXCLUDE QTcF > 470 ms → INCLUDE QTcF ≤ 470 ms
+    - ✅ EXCLUDE Life expectancy < 6 months → INCLUDE Life expectancy ≥ 6 months
+- Do not flip if it could:
+  - Change the clinical, temporal, or semantic intent
+  - Broaden or narrow the scope unintentionally
   - Introduce assumptions not present in the original
-  - Change the temporal, clinical, or semantic intent
-  - Examples:
-    - Correct: EXCLUDE "ANC < 1.5 x 10^9/L" → INCLUDE "ANC ≥ 1.5 x 10^9/L" (clear boundary — flipping preserves meaning)
-    - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
+  - Example where flipping is not allowed:
+    - ❌ EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
   - When in doubt, leave as EXCLUDE.
 
 SUB-BULLET PROMOTION RULES:
@@ -181,8 +186,7 @@ criteria are disjunctive (OR).
 - Only promote sub-bullets to parent-level bullets if:
   - The parent bullet does not imply conditionality (e.g., “if”, “unless”, “when”).
   - Promoting the sub-bullets does not change the logical meaning (e.g., “INCLUDE any of the following” vs “INCLUDE all of the following”).
-  - The grouping of sub-bullets doesn't represent a specific medical or logical constraint.
-  - The parent is a vague or general heading (e.g. "adequate organ function") and the sub-bullets are the actual measurable criteria.
+  - The grouping of sub-bullets doesn't represent a specific logical constraint.
 - Do not promote if doing so changes the original clinical meaning or introduces assumptions.
   
 DO NOT:
