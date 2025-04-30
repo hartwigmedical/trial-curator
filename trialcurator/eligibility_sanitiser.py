@@ -92,18 +92,22 @@ def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient)
     prompt += '''
 You are given the inclusion and exclusion criteria of a clinical trial. Some trials define different eligibility groups (e.g., "part 1", "cohort A", "phase 2") with distinct sets of eligibility criteria.
 YOUR TASK is to extract the names of these eligibility groups into a JSON list of strings, but only under the following conditions:
-1. Explicit Labeling: Only extract a group if it is explicitly named (e.g., "part 1", "cohort A", "arm B"). Do not infer\
- or create names.
-2. Distinct Eligibility Criteria: Groups must have meaningfully different eligibility criteria.
-3. Preserve Full Group Names: If a group name contains a parent group and one or more subgroups, capture the full \
+- Explicitly named: Only extract a group if it is explicitly named. For example: "dose-escalation cohorts (Phase 1a)", \
+"cohort A", "Part 2: Arm B". Do not infer or invent names.
+- Group names may be introduced via headings (e.g., 'Cohort A Only:'), or inline phrases followed by colon or line \
+breaks. Consider any phrase ending with 'Only', 'Cohort', 'Part', 'Phase', etc., as a potential group name if it has \
+distinct criteria beneath or tied to it
+- Distinct Eligibility Criteria: The named group must have at least one eligibility criterion that differs from \
+other groups. Do NOT extract multiple names that share identical criteria.
+- Preserve Full Group Names: If a group name contains a parent group and one or more subgroups, capture the full \
 hierarchical name as it appears in the text. For example:
    - If `GROUP A:` contains `Subtype X:` which contains `Condition Y`, then the group name should be extracted as: \
 "GROUP A: Subtype X: Condition Y"
    - Do NOT shorten this to "GROUP A" or "Subtype X".
-4. Do NOT Merge or Generalize:
+- Do NOT Merge or Generalize:
    - Do NOT create general or umbrella categories (e.g., combining "part 1" and "part 2" into one group).
    - Do NOT list a group just because it has a different name — the criteria must actually differ.
-5. Default Case: If no distinct groups are defined, return a single-item list `["default"]`
+- Default Case: If no distinct groups are defined, return a single-item list `["default"]`
 
 Output format: Return a JSON array of group names (as strings), exactly as they appear in the text (e.g., "part 1", \
 "cohort A"). Do not include any explanation or formatting outside the JSON array.
