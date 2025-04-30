@@ -1,6 +1,5 @@
-from abc import ABC
 from typing import List, Literal, Optional
-from pydantic import BaseModel, SkipValidation
+from pydantic import BaseModel, SkipValidation, model_validator, Field
 
 class IntRange(BaseModel):
     min_inclusive: Optional[int] = None
@@ -10,9 +9,14 @@ class TimingInfo(BaseModel):
     reference: Optional[str] = None  # e.g. "now", "last_dose"
     window_days: Optional[IntRange] = None
 
-# this class is abstract
-class BaseCriterion(BaseModel, ABC):
+class BaseCriterion(BaseModel):
+    type: str = Field(init=False)
     description: str = ''
+
+    @model_validator(mode='before')
+    def add_type(cls, values):
+        values['type'] = cls.__name__.replace("Criterion", "").lower()
+        return values
 
 class AgeCriterion(BaseCriterion):
     age: int
@@ -28,16 +32,19 @@ class LabValueCriterion(BaseCriterion):
     operator: SkipValidation[Literal['<', '>', '<=', '>=', '==', 'OOR']]
 
 class PrimaryTumorCriterion(BaseCriterion):
-    primary_tumor_location: Optional[str] = None  # e.g. lung, beast
-    primary_tumor_type: Optional[str] = None      # e.g. NSCLC, LUAD, melanoma, lymphoma
-    stage: Optional[int] = None
-    disease_extent: Optional[str] = None          # e.g. "locally advanced"
+    """Defines the primary tumor site, disease type, stage, and extent."""
+    primary_tumor_location: Optional[str] = None  # e.g., lung, breast, bladder
+    primary_tumor_type: Optional[str] = None      # e.g., NSCLC, SCLC, melanoma, lymphoma
+    stage: Optional[int] = None                   # e.g., 1, 2, 3, 4 (optional)
+    disease_extent: Optional[str] = None          # e.g., "locally advanced", "metastatic"
 
 class HistologyCriterion(BaseCriterion):
-    histology_type: str  # e.g., "small cell", "combined small cell and non-small cell"
+    """Defines the microscopic cell or tissue type of the tumor."""
+    histology_type: str  # e.g., "adenocarcinoma", "squamous cell carcinoma", "small cell", "mucinous"
+    histology_grade: Optional[str] = None  # e.g., "low-grade", "high-grade", "G1", "G2", "G3" (optional)
 
-# Expression-based biomarkers (mostly protein-level)
 class MolecularBiomarkerCriterion(BaseCriterion):
+    """Expression-based biomarkers (mostly protein-level)"""
     biomarker: str                          # e.g., "PD-L1", "HER2", "ER", "AR"
     expression_type: Optional[str] = None   # e.g., "positive", "high", "low", "≥1%", "overexpression", "IHC 3+"
     method: Optional[str] = None            # e.g., "IHC", "FISH", "RNAseq"
@@ -99,8 +106,8 @@ class ContraindicationCriterion(BaseCriterion):
 class ClinicalJudgementCriterion(BaseCriterion):
     judgement: str = ''
 
-class PhysicalConditionCriterion(BaseCriterion):
-    condition: str  # e.g. 'pregnancy', 'breastfeeding', 'post-menopausal'
+class ReproductiveStatusCriterion(BaseCriterion):
+    status: str  # e.g. 'pregnancy', 'breastfeeding', 'post-menopausal'
 
 class InfectionCriterion(BaseCriterion):
     infection: str  # e.g. 'HIV'

@@ -1,8 +1,9 @@
 import inspect
 import logging
 import sys
+import re
 
-from trialcurator import clinical_trial_schema
+from trialcurator import criterion_schema
 from trialcurator.eligibility_sanitiser import llm_sanitise_text, llm_extract_eligibility_groups, \
     llm_extract_text_for_groups, llm_simplify_and_tag_text
 from trialcurator.llm_client import LlmClient
@@ -27,41 +28,41 @@ documentation of common errors that I cannot easily fix by changing prompt:
  - Sometimes uses measurement unit 10*9/L instead of 10^9/L
 '''
 
+
 # we perform 3 stage curation
 # 1: separation into cohorts
 # 2: curate each cohort criteria
 # 3: refine criteria cause gemini struggle to use the full extent of the schema
 
 def llm_curate_from_text(eligibility_criteria: str, client: LlmClient) -> str:
-
     system_prompt = '''
 You are an expert clinical trial curator. Your role is to convert unstructured inclusion and exclusion criteria into a \
 structured format using a predefined Python schema.'''
 
     # print the clinical trial schema
-    prompt = f'{inspect.getsource(clinical_trial_schema)}\n'
-    prompt += 'Create an object called inclusion_criteria to represent the following inclusion criteria:\n'
+    prompt = f'{inspect.getsource(criterion_schema)}\n'
+    prompt += 'Create a python list of type `[BaseCriterion]` called inclusion_criteria to represent the following \
+    inclusion criteria:\n'
     prompt += f"```\n{eligibility_criteria}\n```\n"
     prompt += '''
 INSTRUCTIONS:
 
-#### General
+# General
 - Focus strictly on the inclusion and exclusion criteria. Ignore descriptive text, background context, and non-requirement \
 statements.
 - Exclusion criteria should be expressed as inclusion criteria wrapped in a `NotCriterion`, unless otherwise specified \
 (see below).
-- The `description` field should always be populated and store a complete, self-contained explanation of the original criterion.
-- DO NOT create a separate object for exclusion criteria.
+- DO NOT create a separate list for exclusion criteria.
 - Answer should be given in a single code block with no explanation.
 
-#### Special Cases
+# Special Cases
 - When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
 - If a criterion contains **conditional logic** (“if X, then Y”), express it using an `IfCriterion`.
 - If a criterion involves multiple distinct conditions (e.g., disease and medication), model each separately using the \
 appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and combine them with AndCriterion.
 - The above also apply to criteria wrapped inside NotCriterion.
 
-#### Criterion Mapping Rules
+# Criterion Mapping Rules
 - Use `PrimaryTumorCriterion` for tumor types and locations (e.g., melanoma).
 - Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).
 - Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).
@@ -72,15 +73,22 @@ appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and com
 - Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", "mucinous histology").
 - DiagnosticFindingCriterion for statements like "histological confirmation of cancer".
 - Use SymptomCriterion only for symptom related to the tumor. Use ComobidityCriterion for conditions not related to the tumor.
-- Use ClinicalJudgementCriterion for clinical judgement such as adequate organ function.
+- Use ClinicalJudgementCriterion for subjective clinical assessment by investigators, rather than objective measurements \
+like lab values.
 - Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
 ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
 - Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
-explicit “if...then...else”.
+explicit "if...then" or equivalent.
 - Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
 not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.
 - Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions,\
  population qualifiers, or general clinical appropriateness.
+
+# Description field
+- `description` field of every criterion must always be populated, including composite criteria.
+- For top level criterion, the `description` field must contain the whole criterion text including the INCLUDE/EXCLUDE tag.
+- For non top level criterion, the `description` field must store a complete, self-contained explanation of the original \
+criterion.
 '''
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
@@ -89,8 +97,8 @@ not amenable to or not eligible for a specific treatment, model it as a NotCrite
 
     return python_code
 
-def llm_refine_answer(clinical_trial_code: str, client: LlmClient) -> str:
 
+def llm_refine_answer(clinical_trial_code: str, client: LlmClient) -> str:
     system_prompt = '''
 You are a clinical trial curation validator and assistant. Your task is to review and improve Python objects representing \
 structured eligibility criteria based on a predefined schema (modeled using Pydantic).
@@ -103,7 +111,7 @@ These objects are created from free-text eligibility criteria in oncology trials
     prompt += '''
 Refactor the above code with the following rules:
 - Correct misuse of fields or criterion types (e.g., replacing OtherCriterion with a specific one if appropriate)
-- Improve logical structure (e.g., use IfCriterion for conditional thresholds, combine related rules with AndCriterion)
+- Improve logical structure (e.g., use IfCriterion for conditional thresholds)
 - Wrap any criterion expressing negation (e.g., using "not", "no") in a `NotCriterion`, and populate the `description` \
 field accordingly.
 - Standardize field values (e.g., stage names, confirmation methods)
@@ -122,8 +130,8 @@ criteria and wrap them in an `OrCriterion`.
 
     return python_code
 
-def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
 
+def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
     group_eligibility_criteria = {}
 
     for g in group_text.keys():
@@ -134,12 +142,13 @@ def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
         clinical_trial_code = llm_refine_answer(clinical_trial_code, llm_client)
         group_eligibility_criteria[g] = clinical_trial_code
 
-    # now put them all together into nicely printed python code
+    # now put them all together into a nicely printed python code
     eligibility_criteria_code = '{\n'
     for g in group_eligibility_criteria.keys():
         clinical_trial_code = group_eligibility_criteria[g]
-        # strip out anything before inclusion_criteria =
-        clinical_trial_code = remove_up_to(clinical_trial_code, "inclusion_criteria = ").strip()
+        # strip out anything before `inclusion_criteria = ` or `inclusion_criteria: List[BaseCriterion] = `
+        clinical_trial_code = remove_up_to(clinical_trial_code,
+                                           r'(inclusion_criteria\s*(?::\s*List\[BaseCriterion\])?\s*=.*)').strip()
         # indent the code
         clinical_trial_code = clinical_trial_code.replace("\n", "\n    ")
         eligibility_criteria_code += f'    "{g}": {clinical_trial_code},\n'
@@ -147,24 +156,36 @@ def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
 
     return eligibility_criteria_code
 
+
 def load_eligibility_criteria(trial_data):
     protocol_section = trial_data['protocolSection']
     eligibility_module = protocol_section['eligibilityModule']
     return unescape_json_str(eligibility_module['eligibilityCriteria'])
 
-def remove_up_to(text: str, search: str) -> str:
-    _, _, after = text.partition(search)
-    return after
+
+#def remove_up_to(text: str, search: str) -> str:
+#    _, _, after = text.partition(search)
+#    return after
+
+def remove_up_to(text, pattern):
+    match = re.search(pattern, text)
+    if match:
+        # Return everything from the match onward
+        return text[match.end() - 1:]
+    else:
+        return ""
+
 
 # Prepend the schema if it is not added by the LLM. The reason is that
 # it is necessary for the next stage to know the class definitions
 def prepend_schema_if_missing(trial_code: str) -> str:
     search_str = 'class BaseCriterion'
     if search_str not in trial_code:
-        trial_code = f'{inspect.getsource(clinical_trial_schema)}\n{trial_code}'
+        trial_code = f'{inspect.getsource(criterion_schema)}\n{trial_code}'
         if search_str not in trial_code:
             raise Exception(f'{search_str} not in schema')
     return trial_code
+
 
 def main():
     import argparse
