@@ -18,6 +18,9 @@ logging.basicConfig(stream=sys.stdout,
                     datefmt='%Y-%m-%d %H:%M:%S',
                     level=logging.INFO)
 
+# use this method to get all rule types, might be a little brittle
+rule_types = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
+
 class EligibilityRule(NamedTuple):
     rule_id: str
     rule_type: str
@@ -29,7 +32,7 @@ def format_criterion(c: BaseCriterion) -> str:
     return CriterionSerializer.serialize(c)
 
 # generate rule id
-def process(parent_rule_id: str, c: BaseCriterion, child_id: int, rule_list: [EligibilityRule]):
+def process(parent_rule_id: str, c: BaseCriterion, child_id: int, rule_list: list[EligibilityRule]):
 
     rule_id = f"{parent_rule_id}.{child_id}"
     rule_type = c.__class__.__name__.replace('Criterion', '')
@@ -81,7 +84,7 @@ def criteria_to_df(trial_id, c: BaseCriterion) -> pd.DataFrame:
     ]
     return pd.DataFrame(data)
 
-def count_rule_types(criterion: BaseCriterion, rule_type_counts: {str: int}):
+def count_rule_types(criterion: BaseCriterion, rule_type_counts: dict[str, int]):
 
     rule_type = criterion.__class__.__name__.replace('Criterion', '')
     rule_type_counts[rule_type] = rule_type_counts.get(rule_type, 0) + 1
@@ -97,9 +100,6 @@ def count_rule_types(criterion: BaseCriterion, rule_type_counts: {str: int}):
         count_rule_types(criterion.then, rule_type_counts)
         if criterion.else_:
             count_rule_types(criterion.else_, rule_type_counts)
-
-#
-rule_types = [ re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__() ]
 
 # add all these rules into a panda dictionary
 def criteria_to_rule_count_df(trial_id, criterion: BaseCriterion) -> pd.DataFrame:

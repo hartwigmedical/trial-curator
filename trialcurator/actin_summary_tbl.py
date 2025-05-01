@@ -8,8 +8,7 @@ import sys
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria
-from trialcurator.eligibility_sanitiser import llm_sanitise_text, llm_extract_eligibility_groups, llm_extract_text_for_groups, llm_simplify_and_tag_text
-from trialcurator.eligibility_curator_ACTIN import map_to_actin, load_actin_rules
+from trialcurator.eligibility_curator_ACTIN import load_actin_rules, curate_actin
 
 logger = logging.getLogger(__name__)
 
@@ -127,15 +126,8 @@ def main():
         eligibility_criteria = load_eligibility_criteria(trial_data)
         trial_id = trial_data["protocolSection"]["identificationModule"]["nctId"]
 
-        cleaned_text = llm_sanitise_text(eligibility_criteria, client)
-        cohort_names = llm_extract_eligibility_groups(cleaned_text, client)
-        cohort_texts = llm_extract_text_for_groups(cleaned_text, cohort_names, client)
-
-        for cohort_name, cohort_criteria in cohort_texts.items():
-
-            tagged_text = llm_simplify_and_tag_text(cohort_criteria, client)
-            mapped_output = map_to_actin(tagged_text, client, actin_rules)
-
+        cohort_actin_outputs: dict[str, str] = curate_actin(eligibility_criteria, actin_rules, client)
+        for cohort_name, mapped_output in cohort_actin_outputs.items():
             parsed_rows = parse_mapped_blocks(mapped_output)  # <- new simpler parse
 
             save_summary_tbl(

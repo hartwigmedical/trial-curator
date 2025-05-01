@@ -9,7 +9,7 @@ from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria
-from trialcurator.eligibility_sanitiser import llm_sanitise_text, llm_extract_eligibility_groups, llm_extract_text_for_groups, llm_simplify_and_tag_text
+from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +208,14 @@ def parse_actin_output_to_json(trial_id: str, mapped_text: str) -> dict:
 
     return result
 
+def curate_actin(eligibility_criteria: str, actin_rules, client: LlmClient) -> dict[str, str]:
+    cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)
+    logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
+    cohort_actin_outputs: dict[str, str] = {}
+    for cohort_name, tagged_text in cohort_texts.items():
+        cohort_actin_outputs[cohort_name] = map_to_actin(tagged_text, client, actin_rules)
+    return cohort_actin_outputs
+
 def main():
     parser = argparse.ArgumentParser(description="Clinical trial curator")
     parser.add_argument('--model', help='Select between GPT and Gemini', required=True)
@@ -229,24 +237,14 @@ def main():
     else:
         client = OpenaiClient(TEMPERATURE)
 
-    cleaned_text = llm_sanitise_text(eligibility_criteria, client)
-    cohort_names = llm_extract_eligibility_groups(cleaned_text, client)
-    cohort_texts = llm_extract_text_for_groups(cleaned_text, cohort_names, client)
-
-    logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
+    cohort_actin_outputs = curate_actin(eligibility_criteria, actin_rules, client)
 
     full_text_output = []
     all_parsed_json = []
+    for cohort_name, actin_output in cohort_actin_outputs.items():
+        full_text_output.append(f"===== {cohort_name} =====\n{actin_output}\n")
 
-    for cohort_name, cohort_criteria in cohort_texts.items():
-
-        tagged_text = llm_simplify_and_tag_text(cohort_criteria, client)
-        logger.debug(f"Tagged criteria for {cohort_name}:\n{tagged_text}")
-
-        mapped_output = map_to_actin(tagged_text, client, actin_rules)
-        full_text_output.append(f"===== {cohort_name} =====\n{mapped_output}\n")
-
-        parsed_json = parse_actin_output_to_json(trial_id + f"::{cohort_name}", mapped_output)
+        parsed_json = parse_actin_output_to_json(trial_id + f"::{cohort_name}", actin_output)
         all_parsed_json.append(parsed_json)
 
     txt_path = (args.out_trial_file.replace(".json", ".txt"))

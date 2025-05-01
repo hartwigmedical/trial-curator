@@ -45,7 +45,9 @@ TYPO CORRECTION & NORMALIZATION
 - Use 'x' for multiplication instead of '*' or 'times' (e.g., 5 x ULN).
 - Use uppercase 'L' for liters (e.g., mg/dL).
 - Use SI unit for lab measurements.
-- Replace well-known terms with standard abbreviations (e.g., ECOG, HIV, HBV, HCV, ULN, CNS).
+- Replace well-known terms with standard abbreviations, especially but not limited to ECOG, HIV, HBV, HCV, ULN, CNS, \
+ANC, AST, ALT, aPTT. Remove the un-abbreviated term. e.g. both "Eastern Cooperative Oncology Group" and "Eastern \
+Cooperative Oncology Group (ECOG)" should be replaced with "ECOG".
 
 FORMATTING & BULLETING
 - Normalize all bullet points to use '-' consistently.
@@ -82,7 +84,10 @@ INPUT TEXT
     return sanitised_text
 
 
-def llm_extract_eligibility_groups(eligibility_criteria: str, client: LlmClient) -> list[str]:
+def llm_extract_cohorts(eligibility_criteria: str, client: LlmClient) -> list[str]:
+
+    # NOTE: we call them eligibility code in the prompt to make sure LLM extract those labelled as
+    # part, phase, ovarian cancer only, etc.
 
     logger.info(eligibility_criteria)
 
@@ -116,16 +121,16 @@ Output format: Return a JSON array of group names (as strings), exactly as they 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
 
     try:
-        eligibility_groups = json.loads(extract_code_blocks(response, 'json'))
+        cohorts = json.loads(extract_code_blocks(response, 'json'))
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to decode JSON from response text: {e}")
-        eligibility_groups = []
+        cohorts = []
 
-    logger.info(f"found the following eligibility groups: {eligibility_groups}")
-    return eligibility_groups
+    logger.info(f"found the following cohorts: {cohorts}")
+    return cohorts
 
 
-def llm_extract_text_for_groups(eligibility_criteria: str, groups: list[str], client: LlmClient) -> dict:
+def llm_extract_text_for_cohorts(eligibility_criteria: str, groups: list[str], client: LlmClient) -> dict[str, str]:
 
     prompt = 'Following are the eligibility criteria for a clinical trial:\n'
     prompt += f"```\n{eligibility_criteria}\n```\n"
@@ -221,4 +226,17 @@ Return the cleaned, tagged lines below:
 '''
 
     response = client.llm_ask(user_prompt, system_prompt)
-    return response.replace("```", "")
+    tagged_text = response.replace("```", "")
+    return tagged_text
+
+def llm_extract_cohort_tagged_text(eligibility_criteria, client) -> dict[str, str]:
+    eligibility_criteria = llm_sanitise_text(eligibility_criteria, client)
+    cohorts = llm_extract_cohorts(eligibility_criteria, client)
+    cohort_text = llm_extract_text_for_cohorts(eligibility_criteria, cohorts, client)
+    cohort_tagged_text = {}
+
+    for cohort, eligibility_criteria in cohort_text.items():
+        logger.info(f'cohort: {cohort}')
+        cohort_tagged_text[cohort] = llm_simplify_and_tag_text(eligibility_criteria, client)
+
+    return cohort_tagged_text

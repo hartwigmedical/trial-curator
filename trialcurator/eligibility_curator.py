@@ -4,8 +4,7 @@ import sys
 import re
 
 from trialcurator import criterion_schema
-from trialcurator.eligibility_sanitiser import llm_sanitise_text, llm_extract_eligibility_groups, \
-    llm_extract_text_for_groups, llm_simplify_and_tag_text
+from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
 from trialcurator.openai_client import OpenaiClient
@@ -41,7 +40,7 @@ structured format using a predefined Python schema.'''
 
     # print the clinical trial schema
     prompt = f'{inspect.getsource(criterion_schema)}\n'
-    prompt += 'Create a python list of type `[BaseCriterion]` called inclusion_criteria to represent the following \
+    prompt += 'Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the following \
     inclusion criteria:\n'
     prompt += f"```\n{eligibility_criteria}\n```\n"
     prompt += '''
@@ -131,16 +130,14 @@ criteria and wrap them in an `OrCriterion`.
     return python_code
 
 
-def llm_curate_groups(group_text: dict, llm_client: LlmClient) -> str:
+def llm_curate_cohorts(group_text: dict, llm_client: LlmClient) -> str:
     group_eligibility_criteria = {}
 
-    for g in group_text.keys():
-        logger.info(f'eligibility group: {g}')
-        eligibility_criteria = group_text[g]
-        eligibility_criteria = llm_simplify_and_tag_text(eligibility_criteria, llm_client)
+    for cohort, eligibility_criteria in group_text.items():
+        logger.info(f'cohort: {cohort}')
         clinical_trial_code = llm_curate_from_text(eligibility_criteria, llm_client)
         clinical_trial_code = llm_refine_answer(clinical_trial_code, llm_client)
-        group_eligibility_criteria[g] = clinical_trial_code
+        group_eligibility_criteria[cohort] = clinical_trial_code
 
     # now put them all together into a nicely printed python code
     eligibility_criteria_code = '{\n'
@@ -192,6 +189,8 @@ def main():
     parser = argparse.ArgumentParser(description="Clinical trial curator")
     parser.add_argument('--trial_json', help='json file containing trial data', required=True)
     parser.add_argument('--out_trial_py', help='output python file containing trial data', required=True)
+    parser.add_argument('--out_actin', help='output python file containing trial data', required=False)
+    parser.add_argument('--act_rules', help='path to ACTIN rules CSV', required=False)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
@@ -201,12 +200,10 @@ def main():
 
     eligibility_criteria = load_eligibility_criteria(trial_data)
 
-    eligibility_criteria = llm_sanitise_text(eligibility_criteria, client)
-    groups = llm_extract_eligibility_groups(eligibility_criteria, client)
-    group_text = llm_extract_text_for_groups(eligibility_criteria, groups, client)
+    cohort_text = llm_extract_cohort_tagged_text(eligibility_criteria, client)
 
     # curate each part separately
-    clinical_trial_code = llm_curate_groups(group_text, client)
+    clinical_trial_code = llm_curate_cohorts(cohort_text, client)
 
     # write it out to the python file
     with open(args.out_trial_py, 'w', encoding='utf-8') as f:
