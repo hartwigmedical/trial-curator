@@ -99,19 +99,27 @@ You are given the inclusion and exclusion criteria of a clinical trial. Some tri
 YOUR TASK is to extract the names of these eligibility groups into a JSON list of strings, but only under the following conditions:
 - Explicitly named: Only extract a group if it is explicitly named. For example: "dose-escalation cohorts (Phase 1a)", \
 "cohort A", "Part 2: Arm B". Do not infer or invent names.
-- Group names may be introduced via headings (e.g., 'Cohort A Only:'), or inline phrases followed by colon or line \
-breaks. Consider any phrase ending with 'Only', 'Cohort', 'Part', 'Phase', etc., as a potential group name if it has \
-distinct criteria beneath or tied to it
+- Group names may appear as:
+  - Phrases in inclusion and exclusion criteria headings: A group name can be identified if there are matching phrases \
+in the Inclusion Criteria and Exclusion Criteria headings that refer to a specific eligibility group. For example, \
+phrases like:
+      - "X Inclusion Criteria:" followed by "X Exclusion Criteria:", "Inclusion Criteria(X):" followed by "Exclusion Criteria(X):"
+      - "X: Inclusion Criteria" followed by "X: Exclusion Criteria".
+      In these cases, "X" should be treated as the name of a specific eligibility group.
+  - Headings (e.g., 'Cohort A Only:')
+  - Inline phrases (e.g., Phase 2:, Part B:).
+  - Consider any phrase ending with 'Only', 'Cohort', 'Part', 'Phase', etc., or disease status, cancer types, dosage etc \
+as a potential group name if it has distinct criteria beneath or tied to it. Remove the word 'only' from group names.
 - Distinct Eligibility Criteria: The named group must have at least one eligibility criterion that differs from \
 other groups. Do NOT extract multiple names that share identical criteria.
 - Preserve Full Group Names: If a group name contains a parent group and one or more subgroups, capture the full \
 hierarchical name as it appears in the text. For example:
-   - If `GROUP A:` contains `Subtype X:` which contains `Condition Y`, then the group name should be extracted as: \
+  - If `GROUP A:` contains `Subtype X:` which contains `Condition Y`, then the group name should be extracted as: \
 "GROUP A: Subtype X: Condition Y"
-   - Do NOT shorten this to "GROUP A" or "Subtype X".
+  - Do NOT shorten this to "GROUP A" or "Subtype X".
 - Do NOT Merge or Generalize:
-   - Do NOT create general or umbrella categories (e.g., combining "part 1" and "part 2" into one group).
-   - Do NOT list a group just because it has a different name — the criteria must actually differ.
+  - Do NOT create general or umbrella categories (e.g., combining "part 1" and "part 2" into one group).
+  - Do NOT list a group just because it has a different name — the criteria must actually differ.
 - Default Case: If no distinct groups are defined, return a single-item list `["default"]`
 
 Output format: Return a JSON array of group names (as strings), exactly as they appear in the text (e.g., "part 1", \
