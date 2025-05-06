@@ -1,13 +1,15 @@
 import inspect
+import json
 import logging
 import sys
 import re
 
-from trialcurator import criterion_schema
-from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
-from trialcurator.llm_client import LlmClient
-from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
-from trialcurator.openai_client import OpenaiClient
+from . import criterion_schema
+from .eligibility_curator_ACTIN import curate_actin, map_to_actin, load_actin_rules
+from .eligibility_sanitiser import llm_extract_cohort_tagged_text
+from .llm_client import LlmClient
+from .utils import load_trial_data, unescape_json_str, extract_code_blocks
+from .openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ statements.
 
 # Special Cases
 - When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
-- If a criterion contains **conditional logic** (“if X, then Y”), express it using an `IfCriterion`.
+- If a criterion contains **conditional logic** (e.g. “if X, then Y”, “Y if X”), express it using an `IfCriterion`.
 - If a criterion involves multiple distinct conditions (e.g., disease and medication), model each separately using the \
 appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and combine them with AndCriterion.
 - The above also apply to criteria wrapped inside NotCriterion.
@@ -84,10 +86,10 @@ not amenable to or not eligible for a specific treatment, model it as a NotCrite
  population qualifiers, or general clinical appropriateness.
 
 # Description field
-- `description` field of every criterion must always be populated, including composite criteria.
-- For top level criterion, the `description` field must contain the whole criterion text including the INCLUDE/EXCLUDE tag.
-- For non top level criterion, the `description` field must store a complete, self-contained explanation of the original \
-criterion.
+- The `description` field must always be populated for every criterion, including composite criteria.
+- For top-level criteria, the description must include the **entire criterion text**, including any INCLUDE or EXCLUDE tags.
+- For non–top-level criteria, the description must provide a complete, self-contained explanation of the original criterion.
+- Do not leave the description field empty under any circumstances.
 '''
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
@@ -184,13 +186,34 @@ def prepend_schema_if_missing(trial_code: str) -> str:
     return trial_code
 
 
+def parse_actin_output_to_json(cohort: str, mapped_text: str) -> dict:
+    pattern = r"Input:\s*(INCLUDE|EXCLUDE)\s+(.*?)\nACTIN Output:\s*(.*?)\nNew rule:"
+    matches = re.findall(pattern, mapped_text, re.DOTALL)
+
+    result = {
+        "cohort": cohort,
+        "mappings": []
+    }
+
+    for tag, input_text, actin_text in matches:
+        cleaned_input = input_text.strip().replace('\n', ' ')
+        cleaned_actin = re.sub(r'\)\s*\n\s*(AND|OR)\s*\n\s*\(', r') \1 (', actin_text.strip(), flags=re.IGNORECASE)
+        cleaned_actin = re.sub(r'\s*\n\s*', ' ', cleaned_actin).strip()
+        result["mappings"].append({
+            "tag": tag,
+            "input_text": cleaned_input,
+            "ACTIN_rules": cleaned_actin
+        })
+
+    return result
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Clinical trial curator")
     parser.add_argument('--trial_json', help='json file containing trial data', required=True)
     parser.add_argument('--out_trial_py', help='output python file containing trial data', required=True)
-    parser.add_argument('--out_actin', help='output python file containing trial data', required=False)
-    parser.add_argument('--act_rules', help='path to ACTIN rules CSV', required=False)
+    parser.add_argument('--out_actin', help='output text file containing ACTIN trial data', required=False)
+    parser.add_argument('--actin_rules', help='path to ACTIN rules CSV', required=False)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
@@ -199,16 +222,24 @@ def main():
     client = OpenaiClient(TEMPERATURE, TOP_P)
 
     eligibility_criteria = load_eligibility_criteria(trial_data)
-
-    cohort_text = llm_extract_cohort_tagged_text(eligibility_criteria, client)
-
-    # curate each part separately
-    clinical_trial_code = llm_curate_cohorts(cohort_text, client)
+    cohort_texts = llm_extract_cohort_tagged_text(eligibility_criteria, client)
+    clinical_trial_code = llm_curate_cohorts(cohort_texts, client)
 
     # write it out to the python file
     with open(args.out_trial_py, 'w', encoding='utf-8') as f:
         f.write(clinical_trial_code)
 
+    # if we have ACTIN specified, curate it also
+    if args.out_actin:
+        actin_rules = load_actin_rules(args.actin_rules)
+        cohort_actin = []
+        for cohort_name, tagged_text in cohort_texts.items():
+            actin_output = map_to_actin(tagged_text, client, actin_rules)
+            actin_json = parse_actin_output_to_json(cohort_name, actin_output)
+            cohort_actin.append(actin_json)
+        # write to file
+        with open(args.out_actin, "w") as f:
+            json.dump(cohort_actin, f, indent=2)
 
 if __name__ == "__main__":
     main()

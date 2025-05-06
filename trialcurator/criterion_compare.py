@@ -6,7 +6,6 @@ from difflib import unified_diff
 from sentence_transformers import SentenceTransformer, SimilarityFunction, util
 
 from .eligibility_py_loader import exec_file_into_variable
-from .utils import fuzzy_text_compare
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +22,13 @@ class CriteriaDiff(NamedTuple):
     similarity: float
     diff: list[str]
 
-def criterion_diff(old_criteria: list[str], new_criteria: list[str]) -> list[CriteriaDiff]:
+def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_model=None) -> list[CriteriaDiff]:
 
     logger.info("running criterion diff")
 
-    fuzzymatch_model = SentenceTransformer("cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
-                                           similarity_fn_name=SimilarityFunction.DOT_PRODUCT)
-
-    #fuzzymatch_model = SentenceTransformer(os.path.expanduser("~/.cache/huggingface/hub/models--cambridgeltl--SapBERT-from-PubMedBERT-fulltext/snapshots/090663c3ae57bf35ffe4d0d468a2a88d03051a4d"),
-    #                                       similarity_fn_name=SimilarityFunction.DOT_PRODUCT,
-    #                                       local_files_only=True)
+    if fuzzymatch_model is None:
+        fuzzymatch_model = SentenceTransformer("cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
+                                               similarity_fn_name=SimilarityFunction.DOT_PRODUCT)
 
     class CriteriaCompareScore(NamedTuple):
         old_criterion: str
@@ -45,11 +41,17 @@ def criterion_diff(old_criteria: list[str], new_criteria: list[str]) -> list[Cri
 
     compare_scores: list[CriteriaCompareScore] = []
 
-    # get all the scores
-    for c1 in old_criteria:
-        for c2 in new_criteria:
-            score = fuzzy_text_compare(fuzzymatch_model, c1, c2)
-            compare_scores.append(CriteriaCompareScore(c1, c2, score))
+    # perform encoding
+    old_criteria_embeddings = fuzzymatch_model.encode(old_criteria, show_progress_bar=False)
+    new_criteria_embeddings = fuzzymatch_model.encode(new_criteria, show_progress_bar=False)
+
+    # get all the similarity scores
+    for i in range(len(old_criteria)):
+        embedding1 = old_criteria_embeddings[i]
+        for j in range(len(new_criteria)):
+            embedding2 = new_criteria_embeddings[j]
+            score = util.cos_sim(embedding1, embedding2).item()
+            compare_scores.append(CriteriaCompareScore(old_criteria[i], new_criteria[j], score))
 
     # sort by descending
     compare_scores.sort(key=lambda x: x.similarity, reverse=True)
@@ -147,11 +149,6 @@ def format_differences(differences: list[CriteriaDiff]) -> str:
 
 def find_matching_cohort(old_cohort_names, new_cohort_names):
     pass
-
-def fuzzy_text_compare(fuzzymatch_model, text1, text2) -> float:
-    embedding1 = fuzzymatch_model.encode(text1)
-    embedding2 = fuzzymatch_model.encode(text2)
-    return util.cos_sim(embedding1, embedding2).item()
 
 def main():
     import argparse

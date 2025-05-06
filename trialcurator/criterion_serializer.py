@@ -1,8 +1,8 @@
 import re
 from typing import Any
 
-from trialcurator.criterion_schema import BaseCriterion, AndCriterion, OrCriterion, NotCriterion, IfCriterion
-from trialcurator.utils import deep_remove_field
+from .criterion_schema import BaseCriterion, AndCriterion, OrCriterion, NotCriterion, IfCriterion
+from .utils import deep_remove_field
 
 '''
 write the criterion in a customised format:
@@ -13,6 +13,8 @@ and{
     metastases(location="≥ 2 different organs", additional_details=[">1 extra-hepatic metastases"]),
   },
   surgery(surgical_procedure="Feasible radical tumor debulking"),
+  priortherapy(therapy="radiotherapy", timing_info(reference="now", window_days(min_inclusive=30)))
+}
 '''
 
 def custom_format(obj: Any, indent: int = 0) -> str:
@@ -48,7 +50,6 @@ class CriterionSerializer:
     @staticmethod
     def _serialize(criterion: BaseCriterion, indent: int) -> str:
         indent_str = '  ' * indent
-
         if isinstance(criterion, (AndCriterion, OrCriterion)):
             typename = criterion.type
             lines = []
@@ -66,10 +67,10 @@ class CriterionSerializer:
         elif isinstance(criterion, IfCriterion):
             condition = CriterionSerializer._serialize(criterion.condition, 0)
             then = CriterionSerializer._serialize(criterion.then, 0)
-            output = f'{indent_str}if{{{condition}}} then {{{then}}}'
+            output = f'{indent_str}if{{{condition}}}\n{indent_str} then {{{then}}}'
             if criterion.else_:
                 else_ = CriterionSerializer._serialize(criterion.else_, 0)
-                output = output + f' else {{{else_}}}'
+                output = output + f'\n{indent_str} else {{{else_}}}'
             return output
         else:
             # For normal (leaf) criteria, single-line compact JSON
@@ -79,4 +80,3 @@ class CriterionSerializer:
             # now we want to change those type = criterion to criterion ()
             compact_json = re.sub(f'type\\s*=\\s*\\"{criterion.type}\\",?\\s*', f'{criterion.type}(', compact_json) + ')'
             return indent_str + compact_json
-

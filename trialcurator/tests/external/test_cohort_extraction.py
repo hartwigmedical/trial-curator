@@ -18,32 +18,10 @@ logging.basicConfig(stream=sys.stdout,
 logger.setLevel(logging.DEBUG)
 
 
-def get_test_data_path():
-    return f"{Path(__file__).parent}/data"
-
 class TestCohortExtraction(unittest.TestCase):
 
     def setUp(self):
         pass
-
-    def extract_eligibility_groups(self):
-
-        client = OpenaiClient(TEMPERATURE, TOP_P)
-        # load up all the trial data
-        df = pd.read_csv(f"{get_test_data_path()}/nct_eligibility/trials.list", names=['TrialCode'])
-
-        # get out all the parts / cohorts
-        for idx, row in df.iterrows():
-            trial_id = row["TrialCode"]
-            logger.info(f" ------------------- trial id: {trial_id} -------------------")
-            with open(f"{get_test_data_path()}/nct_eligibility/{trial_id}.json", 'r', encoding='utf-8') as f:
-                trial_dict = json.load(f)
-                criteria = trial_dict["sanitised_criteria"]
-                eligibility_groups = trial_dict["eligibility_groups"]
-                llm_eligibility_groups = llm_extract_cohorts(criteria, client)
-
-                # check that the number of trial groups are the same
-                self.assertEqual(len(eligibility_groups), len(llm_eligibility_groups))
 
     def test_extract_from_header(self):
         criteria = '''
@@ -96,7 +74,7 @@ Exclusion Criteria:
 
 - Prior treatment with anti-PD-1/PD-L1 therapy, as described in the protocol.
 - Ovarian Cancer cohorts only: More than 4 prior lines of cytotoxic chemotherapy.
-- Prior treatment with a MUC16-targeted therapy.
+- Endometrial cancer cohorts: Prior treatment with a MUC16-targeted therapy.
 - Untreated or active primary brain tumor, CNS metastases, or spinal cord compression, as described in the protocol.
 - History and/or current cardiovascular disease, as defined in the protocol.
 - Severe and/or uncontrolled hypertension at screening.
