@@ -70,7 +70,7 @@ EXCLUDE Recent myocardial infarction (< 6 months) or unstable angina
 '''
 
 
-class TestEligibilitySanitiser(unittest.TestCase):
+class TestSimplifyAndTagging(unittest.TestCase):
 
     # test that simplify and tagging gets the correct output
     def test_simplify_and_tag_text(self):

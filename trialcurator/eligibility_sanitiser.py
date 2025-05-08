@@ -72,6 +72,9 @@ above and split into separate bullet points accordingly.
 - If there are multiple general category each with multiple lab values, convert into multiple parent and sub-bullets, \
 i.e. A (X > 10, Y < 5), B (M < 1, N > 4) should be converted to bullet "A" and sub-bullets "X > 10" and "Y < 5" and \
 bullet "B" and sub-bullets "M < 1" and "N > 4".
+- If a criterion uses a disjunction or conjunction for two separate lab values like "Aspartate amino transferase (AST) or alanine amino transferase (ALT) > or equal to three times the upper limit of normal (if related to liver metastases > five times the upper limit of normal)", rewrite it as two separate bullet points:
+    - AST ≥ 3 × ULN (if related to liver metastases > 5 × ULN)
+    - ALT) ≥ 3 × ULN (if related to liver metastases > 5 × ULN)
 
 OUTPUT STRUCTURE
 - Answer in one text block with no additional explanation.
@@ -195,6 +198,7 @@ LOGIC CONVERSION RULES:
   - Scalar clinical estimates (e.g., life expectancy, QTc, age):
     - ✅ EXCLUDE QTcF > 470 ms → INCLUDE QTcF ≤ 470 ms
     - ✅ EXCLUDE Life expectancy < 6 months → INCLUDE Life expectancy ≥ 6 months
+    - ✅ EXCLUDE X ≥ 3 × ULN → INCLUDE X < 3 × ULN
 - Do not flip if it could:
   - Change the clinical, temporal, or semantic intent
   - Broaden or narrow the scope unintentionally
