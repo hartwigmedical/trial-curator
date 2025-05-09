@@ -6,6 +6,7 @@ from pathlib import Path
 
 from trialcurator.eligibility_curator import *
 from trialcurator.eligibility_sanitiser import llm_extract_cohorts
+from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ logger.setLevel(logging.DEBUG)
 class TestCohortExtraction(unittest.TestCase):
 
     def setUp(self):
-        #self.client = OpenaiClient(TEMPERATURE)
+        # self.client = OpenaiClient(TEMPERATURE)
         self.client = GeminiClient(TEMPERATURE)
 
     def test_extract_from_header(self):
@@ -103,3 +104,32 @@ Exclusion Criteria part 2:
 '''
         cohorts = llm_extract_cohorts(criteria, self.client)
         self.assertEqual(['part 1', 'part 2'], cohorts)
+
+    def test_default_and_expansion_cohorts(self):
+        criteria = '''
+Inclusion Criteria:
+- Has an ECOG performance status of 0 or 1
+- Has histologically or cytologically confirmed cancer that meets criteria as defined in the protocol
+- Expansion Cohorts only: Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1
+- Has at least 1 lesion that meets study criteria as defined in the protocol
+- Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site that has not been previously irradiated
+- Has adequate organ and bone marrow function as defined in the protocol
+- In the judgement of the investigator, has a life expectancy of at least 3 months
+
+Exclusion Criteria:
+- Is currently participating in another study of a therapeutic agent
+- Has participated in any study of an investigational agent or an investigational device within 4 weeks of the first administration of study drug as defined in the protocol
+- Has received treatment with an approved systemic therapy within 4 weeks of the first administration of study drug or has not yet recovered (i.e., grade 1 or baseline) from any acute toxicities
+- Has received recent anti-EGFR antibody therapy as defined in the protocol
+- Has received radiation therapy or major surgery within 14 days of the first administration of study drug or has not recovered (i.e., grade 1 or baseline) from adverse events
+- Has received any previous systemic, non-immunomodulatory biologic therapy within 4 weeks of first administration of study drug
+- Has had prior anti-cancer immunotherapy within 5 half-lives prior to study drug as defined in the protocol
+- Has second malignancy that is progressing or requires active treatment as defined in the protocol
+- Has any condition requiring ongoing/continuous corticosteroid therapy (>10 mg prednisone/day or anti-inflammatory equivalent) within 1-2 weeks prior to the first dose of study drug as defined in the protocol
+- Has ongoing or recent (within 5 years) evidence of significant autoimmune disease or any other condition that required treatment with systemic immunosuppressive treatments as defined in the protocol
+- Has untreated or active primary brain tumor, CNS metastases, leptomeningeal disease, or spinal cord compression
+- Has encephalitis, meningitis, organic brain disease (e.g., Parkinson's disease) or uncontrolled seizures within 1 year prior to the first dose of study drug
+- Has any ongoing inflammatory skin disease as defined in the protocol    
+'''
+        cohorts = llm_extract_cohorts(criteria, self.client)
+        self.assertEqual(['default','Expansion Cohorts'], cohorts)

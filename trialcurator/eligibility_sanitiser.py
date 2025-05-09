@@ -243,6 +243,7 @@ LOGIC CONVERSION RULES:
   - Introduce assumptions not present in the original
   - Example where flipping is not allowed:
     - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
+  - Do not flip EXCLUDE rules involving negated disease types, histologies, or genotypes (e.g., “must not have mixed histology”, “must not be EGFR+”). The inclusion form could invert the eligible population.
   - When in doubt, leave as EXCLUDE.
   
 DO NOT:

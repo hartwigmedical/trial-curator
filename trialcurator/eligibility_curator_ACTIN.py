@@ -58,6 +58,7 @@ FALLBACK RULES (use when no ACTIN rule matches)
 - For example, if the condition lists various types of recent cardiovascular disease (e.g., MI, stroke, arrhythmia), and an existing ACTIN rule such as `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE` captures them all — **use the general rule**.
 - Prior drug exposure (general):  
     `HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[ros1 tyrosine kinase inhibitor]`
+- If unsure about exact mapping to cancer type, create a new rule HAS_CANCER_TYPE[X] (e.g. HAS_CANCER_TYPE[SCLC], HAS_CANCER_TYPE[NSCLC])
 
 WHAT COUNTS AS A NEW RULE
 - A rule is NEW if the part before square brackets (the rule name) is not found in the ACTIN RULE LIST.
