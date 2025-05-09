@@ -237,30 +237,32 @@ LOGIC CONVERSION RULES:
     - Correct: EXCLUDE QTcF > 470 ms → INCLUDE QTcF ≤ 470 ms
     - Correct: EXCLUDE Life expectancy < 6 months → INCLUDE Life expectancy ≥ 6 months
     - Correct: EXCLUDE X ≥ 3 × ULN → INCLUDE X < 3 × ULN
+  - Redundant exclusion:  
+    - When a criterion is phrased as ‘EXCLUDE participants must not have X’, rephrase to remove the redundant negation \
+while preserving exclusion intent. Convert to: ‘EXCLUDE patient who have X’
 - Do not flip if it could:
   - Change the clinical, temporal, or semantic intent
   - Broaden or narrow the scope unintentionally
   - Introduce assumptions not present in the original
   - Example where flipping is not allowed:
     - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
-  - Do not flip EXCLUDE rules involving negated disease types, histologies, or genotypes (e.g., “must not have mixed histology”, “must not be EGFR+”). The inclusion form could invert the eligible population.
   - When in doubt, leave as EXCLUDE.
   
 DO NOT:
 - Change the medical meaning
 - Drop any important detail
-- Reorder criteria
 
 OUTPUT FORMAT:
 - Each top-level bullet must be tagged as "INCLUDE" or "EXCLUDE", with any sub-bullets listed beneath it using hyphenation e.g.
 ```
 INCLUDE Age ≥ 18 years
+EXCLUDE HIV infection
 INCLUDE for female patients:
   - Negative pregnancy test
   - Reliable contraceptive methods
-EXCLUDE HIV infection
 ```
 - Do not add blank lines. Do not add commentary or explanation.
+- Remove trailing full stop.
 '''
     user_prompt += f'''
 Below is the eligibility criteria for a clinical trial. Perform tagging and logic flipping as described above.
@@ -269,7 +271,7 @@ Return the cleaned, tagged lines below:
 '''
 
     response = client.llm_ask(user_prompt, system_prompt)
-    tagged_text = response.replace("```", "")
+    tagged_text = response.replace("```", "").strip('\n\r')
     return tagged_text
 
 def llm_extract_cohort_tagged_text(eligibility_criteria, client) -> dict[str, str]:
