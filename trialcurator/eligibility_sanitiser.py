@@ -279,7 +279,7 @@ def llm_extract_cohort_tagged_text(eligibility_criteria, client) -> dict[str, st
 
     for cohort, eligibility_criteria in cohort_text.items():
         logger.info(f'cohort: {cohort}')
-        cohort_tagged_text = llm_tag_text(eligibility_criteria, client)
-        cohort_tagged_text[cohort] = llm_simplify_text_logic(eligibility_criteria, client)
+        tagged_text = llm_tag_text(eligibility_criteria, client)
+        cohort_tagged_text[cohort] = llm_simplify_text_logic(tagged_text, client)
 
     return cohort_tagged_text
