@@ -57,7 +57,8 @@ FORMATTING & BULLETING
 REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Only include criteria that explicitly define inclusion or exclusion rules.
 - Remove permissive statements that do not restrict eligibility (e.g., "X is allowed", "Y may be permitted", "X are eligible")
-- Remove any descriptive/contextual statement that don’t impose inclusion or exclusion requirements.
+- Remove any rule that consists solely of descriptive or contextual information and does not impose any inclusion or exclusion requirement.
+However, retain the rule if it contains even a single restrictive criterion, regardless of how much descriptive text it includes.
 - Remove any statement about informed consent (e.g., "Patient must be able to provide informed consent").
 
 LAB VALUES
