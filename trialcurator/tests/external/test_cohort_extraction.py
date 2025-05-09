@@ -17,11 +17,11 @@ logging.basicConfig(stream=sys.stdout,
 
 logger.setLevel(logging.DEBUG)
 
-
 class TestCohortExtraction(unittest.TestCase):
 
     def setUp(self):
-        pass
+        #self.client = OpenaiClient(TEMPERATURE)
+        self.client = GeminiClient(TEMPERATURE)
 
     def test_extract_from_header(self):
         criteria = '''
@@ -50,7 +50,7 @@ Recurrent Exclusion Criteria:
 - Any prior treatment with prolifeprospan 20 with carmustine wafer.
         '''
 
-        cohorts = llm_extract_cohorts(criteria, OpenaiClient(TEMPERATURE, TOP_P))
+        cohorts = llm_extract_cohorts(criteria, self.client)
         self.assertEqual(['Newly Diagnosed', 'Recurrent'], cohorts)
 
     def test_extract_from_inline_phrases(self):
@@ -79,7 +79,7 @@ Exclusion Criteria:
 - History and/or current cardiovascular disease, as defined in the protocol.
 - Severe and/or uncontrolled hypertension at screening.
 '''
-        cohorts = llm_extract_cohorts(criteria, OpenaiClient(TEMPERATURE, TOP_P))
+        cohorts = llm_extract_cohorts(criteria, self.client)
         self.assertEqual(["Ovarian Cancer Cohorts",  "Endometrial Cancer Cohorts"], cohorts)
 
     def test_extract_from_header_phrase(self):
@@ -101,5 +101,5 @@ Exclusion Criteria part 2:
 - Patients <18 years of age.
 - Patients who do not agree to the proposed treatment or will receive (part of) the treatment in a non-participating centre.
 '''
-        cohorts = llm_extract_cohorts(criteria, OpenaiClient(TEMPERATURE, TOP_P))
+        cohorts = llm_extract_cohorts(criteria, self.client)
         self.assertEqual(['part 1', 'part 2'], cohorts)

@@ -1,14 +1,21 @@
 import unittest
-import difflib
 
-from trialcurator.eligibility_sanitiser import llm_simplify_and_tag_text
-from trialcurator.openai_client import OpenaiClient
+from ...eligibility_sanitiser import llm_simplify_and_tag_text
+from ...gemini_client import GeminiClient
+from ...openai_client import OpenaiClient
 
 # test exclusion rules in input are correctly converted to inclusion rules in output
 # NCT00875433
 # TO DO: Serum creatinine > 1.5 x ULN or calculated/measured creatinine clearance ≥ 45 mL/min. --> checking this rule is medically incorrect as clearance should be <=
 
-input_text = '''
+class TestExclusionFlipping(unittest.TestCase):
+
+    def setUp(self):
+        #self.client = OpenaiClient()
+        self.client = GeminiClient()
+
+    def test_flip_labvalue_exclusion(self):
+        input_text = '''
 Exclusion Criteria:
 
 - QTcF interval > 470 ms at screening.
@@ -21,7 +28,7 @@ Exclusion Criteria:
 - ALT ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
 '''
 
-expected_output_text = '''
+        expected_output_text = '''
 INCLUDE QTcF interval ≤ 470 ms at screening
 INCLUDE PR interval ≤ 230 ms at screening
 INCLUDE QRS interval ≤ 120 ms at screening
@@ -32,26 +39,25 @@ INCLUDE AST < 3 × ULN (if related to liver metastases ≤ 5 × ULN)
 INCLUDE ALT < 3 × ULN (if related to liver metastases ≤ 5 × ULN)
 '''
 
+        output_text = llm_simplify_and_tag_text(input_text, self.client)
 
-class TestExclusionFlipping(unittest.TestCase):
+        # check that the number of trial groups are the same
+        self.assertEqual(output_text, expected_output_text)
 
-    def test_simplify_and_tag_text(self):
+    def test_non_labvalue_exclusion(self):
+        input_text = '''
+Exclusion Criteria:
+- Does not demonstrate adequate organ function.
+- Prior radiotherapy within 2 weeks of start of study intervention.
+- Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline.
+'''
 
-        client = OpenaiClient(0)
-        output_text = llm_simplify_and_tag_text(input_text, client)
+        expected_output_text = '''INCLUDE Demonstrate adequate organ function as defined by laboratory limits.
+EXCLUDE Prior radiotherapy within 2 weeks of start of study intervention.
+EXCLUDE Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline.
+'''
 
-        actual_output_lines = output_text.strip().splitlines()
-        expected_output_lines = expected_output_text.strip().splitlines()
+        output_text = llm_simplify_and_tag_text(input_text, self.client)
 
-        different_rules = []
-
-        if actual_output_lines != expected_output_lines:
-
-            for line in difflib.unified_diff(expected_output_lines, actual_output_lines):
-
-                if line.startswith("-") or line.startswith("+"):
-
-                    different_rules.append(line)
-
-            diff = "\n".join(different_rules)
-            self.fail(f"Output differs from expectation:\n{diff}")
+        # check that the number of trial groups are the same
+        self.assertEqual(output_text, expected_output_text)

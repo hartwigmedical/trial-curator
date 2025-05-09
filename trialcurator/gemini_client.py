@@ -8,11 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient(LlmClient):
-
     MODEL = "gemini-2.0-flash-001"
-    TOP_P = 1.0
 
-    def __init__(self, temperature, top_p=TOP_P, model=MODEL):
+    def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
 
         project_id = os.getenv("GEMINI_PROJECT_ID")
         location = os.getenv("GEMINI_LOCATION")
@@ -25,14 +23,14 @@ class GeminiClient(LlmClient):
     def llm_ask(self, user_prompt: str, system_prompt: str = None) -> str:
 
         if system_prompt:
-            config=types.GenerateContentConfig(
+            config = types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=self.temperature
             )
             for line in system_prompt.splitlines():
                 logging.info(f"system prompt: {line}")
         else:
-            config=types.GenerateContentConfig(
+            config = types.GenerateContentConfig(
                 temperature=self.temperature
             )
         for line in user_prompt.splitlines():

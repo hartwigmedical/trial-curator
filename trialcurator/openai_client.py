@@ -14,9 +14,8 @@ class OpenaiClient(LlmClient):
     It extends the `LlmClient` abstract base class.
     """
     MODEL = "gpt-4o"
-    TOP_P = 1.0
 
-    def __init__(self, temperature, top_p=TOP_P, model=MODEL):
+    def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
         """
         Initialize the OpenaiClient class with specific model and tuning parameters.
 

@@ -178,10 +178,9 @@ Instructions:
 
 def llm_simplify_and_tag_text(eligibility_text: str, client: LlmClient) -> str:
 
-    system_prompt = '''
-You are a clinical trial text simplification and tagging assistant.
+    system_prompt = 'You are a clinical trial text simplification and tagging assistant.'
 
-GOALS:
+    user_prompt = '''GOALS:
 1. Tag each top-level bullet with "INCLUDE" or "EXCLUDE" depending on whether the criterion is an inclusion or exclusion rule.
 2. Convert EXCLUDE rules to logically equivalent INCLUDE rules only if the meaning is precisely preserved.
 3. Promote sub-bullets to top-level bullets only when doing so does not change the intended logical structure.
@@ -196,15 +195,15 @@ LOGIC CONVERSION RULES:
   - Multiple disjunctive measurement comparisons:
     - EXCLUDE (X < N OR Y > M) → INCLUDE (X ≥ N AND Y ≤ M) 
   - Scalar clinical estimates (e.g., life expectancy, QTc, age):
-    - ✅ EXCLUDE QTcF > 470 ms → INCLUDE QTcF ≤ 470 ms
-    - ✅ EXCLUDE Life expectancy < 6 months → INCLUDE Life expectancy ≥ 6 months
-    - ✅ EXCLUDE X ≥ 3 × ULN → INCLUDE X < 3 × ULN
+    - Correct: EXCLUDE QTcF > 470 ms → INCLUDE QTcF ≤ 470 ms
+    - Correct: EXCLUDE Life expectancy < 6 months → INCLUDE Life expectancy ≥ 6 months
+    - Correct: EXCLUDE X ≥ 3 × ULN → INCLUDE X < 3 × ULN
 - Do not flip if it could:
   - Change the clinical, temporal, or semantic intent
   - Broaden or narrow the scope unintentionally
   - Introduce assumptions not present in the original
   - Example where flipping is not allowed:
-    - ❌ EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
+    - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
   - When in doubt, leave as EXCLUDE.
 
 SUB-BULLET PROMOTION RULES:
@@ -231,7 +230,7 @@ EXCLUDE HIV infection
 ```
 - Do not add blank lines. Do not add commentary or explanation.
 '''
-    user_prompt = f'''
+    user_prompt += f'''
 Below is the eligibility criteria for a clinical trial. Perform tagging and logic flipping as described above.
 {eligibility_text}
 Return the cleaned, tagged lines below:
