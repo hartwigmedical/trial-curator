@@ -1,6 +1,6 @@
 import unittest
 
-from trialcurator.eligibility_sanitiser import llm_simplify_and_tag_text
+from trialcurator.eligibility_sanitiser import llm_tag_text
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
@@ -78,7 +78,7 @@ EXCLUDE A known history of HBV or HCV with active viral replication
 EXCLUDE Recent myocardial infarction (< 6 months) or unstable angina
 '''
 
-        output_text = llm_simplify_and_tag_text(input_text, self.client)
+        output_text = llm_tag_text(input_text, self.client)
 
         # check that the number of trial groups are the same
-        self.assertEqual(output_text, expected_output_text)
+        self.assertEqual(expected_output_text, output_text)

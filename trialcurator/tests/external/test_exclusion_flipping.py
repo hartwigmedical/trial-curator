@@ -1,6 +1,6 @@
 import unittest
 
-from ...eligibility_sanitiser import llm_simplify_and_tag_text
+from ...eligibility_sanitiser import llm_simplify_text_logic
 from ...gemini_client import GeminiClient
 from ...openai_client import OpenaiClient
 
@@ -16,48 +16,44 @@ class TestExclusionFlipping(unittest.TestCase):
 
     def test_flip_labvalue_exclusion(self):
         input_text = '''
-Exclusion Criteria:
-
-- QTcF interval > 470 ms at screening.
-- PR interval > 230 ms at screening.
-- QRS interval > 120 ms at screening.
-- ANC < 1,500/mm^3.
-- Platelet count < 100,000/mm^3.
-- Bilirubin > 1.5 mg/dL (> 26 μmol/L, SI unit equivalent).
-- AST ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
-- ALT ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
+EXCLUDE QTcF interval > 470 ms at screening.
+EXCLUDE PR interval > 230 ms at screening.
+EXCLUDE QRS interval > 120 ms at screening.
+EXCLUDE ANC < 1,500/mm^3.
+EXCLUDE Platelet count < 100,000/mm^3.
+EXCLUDE Bilirubin > 1.5 mg/dL (> 26 μmol/L, SI unit equivalent).
+EXCLUDE AST ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
+EXCLUDE ALT ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
 '''
 
-        expected_output_text = '''
-INCLUDE QTcF interval ≤ 470 ms at screening
+        expected_output_text = '''INCLUDE QTcF interval ≤ 470 ms at screening
 INCLUDE PR interval ≤ 230 ms at screening
 INCLUDE QRS interval ≤ 120 ms at screening
 INCLUDE ANC ≥ 1,500/mm^3
 INCLUDE Platelet count ≥ 100,000/mm^3
 INCLUDE Bilirubin ≤ 1.5 mg/dL (≤ 26 μmol/L, SI unit equivalent)
-INCLUDE AST < 3 × ULN (if related to liver metastases ≤ 5 × ULN)
-INCLUDE ALT < 3 × ULN (if related to liver metastases ≤ 5 × ULN)
+INCLUDE AST < 3 × ULN (if related to liver metastases ≤ 5 × ULN).
+INCLUDE ALT < 3 × ULN (if related to liver metastases ≤ 5 × ULN).
 '''
 
-        output_text = llm_simplify_and_tag_text(input_text, self.client)
+        output_text = llm_simplify_text_logic(input_text, self.client)
 
         # check that the number of trial groups are the same
-        self.assertEqual(output_text, expected_output_text)
+        self.assertEqual(expected_output_text, output_text)
 
     def test_non_labvalue_exclusion(self):
         input_text = '''
-Exclusion Criteria:
-- Does not demonstrate adequate organ function.
-- Prior radiotherapy within 2 weeks of start of study intervention.
-- Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline.
-'''
-
-        expected_output_text = '''INCLUDE Demonstrate adequate organ function as defined by laboratory limits.
+EXCLUDE Does not demonstrate adequate organ function as defined by laboratory limits.
 EXCLUDE Prior radiotherapy within 2 weeks of start of study intervention.
 EXCLUDE Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline.
 '''
 
-        output_text = llm_simplify_and_tag_text(input_text, self.client)
+        expected_output_text = '''INCLUDE Demonstrates adequate organ function as defined by laboratory limits
+EXCLUDE Prior radiotherapy within 2 weeks of start of study intervention.
+EXCLUDE Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline.
+'''
+
+        output_text = llm_simplify_text_logic(input_text, self.client)
 
         # check that the number of trial groups are the same
-        self.assertEqual(output_text, expected_output_text)
+        self.assertEqual(expected_output_text, output_text)

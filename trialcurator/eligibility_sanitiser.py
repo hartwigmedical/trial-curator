@@ -176,19 +176,58 @@ Instructions:
 
     return group_text_dict
 
-def llm_simplify_and_tag_text(eligibility_text: str, client: LlmClient) -> str:
-
-    system_prompt = 'You are a clinical trial text simplification and tagging assistant.'
+def llm_tag_text(eligibility_text: str, client: LlmClient) -> str:
+    system_prompt = 'You are a clinical trial curation assistant.'
 
     user_prompt = '''GOALS:
 1. Tag each top-level bullet with "INCLUDE" or "EXCLUDE" depending on whether the criterion is an inclusion or exclusion rule.
-2. Convert EXCLUDE rules to logically equivalent INCLUDE rules only if the meaning is precisely preserved.
 3. Promote sub-bullets to top-level bullets only when doing so does not change the intended logical structure.
+
+SUB-BULLET PROMOTION RULES:
+- Unless overridden by parent statement, assume sub-bullets in inclusion criteria are conjunctive, and in exclusion \
+criteria are disjunctive (OR).
+- Only promote sub-bullets to parent-level bullets if:
+  - The parent bullet does not imply conditionality (e.g., “if”, “unless”, “when”).
+  - Promoting the sub-bullets does not change the logical meaning (e.g., “INCLUDE any of the following” vs “INCLUDE all of the following”).
+  - The grouping of sub-bullets doesn't represent a specific logical constraint.
+- Do not promote if doing so changes the original clinical meaning or introduces assumptions.
+
+DO NOT:
+- Change the medical meaning
+- Drop any important detail
+
+OUTPUT FORMAT:
+- Each top-level bullet must be tagged as "INCLUDE" or "EXCLUDE", with any sub-bullets listed beneath it using hyphenation e.g.
+```
+INCLUDE Age ≥ 18 years
+INCLUDE for female patients:
+  - Negative pregnancy test
+  - Reliable contraceptive methods
+EXCLUDE HIV infection
+```
+- Do not add blank lines. Do not add commentary or explanation.
+'''
+    user_prompt += f'''
+Below is the eligibility criteria for a clinical trial. Perform tagging and logic flipping as described above.
+{eligibility_text}
+Return the cleaned, tagged lines below:
+'''
+
+    response = client.llm_ask(user_prompt, system_prompt)
+    tagged_text = response.replace("```", "")
+    return tagged_text
+
+def llm_simplify_text_logic(eligibility_text: str, client: LlmClient) -> str:
+
+    system_prompt = 'You are a clinical trial curation assistant.'
+
+    user_prompt = '''GOAL: Convert EXCLUDE rules to logically equivalent INCLUDE rules only if the meaning is precisely preserved.
 
 LOGIC CONVERSION RULES:
 - Flip EXCLUDE rules to INCLUDE only when the semantic meaning is unchanged, including:
   - Negated Inclusions (EXCLUDE + NOT)
     - EXCLUDE patients who do not have / demonstrate / show / meet X → INCLUDE patients who have / demonstrate / show / meet X
+    - flip even if X is vague concept like adequate organ function
   - Measurement comparisons:
     - EXCLUDE X < N → INCLUDE X ≥ N
     - EXCLUDE X > N → INCLUDE X ≤ N
@@ -205,19 +244,11 @@ LOGIC CONVERSION RULES:
   - Example where flipping is not allowed:
     - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
   - When in doubt, leave as EXCLUDE.
-
-SUB-BULLET PROMOTION RULES:
-- Unless overridden by parent statement, assume sub-bullets in inclusion criteria are conjunctive, and in exclusion \
-criteria are disjunctive (OR).
-- Only promote sub-bullets to parent-level bullets if:
-  - The parent bullet does not imply conditionality (e.g., “if”, “unless”, “when”).
-  - Promoting the sub-bullets does not change the logical meaning (e.g., “INCLUDE any of the following” vs “INCLUDE all of the following”).
-  - The grouping of sub-bullets doesn't represent a specific logical constraint.
-- Do not promote if doing so changes the original clinical meaning or introduces assumptions.
   
 DO NOT:
 - Change the medical meaning
 - Drop any important detail
+- Reorder criteria
 
 OUTPUT FORMAT:
 - Each top-level bullet must be tagged as "INCLUDE" or "EXCLUDE", with any sub-bullets listed beneath it using hyphenation e.g.
@@ -248,6 +279,7 @@ def llm_extract_cohort_tagged_text(eligibility_criteria, client) -> dict[str, st
 
     for cohort, eligibility_criteria in cohort_text.items():
         logger.info(f'cohort: {cohort}')
-        cohort_tagged_text[cohort] = llm_simplify_and_tag_text(eligibility_criteria, client)
+        cohort_tagged_text = llm_tag_text(eligibility_criteria, client)
+        cohort_tagged_text[cohort] = llm_simplify_text_logic(eligibility_criteria, client)
 
     return cohort_tagged_text
