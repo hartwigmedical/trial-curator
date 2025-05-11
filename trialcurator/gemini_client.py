@@ -1,5 +1,7 @@
 import logging
 import os
+import warnings
+
 from google import genai
 from google.genai import types
 from trialcurator.llm_client import LlmClient
@@ -21,6 +23,8 @@ class GeminiClient(LlmClient):
         self.model = model
 
     def llm_ask(self, user_prompt: str, system_prompt: str = None) -> str:
+
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
 
         if system_prompt:
             config = types.GenerateContentConfig(

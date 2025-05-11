@@ -16,15 +16,20 @@ logging.basicConfig(stream=sys.stdout,
 
 FUZZY_MATCH_THRESHOLD = 0.9
 
+
 class CriteriaDiff(NamedTuple):
     old_criterion: str | None
     new_criterion: str | None
     similarity: float
     diff: list[str]
 
-def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_model=None) -> list[CriteriaDiff]:
 
+def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_model=None) -> list[CriteriaDiff]:
     logger.info("running criterion diff")
+
+    # remove any empty strings
+    old_criteria = [c for c in old_criteria if len(c) > 0]
+    new_criteria = [c for c in new_criteria if len(c) > 0]
 
     if fuzzymatch_model is None:
         fuzzymatch_model = SentenceTransformer("cambridgeltl/SapBERT-from-PubMedBERT-fulltext",
@@ -80,7 +85,7 @@ def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_
     matches.sort(key=lambda x: criteria1_ids.index(id(x.old_criterion)))
 
     diffs: list[CriteriaDiff] = [CriteriaDiff(m.old_criterion, m.new_criterion, m.similarity,
-            list(unified_diff(m.old_criterion, m.new_criterion))) for m in matches]
+                                              list(unified_diff(m.old_criterion, m.new_criterion))) for m in matches]
 
     # now generate the diffs, the logic is:
     # 1. use the matches to find the old criteria ordering
@@ -115,6 +120,7 @@ def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_
 
     return diffs
 
+
 def format_differences(differences: list[CriteriaDiff]) -> str:
     """
     Format the differences between two runs into a readable string.
@@ -147,8 +153,10 @@ def format_differences(differences: list[CriteriaDiff]) -> str:
 
     return "\n".join(result)
 
+
 def find_matching_cohort(old_cohort_names, new_cohort_names):
     pass
+
 
 def main():
     import argparse
@@ -166,6 +174,7 @@ def main():
     diffs = criterion_diff([c.description for c in old_cohort_criteria], [c.description for c in new_cohort_criteria])
 
     print(format_differences(diffs))
+
 
 if __name__ == "__main__":
     main()

@@ -21,8 +21,8 @@ logger.setLevel(logging.DEBUG)
 class TestCohortExtraction(unittest.TestCase):
 
     def setUp(self):
-        # self.client = OpenaiClient(TEMPERATURE)
-        self.client = GeminiClient(TEMPERATURE)
+        self.client = OpenaiClient()
+        #self.client = GeminiClient()
 
     def test_extract_from_header(self):
         criteria = '''
@@ -58,8 +58,8 @@ Recurrent Exclusion Criteria:
         criteria = '''
 Inclusion Criteria:
 
-- Ovarian Cancer Cohorts Only: Histologically or cytologically confirmed diagnosis of advanced, epithelial ovarian cancer (except carcinosarcoma), primary peritoneal, or fallopian tube cance
-r.
+- Ovarian Cancer Cohorts Only: Histologically or cytologically confirmed diagnosis of advanced, epithelial ovarian \
+cancer (except carcinosarcoma), primary peritoneal, or fallopian tube cancer.
 - Ovarian Cancer Cohorts Only: Serum CA-125 level ≥2 x ULN (in screening).
 - Received at least 1 line of platinum-containing therapy or must be platinum-intolerant.
 - Documented relapse or progression on or after the most recent line of therapy.

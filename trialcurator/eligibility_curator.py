@@ -5,10 +5,10 @@ import sys
 import re
 
 from . import criterion_schema
-from .eligibility_curator_ACTIN import curate_actin, map_to_actin, load_actin_rules
+from .eligibility_curator_ACTIN import map_to_actin, load_actin_rules
 from .eligibility_sanitiser import llm_extract_cohort_tagged_text
 from .llm_client import LlmClient
-from .utils import load_trial_data, unescape_json_str, extract_code_blocks
+from .utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria
 from .openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
@@ -18,22 +18,33 @@ logging.basicConfig(stream=sys.stdout,
                     datefmt='%H:%M:%S',
                     level=logging.INFO)
 
-TEMPERATURE = 0.0
-TOP_P = 1.0
+CRITERION_BATCH_SIZE = 5
 
-'''
-documentation of common errors that I cannot easily fix by changing prompt:
- - "Male or female" becomes just male
- - "No concomitant anti-tumor therapy" not enclosed in NotCriterion
- - 
- - Sometimes uses measurement unit 10*9/L instead of 10^9/L
-'''
+def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
+    # split into small batches and curate
+    criteria_batches = batch_tagged_criteria(eligibility_criteria, CRITERION_BATCH_SIZE)
 
+    # split into batches
+    curated_py_list = []
+    for criteria_text in criteria_batches:
+        while True:
+            curated = llm_curate_from_text(criteria_text, client)
 
-# we perform 3 stage curation
-# 1: separation into cohorts
-# 2: curate each cohort criteria
-# 3: refine criteria cause gemini struggle to use the full extent of the schema
+            # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
+            # we want to extract just the criteria in the list
+            m = re.search(r'inclusion_criteria.*(?::\s*List\[BaseCriterion])?= \[(.*)]', curated, flags=re.DOTALL)
+            if m:
+                result = m.group(1)
+                # remove blank lines
+                result = re.sub(r'^\s*\n|(\n\s*)+\Z', '', result, flags=re.MULTILINE)
+                curated_py_list.append(result)
+                logger.info(f'result = {result}')
+                break
+            else:
+                logger.warning('unable to parse curation output, retrying')
+
+    # join them back together
+    return '[\n' + ',\n'.join(curated_py_list) + '\n]'
 
 def llm_curate_from_text(eligibility_criteria: str, client: LlmClient) -> str:
     system_prompt = '''
@@ -56,9 +67,9 @@ statements.
 - DO NOT create a separate list for exclusion criteria.
 - Answer should be given in a single code block with no explanation.
 
-# Special Cases
+# Composite Criterion
 - When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
-- If a criterion contains **conditional logic** (e.g. “if X, then Y”, “Y if X”), express it using an `IfCriterion`.
+- Criterion that contains conditional logic (e.g. “if X, then Y”, “X if A, Y if B”) should be modelled with `IfCriterion`.
 - If a criterion involves multiple distinct conditions (e.g., disease and medication), model each separately using the \
 appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and combine them with AndCriterion.
 - The above also apply to criteria wrapped inside NotCriterion.
@@ -69,11 +80,11 @@ appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and com
 - Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).
 - Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion).
 - When specifying protein variants, always use the HGVS protein notation format.
-- Use `LabValueCriterion` for lab-based requirements with a measurement, unit, value, and operator.
+- Use `LabValueCriterion` only for lab-based requirements that have lab measurement, unit, value, and operator.
 - Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").
 - Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", "mucinous histology").
 - DiagnosticFindingCriterion for statements like "histological confirmation of cancer".
-- Use SymptomCriterion only for symptom related to the tumor. Use ComobidityCriterion for conditions not related to the tumor.
+- Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related to the tumor.
 - Use ClinicalJudgementCriterion for subjective clinical assessment by investigators, rather than objective measurements \
 like lab values.
 - Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
@@ -82,12 +93,13 @@ ComorbidityCriterion with a condition like "other active malignancy" and specify
 explicit "if...then" or equivalent.
 - Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
 not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.
-- Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions,\
- population qualifiers, or general clinical appropriateness.
+- Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
+, population qualifiers, or general clinical appropriateness.
 
 # Description field
 - The `description` field must always be populated for every criterion, including composite criteria.
-- For top-level criteria, the description must include the **entire criterion text**, including any INCLUDE or EXCLUDE tags.
+- For top-level criteria, the description must include the **entire criterion text**, including any INCLUDE or EXCLUDE \
+tags, sub-bullet points with original formatting.
 - For non–top-level criteria, the description must provide a complete, self-contained explanation of the original criterion.
 - Do not leave the description field empty under any circumstances.
 '''
@@ -112,7 +124,7 @@ These objects are created from free-text eligibility criteria in oncology trials
     prompt += '''
 Refactor the above code with the following rules:
 - Correct misuse of fields or criterion types (e.g., replacing OtherCriterion with a specific one if appropriate)
-- Improve logical structure (e.g., use IfCriterion for conditional thresholds)
+- Use IfCriterion for conditional thresholds, pay attention to trailing ifs (e.g. A if X, B if Y) 
 - Wrap any criterion expressing negation (e.g., using "not", "no") in a `NotCriterion`, and populate the `description` \
 field accordingly.
 - Standardize field values (e.g., stage names, confirmation methods)
@@ -137,17 +149,14 @@ def llm_curate_cohorts(group_text: dict, llm_client: LlmClient) -> str:
 
     for cohort, eligibility_criteria in group_text.items():
         logger.info(f'cohort: {cohort}')
-        clinical_trial_code = llm_curate_from_text(eligibility_criteria, llm_client)
-        clinical_trial_code = llm_refine_answer(clinical_trial_code, llm_client)
+        clinical_trial_code = llm_curate_by_batch(eligibility_criteria, llm_client)
+        #clinical_trial_code = llm_refine_answer(clinical_trial_code, llm_client)
         group_eligibility_criteria[cohort] = clinical_trial_code
 
     # now put them all together into a nicely printed python code
     eligibility_criteria_code = '{\n'
     for g in group_eligibility_criteria.keys():
         clinical_trial_code = group_eligibility_criteria[g]
-        # strip out anything before `inclusion_criteria = ` or `inclusion_criteria: List[BaseCriterion] = `
-        clinical_trial_code = remove_up_to(clinical_trial_code,
-                                           r'(inclusion_criteria\s*(?::\s*List\[BaseCriterion\])?\s*=.*)').strip()
         # indent the code
         clinical_trial_code = clinical_trial_code.replace("\n", "\n    ")
         eligibility_criteria_code += f'    "{g}": {clinical_trial_code},\n'
@@ -219,7 +228,7 @@ def main():
 
     trial_data = load_trial_data(args.trial_json)
 
-    client = OpenaiClient(TEMPERATURE, TOP_P)
+    client = OpenaiClient()
 
     eligibility_criteria = load_eligibility_criteria(trial_data)
     cohort_texts = llm_extract_cohort_tagged_text(eligibility_criteria, client)
@@ -240,6 +249,7 @@ def main():
         # write to file
         with open(args.out_actin, "w") as f:
             json.dump(cohort_actin, f, indent=2)
+
 
 if __name__ == "__main__":
     main()

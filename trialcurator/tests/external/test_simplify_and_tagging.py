@@ -9,8 +9,8 @@ from trialcurator.openai_client import OpenaiClient
 class TestSimplifyAndTagging(unittest.TestCase):
 
     def setUp(self):
-        #self.client = OpenaiClient()
-        self.client = GeminiClient()
+        self.client = OpenaiClient()
+        #self.client = GeminiClient()
 
     # test that simplify and tagging gets the correct output
     def test_simplify_and_tag_text(self):
@@ -79,6 +79,4 @@ EXCLUDE Recent myocardial infarction (< 6 months) or unstable angina
 '''
 
         output_text = llm_tag_text(input_text, self.client)
-
-        # check that the number of trial groups are the same
         self.assertEqual(expected_output_text, output_text)
