@@ -4,7 +4,7 @@ import logging
 import re
 
 from . import criterion_schema
-from .eligibility_curator_ACTIN import map_to_actin, load_actin_rules
+from .eligibility_curator_actin import map_to_actin, load_actin_rules
 from .eligibility_sanitiser import llm_extract_cohort_tagged_text
 from .llm_client import LlmClient
 from .utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria

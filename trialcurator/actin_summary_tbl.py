@@ -7,7 +7,7 @@ import logging
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria
-from trialcurator.eligibility_curator_ACTIN import load_actin_rules, curate_actin
+from trialcurator.eligibility_curator_actin import load_actin_rules, curate_actin
 
 logger = logging.getLogger(__name__)
 
