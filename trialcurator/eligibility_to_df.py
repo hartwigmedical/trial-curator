@@ -1,6 +1,5 @@
 import json
 import logging
-import sys
 import re
 from typing import NamedTuple
 
@@ -13,13 +12,7 @@ from trialcurator.criterion_serializer import CriterionSerializer
 from trialcurator.eligibility_py_loader import exec_file_into_variable
 from trialcurator.utils import deep_remove_field
 
-
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(stream=sys.stdout,
-                    format='%(asctime)s %(levelname)5s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level=logging.INFO)
 
 # use this method to get all rule types, might be a little brittle
 rule_types = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]

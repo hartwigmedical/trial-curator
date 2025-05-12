@@ -4,7 +4,6 @@ from trialcurator.llm_client import LlmClient
 
 logger = logging.getLogger(__name__)
 
-
 class OpenaiClient(LlmClient):
     """
     A client for interacting with OpenAI's language models.

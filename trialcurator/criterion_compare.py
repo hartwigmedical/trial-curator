@@ -1,5 +1,4 @@
 import logging
-import sys
 from typing import NamedTuple
 from difflib import unified_diff
 
@@ -8,11 +7,6 @@ from sentence_transformers import SentenceTransformer, SimilarityFunction, util
 from .eligibility_py_loader import exec_file_into_variable
 
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(stream=sys.stdout,
-                    format='%(asctime)s %(levelname)5s - %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 FUZZY_MATCH_THRESHOLD = 0.9
 

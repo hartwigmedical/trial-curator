@@ -7,11 +7,6 @@ from trialcurator.utils import extract_code_blocks, unescape_json_str
 
 logger = logging.getLogger(__name__)
 
-logging.basicConfig(stream=sys.stdout,
-                    format='%(asctime)s %(levelname)5s - %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
-
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
 
     logger.info(f"eligibility criteria: {eligibility_criteria}")

@@ -3,7 +3,6 @@ import re
 import pandas as pd
 import argparse
 import logging
-import sys
 
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
@@ -11,13 +10,6 @@ from trialcurator.utils import load_trial_data, load_eligibility_criteria
 from trialcurator.eligibility_curator_ACTIN import load_actin_rules, curate_actin
 
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(stream=sys.stdout,
-                    format='%(asctime)s %(levelname)5s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level=logging.INFO)
-
-logger.setLevel(logging.DEBUG)
 
 TEMPERATURE = 0.0
 

@@ -1,8 +1,4 @@
-import json
 import unittest
-import pandas as pd
-
-from pathlib import Path
 
 from trialcurator.eligibility_curator import *
 from trialcurator.eligibility_sanitiser import llm_extract_cohorts
@@ -10,13 +6,6 @@ from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(stream=sys.stdout,
-                    format='%(asctime)s %(levelname)5s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S',
-                    level=logging.INFO)
-
-logger.setLevel(logging.DEBUG)
 
 class TestCohortExtraction(unittest.TestCase):
 

@@ -1,7 +1,6 @@
 import inspect
 import json
 import logging
-import sys
 import re
 
 from . import criterion_schema
@@ -12,11 +11,6 @@ from .utils import load_trial_data, unescape_json_str, extract_code_blocks, batc
 from .openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
-
-logging.basicConfig(stream=sys.stdout,
-                    format='%(asctime)s %(levelname)5s - %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.INFO)
 
 CRITERION_BATCH_SIZE = 5
 
