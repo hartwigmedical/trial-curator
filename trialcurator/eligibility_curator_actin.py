@@ -7,7 +7,7 @@ import argparse
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
-from trialcurator.utils import load_trial_data, load_eligibility_criteria
+from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria
 from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,18 @@ def parse_actin_output_to_json(trial_id: str, mapped_text: str) -> dict:
         })
 
     return result
+
+RULES_BATCH_SIZE = 100
+
+def map_actin_by_batch(eligibility_criteria: str, client: LlmClient, actin_rules, batch_size: int) -> str:
+    sanitised_text_batches = batch_tagged_criteria(eligibility_criteria, batch_size)
+
+    curated_batches = []
+    for rule in sanitised_text_batches:
+        mapped_rules = map_to_actin(rule, client, actin_rules)
+        curated_batches.append(mapped_rules)
+
+    return '\n\n'.join(curated_batches)
 
 def curate_actin(eligibility_criteria: str, actin_rules, client: LlmClient) -> dict[str, str]:
     cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)

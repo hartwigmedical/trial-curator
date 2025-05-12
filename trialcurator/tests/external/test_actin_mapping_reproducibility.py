@@ -24,6 +24,19 @@ def test_actin_reproducibility():
     - INCLUDE Has at least 1 lesion that meets study criteria as defined in the protocol
     - INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site that has not been previously irradiated
     - INCLUDE In the judgement of the investigator, has a life expectancy of at least 3 months
+    - INCLUDE Patients must have acceptable organ function as defined below:
+      - Absolute neutrophil count ≥ 1.5 x 10^9/L
+      - Hemoglobin > 5.6 mmol/L
+      - Platelets > 75 x 10^9/L
+      - Total bilirubin < 2 x ULN
+      - AST and ALT < 2.5 x ULN (or < 5 x ULN in patients with known hepatic metastases)
+      - Serum creatinine ≤ 1.5 x ULN or calculated or measured creatinine clearance ≥ 50 mL/min/1.73 m^2
+    - INCLUDE Adequate cardiac function:
+      - Mean QTcF value ≤ 470 msec for women and ≤ 450 msec for men and no history of long QT syndrome or risk factors for torsade de pointe.
+      - LVEF ≥ 50%
+      - Systolic blood pressure < 150 mmHg and diastolic blood pressure < 100 mmHg
+    - EXCLUDE Patient is pregnant or nursing.
+    - EXCLUDE Positive SARS-CoV-2 RT-PCR test or suspected infection with confirmation pending within 2 weeks of first dose of STX-241.
     - EXCLUDE Is currently participating in another study of a therapeutic agent
     - EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol
     - EXCLUDE Has had prior anti-cancer immunotherapy within 5 half-lives prior to study drug as defined in the protocol
