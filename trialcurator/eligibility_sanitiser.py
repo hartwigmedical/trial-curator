@@ -135,6 +135,10 @@ Output format: Return a JSON array of group names (as strings), exactly as they 
         logger.warning(f"Failed to decode JSON from response text: {e}")
         cohorts = []
 
+    # if there is only one cohort that is not named default, add another default
+    if len(cohorts) == 1 and cohorts[0] != "default":
+        cohorts.insert(0, "default")
+
     logger.info(f"found the following cohorts: {cohorts}")
     return cohorts
 
@@ -261,7 +265,6 @@ INCLUDE for female patients:
   - Reliable contraceptive methods
 ```
 - Do not add blank lines. Do not add commentary or explanation.
-- Remove trailing full stop.
 '''
     user_prompt += f'''
 Below is the eligibility criteria for a clinical trial. Perform tagging and logic flipping as described above.
@@ -271,6 +274,9 @@ Return the cleaned, tagged lines below:
 
     response = client.llm_ask(user_prompt, system_prompt)
     tagged_text = response.replace("```", "").strip('\n\r')
+    
+    # remove trailing fullstops
+    tagged_text = tagged_text.strip('.').replace('.\n', '\n')
     return tagged_text
 
 def llm_extract_cohort_tagged_text(eligibility_criteria, client) -> dict[str, str]:

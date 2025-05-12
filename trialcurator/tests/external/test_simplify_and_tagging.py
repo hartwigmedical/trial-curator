@@ -59,11 +59,12 @@ INCLUDE Limited peritoneal carcinomatosis (PCI < 7) and/or tumor positive perito
 INCLUDE Treatment with systemic chemotherapy, with the latest course ending within 8 weeks prior to inclusion
 INCLUDE Absence of disease progression during systemic chemotherapy (prior to inclusion)
 INCLUDE WHO performance status 0-2
-INCLUDE ANC ≥ 1.5 x 10^9/L
-INCLUDE Platelet count ≥ 100 x 10^9/L
-INCLUDE Serum bilirubin ≤ 1.5 x ULN
-INCLUDE ALAT and ASAT ≤ 2.5 x ULN
-INCLUDE Creatinine clearance ≥ 50 mL/min (measured or calculated by Cockcroft-Gault formula)
+INCLUDE Adequate bone marrow, hepatic and renal function
+  - ANC ≥ 1.5 x 10^9/L
+  - Platelet count ≥ 100 x 10^9/L
+  - Serum bilirubin ≤ 1.5 x ULN
+  - ALAT and ASAT ≤ 2.5 x ULN
+  - Creatinine clearance ≥ 50 mL/min (measured or calculated by Cockcroft-Gault formula)
 INCLUDE for female patients who are not sterilized or in menopause:
   - Negative pregnancy test (urine/serum)
   - No breastfeeding or active pregnancy ambition

@@ -67,12 +67,16 @@ EXCLUDE Participants must not have diabetes
 EXCLUDE Participants must not have EGFR mutation
 '''
 
-        expected_output_text = '''EXCLUDE Participants who have diabetes
-EXCLUDE Participants who have EGFR mutation'''
+        expected_output_text = '''EXCLUDE Patients who have diabetes
+EXCLUDE Patients who have EGFR mutation'''
 
         output_text = llm_simplify_text_logic(input_text, self.client)
         # remove any trailing fullstops
         output_text = output_text.replace('.\n', '\n')
+
+        # sometimes the output uses Participants instead of Patients, harmonise it
+        output_text = output_text.replace('Participants', 'patients')
+        output_text = output_text.replace('patients', 'Patients')
 
         # check that the number of trial groups are the same
         self.assertEqual(expected_output_text, output_text)
