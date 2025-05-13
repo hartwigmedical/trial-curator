@@ -1,16 +1,12 @@
 import textwrap
 from itertools import zip_longest
 from pathlib import Path
-
 import trialcurator.eligibility_curator_actin as actin
 from trialcurator.eligibility_curator import parse_actin_output_to_json
 from trialcurator.openai_client import OpenaiClient
-
 from sentence_transformers import SentenceTransformer, SimilarityFunction, util
 
-
 fuzzymatch_model = SentenceTransformer("cambridgeltl/SapBERT-from-PubMedBERT-fulltext", similarity_fn_name=SimilarityFunction.DOT_PRODUCT)
-
 
 def test_actin_reproducibility():
 
