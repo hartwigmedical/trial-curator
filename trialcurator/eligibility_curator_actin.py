@@ -27,9 +27,8 @@ def load_actin_rules(file_path: str) -> list[str]:
 
 class ActinMapping(TypedDict):
     description: str
-    actin_rule: str
-    actin_params: list[str|int|float]
-    new_rule: list
+    actin_rule: dict[str, list]
+    new_rule: list[str]
 
 def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str], max_retries: int) -> list[ActinMapping]:
 
@@ -42,7 +41,11 @@ TASKS
 - Only create a new rule if there is truly no match — after an exhaustive search for semantic equivalents.
 - Always indicate new rules with a full rule name after `New rule:`.
 Important:
-- Each line that starts with `- INCLUDE` or `- EXCLUDE` is a distinct criterion to map. Process each line independently into a separate JSON object.
+- Each line that starts with `INCLUDE` or `EXCLUDE` is a distinct criterion to map. Process each line independently into a separate JSON object.
+
+ACTIN RULE STRUCTURE
+- ACTIN rules are defined with a rule name, e.g. HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS, where X, Y, Z \
+are placeholders for parameters. Not all rules have parameter. 
 
 RULE MATCHING
 - Match based on **rule name pattern**, not literal string tokens.
@@ -66,27 +69,38 @@ FALLBACK RULES (use when no exact ACTIN rule matches)
 WHAT COUNTS AS A NEW RULE
 - A rule is NEW if the part before square brackets (the rule name) is not found in the ACTIN RULE LIST.
     - To check: compare the rule name exactly against the list of ACTIN rules provided.
-    - If the rule name is not present in the list, then set:
-        New rule: [RULE_NAME]
-    - If it is present, write:
-        New rule: False
-- Do not mark the rule as "False" unless the exact rule name already exists in the ACTIN RULES LIST.
+    - If the rule name is not present in the list, then add it to the "new_rule" list:
+        `"new_rule": ["NAME_OF_NEW_RULE"]`
+    - If no new rule is added, set "new_rule" list to `[]`
 
-LOGICAL STRUCTURE
-- Use `OR` if multiple alternatives are valid (e.g., “histological OR cytological” confirmation).
-    - Example:
-      `(HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE OR HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE)`
-- Use `AND` when all conditions must be met.
-- Combine logical groups using parentheses when mixing `AND` and `OR`:
-    - Correct: `(A OR B) AND C`
-    - Incorrect: `A OR B AND C`
-    
+LOGICAL OPERATORS
+
+| Operator | Format                         | Meaning                   |
+|----------|--------------------------------|---------------------------|
+| `AND`    | `{ "AND": [rule1, rule2] }`    | All conditions required   |
+| `OR`     | `{ "OR": [rule1, rule2] }`     | At least one condition    |
+| `NOT`    | `{ "NOT": rule }`              | Negate a single rule      |
+
+---
+
+### Conditional Logic (`IF`)
+```json
+{
+  "IF": {
+    "condition": { "RULE_A": [...] },
+    "then": { "RULE_B": [...] },
+    "else": { "RULE_C": [...] } // optional
+  }
+}
+```
+
+- `then` applies if `condition` is true.
+- `else` is optional (applied if false).
+- Logical nesting is allowed inside any clause.
+
 EXCLUSION LOGIC
-- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT(...)`, even if the rule is inherently adverse or negative in name (e.g., HAS_ACTIVE_INFECTION, IS_PREGNANT).
-- For EXCLUDE lines, always use:
-    NOT(condition1 OR condition2 OR ...)  ← preferred
-    or
-    NOT(condition)  ← if it's a single clause
+- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`, even if the rule is \
+inherently negative in name (e.g., HAS_ACTIVE_INFECTION, IS_PREGNANT).
 
 NUMERIC COMPARISON LOGIC
 - “≥ X” → `IS_AT_LEAST_X[...]`
@@ -100,26 +114,26 @@ MULTI-LINE DEFINITIONS
 - Do NOT map the header line alone. Instead, include the lab values or bullet clauses beneath it when generating ACTIN rules.
 
 ACTIN RULES FORMATTING
-- Use square brackets `[...]` for rule parameters.
+- Format all ACTIN rules as JSON dictionaries:
+  ```json
+  { "RULE_NAME": [parameters] }
+  ```
+- Composite rule like NOT is represented the same way, in which the parameter list consists of other rules, i.e: \
+`{ NOT: [{"RULE_NAME": [18]}]}`
 - Never paraphrase or omit important medical or logical detail.
 - Do not mark rules as new unless they introduce a completely new rule name.
 - "new_rule": [] indicates no new rule is created
 
 Output in JSON FORMAT:
+```json
 [
-    {
-        "description": "...",
-        "actin_rule": "...",
-        "actin_params": [...],
-        "new_rule": []
-    },
-    {
-        "description": "...",
-        "actin_rule": "...",
-        "actin_params": [...],
-        "new_rule": "RULE_NAME_X"
-    }
+  {
+    "description": "INCLUDE: Prior chemotherapy within last 12 weeks",
+    "actin_rule": { "HAS_HAD_CATEGORY_CHEMOTHERAPY_TREATMENT_WITHIN_X_WEEKS": [12] },
+    "new_rule": []
+  }
 ]
+```
 
 """
     user_prompt = """
@@ -132,21 +146,19 @@ Instructions:
 - Combine logic with `AND` or `OR` according to the text.
 - Use fallback rules or create new rule names only if no existing ACTIN match is possible.
 Important:
-- Each line that starts with `- INCLUDE` or `- EXCLUDE` is a distinct criterion to map. Process each line independently into a separate JSON object.
+- Each line that starts with `INCLUDE` or `EXCLUDE` is a distinct criterion to map. Process each line independently into a separate JSON object.
 
 FORMAT EXAMPLES:
 [
     {
         "description": "EXCLUDE Body weight over 150 kg",
-        "actin_rule": "NOT(HAS_BODY_WEIGHT_OF_AT_LEAST_X)",
-        "actin_params": [150],
+        "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] }",
         "new_rule": []
     },
     {
         "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
-        "actin_rule": "IS_ELIGIBLE_FOR_TREATMENT_LINE_X",
-        "actin_params": ["capecitabine", "anti-VEGF antibody"],
-        "new_rule": "IS_ELIGIBLE_FOR_TREATMENT_LINE_X"
+        "actin_rule": { "IS_ELIGIBLE_FOR_TREATMENT_LINE_X": ["capecitabine", "anti-VEGF antibody"] },
+        "new_rule": ["IS_ELIGIBLE_FOR_TREATMENT_LINE_X"]
     }
 ]
 
@@ -236,14 +248,12 @@ i.e.
 [
     {
         "description": "...",
-        "actin_rule": "...",
-        "actin_params": [...],
+        "actin_rule": { "RULE":[] },
         "new_rule": []
     },
     {
         "description": "...",
-        "actin_rule": "...",
-        "actin_params": [...],
+        "actin_rule": { "RULE_NAME_X":[5] },
         "new_rule": ["RULE_NAME_X"]
     }
 ]
