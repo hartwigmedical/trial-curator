@@ -9,7 +9,7 @@ from itertools import chain
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
-from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria
+from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria, extract_code_blocks
 from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 
 logger = logging.getLogger(__name__)
@@ -24,15 +24,6 @@ def load_actin_rules(file_path: str) -> list[str]:
     df = pd.read_csv(file_path, header=None)
     actin_rules = df[0].str.strip().tolist()
     return actin_rules
-
-def clean_llm_output_to_json(raw_output: str) -> str:
-
-    cleaned = re.sub(r"(?s)^\s*```(?:json)?\s*", "", raw_output, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```\s*$", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\bFalse\b", "false", cleaned)
-    cleaned = re.sub(r"\bTrue\b", "true", cleaned)
-    cleaned = cleaned.strip()
-    return cleaned
 
 class ActinMapping(TypedDict):
     description: str
@@ -172,7 +163,15 @@ Now map the following eligibility criteria:
     for attempt in range(1, max_retries):
         output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
 
-        output_eligibility_criteria = clean_llm_output_to_json(output_eligibility_criteria)
+        output_eligibility_criteria = re.sub(r"```json\s*\n", "```json", output_eligibility_criteria, flags=re.IGNORECASE)
+        extracted = extract_code_blocks(output_eligibility_criteria, "json")
+        if not extracted.strip():
+            logger.warning("extract_code_blocks() returned nothing; falling back to raw LLM response")
+            extracted = output_eligibility_criteria
+        output_eligibility_criteria = extracted
+        output_eligibility_criteria = re.sub(r"\bFalse\b", "false", output_eligibility_criteria)
+        output_eligibility_criteria = re.sub(r"\bTrue\b", "true", output_eligibility_criteria)
+
         if not output_eligibility_criteria.strip():
             raise ValueError("LLM response is empty after cleaning")
 
@@ -265,7 +264,15 @@ Please review each mapping and make corrections to "actin_rule" fields as instru
     for attempt in range(1, max_retries):
         output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
 
-        output_eligibility_criteria = clean_llm_output_to_json(output_eligibility_criteria)
+        output_eligibility_criteria = re.sub(r"```json\s*\n", "```json", output_eligibility_criteria, flags=re.IGNORECASE)
+        extracted = extract_code_blocks(output_eligibility_criteria, "json")
+        if not extracted.strip():
+            logger.warning("extract_code_blocks() returned nothing; falling back to raw LLM response")
+            extracted = output_eligibility_criteria
+        output_eligibility_criteria = extracted
+        output_eligibility_criteria = re.sub(r"\bFalse\b", "false", output_eligibility_criteria)
+        output_eligibility_criteria = re.sub(r"\bTrue\b", "true", output_eligibility_criteria)
+
         if not output_eligibility_criteria.strip():
             raise ValueError("LLM response is empty after cleaning")
 

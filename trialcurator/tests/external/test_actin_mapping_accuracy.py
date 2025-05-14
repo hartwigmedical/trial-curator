@@ -96,8 +96,8 @@ class TestActinMappingAccuracy(unittest.TestCase):
     },
     {
         "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
-        "actin_rule": "NOT(HAS_HAD_TREATMENT_WITH_ANY_DRUG_X)",
-        "actin_params": ["anti-EGFR antibody"],
+        "actin_rule": "NOT(HAS_HAD_TREATMENT_WITH_ANY_DRUG_X_WITHIN_Y_WEEKS)",
+        "actin_params": ["anti-EGFR antibody","recent"],
         "new_rule": False
     }
 ]
