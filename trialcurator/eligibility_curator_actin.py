@@ -29,7 +29,7 @@ class ActinMapping(TypedDict):
     description: str
     actin_rule: str
     actin_params: list[str|int|float]
-    new_rule: Union[str,bool]
+    new_rule: list
 
 def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str], max_retries: int) -> list[ActinMapping]:
 
@@ -103,6 +103,7 @@ ACTIN RULES FORMATTING
 - Use square brackets `[...]` for rule parameters.
 - Never paraphrase or omit important medical or logical detail.
 - Do not mark rules as new unless they introduce a completely new rule name.
+- "new_rule": [] indicates no new rule is created
 
 Output in JSON FORMAT:
 [
@@ -110,7 +111,7 @@ Output in JSON FORMAT:
         "description": "...",
         "actin_rule": "...",
         "actin_params": [...],
-        "new_rule": false
+        "new_rule": []
     },
     {
         "description": "...",
@@ -139,7 +140,7 @@ FORMAT EXAMPLES:
         "description": "EXCLUDE Body weight over 150 kg",
         "actin_rule": "NOT(HAS_BODY_WEIGHT_OF_AT_LEAST_X)",
         "actin_params": [150],
-        "new_rule": false
+        "new_rule": []
     },
     {
         "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
@@ -237,13 +238,13 @@ i.e.
         "description": "...",
         "actin_rule": "...",
         "actin_params": [...],
-        "new_rule": false
+        "new_rule": []
     },
     {
         "description": "...",
         "actin_rule": "...",
         "actin_params": [...],
-        "new_rule": "RULE_NAME_X"
+        "new_rule": ["RULE_NAME_X"]
     }
 ]
 

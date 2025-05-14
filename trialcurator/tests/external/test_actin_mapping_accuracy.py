@@ -25,56 +25,57 @@ class TestActinMappingAccuracy(unittest.TestCase):
 - INCLUDE Has adequate organ and bone marrow function as defined in the protocol
 - EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol
 '''
-        expected_output = [
-            {
-                "description": "INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.",
-                "actin_rule": "HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_MONTHS",
-                "actin_params": [3],
-                "new_rule": False
-            },
-            {
-                "description": "EXCLUDE Participants who have any untreated symptomatic CNS metastases.",
-                "actin_rule": "NOT(HAS_KNOWN_ACTIVE_CNS_METASTASES)",
-                "actin_params": [],
-                "new_rule": False
-            },
-            {
-                "description": "INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site",
-                "actin_rule": "CAN_PROVIDE_FRESH_TISSUE_SAMPLE_FOR_FURTHER_ANALYSIS",
-                "actin_params": [],
-                "new_rule": False
-            },
-            {
-                "description": "EXCLUDE Are pregnant.",
-                "actin_rule": "NOT(IS_PREGNANT)",
-                "actin_params": [],
-                "new_rule": False
-            },
-            {
-                "description": "INCLUDE Are at least 18 years old.",
-                "actin_rule": "IS_AT_LEAST_X_YEARS_OLD",
-                "actin_params": [18],
-                "new_rule": False
-            },
-            {
-                "description": "INCLUDE Has an ECOG performance status of 0 or 1",
-                "actin_rule": "HAS_WHO_STATUS_OF_AT_MOST_X",
-                "actin_params": [1],
-                "new_rule": False
-            },
-            {
-                "description": "INCLUDE Has adequate organ and bone marrow function as defined in the protocol",
-                "actin_rule": "HAS_ADEQUATE_ORGAN_FUNCTION",
-                "actin_params": [],
-                "new_rule": False
-            },
-            {
-                "description": "EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol",
-                "actin_rule": "NOT(HAS_ACTIVE_SECOND_MALIGNANCY)",
-                "actin_params": [],
-                "new_rule": False
-            },
-        ]
+        expected_output = \
+[
+        {
+            "description": "INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.",
+            "actin_rule": "HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_MONTHS",
+            "actin_params": [3],
+            "new_rule": False
+        },
+        {
+            "description": "EXCLUDE Participants who have any untreated symptomatic CNS metastases.",
+            "actin_rule": "NOT(HAS_KNOWN_ACTIVE_CNS_METASTASES)",
+            "actin_params": [],
+            "new_rule": False
+        },
+        {
+            "description": "INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site",
+            "actin_rule": "CAN_PROVIDE_FRESH_TISSUE_SAMPLE_FOR_FURTHER_ANALYSIS",
+            "actin_params": [],
+            "new_rule": False
+        },
+        {
+            "description": "EXCLUDE Are pregnant.",
+            "actin_rule": "NOT(IS_PREGNANT)",
+            "actin_params": [],
+            "new_rule": False
+        },
+        {
+            "description": "INCLUDE Are at least 18 years old.",
+            "actin_rule": "IS_AT_LEAST_X_YEARS_OLD",
+            "actin_params": [18],
+            "new_rule": False
+        },
+        {
+            "description": "INCLUDE Has an ECOG performance status of 0 or 1",
+            "actin_rule": "HAS_WHO_STATUS_OF_AT_MOST_X",
+            "actin_params": [1],
+            "new_rule": False
+        },
+        {
+            "description": "INCLUDE Has adequate organ and bone marrow function as defined in the protocol",
+            "actin_rule": "HAS_ADEQUATE_ORGAN_FUNCTION",
+            "actin_params": [],
+            "new_rule": False
+        },
+        {
+            "description": "EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol",
+            "actin_rule": "NOT(HAS_ACTIVE_SECOND_MALIGNANCY)",
+            "actin_params": [],
+            "new_rule": False
+        }
+]
         actual_output = actin.map_to_actin(input_text, self.client, actin_rules, 2)
         self.assertEqual(expected_output, actual_output)
 
@@ -87,7 +88,8 @@ class TestActinMappingAccuracy(unittest.TestCase):
 - INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1
 - EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol
 '''
-        expected_output = [
+        expected_output = \
+[
     {
         "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
         "actin_rule": "HAS_NOT_HAD_CATEGORY_X_TREATMENT",
@@ -105,7 +107,8 @@ class TestActinMappingAccuracy(unittest.TestCase):
         self.assertEqual(expected_output, actual_output)
 
     def test_drug_category_correction(self):
-        input_text = [
+        input_mappings = \
+[
     {
         "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
         "actin_rule": "HAS_NOT_HAD_CATEGORY_X_TREATMENT",
@@ -119,7 +122,8 @@ class TestActinMappingAccuracy(unittest.TestCase):
         "new_rule": False
     }
 ]
-        expected_output = [
+        expected_output = \
+[
     {
         "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
         "actin_rule": "NOT(HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y)",
@@ -133,7 +137,7 @@ class TestActinMappingAccuracy(unittest.TestCase):
         "new_rule": False
     }
 ]
-        actual_output = actin.correct_actin_mistakes(input_text, self.client, 3)
+        actual_output = actin.correct_actin_mistakes(input_mappings, self.client, 3)
         self.assertEqual(expected_output, actual_output)
 
     def test_other_incorrect_initial(self):
@@ -141,7 +145,8 @@ class TestActinMappingAccuracy(unittest.TestCase):
 - INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.
 - EXCLUDE Is currently participating in another study of a therapeutic agent
 '''
-        expected_output = [
+        expected_output = \
+[
     {
         "description": "INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.",
         "actin_rule": "HAS_MEASURABLE_DISEASE_RECIST",
@@ -159,7 +164,8 @@ class TestActinMappingAccuracy(unittest.TestCase):
         self.assertEqual(expected_output, actual_output)
 
     def test_other_incorrect_correction(self):
-        input_text = [
+        input_mappings = \
+[
     {
         "description": "INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.",
         "actin_rule": "HAS_MEASURABLE_DISEASE_RECIST",
@@ -187,5 +193,5 @@ class TestActinMappingAccuracy(unittest.TestCase):
         "new_rule": False
     }
 ]
-        actual_output = actin.correct_actin_mistakes(input_text, self.client, 3)
+        actual_output = actin.correct_actin_mistakes(input_mappings, self.client, 3)
         self.assertEqual(expected_output, actual_output)
