@@ -3,6 +3,8 @@ import re
 import pandas as pd
 import logging
 import argparse
+from typing import TypedDict, Union
+from itertools import chain
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
@@ -13,24 +15,43 @@ from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
-RULES_BATCH_SIZE = 5
+BATCH_SIZE = 5
+
+# In regression testing, whenever JSONDecodeError is encountered, if the prompt is run again, it always resolved the issue on the second try. Therefore, set max retries to (4-1) times.
+MAX_RETRIES = 4
 
 def load_actin_rules(file_path: str) -> list[str]:
     df = pd.read_csv(file_path, header=None)
     actin_rules = df[0].str.strip().tolist()
     return actin_rules
 
-def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> str:
+def clean_llm_output_to_json(raw_output: str) -> str:
+
+    cleaned = re.sub(r"(?s)^\s*```(?:json)?\s*", "", raw_output, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bFalse\b", "false", cleaned)
+    cleaned = re.sub(r"\bTrue\b", "true", cleaned)
+    cleaned = cleaned.strip()
+    return cleaned
+
+class ActinMapping(TypedDict):
+    description: str
+    actin_rule: str
+    actin_params: list[str|int|float]
+    new_rule: Union[str,bool]
+
+def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str], max_retries: int) -> list[ActinMapping]:
 
     system_prompt = """
 You are a clinical trial curation assistant.
 Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
 
 TASKS
-- Translate each line into one or more ACTIN rules.
-- Match to the existing ACTIN RULE LIST.
-- Only create a new rule if there is truly no match — search for semantic equivalents.
+- Match each line into one or more ACTIN rules from the ACTIN RULES LIST.
+- Only create a new rule if there is truly no match — after an exhaustive search for semantic equivalents.
 - Always indicate new rules with a full rule name after `New rule:`.
+Important:
+- Each line that starts with `- INCLUDE` or `- EXCLUDE` is a distinct criterion to map. Process each line independently into a separate JSON object.
 
 RULE MATCHING
 - Match based on **rule name pattern**, not literal string tokens.
@@ -40,29 +61,25 @@ RULE MATCHING
     - "ROS1 rearrangement", "ROS1 fusion", or "ROS1 translocation" → use: FUSION_IN_GENE_X[ROS1]
 - Prefer using **general rules** (e.g. HAS_HAD_TREATMENT_WITH_ANY_DRUG_X) over disease-specific variants unless those are explicitly required.
 
-FALLBACK RULES (use when no ACTIN rule matches)
-- Treatment eligibility:  
+FALLBACK RULES (use when no exact ACTIN rule matches)
+- Treatment eligibility:
     `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]`
 - Gene fusion or rearrangement (any chromosomal fusion event):  
     FUSION_IN_GENE_X[ROS1]
 - Broad compliance-impacting condition:  
     `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`
-- General fallback rules (e.g., `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`) should be used **when they exactly match the concept described**, and are preferred over unnecessarily listing multiple redundant rules.
+- General fallback rules (e.g. `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`) should be used **when they exactly match the concept described**, and are preferred over unnecessarily listing multiple redundant rules.
 - For example, if the condition lists various types of recent cardiovascular disease (e.g., MI, stroke, arrhythmia), and an existing ACTIN rule such as `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE` captures them all — **use the general rule**.
-- Prior drug exposure (general):  
-    `HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[ros1 tyrosine kinase inhibitor]`
 - If unsure about exact mapping to cancer type, create a new rule HAS_CANCER_TYPE[X] (e.g. HAS_CANCER_TYPE[SCLC], HAS_CANCER_TYPE[NSCLC])
 
 WHAT COUNTS AS A NEW RULE
 - A rule is NEW if the part before square brackets (the rule name) is not found in the ACTIN RULE LIST.
     - To check: compare the rule name exactly against the list of ACTIN rules provided.
     - If the rule name is not present in the list, then set:
-        New rule:
-            [RULE_NAME]
+        New rule: [RULE_NAME]
     - If it is present, write:
-        New rule:
-            False
-- Do not mark the rule as "False" unless the exact rule name already exists in the ACTIN RULE LIST.
+        New rule: False
+- Do not mark the rule as "False" unless the exact rule name already exists in the ACTIN RULES LIST.
 
 LOGICAL STRUCTURE
 - Use `OR` if multiple alternatives are valid (e.g., “histological OR cytological” confirmation).
@@ -91,77 +108,55 @@ MULTI-LINE DEFINITIONS
   treat the **entire definition as one unit**.
 - Do NOT map the header line alone. Instead, include the lab values or bullet clauses beneath it when generating ACTIN rules.
 
-FORMATTING
+ACTIN RULES FORMATTING
 - Use square brackets `[...]` for rule parameters.
-- Use `AND`, `OR`, and `NOT` on their own lines.
 - Never paraphrase or omit important medical or logical detail.
 - Do not mark rules as new unless they introduce a completely new rule name.
 
-OUTPUT FORMAT (strictly follow this):
-Input:
-    [original line]
-ACTIN Output:
-    [rule 1]
-    AND/OR
-    [rule 2]
-New rule:
-    [False OR full rule name]
-"""
+Output in JSON FORMAT:
+[
+    {
+        "description": "...",
+        "actin_rule": "...",
+        "actin_params": [...],
+        "new_rule": False
+    },
+    {
+        "description": "...",
+        "actin_rule": "...",
+        "actin_params": [...],
+        "new_rule": "RULE_NAME_X"
+    }
+]
 
+"""
     user_prompt = """
 You are given a list of clinical trial eligibility criteria, each tagged with INCLUDE or EXCLUDE.
 
+
 Instructions:
-- Map each line to ACTIN rules.
-- For every EXCLUDE line, always wrap the entire ACTIN rule(s) in `NOT(...)`, even if the rule name already sounds negative.
+- Map each criterion that begins with INCLUDE or EXCLUDE to one or more ACTIN rules.
+- For every EXCLUDE line, wrap the entire ACTIN rule(s) in `NOT(...)`, even if the rule name already sounds negative.
 - Combine logic with `AND` or `OR` according to the text.
-- Use fallback rules or create new rule names only if no ACTIN match is possible.
+- Use fallback rules or create new rule names only if no existing ACTIN match is possible.
+Important:
+- Each line that starts with `- INCLUDE` or `- EXCLUDE` is a distinct criterion to map. Process each line independently into a separate JSON object.
 
 FORMAT EXAMPLES:
-
-Input: 
-    EXCLUDE Body weight over 150 kg
-ACTIN Output:
-    NOT(HAS_BODY_WEIGHT_OF_AT_LEAST_X[150])
-New rule:
-    False
-
-Input: 
-    INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody
-ACTIN Output:
-    IS_ELIGIBLE_FOR_TREATMENT_LINE_X[capecitabine + anti-VEGF antibody]
-New rule:
-    IS_ELIGIBLE_FOR_TREATMENT_LINE_X
-
-Input: 
-    EXCLUDE Mental disorders that may compromise patient compliance
-ACTIN Output:
-    NOT(HAS_SEVERE_CONCOMITANT_CONDITION)
-New rule:
-    False
-
-Input: 
-    INCLUDE Documented ROS1 gene rearrangement
-ACTIN Output:
-    FUSION_IN_GENE_X[ROS1]
-New rule:
-    False
-
-Input:
-    EXCLUDE Hemoglobin <5 mmol/L OR absolute neutrophil count <1.5 x 10^9/L
-ACTIN Output:
-    HAS_HEMOGLOBIN_MMOL_PER_L_OF_AT_LEAST_X[5]
-    AND
-    HAS_NEUTROPHILS_ABS_OF_AT_LEAST_X[1.5]
-New rule:
-    False
-
-Input:
-    EXCLUDE Pregnant or lactating women.
-ACTIN Output:
-    NOT(IS_PREGNANT OR IS_BREASTFEEDING)
-New rule:
-    False
+[
+    {
+        "description": "EXCLUDE Body weight over 150 kg",
+        "actin_rule": "NOT(HAS_BODY_WEIGHT_OF_AT_LEAST_X)",
+        "actin_params": [150],
+        "new_rule": False
+    },
+    {
+        "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
+        "actin_rule": "IS_ELIGIBLE_FOR_TREATMENT_LINE_X",
+        "actin_params": ["capecitabine", "anti-VEGF antibody"],
+        "new_rule": "IS_ELIGIBLE_FOR_TREATMENT_LINE_X"
+    }
+]
 
 """
     user_prompt += """..."""
@@ -172,121 +167,142 @@ New rule:
 Now map the following eligibility criteria:
 {input_eligibility_criteria}
 """
-    output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
-    output_eligibility_criteria = output_eligibility_criteria.replace("```","")
-    logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria}")
-    return output_eligibility_criteria
 
-def correct_common_actin_mistakes(initial_actin_mapping: str, client: LlmClient) -> str:
+    output_eligibility_criteria = ""
+    for attempt in range(1, max_retries):
+        output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
+
+        output_eligibility_criteria = clean_llm_output_to_json(output_eligibility_criteria)
+        if not output_eligibility_criteria.strip():
+            raise ValueError("LLM response is empty after cleaning")
+
+        try:
+            output_eligibility_criteria = json.loads(output_eligibility_criteria)
+            logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria}")
+            return output_eligibility_criteria
+        except json.JSONDecodeError as e:
+            logger.warning(f"On attempt {attempt}: Failed to parse JSON. Retrying...\n{e}")
+
+    logger.error("Max retries exceeded. Final unparsed output:\n%s", output_eligibility_criteria)
+    raise json.JSONDecodeError("Final retry failed to parse JSON", output_eligibility_criteria, 0)
+
+def correct_actin_mistakes(initial_actin_mapping: list[ActinMapping], client: LlmClient, max_retries: int) -> list[ActinMapping]:
 
     system_prompt = """
-You are a post-processing assistant for ACTIN rule mapping. Your job is to correct common mistakes in mapped ACTIN rules.
-ONLY modify rules that clearly violate ACTIN rule design logic.
-NEVER reformat valid rules or add any surrounding text.
+You are a post-processing assistant for ACTIN rule mapping. 
+Your job is to identify and then correct mistakes in mapped ACTIN rules.
 
-COMMON MISTAKES TO CORRECT:
+IMPORTANT:
+- You must only modify the value of the "actin_rule" field.
+- Do not modify the description, actin_params, or new_rule fields.
+- Do not add any surrounding text.
+- Retain the same output format.
 
-1. Drug name vs Drug class
+MISTAKES TO CORRECT:
 
-❌ If the rule uses:
-    HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[...] where the bracketed content refers a Drug Class such as:
-    - PD-1 inhibitor
-    - anti-EGFR antibody
-    - HER2-targeted therapy
+1. Incorrect rule for drug class
+    
+If the ACTIN rule is HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[...] or HAS_NOT_HAD_CATEGORY_X_TREATMENT[...] \
+and refers to a drug class (e.g., PD-1 inhibitor, anti-EGFR antibody, HER2-targeted therapy, etc.), \
+Then rewrite the rule as:
+    HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[...] or its NOT(...) form.
 
-✅ Then rewrite it as:
-    HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[<CATEGORY>, <DRUG CLASS] where
-- CATEGORY: IMMUNOTHERAPY, TARGETED THERAPY, CHEMOTHERAPY, etc.
-- DRUG CLASS: PD-1 antibody, PD-L1 antibody, EGFR antibody, HER2 antibody, etc.
-
-⚠️ IMPORTANT:
-You must ONLY use the rule name:
-    - HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y
-or its NOT(...) form.
-
-Do NOT to invent new rule names such as
-    - HAS_NOT_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_OR_AT_MOST_Z_LINES
-    - HAS_RECEIVED_CATEGORY_X_MEDICATION_WITHIN_Y_WEEKS
-    - HAS_NOT_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y
+The parameters in HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[<CATEGORY>, <DRUG CLASS] are
+    - CATEGORY: IMMUNOTHERAPY, TARGETED THERAPY, CHEMOTHERAPY, etc.
+    - DRUG CLASS: PD-1 antibody, PD-L1 antibody, EGFR antibody, HER2 antibody, etc.
+    
+Important: Do not invent a new rule HAS_NOT_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y. Instead use NOT(HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y)
 
 2. Double-negative mappings 
 
-If the input text begins with "- EXCLUDE..." and the matched ACTIN rule also contains a "NOT" or "NO" inside, check the inner rule carefully:
+If the description begins with "EXCLUDE..." and the matched ACTIN rule also contains a "NOT" or "NO" inside, \
+check if it is an incorrect double-negatives such as:
+    - NOT(IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL)
+    - NOT(HAS_NO_HISTORY_OF_...)
 
-Keep valid rules like:
-    - NOT(IS_PREGNANT)
-    - NOT(HAS_ACTIVE_INFECTION)
-    - NOT(IS_BREASTFEEDING)
-    
-But fix true double-negatives like:
-❌  - NOT(IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL)
-❌  - NOT(HAS_NO_HISTORY_OF_...)
-In those cases, remove `NOT(...)` and return only the enclosed rule.
-✅  - IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL
-✅  - HAS_NO_HISTORY_OF_...
+If so, remove `NOT(...)` and return only the enclosed rule:
+    - IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL
+    - HAS_NO_HISTORY_OF_...
 
 3. Overly specific rule names
 
-Some ACTIN rules are valid but too specific when a more general rule exists and fully captures the criterion.
-i.e. Do not assume RECIST unless it is explicitly stated in the input.
+Some mapped ACTIN rules contain overly specific information that is not in the input description. 
 
 For example:
-❌ HAS_MEASURABLE_DISEASE_RECIST  
-✅ HAS_MEASURABLE_DISEASE
+❌ HAS_MEASURABLE_DISEASE_RECIST ← incorrect if the input does not mention RECIST 
+✅ HAS_MEASURABLE_DISEASE ← should be the correct rule
 
 FORMATTING INSTRUCTIONS:
+- Keep the exact same format as the input.
+i.e.
+[
+    {
+        "description": "...",
+        "actin_rule": "...",
+        "actin_params": [...],
+        "new_rule": False
+    },
+    {
+        "description": "...",
+        "actin_rule": "...",
+        "actin_params": [...],
+        "new_rule": "RULE_NAME_X"
+    }
+]
 
-- Keep each corrected ACTIN Output block in the exact same structure.
-- If no changes are needed for a block, copy it exactly as-is.
-- Never remove or simplify valid logic (e.g., don’t collapse multiple rules into one or vice versa).
-- Do NOT add any explanatory introductions like “Below is the corrected set of ACTIN rule mappings”,"plaintext", etc.
-- Return only the corrected ACTIN rules in raw format, one per line.
+Final reminder:
+- Modify only the "actin_rule" field.
+- Do not change overall format or "description"
+- Only modify "actin_params" if the new actin_rule requires different parameters (e.g., adding a category).
 """
     user_prompt = f"""
-Below is the initial set of ACTIN rule mappings. 
-Please review each mapping and make corrections as appropriate - remember NOT to correct mapping outside of these two types.
-{initial_actin_mapping}
+Below are the initial ACTIN mappings. 
+Please review each mapping and make corrections to "actin_rule" fields as instructed:
+{json.dumps(initial_actin_mapping, indent=2)}
 """
 
-    output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
-    output_eligibility_criteria = output_eligibility_criteria.replace("```","")
-    logger.info(f"Correct common ACTIN mistakes:\n{output_eligibility_criteria}")
-    return output_eligibility_criteria
+    output_eligibility_criteria = ""
+    for attempt in range(1, max_retries):
+        output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
 
-def map_actin_by_batch(eligibility_criteria: str, client: LlmClient, actin_rules, batch_size: int) -> str:
+        output_eligibility_criteria = clean_llm_output_to_json(output_eligibility_criteria)
+        if not output_eligibility_criteria.strip():
+            raise ValueError("LLM response is empty after cleaning")
+
+        try:
+            output_eligibility_criteria = json.loads(output_eligibility_criteria)
+            logger.info(f"Corrections to ACTIN:\n{output_eligibility_criteria}")
+            return output_eligibility_criteria
+        except json.JSONDecodeError as e:
+            logger.warning(f"On attempt {attempt}: Failed to parse JSON. Retrying...\n{e}")
+
+    logger.error("Max retries exceeded. Final unparsed output:\n%s", output_eligibility_criteria)
+    raise json.JSONDecodeError("Final retry failed to parse JSON", output_eligibility_criteria, 0)
+
+def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_rules: list[str], max_retries: int) -> list[ActinMapping]:
+    initial_mapping = map_to_actin(eligibility_criteria, client, actin_rules, max_retries)
+    corrected_mapping = correct_actin_mistakes(initial_mapping, client, max_retries)
+    return corrected_mapping
+
+def actin_map_by_batch(eligibility_criteria: str, client: LlmClient, actin_rules, batch_size: int, max_retries: int) -> list[ActinMapping]:
     sanitised_text_batches = batch_tagged_criteria(eligibility_criteria, batch_size)
-    curated_batches = []
-    for rule in sanitised_text_batches:
-        mapped_rules = map_to_actin(rule, client, actin_rules)
-        corrected_rules = correct_common_actin_mistakes(mapped_rules, client)
-        curated_batches.append(corrected_rules)
-    return '\n\n'.join(curated_batches)
+    curated_batches: list[list[ActinMapping]] = []
 
-def curate_actin(eligibility_criteria: str, actin_rules, client: LlmClient) -> dict[str, str]:
+    for single_batch in sanitised_text_batches:
+        mapped_rules = actin_workflow(single_batch, client, actin_rules, max_retries)
+        curated_batches.append(mapped_rules)
+
+    return list(chain.from_iterable(curated_batches))
+
+def actin_map_by_cohort(eligibility_criteria: str, client: LlmClient, actin_rules, batch_size: int, max_retries: int) -> dict[str, list[ActinMapping]]:
     cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)
     logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
-    cohort_actin_outputs: dict[str, str] = {}
-    for cohort_name, tagged_text in cohort_texts.items():
-        cohort_actin_outputs[cohort_name] = map_to_actin(tagged_text, client, actin_rules)
-    return cohort_actin_outputs
 
-def parse_actin_output_to_json(trial_id: str, mapped_text: str) -> dict:
-    pattern = r"Input:\s*(INCLUDE|EXCLUDE)\s+(.*?)\nACTIN Output:\s*(.*?)\nNew rule:"
-    matches = re.findall(pattern, mapped_text, re.DOTALL)
-    result = {
-        "trial_id": trial_id,
-        "mappings": []
-    }
-    for tag, input_text, actin_text in matches:
-        cleaned_input = input_text.strip().replace('\n', ' ')
-        cleaned_actin = re.sub(r'\)\s*\n\s*(AND|OR)\s*\n\s*\(', r') \1 (', actin_text.strip(), flags=re.IGNORECASE)
-        cleaned_actin = re.sub(r'\s*\n\s*', ' ', cleaned_actin).strip()
-        result["mappings"].append({
-            "tag": tag,
-            "input_text": cleaned_input,
-            "ACTIN_rules": cleaned_actin
-        })
-    return result
+    cohort_actin_outputs: dict[str, list[ActinMapping]] = {}
+    for cohort_name, tagged_text in cohort_texts.items():
+        cohort_actin_outputs[cohort_name] = actin_map_by_batch(tagged_text, client, actin_rules, batch_size, max_retries)
+
+    return cohort_actin_outputs
 
 def main():
     parser = argparse.ArgumentParser(description="Clinical trial curator")
@@ -301,7 +317,6 @@ def main():
 
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
-
     trial_id = trial_data["protocolSection"]["identificationModule"]["nctId"]
 
     if args.model == "Gemini":
@@ -309,24 +324,12 @@ def main():
     else:
         client = OpenaiClient(TEMPERATURE)
 
-    cohort_actin_outputs = curate_actin(eligibility_criteria, actin_rules, client)
+    actin_outputs = actin_map_by_cohort(eligibility_criteria, client, actin_rules, BATCH_SIZE, MAX_RETRIES)
 
-    full_text_output = []
-    all_parsed_json = []
-    for cohort_name, actin_output in cohort_actin_outputs.items():
-        full_text_output.append(f"===== {cohort_name} =====\n{actin_output}\n")
+    with open(args.out_trial_file, "w", encoding="utf-8") as f:
+        json.dump(actin_outputs, f, indent=2)
 
-        parsed_json = parse_actin_output_to_json(trial_id + f"::{cohort_name}", actin_output)
-        all_parsed_json.append(parsed_json)
-
-    txt_path = (args.out_trial_file.replace(".json", ".txt"))
-    with open(txt_path, "w") as f:
-        f.write("\n\n".join(full_text_output))
-
-    with open(args.out_trial_file, "w") as f:
-        json.dump(all_parsed_json, f, indent=2, ensure_ascii=False)
-
-    logger.info(f"ACTIN results written to {args.out_trial_file} and {txt_path}")
+    logger.info(f"ACTIN results written to {args.out_trial_file}")
 
 if __name__ == "__main__":
     main()
