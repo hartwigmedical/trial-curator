@@ -110,7 +110,7 @@ Output in JSON FORMAT:
         "description": "...",
         "actin_rule": "...",
         "actin_params": [...],
-        "new_rule": False
+        "new_rule": false
     },
     {
         "description": "...",
@@ -139,7 +139,7 @@ FORMAT EXAMPLES:
         "description": "EXCLUDE Body weight over 150 kg",
         "actin_rule": "NOT(HAS_BODY_WEIGHT_OF_AT_LEAST_X)",
         "actin_params": [150],
-        "new_rule": False
+        "new_rule": false
     },
     {
         "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
@@ -169,8 +169,6 @@ Now map the following eligibility criteria:
             logger.warning("extract_code_blocks() returned nothing; falling back to raw LLM response")
             extracted = output_eligibility_criteria
         output_eligibility_criteria = extracted
-        output_eligibility_criteria = re.sub(r"\bFalse\b", "false", output_eligibility_criteria)
-        output_eligibility_criteria = re.sub(r"\bTrue\b", "true", output_eligibility_criteria)
 
         if not output_eligibility_criteria.strip():
             raise ValueError("LLM response is empty after cleaning")
@@ -239,7 +237,7 @@ i.e.
         "description": "...",
         "actin_rule": "...",
         "actin_params": [...],
-        "new_rule": False
+        "new_rule": false
     },
     {
         "description": "...",
@@ -270,8 +268,6 @@ Please review each mapping and make corrections to "actin_rule" fields as instru
             logger.warning("extract_code_blocks() returned nothing; falling back to raw LLM response")
             extracted = output_eligibility_criteria
         output_eligibility_criteria = extracted
-        output_eligibility_criteria = re.sub(r"\bFalse\b", "false", output_eligibility_criteria)
-        output_eligibility_criteria = re.sub(r"\bTrue\b", "true", output_eligibility_criteria)
 
         if not output_eligibility_criteria.strip():
             raise ValueError("LLM response is empty after cleaning")
@@ -324,7 +320,6 @@ def main():
 
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
-    trial_id = trial_data["protocolSection"]["identificationModule"]["nctId"]
 
     if args.model == "Gemini":
         client = GeminiClient(TEMPERATURE)
