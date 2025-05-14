@@ -80,3 +80,13 @@ EXCLUDE Patients who have EGFR mutation'''
 
         # check that the number of trial groups are the same
         self.assertEqual(expected_output_text, output_text)
+
+    def test_difficult_flipping(self):
+        input_text = '''EXCLUDE Haematocrit ≥ 50%, untreated severe obstructive sleep apnea or poorly controlled heart failure (NYHA > 1)
+        '''
+        expected_output_text = '''INCLUDE Haematocrit < 50%
+EXCLUDE untreated severe obstructive sleep apnea
+EXCLUDE poorly controlled heart failure (NYHA > 1)'''
+
+        output_text = llm_simplify_text_logic(input_text, self.client)
+        self.assertEqual(expected_output_text, output_text)

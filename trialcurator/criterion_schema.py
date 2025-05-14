@@ -94,6 +94,9 @@ class PriorTherapyCriterion(BaseCriterion):
     therapy_outcome: Optional[str] = None
     indication: Optional[str] = None
 
+class CurrentTherapyCriterion(BaseCriterion):
+    therapy: str
+
 # What treatment is appropriate, as judged by the clinician or protocol
 class TreatmentOptionCriterion(BaseCriterion):
     treatment_option: str  # e.g. "anti-EGFR monotherapy", "chemotherapy", "standard of care"

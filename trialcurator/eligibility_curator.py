@@ -48,28 +48,36 @@ structured format using a predefined Python schema.'''
     # print the clinical trial schema
     prompt = f'{inspect.getsource(criterion_schema)}\n'
     prompt += 'Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the following \
-    inclusion criteria:\n'
+criteria:\n'
     prompt += f"```\n{eligibility_criteria}\n```\n"
     prompt += '''
 INSTRUCTIONS:
 
 # General
-- Focus strictly on the inclusion and exclusion criteria. Ignore descriptive text, background context, and non-requirement \
-statements.
-- Exclusion criteria should be expressed as inclusion criteria wrapped in a `NotCriterion`, unless otherwise specified \
-(see below).
-- DO NOT create a separate list for exclusion criteria.
+- Exclusion criteria must be expressed as inclusion criteria wrapped in a `NotCriterion`
+- Top-Level Grouping Requirement: For each top-level INCLUDE or EXCLUDE rule in the original text, generate exactly one \
+top-level criterion, wrapping all relevant subconditions using AndCriterion, OrCriterion, or NotCriterion as needed.
 - Answer should be given in a single code block with no explanation.
+
+# Description field
+- Top-level criteria: `description` field **must** capture the **full original text exactly as written**, including:
+  - the `INCLUDE` or `EXCLUDE` tag at the beginning
+  - sub-bullet points with original formatting.
+- Non–top-level criteria: the description must provide a complete, self-contained explanation of the original criterion.
+- The `description` field must always be populated for every criterion, including composite criteria.
 
 # Composite Criterion
 - When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
-- Criterion that contains conditional logic (e.g. “if X, then Y”, “X if A, Y if B”) should be modelled with `IfCriterion`.
-- If a criterion involves multiple distinct conditions (e.g., disease and medication), model each separately using the \
-appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and combine them with AndCriterion.
-- The above also apply to criteria wrapped inside NotCriterion.
+- Use IfCriterion for any conditional logic, explicit or implied (e.g., “if X then Y”, “Y in males, Z in females”, \
+“≥10 if X-negative”). Never use AND for mutually exclusive criteria, use IF instead (e.g., “Y in males and X in females”).
+- Always decompose any criterion containing multiple distinct conditions joined by logical conjunctions (“and”, “or”, \
+“as well as”, “with”, “without”) into individual components, using:
+  - AndCriterion for “and”-like phrases
+  - OrCriterion for “or”-like phrases
+Wrap elements in NotCriterion if they are part of a negation.
 
 # Criterion Mapping Rules
-- Use `PrimaryTumorCriterion` for tumor types and locations (e.g., melanoma).
+- Use `PrimaryTumorCriterion` for tumor types and / or locations (e.g., melanoma, prostate).
 - Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).
 - Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).
 - Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion).
@@ -77,10 +85,11 @@ appropriate class (e.g., ComorbidityCriterion, PriorMedicationCriterion) and com
 - Use `LabValueCriterion` only for lab-based requirements that have lab measurement, unit, value, and operator.
 - Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").
 - Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", "mucinous histology").
-- DiagnosticFindingCriterion for statements like "histological confirmation of cancer".
+- DiagnosticFindingCriterion for statements like "histological confirmation of cancer", but use only PrimaryTumorCriterion \
+if specific tumor type or location is mentioned (e.g., "histological confirmation of melanoma").
 - Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related to the tumor.
-- Use ClinicalJudgementCriterion for subjective clinical assessment by investigators, rather than objective measurements \
-like lab values.
+- Use ClinicalJudgementCriterion only for subjective clinical assessment that are not defined or followed by objective \
+measurements like lab values.
 - Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
 ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
 - Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
@@ -89,13 +98,6 @@ explicit "if...then" or equivalent.
 not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.
 - Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
 , population qualifiers, or general clinical appropriateness.
-
-# Description field
-- The `description` field must always be populated for every criterion, including composite criteria.
-- For top-level criteria, the description must include the **entire criterion text**, including any INCLUDE or EXCLUDE \
-tags, sub-bullet points with original formatting.
-- For non–top-level criteria, the description must provide a complete, self-contained explanation of the original criterion.
-- Do not leave the description field empty under any circumstances.
 '''
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)

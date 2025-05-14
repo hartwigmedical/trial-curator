@@ -1,6 +1,5 @@
 import json
 import logging
-import sys
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import extract_code_blocks, unescape_json_str
@@ -11,22 +10,9 @@ def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
 
     logger.info(f"eligibility criteria: {eligibility_criteria}")
 
-    system_prompt = """
-You are a clinical trial eligibility criteria sanitization assistant.
-Your job is to prepare free-text eligibility criteria for programmatic processing.
+    system_prompt = "You are a clinical trial eligibility criteria sanitization assistant."
 
-GUIDELINES
-- Cleaning and formatting the text
-- Removing permissive or descriptive lines
-- Preserving only valid inclusion/exclusion rules
-
-DO NOT:
-- Summarize, paraphrase, or alter the medical content
-- Change the meaning of any restrictive criteria
-- Remove headers like 'Inclusion Criteria:' or 'Exclusion Criteria:'
-"""
-    user_prompt = """
-Clean the eligibility criteria text below using the following instructions
+    user_prompt = """Clean the eligibility criteria text below using the following instructions
 
 DISTINGUISH INCLUSION & EXCLUSION CRITERIA
 - Ensure that 'Inclusion Criteria:' and 'Exclusion Criteria:' each appear on their own line.
@@ -47,7 +33,10 @@ Cooperative Oncology Group (ECOG)" should be replaced with "ECOG".
 FORMATTING & BULLETING
 - Normalize all bullet points to use '-' consistently.
 - Ensure each bullet starts on a new line.
-- If a criterion includes multiple conditions that can logically stand alone, split them into distinct bullet points.
+
+CRITERION SPLITTING
+- If a criterion lists multiple conditions joined together that are logically independent exclusion/inclusion rules, \
+split each into its own bullet
 
 REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Only include criteria that explicitly define inclusion or exclusion rules.

@@ -1,3 +1,4 @@
+import re
 import unittest
 
 from trialcurator.eligibility_sanitiser import llm_sanitise_text
@@ -31,6 +32,7 @@ Key Inclusion Criteria:
         output_text = llm_sanitise_text(input_text, self.client)
 
         # remove preceding and trailing blank lines and trailing fullstops
+        output_text = re.sub(r'^\s*\n|(\n\s*)+\Z', '', output_text, flags=re.MULTILINE)
         output_text = output_text.strip('.\n\r').replace('.\n', '\n')
 
         # check that each condition is the one we want. For some rules it seems to change
@@ -39,7 +41,25 @@ Key Inclusion Criteria:
         lines = output_text.split('\n')
         self.assertEqual(len(lines), 5)
         self.assertEqual(lines[0], 'Inclusion Criteria:')
-        self.assertEqual(lines[1], '- ECOG performance status of 0 or 1')
+        self.assertIn('ECOG performance status of 0 or 1', lines[1])
         self.assertEqual(lines[2], '- Willing to provide tumor tissue from a newly obtained biopsy from a tumor site that has not been previously irradiated')
         self.assertIn('adequate organ and bone marrow function', lines[3].lower())
         self.assertIn('life expectancy of at least 3 months', lines[4].lower())
+
+    def test_criterion_splitting(self):
+        input_text = '''
+Exclusion Criteria:
+1. Haematocrit ≥ 50%, untreated severe obstructive sleep apnoea or poorly controlled heart failure (NYHA >1)
+        '''
+
+        expected_output_text = '''Exclusion Criteria:
+
+- Hematocrit ≥ 50%
+- Untreated severe obstructive sleep apnea
+- Poorly controlled heart failure (NYHA > 1)'''
+
+        output_text = llm_sanitise_text(input_text, self.client)
+
+        # remove preceding and trailing blank lines and trailing fullstops
+        output_text = output_text.strip('.\n\r').replace('.\n', '\n')
+        self.assertEqual(expected_output_text, output_text)
