@@ -152,7 +152,7 @@ FORMAT EXAMPLES:
 [
     {
         "description": "EXCLUDE Body weight over 150 kg",
-        "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] }",
+        "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] }},
         "new_rule": []
     },
     {
