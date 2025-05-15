@@ -169,10 +169,10 @@ Now map the following eligibility criteria:
 """
 
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
-    print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
+    # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
     output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
-    print(f"OUTPUT after extract_code_blocks():\n{output_eligibility_criteria}")
+    # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
 
     try:
         output_eligibility_criteria_final = json.loads(output_eligibility_criteria)
@@ -189,70 +189,66 @@ def correct_actin_mistakes(initial_actin_mapping: list[ActinMapping], client: Ll
 You are a post-processing assistant for ACTIN rule mapping. 
 Your job is to identify and then correct mistakes in mapped ACTIN rules.
 
-IMPORTANT:
-- You must only modify the value of the "actin_rule" field.
-- Do not modify the description, actin_params, or new_rule fields.
-- Do not add any surrounding text.
-- Retain the same output format.
-
 MISTAKES TO CORRECT:
 
 1. Incorrect rule for drug class
-    
-If the ACTIN rule is HAS_HAD_TREATMENT_WITH_ANY_DRUG_X[...] or HAS_NOT_HAD_CATEGORY_X_TREATMENT[...] \
-and refers to a drug class (e.g., PD-1 inhibitor, anti-EGFR antibody, HER2-targeted therapy, etc.), \
-Then rewrite the rule as:
-    HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[...] or its NOT(...) form.
 
-The parameters in HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[<CATEGORY>, <DRUG CLASS] are
+- If the original ACTIN rule is one of:
+    - HAS_HAD_TREATMENT_WITH_ANY_DRUG_X
+    - HAS_NOT_HAD_CATEGORY_X_TREATMENT
+    - HAS_RECEIVED_ANY_ANTI_CANCER_THERAPY_WITHIN_X_WEEKS
+    - or any semantically equivalent variant
+
+And the value refers to a **drug class** (e.g., "PD-1 inhibitor", "anti-EGFR antibody", "HER2-targeted therapy"),
+
+Then rewrite it using:
+    HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[<CATEGORY>, <DRUG CLASS>]
+
+Where the parameters are:
     - CATEGORY: IMMUNOTHERAPY, TARGETED THERAPY, CHEMOTHERAPY, etc.
-    - DRUG CLASS: PD-1 antibody, PD-L1 antibody, EGFR antibody, HER2 antibody, etc.
-    
-Important: Do not invent a new rule HAS_NOT_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y. Instead use NOT(HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y)
+    - DRUG CLASS: PD-1 antibody, anti-EGFR antibody, HER2 antibody, etc.
 
-2. Double-negative mappings 
+- If the original mapping contains NOT(...), or if the original description starts with "EXCLUDE", \
+then you must wrap the corrected rule in a NOT(...) block — even if the rule name itself is already negative in nature.
 
-If the description begins with "EXCLUDE..." and the matched ACTIN rule also contains a "NOT" or "NO" inside, \
-check if it is an incorrect double-negatives such as:
-    - NOT(IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL)
-    - NOT(HAS_NO_HISTORY_OF_...)
+❌ Incorrect:
+{
+  "description": "EXCLUDE ...",
+  "actin_rule": {
+    "HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": [...]
+  }
+}
 
-If so, remove `NOT(...)` and return only the enclosed rule:
-    - IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL
-    - HAS_NO_HISTORY_OF_...
+✅ Correct:
+{
+  "description": "EXCLUDE ...",
+  "actin_rule": {
+    "NOT": {
+      "HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": [...]
+    }
+  }
+}
+
+2. Double negatives
+
+- If the description begins with "EXCLUDE" and the rule is like NOT(IS_NOT_...) or NOT(HAS_NO_...), 
+  remove the outer NOT.
 
 3. Overly specific rule names
 
-Some mapped ACTIN rules contain overly specific information that is not in the input description. 
+- If a rule adds specific context not present in the description (e.g., HAS_MEASURABLE_DISEASE_RECIST), 
+  simplify it (e.g., HAS_MEASURABLE_DISEASE).
 
-For example:
-❌ HAS_MEASURABLE_DISEASE_RECIST ← incorrect if the input does not mention RECIST 
-✅ HAS_MEASURABLE_DISEASE ← should be the correct rule
+RULES:
 
-FORMATTING INSTRUCTIONS:
-- Keep the exact same format as the input.
-i.e.
-[
-    {
-        "description": "...",
-        "actin_rule": { "RULE":[] },
-        "new_rule": []
-    },
-    {
-        "description": "...",
-        "actin_rule": { "RULE_NAME_X":[5] },
-        "new_rule": ["RULE_NAME_X"]
-    }
-]
-
-Final reminder:
-- Modify only the "actin_rule" field.
-- Do not change overall format or "description"
-- Only modify "actin_params" if the new actin_rule requires different parameters (e.g., adding a category).
+- Only update the "actin_rule" field
+- Do not invent new rules
+- Do not modify "description"
+- Return the same JSON format with no extra text
 """
     user_prompt = f"""
 Below are the initial ACTIN mappings. 
-Please review each mapping and make corrections to "actin_rule" fields as instructed:
+Review each mapping and make corrections to "actin_rule" fields as instructed:
 {json.dumps(initial_actin_mapping, indent=2)}
 """
 
@@ -260,7 +256,7 @@ Please review each mapping and make corrections to "actin_rule" fields as instru
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
     output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
-    # print(f"OUTPUT after extract_code_blocks():\n{output_eligibility_criteria}")
+    # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
 
     try:
         output_eligibility_criteria_final = json.loads(output_eligibility_criteria)
@@ -272,8 +268,7 @@ Please review each mapping and make corrections to "actin_rule" fields as instru
         raise
 
 
-def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[
-    ActinMapping]:
+def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[ActinMapping]:
     initial_mapping = map_to_actin(eligibility_criteria, client, actin_rules)
     corrected_mapping = correct_actin_mistakes(initial_mapping, client)
     return corrected_mapping

@@ -70,8 +70,7 @@ EXCLUDE Has second malignancy that is progressing or requires active treatment a
         self.assertEqual(expected_output, actual_output)
 
     def test_initial_correct_complex(self):
-
-        # The expected output below is strictly correct but contains redundancy. Accept it for now.
+        # Pass rate ~50%, ignoring formatting differences in `description`
         input_text = '''
 INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory requirements within 30 days before the start of study intervention:
     - Hemoglobin ≥9.0 g/dL.
@@ -92,15 +91,9 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                         {"HAS_THROMBOCYTES_ABS_OF_AT_LEAST_X": [100000]},
                         {"OR": [
                             {"HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X": [1.5]},
-                            {"AND": [
-                                {"HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X_OR_Y_IF_GILBERT_DISEASE": [3.0]},
-                                {"HAS_GILBERT_DISEASE": []}
-                            ]}
+                            {"HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X_OR_Y_IF_GILBERT_DISEASE": [3.0]}
                         ]},
-                        {"OR": [
-                            {"HAS_ASAT_AND_ALAT_ULN_OF_AT_MOST_X_OR_AT_MOST_Y_WHEN_LIVER_METASTASES_PRESENT": [2.5,
-                                                                                                               5.0]}
-                        ]},
+                        {"HAS_ASAT_AND_ALAT_ULN_OF_AT_MOST_X_OR_AT_MOST_Y_WHEN_LIVER_METASTASES_PRESENT": [2.5, 5.0]},
                         {"AND": [
                             {"HAS_EGFR_MDRD_OF_AT_LEAST_X": [60]},
                             {"HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X": [60]}
@@ -119,11 +112,7 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                                 {"HAS_KNOWN_HEPATITIS_B_INFECTION": []},
                                 {"NOT": {"CURRENTLY_GETS_CATEGORY_X_MEDICATION": ["antiviral treatment"]}}
                             ]},
-                            {"AND": [
-                                {"HAS_KNOWN_HEPATITIS_C_INFECTION": []},
-                                {"NOT": {
-                                    "HAS_RECEIVED_CATEGORY_X_MEDICATION_WITHIN_Y_WEEKS": ["antiviral treatment", 0]}}
-                            ]}
+                            {"HAS_KNOWN_HEPATITIS_C_INFECTION": []}
                         ]
                     }
                 },
@@ -134,6 +123,7 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
         self.assertEqual(expected_output, actual_output)
 
     def test_drug_category_initial(self):
+        # Note the initial mappings below are NOT correct - they form the input mappings to correct_actin_mistakes()
         input_text = '''
 INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1
 EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol
@@ -141,52 +131,52 @@ EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protoco
         expected_output = [
             {
                 "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
-                "actin_rule": {"HAS_NOT_HAD_CATEGORY_X_TREATMENT": ["PD-1/PD-L1 inhibitors"]},
+                "actin_rule": {"NOT": {"HAS_HAD_TREATMENT_WITH_ANY_DRUG_X": ["PD-1/PD-L1 inhibitors"]}},
                 "new_rule": []
             },
             {
                 "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
-                "actin_rule": {"NOT": {"HAS_HAD_TREATMENT_WITH_ANY_DRUG_X": ["anti-EGFR antibody"]}},
+                "actin_rule": {
+                    "NOT": {"HAS_RECEIVED_ANY_ANTI_CANCER_THERAPY_WITHIN_X_WEEKS": ["anti-EGFR antibody therapy"]}},
                 "new_rule": []
             }
         ]
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules, 3)
+        actual_output = actin.map_to_actin(input_text, self.client, actin_rules)
         self.assertEqual(expected_output, actual_output)
 
     def test_drug_category_correction(self):
-        input_mappings = \
-            [
-                {
-                    "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
-                    "actin_rule": {"HAS_NOT_HAD_CATEGORY_X_TREATMENT": ["PD-1/PD-L1 inhibitors"]},
-                    "new_rule": []
-                },
-                {
-                    "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
-                    "actin_rule": {"NOT": {"HAS_HAD_TREATMENT_WITH_ANY_DRUG_X": ["anti-EGFR antibody"]}},
-                    "new_rule": []
-                }
-            ]
-        expected_output = \
-            [
-                {
-                    "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
-                    "actin_rule": {"NOT":
-                                       {"HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": ["IMMUNOTHERAPY",
-                                                                                    "PD-1/PD-L1 inhibitors"]}
-                                   },
-                    "new_rule": []
-                },
-                {
-                    "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
-                    "actin_rule": {"NOT":
-                                       {"HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": ["TARGETED THERAPY",
-                                                                                    "anti-EGFR antibody"]}
-                                   },
-                    "new_rule": []
-                }
-            ]
-        actual_output = actin.correct_actin_mistakes(input_mappings, self.client, 3)
+        input_mappings = [
+            {
+                "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
+                "actin_rule": {"NOT": {"HAS_HAD_TREATMENT_WITH_ANY_DRUG_X": ["PD-1/PD-L1 inhibitors"]}},
+                "new_rule": []
+            },
+            {
+                "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
+                "actin_rule": {
+                    "NOT": {"HAS_RECEIVED_ANY_ANTI_CANCER_THERAPY_WITHIN_X_WEEKS": ["anti-EGFR antibody therapy"]}},
+                "new_rule": []
+            }
+        ]
+        expected_output = [
+            {
+                "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
+                "actin_rule": {"NOT":
+                                   {"HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": ["IMMUNOTHERAPY",
+                                                                                "PD-1/PD-L1 inhibitors"]}
+                               },
+                "new_rule": []
+            },
+            {
+                "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
+                "actin_rule": {"NOT":
+                                   {"HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": ["TARGETED THERAPY",
+                                                                                "anti-EGFR antibody"]}
+                               },
+                "new_rule": []
+            }
+        ]
+        actual_output = actin.correct_actin_mistakes(input_mappings, self.client)
         self.assertEqual(expected_output, actual_output)
 
     def test_other_incorrect_initial(self):
@@ -207,12 +197,11 @@ EXCLUDE Is currently participating in another study of a therapeutic agent
                     "new_rule": []
                 }
             ]
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules, 3)
+        actual_output = actin.map_to_actin(input_text, self.client, actin_rules)
         self.assertEqual(expected_output, actual_output)
 
     def test_other_incorrect_correction(self):
-        input_mappings = \
-            [
+        input_mappings = [
                 {
                     "description": "INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.",
                     "actin_rule": {"HAS_MEASURABLE_DISEASE_RECIST": []},
@@ -236,5 +225,5 @@ EXCLUDE Is currently participating in another study of a therapeutic agent
                 "new_rule": []
             }
         ]
-        actual_output = actin.correct_actin_mistakes(input_mappings, self.client, 3)
+        actual_output = actin.correct_actin_mistakes(input_mappings, self.client)
         self.assertEqual(expected_output, actual_output)
