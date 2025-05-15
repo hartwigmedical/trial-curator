@@ -2,9 +2,10 @@ import json
 import pandas as pd
 import logging
 import argparse
-from typing import TypedDict, Union
+from typing import TypedDict
 from itertools import chain
 
+from trialcurator.actin_curator_utils import fix_malformed_json
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
@@ -34,7 +35,7 @@ def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules
     actin_rules = "\n".join(actin_rules)
 
     system_prompt = """
-You are a clinical trial curation assistant.
+You are a clinical trial curation assistant for a system called ACTIN.
 Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
 
 ## Input format
@@ -104,8 +105,8 @@ Use if no exact rule match applies:
 - For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`, unless the matched ACTIN \
 rule is already negative in meaning (e.g. `HAS_NOT`, `IS_NOT`)
 
-## Output format (in JSON)
-Output an json array with the criteria. Example:
+## Output format
+Output an JSON array of objects representing the criteria. Example:
 ```json
 [
     {
@@ -131,7 +132,6 @@ Output an json array with the criteria. Example:
 - Capture full clinical and logical meaning.
 - Do not paraphrase or omit relevant details.
 - Mark `new_rule` only if the rule name is truly new to ACTIN.
-- Empty parameter list: must have empty parameter list `[]` for rule with no parameter. (e.g. `{ "IS_MALE": [] }`)
 """
 
     user_prompt = f"""Following are the ACTIN rules:
@@ -149,6 +149,7 @@ Map the following eligibility criteria:
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
     output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
+    output_eligibility_criteria = fix_malformed_json(output_eligibility_criteria)
     # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
 
     try:
@@ -167,9 +168,9 @@ def correct_actin_mistakes(initial_actin_mapping: list[ActinMapping], client: Ll
 You are a post-processing assistant for ACTIN rule mapping. 
 Your job is to identify and then correct mistakes in mapped ACTIN rules.
 
-MISTAKES TO CORRECT:
+# MISTAKES TO CORRECT:
 
-1. Incorrect rule for drug class
+## Incorrect rule for drug class
 
 - If the original ACTIN rule is one of:
     - HAS_HAD_TREATMENT_WITH_ANY_DRUG_X
@@ -211,21 +212,21 @@ then you must wrap the corrected rule in a NOT(...) block — even if the rule n
 }
 ```
 
-2. Double negatives
+## Double negatives
 
 - If the description begins with "EXCLUDE" and the rule is like NOT(IS_NOT_...) or NOT(HAS_NO_...), 
   remove the outer NOT.
 
-3. Overly specific rule names
+## Overly specific rule names
 
 - If a rule adds specific context not present in the description (e.g., HAS_MEASURABLE_DISEASE_RECIST), 
   simplify it (e.g., HAS_MEASURABLE_DISEASE).
 
-RULES:
+# RULES:
 
 - Only update the "actin_rule" field
 - Do not invent new rules
-- Do not modify "description"
+- Do not modify `"description"` or `"new_rule"` fields.
 - Return the same JSON format with no extra text
 """
     user_prompt = f"""
@@ -240,6 +241,7 @@ Review each mapping and make corrections to "actin_rule" fields as instructed:
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
     output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
+    output_eligibility_criteria = fix_malformed_json(output_eligibility_criteria)
     # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
 
     try:
