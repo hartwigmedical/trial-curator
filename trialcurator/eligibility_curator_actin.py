@@ -25,7 +25,7 @@ def load_actin_rules(file_path: str) -> list[str]:
 
 class ActinMapping(TypedDict):
     description: str
-    actin_rule: dict[str, list]
+    actin_rule: dict[str, list | dict]
     new_rule: list[str]
 
 
@@ -48,10 +48,10 @@ Your task is to convert each free-text eligibility criterion into structured ACT
 
 - ACTIN rules are defined with a rule name, 
     E.g. HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS, where X, Y, Z are placeholders for parameters. 
-- In general,
-  - RULE_X → one param: ["value"]
-  - RULE_X_Y_Z → three params: ["v1", "v2", 5]
-- Not all rules have parameters.
+- Parameters are based on placeholders:
+  - RULE → no param: `[]`
+  - RULE_X → one param: `["value"]`
+  - RULE_X_Y_Z → three params: `["v1", "v2", 5]`
 
 3. MAIN RULE MATCHING INSTRUCTIONS
 
@@ -99,21 +99,7 @@ Use if no exact rule match applies:
 inherently negative in name (e.g., HAS_ACTIVE_INFECTION, IS_PREGNANT).
 
 7. Output format (in JSON)
-Each processed criterion becomes:
-```json
-{
-  "description": "INCLUDE ...",
-  "actin_rule": { ... },
-  "new_rule": []
-},
-{
-  "description": "EXCLUDE ...",
-  "actin_rule": { ... },
-  "new_rule": [NEW_RULE_X]
-}
-```
-
-Use arrays of one object for each criterion, example:
+Output an json array with the criteria. Example:
 ```json
 [
     {
@@ -126,6 +112,11 @@ Use arrays of one object for each criterion, example:
         "actin_rule": { "IS_ELIGIBLE_FOR_TREATMENT_LINE_X": ["capecitabine", "anti-VEGF antibody"] },
         "new_rule": ["IS_ELIGIBLE_FOR_TREATMENT_LINE_X"]
     }
+    {
+        "description": "INCLUDE Is female",
+        "actin_rule": { "IS_FEMALE": [] },
+        "new_rule": []
+    }
 ]
 ```
 8. General guidance/Reminders
@@ -133,35 +124,14 @@ Use arrays of one object for each criterion, example:
 - Capture full clinical and logical meaning.
 - Do not paraphrase or omit relevant details.
 - Mark `new_rule` only if the rule name is truly new to ACTIN.
+- Empty parameter list: must have empty parameter list `[]` for rule with no parameter. (e.g. `{ "IS_MALE": [] }`)
 
 
 """
-    user_prompt = """
-Reminder the instructions are:
-
-- Match each eligibility block into one or more ACTIN rules from the ACTIN RULES LIST.
-- Accept biologically equivalent terms
-- Prefer general rules unless specificity is required.
-- Only create a new rule if there is truly no match    
-
-EXAMPLES:
-[
-    {
-        "description": "EXCLUDE Body weight over 150 kg",
-        "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] }},
-        "new_rule": []
-    },
-    {
-        "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
-        "actin_rule": { "IS_ELIGIBLE_FOR_TREATMENT_LINE_X": ["capecitabine", "anti-VEGF antibody"] },
-        "new_rule": ["IS_ELIGIBLE_FOR_TREATMENT_LINE_X"]
-    }
-]
-
-"""
-    user_prompt += """..."""
-    user_prompt += "\nACTIN RULES:\n" + "\n".join(actin_rules)
-    user_prompt += """..."""
+    user_prompt = "Following are the ACTIN rules:\n"
+    user_prompt += """```"""
+    user_prompt += "\n".join(actin_rules)
+    user_prompt += """```"""
 
     user_prompt += f"""
 Now map the following eligibility criteria:
@@ -181,6 +151,7 @@ Now map the following eligibility criteria:
         return output_eligibility_criteria_final
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse JSON\n{e}")
+        logger.warning(output_eligibility_criteria)
         raise
 
 
@@ -212,14 +183,17 @@ Where the parameters are:
 then you must wrap the corrected rule in a NOT(...) block — even if the rule name itself is already negative in nature.
 
 ❌ Incorrect:
+```json
 {
   "description": "EXCLUDE ...",
   "actin_rule": {
     "HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": [...]
   }
 }
+```
 
 ✅ Correct:
+```json
 {
   "description": "EXCLUDE ...",
   "actin_rule": {
@@ -228,6 +202,7 @@ then you must wrap the corrected rule in a NOT(...) block — even if the rule n
     }
   }
 }
+```
 
 2. Double negatives
 
@@ -249,7 +224,9 @@ RULES:
     user_prompt = f"""
 Below are the initial ACTIN mappings. 
 Review each mapping and make corrections to "actin_rule" fields as instructed:
+```json
 {json.dumps(initial_actin_mapping, indent=2)}
+```
 """
 
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
@@ -265,6 +242,7 @@ Review each mapping and make corrections to "actin_rule" fields as instructed:
         return output_eligibility_criteria_final
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse JSON\n{e}")
+        logger.warning(output_eligibility_criteria)
         raise
 
 
