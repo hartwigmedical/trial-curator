@@ -317,7 +317,7 @@ def main():
     else:
         client = OpenaiClient(TEMPERATURE)
 
-    actin_outputs = actin_map_by_cohort(eligibility_criteria, client, actin_rules, BATCH_SIZE, MAX_RETRIES)
+    actin_outputs = actin_map_by_cohort(eligibility_criteria, client, actin_rules, BATCH_SIZE)
 
     with open(args.out_trial_file, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
