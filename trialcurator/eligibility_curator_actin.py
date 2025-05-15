@@ -30,21 +30,27 @@ class ActinMapping(TypedDict):
 
 
 def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[ActinMapping]:
+
+    actin_rules = "\n".join(actin_rules)
+
     system_prompt = """
 You are a clinical trial curation assistant.
 Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
 
-1. Input format
+## Input format
 
 - Each line starting with `INCLUDE` or `EXCLUDE` begins a new **eligibility block**.
 - All **indented or bullet-point lines** underneath belong to that block.
 - Treat the **entire block (header + sub-points)** as a **single criterion**.
-    E.g. Below is one eligibility block (which treats header and bullet points as one joined description).
-    INCLUDE Adequate bone marrow function
-      - ANC ≥ 1.5 x 10^9/L
-      - Platelet count ≥ 100 x 10^9/L
 
-2. ACTIN rule structure
+### Example:
+```text
+INCLUDE Adequate bone marrow function:
+  - ANC ≥ 1.5 x 10^9/L
+  - Platelet count ≥ 100 x 10^9/L
+```
+
+## ACTIN rule structure
 
 - ACTIN rules are defined with a rule name, 
     E.g. HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS, where X, Y, Z are placeholders for parameters. 
@@ -53,7 +59,7 @@ Your task is to convert each free-text eligibility criterion into structured ACT
   - RULE_X → one param: `["value"]`
   - RULE_X_Y_Z → three params: `["v1", "v2", 5]`
 
-3. MAIN RULE MATCHING INSTRUCTIONS
+## MAIN RULE MATCHING INSTRUCTIONS
 
 - Match each eligibility block into one or more ACTIN rules from the ACTIN RULES LIST.
     - Match by **rule name pattern**, not exact text.
@@ -65,7 +71,7 @@ Your task is to convert each free-text eligibility criterion into structured ACT
     - Otherwise: 
         "new_rule": []
 
-4. Fallback rules
+## Fallback rules
 
 Use if no exact rule match applies:
 
@@ -77,7 +83,7 @@ Use if no exact rule match applies:
 | Disease history       | `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`  |
 | Unspecified cancer    | `HAS_CANCER_TYPE[X]`                     |
 
-4. Logical operators
+## Logical operators
 
 | Operator | Format                         | Meaning                   |
 |----------|--------------------------------|---------------------------|
@@ -85,20 +91,20 @@ Use if no exact rule match applies:
 | `OR`     | `{ "OR": [rule1, rule2] }`     | At least one condition    |
 | `NOT`    | `{ "NOT": rule }`              | Negate a single rule      |
 
-5. Numerical comparison logic
+## Numerical comparison logic
 
-| Text  | Rule Format                     |
-|-------|----------------------------------|
-| ≥ X   | `IS_AT_LEAST_X[...]`            |
-| > X   | `IS_AT_LEAST_X[...]` (adjusted) |
-| ≤ X   | `IS_AT_MOST_X[...]`             |
-| < X   | `IS_AT_MOST_X[...]` (adjusted)  |
+| Text  | Rule Format                               |
+|-------|-------------------------------------------|
+| ≥ X   | `SOMETHING_IS_AT_LEAST_X[...]`            |
+| > X   | `SOMETHING_IS_AT_LEAST_X[...]` (adjusted) |
+| ≤ X   | `SOMETHING_IS_AT_MOST_X[...]`             |
+| < X   | `SOMETHING_IS_AT_MOST_X[...]` (adjusted)  |
 
-6. Exclusion logic
-- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`, even if the rule is \
-inherently negative in name (e.g., HAS_ACTIVE_INFECTION, IS_PREGNANT).
+## Exclusion logic
+- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`, unless the matched ACTIN \
+rule is already negative in meaning (e.g. `HAS_NOT`, `IS_NOT`)
 
-7. Output format (in JSON)
+## Output format (in JSON)
 Output an json array with the criteria. Example:
 ```json
 [
@@ -119,23 +125,24 @@ Output an json array with the criteria. Example:
     }
 ]
 ```
-8. General guidance/Reminders
+
+## General guidance/Reminders
 
 - Capture full clinical and logical meaning.
 - Do not paraphrase or omit relevant details.
 - Mark `new_rule` only if the rule name is truly new to ACTIN.
 - Empty parameter list: must have empty parameter list `[]` for rule with no parameter. (e.g. `{ "IS_MALE": [] }`)
-
-
 """
-    user_prompt = "Following are the ACTIN rules:\n"
-    user_prompt += """```"""
-    user_prompt += "\n".join(actin_rules)
-    user_prompt += """```"""
 
-    user_prompt += f"""
-Now map the following eligibility criteria:
+    user_prompt = f"""Following are the ACTIN rules:
+```
+{actin_rules}
+```
+
+Map the following eligibility criteria:
+```
 {input_eligibility_criteria}
+```
 """
 
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
