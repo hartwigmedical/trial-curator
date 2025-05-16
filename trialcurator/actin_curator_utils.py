@@ -1,5 +1,36 @@
 import re
 
+def fix_rule_format(data):
+    """
+    Recursively fixes
+
+    1. logical operators (AND/OR) so that all items in their lists
+    are dictionaries of the form { rule_name: [] } instead of plain strings.
+    2. NOT such that the item is a dictionary of the form { rule_name: [] }
+
+    """
+    if isinstance(data, dict):
+        new_data = {}
+        for key, value in data.items():
+            if key in {"AND", "OR"} and isinstance(value, list):
+                fixed_list = []
+                for item in value:
+                    if isinstance(item, str):
+                        fixed_list.append({item: []})
+                    else:
+                        fixed_list.append(fix_rule_format(item))
+                new_data[key] = fixed_list
+            elif key in {"NOT", "actin_rule"} and isinstance(value, str):
+                new_data[key] = {value: []}
+            else:
+                new_data[key] = fix_rule_format(value)
+        return new_data
+
+    elif isinstance(data, list):
+        return [fix_rule_format(item) for item in data]
+
+    return data
+
 def fix_malformed_json(json_str: str) -> str:
     """
     Sometimes LLM outputs malformed json, it is much easier to fix with regex than
@@ -92,3 +123,55 @@ def tokenize_list_items(list_content) -> list[str]:
     if current:
         items.append(current.strip())
     return items
+
+def fix_malformed_yaml(yaml_str: str) -> str:
+    """
+    Sometimes LLM outputs malformed yaml, it is much easier to fix with regex than
+    to overload the prompts with more instructions
+    """
+
+    # fix malformed expressions:
+    #   NOT: RULE_NAME
+    # to:
+    #   NOT:
+    #     RULE_NAME: []
+    pattern = r'^(\s*)(\w+)\s*:\s*(\w+)\s*$'
+    yaml_str = re.sub(pattern, r'\1\2:\n\1  \3: []', yaml_str, flags=re.MULTILINE)
+
+    # Fix
+    #   - NOT: RULE_NAME
+    # to:
+    #   - NOT:
+    #     RULE_NAME: []
+    pattern = r'^(\s*)- (\w+)\s*:\s*(\w+)\s*$'
+    yaml_str = re.sub(pattern, r'\1- \2:\n\1  \3: []', yaml_str, flags=re.MULTILINE)
+
+    # Fix malformed entries like:
+    #   actin_rule: RULE_NAME: []
+    # to:
+    #   actin_rule:
+    #     RULE_NAME: []
+    #
+    # Also handles:
+    #   NOT: IS_X:
+    #     - 5
+    pattern = r'^(\s*)([\w]+):\s*(\w+:.*)$'
+    yaml_str = re.sub(pattern, r'\1\2:\n\1  \3', yaml_str, flags=re.MULTILINE)
+
+    # Fix malformed entries like:
+    #   - NOT: IS_BREASTFEEDING: []
+    # to:
+    #   - NOT:
+    #       IS_BREASTFEEDING: []
+    #
+    # Also handles:
+    #   - NOT: IS_X:
+    #       - 5
+    # to:
+    #   - NOT:
+    #       IS_X:
+    #       - 5
+    pattern = r'^(\s*)- ([\w]+):\s*(\w+:.*)$'
+    yaml_str = re.sub(pattern, r'\1- \2:\n\1    \3', yaml_str, flags=re.MULTILINE)
+
+    return yaml_str

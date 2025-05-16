@@ -5,7 +5,9 @@ import argparse
 from typing import TypedDict
 from itertools import chain
 
-from trialcurator.actin_curator_utils import fix_malformed_json
+import yaml
+
+from trialcurator.actin_curator_utils import fix_malformed_yaml, fix_rule_format
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
@@ -35,7 +37,7 @@ def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules
     actin_rules = "\n".join(actin_rules)
 
     system_prompt = """
-You are a clinical trial curation assistant for a system called ACTIN.
+You are a clinical trial curation assistant for a system called ACTIN.  
 Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
 
 ## Input format
@@ -56,41 +58,58 @@ INCLUDE Adequate bone marrow function:
 - ACTIN rules are defined with a rule name, 
     E.g. HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS, where X, Y, Z are placeholders for parameters. 
 - Parameters are based on placeholders:
-  - RULE → no param: `[]`
-  - RULE_X → one param: `["value"]`
-  - RULE_X_Y_Z → three params: `["v1", "v2", 5]`
+  - `RULE` → no param: `RULE`
+  - `RULE_X` → one param: `RULE_X: ["value"]`
+  - `RULE_X_Y_Z` → three params: `RULE_X: ["v1", "v2", 5]`
 
 ## MAIN RULE MATCHING INSTRUCTIONS
 
 - Match each eligibility block into one or more ACTIN rules from the ACTIN RULES LIST.
-    - Match by **rule name pattern**, not exact text.
+  - Match by **rule name pattern**, not exact text.
 - Accept biologically equivalent terms (e.g. “fusion” = “rearrangement”).
 - Prefer general rules unless specificity is required.
-- Only create a new rule if there is truly no match
-    - If the rule name doesn’t exist in the ACTIN rule list:
-        "new_rule": ["NEW_RULE_NAME"]
-    - Otherwise: 
-        "new_rule": []
+- Only create a new rule if there is truly no match:
+  - If the rule name doesn’t exist in the ACTIN rule list:
+    ```yaml
+    new_rule:
+      - NEW_RULE_NAME
+    ```
+  - Otherwise:
+    ```yaml
+    new_rule: []
+    ```
 
 ## Fallback rules
 
 Use if no exact rule match applies:
 
-| Scenario              | Rule                                     |
-|-----------------------|------------------------------------------|
-| Treatment line        | `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[...]`  |
-| Gene rearrangement    | `FUSION_IN_GENE_X[...]`                  |
-| Comorbidity           | `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`  |
-| Disease history       | `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`  |
-| Unspecified cancer    | `HAS_CANCER_TYPE[X]`                     |
+| Scenario           | Rule                                     |
+|--------------------|------------------------------------------|
+| Treatment line     | `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[...]`  |
+| Gene rearrangement | `FUSION_IN_GENE_X[...]`                  |
+| Comorbidity        | `NOT: HAS_SEVERE_CONCOMITANT_CONDITION`  |
+| Disease history    | `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`  |
+| Unspecified cancer | `HAS_CANCER_TYPE[X]`                     |
 
-## Logical operators
+## Logical Operators
 
-| Operator | Format                         | Meaning                   |
-|----------|--------------------------------|---------------------------|
-| `AND`    | `{ "AND": [rule1, rule2] }`    | All conditions required   |
-| `OR`     | `{ "OR": [rule1, rule2] }`     | At least one condition    |
-| `NOT`    | `{ "NOT": rule }`              | Negate a single rule      |
+- **AND**  
+  ```yaml
+  AND:
+    - rule1
+    - rule2
+  ```
+- **OR**  
+  ```yaml
+  OR:
+    - rule1
+    - rule2
+  ```
+- **NOT**  
+  ```yaml
+  NOT:
+    rule
+  ```
 
 ## Numerical comparison logic
 
@@ -102,36 +121,45 @@ Use if no exact rule match applies:
 | < X   | `SOMETHING_IS_AT_MOST_X[...]` (adjusted)  |
 
 ## Exclusion logic
-- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`, unless the matched ACTIN \
-rule is already negative in meaning (e.g. `HAS_NOT`, `IS_NOT`)
+
+- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`,  
+  unless the matched ACTIN rule is already negative in meaning (e.g. `HAS_NOT`, `IS_NOT`)
 
 ## Output format
-Output an JSON array of objects representing the criteria. Example:
-```json
-[
-    {
-        "description": "EXCLUDE Body weight over 150 kg",
-        "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] } },
-        "new_rule": []
-    },
-    {
-        "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
-        "actin_rule": { "IS_ELIGIBLE_FOR_TREATMENT_LINE_X": ["capecitabine", "anti-VEGF antibody"] },
-        "new_rule": ["IS_ELIGIBLE_FOR_TREATMENT_LINE_X"]
-    }
-    {
-        "description": "INCLUDE Is female",
-        "actin_rule": { "IS_FEMALE": [] },
-        "new_rule": []
-    }
-]
+
+Output a **YAML array** with criteria objects.
+`description`: Always wrap this field in double quotes.
+
+### Example:
+
+```yaml
+- description: "EXCLUDE Body weight over 150 kg"
+  actin_rule:
+    NOT:
+      HAS_BODY_WEIGHT_OF_AT_LEAST_X:
+        - 150
+  new_rule: []
+
+- description: "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody"
+  actin_rule:
+    IS_ELIGIBLE_FOR_TREATMENT_LINE_X:
+      - capecitabine
+      - anti-VEGF antibody
+  new_rule:
+    - IS_ELIGIBLE_FOR_TREATMENT_LINE_X
+
+- description: "INCLUDE Is female"
+  actin_rule:
+    IS_FEMALE
+  new_rule: []
 ```
 
-## General guidance/Reminders
+## General guidance / Reminders
 
 - Capture full clinical and logical meaning.
 - Do not paraphrase or omit relevant details.
 - Mark `new_rule` only if the rule name is truly new to ACTIN.
+
 """
 
     user_prompt = f"""Following are the ACTIN rules:
@@ -148,12 +176,13 @@ Map the following eligibility criteria:
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
-    output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
-    output_eligibility_criteria = fix_malformed_json(output_eligibility_criteria)
+    output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "yaml")
+    output_eligibility_criteria = fix_malformed_yaml(output_eligibility_criteria)
     # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
 
     try:
-        output_eligibility_criteria_final = json.loads(output_eligibility_criteria)
+        output_eligibility_criteria_final = yaml.safe_load(output_eligibility_criteria)
+        output_eligibility_criteria_final = fix_rule_format(output_eligibility_criteria_final)
         logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria_final}")
         # print(f"FINAL OUTPUT):\n{output_eligibility_criteria_final}")
         return output_eligibility_criteria_final
@@ -191,25 +220,21 @@ Where the parameters are:
 then you must wrap the corrected rule in a NOT(...) block — even if the rule name itself is already negative in nature.
 
 ❌ Incorrect:
-```json
-{
-  "description": "EXCLUDE ...",
-  "actin_rule": {
-    "HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": [...]
-  }
-}
+```yaml
+- description: "EXCLUDE ..."
+  actin_rule:
+    HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y
+      -...
+
 ```
 
 ✅ Correct:
-```json
-{
-  "description": "EXCLUDE ...",
-  "actin_rule": {
-    "NOT": {
-      "HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y": [...]
-    }
-  }
-}
+```yaml
+- description: "EXCLUDE ..."
+  actin_rule:
+    NOT:
+       HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y
+         -...
 ```
 
 ## Double negatives
@@ -227,25 +252,26 @@ then you must wrap the corrected rule in a NOT(...) block — even if the rule n
 - Only update the "actin_rule" field
 - Do not invent new rules
 - Do not modify `"description"` or `"new_rule"` fields.
-- Return the same JSON format with no extra text
+- Return the same YAML format with no extra text
 """
     user_prompt = f"""
 Below are the initial ACTIN mappings. 
 Review each mapping and make corrections to "actin_rule" fields as instructed:
-```json
-{json.dumps(initial_actin_mapping, indent=2)}
+```yaml
+{yaml.dump(initial_actin_mapping)}
 ```
 """
 
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
-    output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
-    output_eligibility_criteria = fix_malformed_json(output_eligibility_criteria)
+    output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "yaml")
+    output_eligibility_criteria = fix_malformed_yaml(output_eligibility_criteria)
     # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
 
     try:
-        output_eligibility_criteria_final = json.loads(output_eligibility_criteria)
+        output_eligibility_criteria_final = yaml.safe_load(output_eligibility_criteria)
+        output_eligibility_criteria_final = fix_rule_format(output_eligibility_criteria_final)
         logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria_final}")
         # print(f"FINAL OUTPUT):\n{output_eligibility_criteria_final}")
         return output_eligibility_criteria_final
