@@ -1,4 +1,55 @@
+import json
+import logging
 import re
+
+from .utils import extract_code_blocks
+
+logger = logging.getLogger(__name__)
+
+def llm_output_to_rule_obj(llm_output: str):
+    json_code_block = extract_code_blocks(llm_output, "json")
+    json_code_block = fix_malformed_json(json_code_block)
+
+    try:
+        rule_object = json.loads(json_code_block)
+        fix_rule_format(rule_object)
+        logger.info(f"Loaded into actin rule object: {rule_object}")
+        return rule_object
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse JSON\n{e}")
+        logger.warning(json_code_block)
+        raise e
+
+def fix_rule_format(data):
+    """
+    Recursively fixes
+
+    1. logical operators (AND/OR) so that all items in their lists
+    are dictionaries of the form { rule_name: [] } instead of plain strings.
+    2. NOT such that the item is a dictionary of the form { rule_name: [] }
+
+    """
+    if isinstance(data, dict):
+        new_data = {}
+        for key, value in data.items():
+            if key in {"AND", "OR"} and isinstance(value, list):
+                fixed_list = []
+                for item in value:
+                    if isinstance(item, str):
+                        fixed_list.append({item: []})
+                    else:
+                        fixed_list.append(fix_rule_format(item))
+                new_data[key] = fixed_list
+            elif key in {"NOT", "actin_rule"} and isinstance(value, str):
+                new_data[key] = {value: []}
+            else:
+                new_data[key] = fix_rule_format(value)
+        return new_data
+
+    elif isinstance(data, list):
+        return [fix_rule_format(item) for item in data]
+
+    return data
 
 def fix_malformed_json(json_str: str) -> str:
     """
@@ -6,17 +57,9 @@ def fix_malformed_json(json_str: str) -> str:
     to overload the prompts with more instructions
     """
 
-    # missing the empty param list [], e.g., { "IS_MALE" } -> { "IS_MALE": [] }
+    # fix dictionary without value, e.g., { "IS_MALE" } -> "IS_MALE"
     pattern = r'{\s*"(\w+)"\s*}'
-    json_str = re.sub(pattern, r'{ "\1": [] }', json_str)
-
-    # fix malformed NOT expressions: { "NOT": "RULE_NAME" } -> { "NOT": { "RULE_NAME": [] } }
-    pattern = r'{\s*"NOT"\s*:\s*"(\w+)"\s*}'
-    json_str = re.sub(pattern, r'{ "NOT": { "\1": [] } }', json_str, flags=re.DOTALL)
-
-    # fix "actin_rule": "RULE_NAME", -> "actin_rule": { "RULE_NAME": [] },
-    pattern = r'"actin_rule"\s*:\s*"(\w+)"\s*,'
-    json_str = re.sub(pattern, r'"actin_rule": { "\1": [] },', json_str)
+    json_str = re.sub(pattern, r'"\1"', json_str)
 
     """
     Fix malformed entries like:

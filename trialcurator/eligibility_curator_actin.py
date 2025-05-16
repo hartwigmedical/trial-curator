@@ -5,7 +5,7 @@ import argparse
 from typing import TypedDict
 from itertools import chain
 
-from trialcurator.actin_curator_utils import fix_malformed_json
+from trialcurator.actin_curator_utils import llm_output_to_rule_obj
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
@@ -29,7 +29,8 @@ class ActinMapping(TypedDict):
     actin_rule: dict[str, list | dict]
     new_rule: list[str]
 
-
+# NOTE: we consider making it simpler by allowing rules with no parameter be a non dict
+# However, this lets LLM to omit parameter even if they are needed and overall made it worse
 def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[ActinMapping]:
 
     actin_rules = "\n".join(actin_rules)
@@ -148,19 +149,7 @@ Map the following eligibility criteria:
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
-    output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
-    output_eligibility_criteria = fix_malformed_json(output_eligibility_criteria)
-    # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
-
-    try:
-        output_eligibility_criteria_final = json.loads(output_eligibility_criteria)
-        logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria_final}")
-        # print(f"FINAL OUTPUT):\n{output_eligibility_criteria_final}")
-        return output_eligibility_criteria_final
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse JSON\n{e}")
-        logger.warning(output_eligibility_criteria)
-        raise
+    return llm_output_to_rule_obj(output_eligibility_criteria)
 
 
 def correct_actin_mistakes(initial_actin_mapping: list[ActinMapping], client: LlmClient) -> list[ActinMapping]:
@@ -240,19 +229,7 @@ Review each mapping and make corrections to "actin_rule" fields as instructed:
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
-    output_eligibility_criteria = extract_code_blocks(output_eligibility_criteria, "json")
-    output_eligibility_criteria = fix_malformed_json(output_eligibility_criteria)
-    # print(f"CLEANED OUTPUT:\n{output_eligibility_criteria}")
-
-    try:
-        output_eligibility_criteria_final = json.loads(output_eligibility_criteria)
-        logger.info(f"Mapping to ACTIN:\n{output_eligibility_criteria_final}")
-        # print(f"FINAL OUTPUT):\n{output_eligibility_criteria_final}")
-        return output_eligibility_criteria_final
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse JSON\n{e}")
-        logger.warning(output_eligibility_criteria)
-        raise
+    return llm_output_to_rule_obj(output_eligibility_criteria)
 
 
 def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[ActinMapping]:
