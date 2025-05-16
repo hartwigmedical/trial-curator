@@ -1,4 +1,6 @@
 import json
+from json import JSONDecodeError
+
 import pandas as pd
 import logging
 import argparse
@@ -149,7 +151,17 @@ Map the following eligibility criteria:
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
     # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
-    return llm_output_to_rule_obj(output_eligibility_criteria)
+    try:
+        rule_obj = llm_output_to_rule_obj(output_eligibility_criteria)
+    except JSONDecodeError:
+        user_prompt = f"""Fix up the following JSON:
+{output_eligibility_criteria}
+Return answer in a ```json code block```.
+    """
+        output_eligibility_criteria = client.llm_ask(user_prompt)
+        rule_obj = llm_output_to_rule_obj(output_eligibility_criteria)
+
+    return rule_obj
 
 
 def correct_actin_mistakes(initial_actin_mapping: list[ActinMapping], client: LlmClient) -> list[ActinMapping]:

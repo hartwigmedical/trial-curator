@@ -1,6 +1,6 @@
 import unittest
 
-from trialcurator.actin_curator_utils import fix_malformed_json, fix_rule_format
+from trialcurator.actin_curator_utils import fix_malformed_json, fix_rule_format, evaluate_and_fix_json_lists
 
 
 class TestActinCuratorUtils(unittest.TestCase):
@@ -66,26 +66,9 @@ class TestActinCuratorUtils(unittest.TestCase):
     def test_fix_malformed_json(self):
         broken = '''[
     {
-        "description": "EXCLUDE Adverse events from prior anti-cancer therapy that have not resolved",
-        "actin_rule": { "NOT": { "HAS_EXPERIENCED_IMMUNOTHERAPY_RELATED_ADVERSE_EVENTS": [] } },
-        "new_rule": []
-    },
-    {
-        "description": "EXCLUDE Known AIDS-related illness, HBV, or HCV",
-        "actin_rule": { "NOT": { "OR": [
-                { "HAS_KNOWN_HIV_INFECTION": [ ] },
-                { "HAS_KNOWN_HEPATITIS_B_INFECTION": [ 1+1 ] },
-                { "HAS_KNOWN_HEPATITIS_C_INFECTION": [] }
-            ] },
-        "new_rule": []
-    },
-    {
-        "description": "EXCLUDE ",
-        "actin_rule": { "NOT": { "CALCULATE": [ 2*7, "TWO"] } },
-        "new_rule": []
-    },
-    {
         "actin_rule": { "IS_MALE" },
+        "actin_rule": "IS_MALE": [],
+        "actin_rule": "POCKET_TWO": [2, "two"],
     }
     {
         "description": "EXCLUDE Prior gastrointestinal disease",
@@ -96,26 +79,9 @@ class TestActinCuratorUtils(unittest.TestCase):
 
         expected = '''[
     {
-        "description": "EXCLUDE Adverse events from prior anti-cancer therapy that have not resolved",
-        "actin_rule": { "NOT": { "HAS_EXPERIENCED_IMMUNOTHERAPY_RELATED_ADVERSE_EVENTS": [] } },
-        "new_rule": []
-    },
-    {
-        "description": "EXCLUDE Known AIDS-related illness, HBV, or HCV",
-        "actin_rule": { "NOT": { "OR": [
-                { "HAS_KNOWN_HIV_INFECTION": [] },
-                { "HAS_KNOWN_HEPATITIS_B_INFECTION": [2] },
-                { "HAS_KNOWN_HEPATITIS_C_INFECTION": [] }
-            ] },
-        "new_rule": []
-    },
-    {
-        "description": "EXCLUDE ",
-        "actin_rule": { "NOT": { "CALCULATE": [14, "TWO"] } },
-        "new_rule": []
-    },
-    {
         "actin_rule": "IS_MALE",
+        "actin_rule": { "IS_MALE": [] },
+        "actin_rule": { "POCKET_TWO": [2, "two"] },
     }
     {
         "description": "EXCLUDE Prior gastrointestinal disease",
@@ -158,5 +124,5 @@ class TestActinCuratorUtils(unittest.TestCase):
     },
 ]'''
 
-        fixed_json = fix_malformed_json(broken)
+        fixed_json = evaluate_and_fix_json_lists(broken)
         self.assertEqual(expected, fixed_json)

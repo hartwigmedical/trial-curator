@@ -58,8 +58,8 @@ def fix_malformed_json(json_str: str) -> str:
     """
 
     # fix dictionary without value, e.g., { "IS_MALE" } -> "IS_MALE"
-    pattern = r'{\s*"(\w+)"\s*}'
-    json_str = re.sub(pattern, r'"\1"', json_str)
+    pattern = r'{\s*("\w+")\s*}'
+    json_str = re.sub(pattern, r'\1', json_str)
 
     """
     Fix malformed entries like:
@@ -67,12 +67,12 @@ def fix_malformed_json(json_str: str) -> str:
     to:
       "actin_rule": { "RULE_NAME": [1] }
     """
-    pattern = r'"(\w+)"\s*:\s*"(\w+)"\s*:\s*(\[[^\]]*\])'
-    replacement = r'"\1": { "\2": \3 }'
+    pattern = r'("\w+")\s*:\s*("\w+")\s*:\s*(\[[^\]]*\])'
+    replacement = r'\1: { \2: \3 }'
     json_str = re.sub(pattern, replacement, json_str)
 
     # fix up anything that has uncompleted numerical calculations
-    json_str = evaluate_and_fix_json_lists(json_str)
+    # json_str = evaluate_and_fix_json_lists(json_str)
 
     return json_str
 
