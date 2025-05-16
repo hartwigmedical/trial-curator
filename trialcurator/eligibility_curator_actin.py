@@ -227,7 +227,7 @@ then you must wrap the corrected rule in a NOT(...) block — even if the rule n
 - Only update the "actin_rule" field
 - Do not invent new rules
 - Do not modify `"description"` or `"new_rule"` fields.
-- Return the same JSON format with no extra text
+- Return the corrected list of mappings as a JSON array in a ```json code block.
 """
     user_prompt = f"""
 Below are the initial ACTIN mappings. 

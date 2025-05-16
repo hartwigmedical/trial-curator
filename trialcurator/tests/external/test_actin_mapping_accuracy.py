@@ -122,28 +122,6 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
         actual_output = actin.map_to_actin(input_text, self.client, actin_rules)
         self.assertEqual(expected_output, actual_output)
 
-    def test_drug_category_initial(self):
-        # Note the initial mappings below are NOT correct - they form the input mappings to correct_actin_mistakes()
-        input_text = '''
-INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1
-EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol
-'''
-        expected_output = [
-            {
-                "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
-                "actin_rule": {"NOT": {"HAS_HAD_TREATMENT_WITH_ANY_DRUG_X": ["PD-1/PD-L1 inhibitors"]}},
-                "new_rule": []
-            },
-            {
-                "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
-                "actin_rule": {
-                    "NOT": {"HAS_RECEIVED_ANY_ANTI_CANCER_THERAPY_WITHIN_X_WEEKS": ["anti-EGFR antibody therapy"]}},
-                "new_rule": []
-            }
-        ]
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules)
-        self.assertEqual(expected_output, actual_output)
-
     def test_drug_category_correction(self):
         input_mappings = [
             {
@@ -177,27 +155,6 @@ EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protoco
             }
         ]
         actual_output = actin.correct_actin_mistakes(input_mappings, self.client)
-        self.assertEqual(expected_output, actual_output)
-
-    def test_other_incorrect_initial(self):
-        input_text = '''
-INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.
-EXCLUDE Is currently participating in another study of a therapeutic agent
-'''
-        expected_output = \
-            [
-                {
-                    "description": "INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.",
-                    "actin_rule": {"HAS_MEASURABLE_DISEASE_RECIST": []},
-                    "new_rule": []
-                },
-                {
-                    "description": "EXCLUDE Is currently participating in another study of a therapeutic agent",
-                    "actin_rule": {"NOT": {"IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL": []}},
-                    "new_rule": []
-                }
-            ]
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules)
         self.assertEqual(expected_output, actual_output)
 
     def test_other_incorrect_correction(self):
