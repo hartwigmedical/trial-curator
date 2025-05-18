@@ -1,6 +1,6 @@
 import unittest
 
-from trialcurator.actin_curator_utils import fix_malformed_json, fix_rule_format, fix_json_math_expressions
+from trialcurator.actin_curator_utils import fix_malformed_json, find_and_fix_actin_rule, fix_json_math_expressions
 
 
 class TestActinCuratorUtils(unittest.TestCase):
@@ -26,7 +26,7 @@ class TestActinCuratorUtils(unittest.TestCase):
                         {"HAS_ASAT_AND_ALAT_ULN_OF_AT_MOST_X_OR_AT_MOST_Y_WHEN_LIVER_METASTASES_PRESENT": [2.5, 5.0]},
                         {"AND": [
                             {"HAS_EGFR_MDRD_OF_AT_LEAST_X": [60]},
-                            {"HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X": [60]}
+                            {"HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X": 60}
                         ]}
                     ]
                 },
@@ -60,7 +60,7 @@ class TestActinCuratorUtils(unittest.TestCase):
             }
         ]
 
-        fixed_obj = fix_rule_format(broken)
+        fixed_obj = find_and_fix_actin_rule(broken)
         self.assertEqual(expected, fixed_obj)
 
     def test_fix_malformed_json(self):

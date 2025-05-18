@@ -6,13 +6,14 @@ from .utils import extract_code_blocks
 
 logger = logging.getLogger(__name__)
 
+
 def llm_output_to_rule_obj(llm_output: str):
     json_code_block = extract_code_blocks(llm_output, "json")
     json_code_block = fix_malformed_json(json_code_block)
 
     try:
         rule_object = json.loads(json_code_block)
-        fix_rule_format(rule_object)
+        find_and_fix_actin_rule(rule_object)
         logger.info(f"Loaded into actin rule object: {rule_object}")
         return rule_object
     except json.JSONDecodeError as e:
@@ -20,7 +21,9 @@ def llm_output_to_rule_obj(llm_output: str):
         logger.warning(json_code_block)
         raise e
 
-def fix_rule_format(data):
+
+def fix_actin_rule(rule: str | dict | bool) -> dict:
+
     """
     Recursively fixes
 
@@ -28,28 +31,49 @@ def fix_rule_format(data):
     are dictionaries of the form { rule_name: [] } instead of plain strings.
     2. NOT such that the item is a dictionary of the form { rule_name: [] }
 
+    :param rule: an actin rule in python object form
+    :return:     fixed actin rule in python object form
     """
-    if isinstance(data, dict):
+    if isinstance(rule, str | bool):
+        # a rule must look like { "rule" : [...] }
+        return {rule: []}
+    if isinstance(rule, dict):
         new_data = {}
-        for key, value in data.items():
+        for key, value in rule.items():
             if key in {"AND", "OR"} and isinstance(value, list):
-                fixed_list = []
-                for item in value:
-                    if isinstance(item, str):
-                        fixed_list.append({item: []})
-                    else:
-                        fixed_list.append(fix_rule_format(item))
-                new_data[key] = fixed_list
-            elif key in {"NOT", "actin_rule"} and isinstance(value, str):
+                new_data[key] = [fix_actin_rule(v) for v in value]
+            elif key in {"NOT"} and isinstance(value, str):
                 new_data[key] = {value: []}
+            # after this we are sure they are not composite critierion, therefore
+            # must have the format { "rule" : [...] }
+            elif isinstance(value, list):
+                new_data[key] = value
             else:
-                new_data[key] = fix_rule_format(value)
+                new_data[key] = [value]
         return new_data
 
+    return rule
+
+def find_and_fix_actin_rule(data):
+
+    """
+    recursively search for all occurrences of the key 'actin_rule' and fix the value
+    :param data: 
+    :return: fixed data
+    """
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key == "actin_rule":
+                data[key] = fix_actin_rule(value)
+            else:
+                find_and_fix_actin_rule(value)
     elif isinstance(data, list):
-        return [fix_rule_format(item) for item in data]
+        for item in data:
+            find_and_fix_actin_rule(item)
 
     return data
+
 
 def fix_malformed_json(json_str: str) -> str:
     """
@@ -75,6 +99,7 @@ def fix_malformed_json(json_str: str) -> str:
     json_str = fix_json_math_expressions(json_str)
 
     return json_str
+
 
 def fix_json_math_expressions(raw_json: str) -> str:
     """
@@ -110,7 +135,7 @@ def fix_json_math_expressions(raw_json: str) -> str:
         r'([:\[,]\s*)'    # matches the prefix
         r'([\d.\s+\-*/()%]+\d)'  # matches the math expression
         r'(\s*)'                 # spaces after the expression
-        r'(?=[,\]}])',           # lookahead: Ensures that what follows the expression is ,] or }
+        r'(?=[,\]}])',           # lookahead: ensures that what follows the expression is ,] or }
         re.MULTILINE
     )
     fixed = pattern.sub(replacer, raw_json)
