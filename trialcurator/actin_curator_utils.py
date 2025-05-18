@@ -72,66 +72,47 @@ def fix_malformed_json(json_str: str) -> str:
     json_str = re.sub(pattern, replacement, json_str)
 
     # fix up anything that has uncompleted numerical calculations
-    # json_str = evaluate_and_fix_json_lists(json_str)
+    json_str = fix_json_math_expressions(json_str)
 
     return json_str
 
-
-def evaluate_and_fix_json_lists(json_str: str) -> str:
+def fix_json_math_expressions(raw_json: str) -> str:
     """
-    Fix and evaluate simple arithmetic expressions inside JSON list values,
-    e.g. [2*7, 1/2] -> [15, 0.5]
-    but only for lists that do not contain {} or [].
+    Fixes math expressions in JSON values, including inside lists.
+    Only evaluates unquoted expressions.
     """
-    math_ops = ('+', '-', '*', '/', '%')
 
-    def eval_list_expr(match):
-        list_content = match.group(1)
+    def is_math_expression(s: str) -> bool:
+        return bool(re.fullmatch(r'[\d.\s+\-*/()%]+\d', s.strip()))
 
-        # Skip lists with { or [ in the content
-        if any(c in list_content for c in '{}[]'):
-            return f"[{list_content}]"
+    def safe_eval(expr: str):
+        try:
+            return eval(expr, {"__builtins__": None}, {})
+        except Exception:
+            return expr
 
-        items = tokenize_list_items(list_content)
-        evaluated_items = []
-        for item in items:
-            if (not item.startswith('"')) and (any(op in item for op in math_ops)):
-                # evaluating numeric expressions
-                val = eval(item, {"__builtins__": None}, {})
-                evaluated_items.append(str(val))
-            else:
-                evaluated_items.append(item)
+    def replacer(match):
+        prefix = match.group(1)
+        expr = match.group(2)
+        suffix = match.group(3)
 
-        return '[' + ', '.join(evaluated_items) + ']'
+        if is_math_expression(expr):
+            result = safe_eval(expr)
+            if isinstance(result, (int, float)):
+                return f"{prefix}{result}{suffix}"
 
-    # Regex: match [...] blocks with at least one item but exclude ones containing {} or []
-    pattern = r'\[\s*([^{}\[\]]+?)\s*\]'
-    fixed_json_str = re.sub(pattern, eval_list_expr, json_str)
-    return fixed_json_str
+        return match.group(0)
 
+    # Pattern to match unquoted values in dicts or lists
+    # Match values after :, [ or , that are math expressions,
+    # but NOT quoted (no ")
+    pattern = re.compile(
+        r'([:\[,]\s*)'    # matches the prefix
+        r'([\d.\s+\-*/()%]+\d)'  # matches the math expression
+        r'(\s*)'                 # spaces after the expression
+        r'(?=[,\]}])',           # lookahead: Ensures that what follows the expression is ,] or }
+        re.MULTILINE
+    )
+    fixed = pattern.sub(replacer, raw_json)
 
-def tokenize_list_items(list_content) -> list[str]:
-    """Tokenize list items safely, preserving quoted strings."""
-    items = []
-    current = ""
-    in_string = False
-    quote_char = None
-
-    for char in list_content:
-        if in_string:
-            current += char
-            if char == quote_char:
-                in_string = False
-        else:
-            if char in ('"', "'"):
-                in_string = True
-                quote_char = char
-                current += char
-            elif char == ',':
-                items.append(current.strip())
-                current = ""
-            else:
-                current += char
-    if current:
-        items.append(current.strip())
-    return items
+    return fixed

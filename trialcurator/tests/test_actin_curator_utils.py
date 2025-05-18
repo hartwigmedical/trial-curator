@@ -1,6 +1,6 @@
 import unittest
 
-from trialcurator.actin_curator_utils import fix_malformed_json, fix_rule_format, evaluate_and_fix_json_lists
+from trialcurator.actin_curator_utils import fix_malformed_json, fix_rule_format, fix_json_math_expressions
 
 
 class TestActinCuratorUtils(unittest.TestCase):
@@ -68,7 +68,7 @@ class TestActinCuratorUtils(unittest.TestCase):
     {
         "actin_rule": { "IS_MALE" },
         "actin_rule": "IS_MALE": [],
-        "actin_rule": "POCKET_TWO": [2, "two"],
+        "actin_rule": "POCKET_TWO": [1+1, "two"],
     }
     {
         "description": "EXCLUDE Prior gastrointestinal disease",
@@ -93,36 +93,52 @@ class TestActinCuratorUtils(unittest.TestCase):
         fixed_json = fix_malformed_json(broken)
         self.assertEqual(expected, fixed_json)
 
-    def test_eval_json_list(self):
+    def test_fix_json_math_expressions(self):
         broken = '''[
-    {
-        "formula": { "NOT": { "OR": [
-                { "FIVE_PLUS_FIVE_EQUALS": [ 5+5, "=", 20 // 2] },
-                { "ONE_PLUS_ONE": [ 1+1 ] },
-            ] },
-    },
-    {
-        "calculate": { "CALCULATE": [ 2*7, "TWO"] },
-        "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 2*7, "TWO", {}] } },
-        "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 2*7, "TWO", []] } },
-        ", in strings": { "CALCULATE": [ 2*7, "comma, here", []] },
-    },
-]'''
+            {
+                "formula": { "NOT": { "OR": [
+                        { "FIVE_PLUS_FIVE_EQUALS": [ 5+5, "=", 20 // 2] },
+                        { "ONE_PLUS_ONE": [ 1+1 ] },
+                    ] },
+            },
+            {
+                "calculate": { "CALCULATE": [ 2*7, "1+1"] },
+                "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 2*7, " 3/5 ", {}] } },
+                "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 2*7, "6 + 7", []] } },
+                ", in strings": { "CALCULATE": [ 2*7, "comma, here", []] },
+            },
+            {
+                "calculate": { "CALCULATE": [
+                        2*7,
+                        5+5
+                    ]
+                },
+                "calculate": 100 * 5
+            }
+        ]'''
 
         expected = '''[
-    {
-        "formula": { "NOT": { "OR": [
-                { "FIVE_PLUS_FIVE_EQUALS": [10, "=", 10] },
-                { "ONE_PLUS_ONE": [2] },
-            ] },
-    },
-    {
-        "calculate": { "CALCULATE": [14, "TWO"] },
-        "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 2*7, "TWO", {}] } },
-        "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 2*7, "TWO", []] } },
-        ", in strings": { "CALCULATE": [ 2*7, "comma, here", []] },
-    },
-]'''
+            {
+                "formula": { "NOT": { "OR": [
+                        { "FIVE_PLUS_FIVE_EQUALS": [ 10, "=", 10] },
+                        { "ONE_PLUS_ONE": [ 2 ] },
+                    ] },
+            },
+            {
+                "calculate": { "CALCULATE": [ 14, "1+1"] },
+                "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 14, " 3/5 ", {}] } },
+                "DO_NOT_CALC": { "NOT": { "CALCULATE": [ 14, "6 + 7", []] } },
+                ", in strings": { "CALCULATE": [ 14, "comma, here", []] },
+            },
+            {
+                "calculate": { "CALCULATE": [
+                        14,
+                        10
+                    ]
+                },
+                "calculate": 500
+            }
+        ]'''
 
-        fixed_json = evaluate_and_fix_json_lists(broken)
+        fixed_json = fix_json_math_expressions(broken)
         self.assertEqual(expected, fixed_json)
