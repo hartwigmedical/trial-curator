@@ -27,43 +27,35 @@ EXCLUDE Has second malignancy that is progressing or requires active treatment a
         expected_output = [
             {
                 "description": "INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.",
-                "actin_rule": {"HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_MONTHS": [3]},
-                "new_rule": []
+                "actin_rule": {"HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_MONTHS": [3]}
             },
             {
                 "description": "EXCLUDE Participants who have any untreated symptomatic CNS metastases.",
-                "actin_rule": {"NOT": {"HAS_KNOWN_ACTIVE_CNS_METASTASES": []}},
-                "new_rule": []
+                "actin_rule": {"NOT": {"HAS_KNOWN_ACTIVE_CNS_METASTASES": []}}
             },
             {
                 "description": "INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site",
-                "actin_rule": {"CAN_PROVIDE_FRESH_TISSUE_SAMPLE_FOR_FURTHER_ANALYSIS": []},
-                "new_rule": []
+                "actin_rule": {"CAN_PROVIDE_FRESH_TISSUE_SAMPLE_FOR_FURTHER_ANALYSIS": []}
             },
             {
                 "description": "EXCLUDE Are pregnant.",
-                "actin_rule": {"NOT": {"IS_PREGNANT": []}},
-                "new_rule": []
+                "actin_rule": {"NOT": {"IS_PREGNANT": []}}
             },
             {
                 "description": "INCLUDE Are at least 18 years old.",
-                "actin_rule": {"IS_AT_LEAST_X_YEARS_OLD": [18]},
-                "new_rule": []
+                "actin_rule": {"IS_AT_LEAST_X_YEARS_OLD": [18]}
             },
             {
                 "description": "INCLUDE Has an ECOG performance status of 0 or 1",
-                "actin_rule": {"HAS_WHO_STATUS_OF_AT_MOST_X": [1]},
-                "new_rule": []
+                "actin_rule": {"HAS_WHO_STATUS_OF_AT_MOST_X": [1]}
             },
             {
                 "description": "INCLUDE Has adequate organ and bone marrow function as defined in the protocol",
-                "actin_rule": {"HAS_ADEQUATE_ORGAN_FUNCTION": []},
-                "new_rule": []
+                "actin_rule": {"HAS_ADEQUATE_ORGAN_FUNCTION": []}
             },
             {
                 "description": "EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol",
-                "actin_rule": {"NOT": {"HAS_ACTIVE_SECOND_MALIGNANCY": []}},
-                "new_rule": []
+                "actin_rule": {"NOT": {"HAS_ACTIVE_SECOND_MALIGNANCY": []}}
             }
         ]
         actual_output = actin.map_to_actin(input_text, self.client, actin_rules)
@@ -99,8 +91,7 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                             {"HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X": [60]}
                         ]}
                     ]
-                },
-                "new_rule": []
+                }
             },
             {
                 "description": "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.",
@@ -115,8 +106,7 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                             {"HAS_KNOWN_HEPATITIS_C_INFECTION": []}
                         ]
                     }
-                },
-                "new_rule": []
+                }
             }
         ]
         actual_output = actin.map_to_actin(input_text, self.client, actin_rules)

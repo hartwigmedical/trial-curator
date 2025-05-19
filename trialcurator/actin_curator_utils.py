@@ -39,17 +39,20 @@ def fix_actin_rule(rule: str | dict | bool) -> dict:
         return {rule: []}
     if isinstance(rule, dict):
         new_data = {}
-        for key, value in rule.items():
-            if key in {"AND", "OR"} and isinstance(value, list):
-                new_data[key] = [fix_actin_rule(v) for v in value]
-            elif key in {"NOT"} and isinstance(value, str):
-                new_data[key] = {value: []}
-            # after this we are sure they are not composite critierion, therefore
-            # must have the format { "rule" : [...] }
-            elif isinstance(value, list):
-                new_data[key] = value
+        for rule_name, params in rule.items():
+            if (rule_name == "AND" or rule_name == "OR") and isinstance(params, list):
+                new_data[rule_name] = [fix_actin_rule(p) for p in params]
+            elif rule_name == "NOT":
+                new_data[rule_name] = fix_actin_rule(params)
+            # after this we are sure they are not composite critierion,
+            # therefore it must have the format { "rule" : [...] }
+            elif isinstance(params, list):
+                new_data[rule_name] = params
+            elif isinstance(params, bool):
+                # ACTIN does not have bool param, LLM often do this: `HAS_X: true`, remove it
+                new_data[rule_name] = []
             else:
-                new_data[key] = [value]
+                new_data[rule_name] = [params]
         return new_data
 
     return rule
@@ -141,3 +144,23 @@ def fix_json_math_expressions(raw_json: str) -> str:
     fixed = pattern.sub(replacer, raw_json)
 
     return fixed
+
+
+def find_new_actin_rules(rule: dict, defined_rules: set[str]) -> list[str]:
+
+    """
+    Find rules that are not already defined in the defined_rules list
+    """
+
+    new_rules: set[str] = set()
+
+    for rule_name, params in rule.items():
+        if rule_name == "AND" or rule_name == "OR":
+            [new_rules.update(find_new_actin_rules(v, defined_rules)) for v in params]
+        elif rule_name == "NOT":
+            new_rules.update(find_new_actin_rules(params, defined_rules))
+        elif rule_name not in defined_rules:
+            new_rules.add(rule_name)
+
+    return sorted(list(new_rules))
+

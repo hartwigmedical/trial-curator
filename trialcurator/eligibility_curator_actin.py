@@ -4,10 +4,10 @@ from json import JSONDecodeError
 import pandas as pd
 import logging
 import argparse
-from typing import TypedDict
+from typing import TypedDict, cast
 from itertools import chain
 
-from trialcurator.actin_curator_utils import llm_output_to_rule_obj
+from trialcurator.actin_curator_utils import llm_output_to_rule_obj, find_new_actin_rules
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.gemini_client import GeminiClient
@@ -33,7 +33,7 @@ class ActinMapping(TypedDict):
 
 # NOTE: we consider making it simpler by allowing rules with no parameter be a non dict
 # However, this lets LLM to omit parameter even if they are needed and overall made it worse
-def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[ActinMapping]:
+def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[dict]:
 
     actin_rules = "\n".join(actin_rules)
 
@@ -70,10 +70,6 @@ INCLUDE Adequate bone marrow function:
 - Accept biologically equivalent terms (e.g. “fusion” = “rearrangement”).
 - Prefer general rules unless specificity is required.
 - Only create a new rule if there is truly no match
-    - If the rule name doesn’t exist in the ACTIN rule list:
-        "new_rule": ["NEW_RULE_NAME"]
-    - Otherwise: 
-        "new_rule": []
 
 ## Fallback rules
 
@@ -115,17 +111,14 @@ Output an JSON array of objects representing the criteria. Example:
     {
         "description": "EXCLUDE Body weight over 150 kg",
         "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] } },
-        "new_rule": []
     },
     {
         "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
         "actin_rule": { "IS_ELIGIBLE_FOR_TREATMENT_LINE_X": ["capecitabine", "anti-VEGF antibody"] },
-        "new_rule": ["IS_ELIGIBLE_FOR_TREATMENT_LINE_X"]
     }
     {
         "description": "INCLUDE Is female",
         "actin_rule": { "IS_FEMALE": [] },
-        "new_rule": []
     }
 ]
 ```
@@ -164,7 +157,7 @@ Return answer in a ```json code block```.
     return rule_obj
 
 
-def correct_actin_mistakes(initial_actin_mapping: list[ActinMapping], client: LlmClient) -> list[ActinMapping]:
+def correct_actin_mistakes(initial_actin_mapping: list[dict], client: LlmClient) -> list[dict]:
     system_prompt = """
 You are a post-processing assistant for ACTIN rule mapping. 
 Your job is to identify and then correct mistakes in mapped ACTIN rules.
@@ -227,7 +220,7 @@ then you must wrap the corrected rule in a NOT(...) block — even if the rule n
 
 - Only update the "actin_rule" field
 - Do not invent new rules
-- Do not modify `"description"` or `"new_rule"` fields.
+- Do not modify `"description"` field.
 - Return the corrected list of mappings as a JSON array in a ```json code block.
 """
     user_prompt = f"""
@@ -244,10 +237,17 @@ Review each mapping and make corrections to "actin_rule" fields as instructed:
     return llm_output_to_rule_obj(output_eligibility_criteria)
 
 
+def actin_mark_new_rules(actin_mappings: list[dict], actin_rules: list[str]) -> list[ActinMapping]:
+    actin_rules = set(actin_rules)
+    for actin_mapping in actin_mappings:
+        actin_mapping['new_rule'] = find_new_actin_rules(actin_mapping['actin_rule'], actin_rules)
+    return cast(list[ActinMapping], actin_mappings)
+
+
 def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[ActinMapping]:
     initial_mapping = map_to_actin(eligibility_criteria, client, actin_rules)
     corrected_mapping = correct_actin_mistakes(initial_mapping, client)
-    return corrected_mapping
+    return actin_mark_new_rules(corrected_mapping, actin_rules)
 
 
 def actin_map_by_batch(eligibility_criteria: str, client: LlmClient, actin_rules, batch_size: int) -> \
