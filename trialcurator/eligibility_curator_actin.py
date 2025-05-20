@@ -32,7 +32,7 @@ class ActinMapping(TypedDict):
     new_rule: list[str]
 
 # NOTE: we consider making it simpler by allowing rules with no parameter be a non dict
-# However, this lets LLM to omit parameter even if they are needed and overall made it worse
+# However, this lets LLM omit parameter even if they are needed and overall made it worse
 def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[dict]:
 
     actin_rules = "\n".join(actin_rules)
@@ -142,7 +142,6 @@ Map the following eligibility criteria:
 """
 
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
-    # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
     try:
         rule_obj = llm_output_to_rule_obj(output_eligibility_criteria)
@@ -232,7 +231,6 @@ Review each mapping and make corrections to "actin_rule" fields as instructed:
 """
 
     output_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
-    # print(f"RAW OUTPUT:\n{output_eligibility_criteria}")
 
     return llm_output_to_rule_obj(output_eligibility_criteria)
 
