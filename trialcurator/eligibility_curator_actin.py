@@ -35,7 +35,7 @@ class ActinMapping(TypedDict):
 # However, this lets LLM omit parameter even if they are needed and overall made it worse
 def map_to_actin(input_eligibility_criteria: str, client: LlmClient, actin_rules: list[str]) -> list[dict]:
 
-    actin_rules = "\n".join(actin_rules)
+    actin_rules = "\n".join(actin_rules + ["CANCER_TYPE_X"])
 
     system_prompt = """
 You are a clinical trial curation assistant for a system called ACTIN.
@@ -48,11 +48,9 @@ Your task is to convert each free-text eligibility criterion into structured ACT
 - Treat the **entire block (header + sub-points)** as a **single criterion**.
 
 ### Example:
-```text
 INCLUDE Adequate bone marrow function:
   - ANC ≥ 1.5 x 10^9/L
   - Platelet count ≥ 100 x 10^9/L
-```
 
 ## ACTIN rule structure
 
@@ -81,15 +79,14 @@ Use if no exact rule match applies:
 | Gene rearrangement    | `FUSION_IN_GENE_X[...]`                  |
 | Comorbidity           | `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`  |
 | Disease history       | `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`  |
-| Unspecified cancer    | `HAS_CANCER_TYPE[X]`                     |
 
 ## Logical operators
 
-| Operator | Format                         | Meaning                   |
-|----------|--------------------------------|---------------------------|
-| `AND`    | `{ "AND": [rule1, rule2] }`    | All conditions required   |
-| `OR`     | `{ "OR": [rule1, rule2] }`     | At least one condition    |
-| `NOT`    | `{ "NOT": rule }`              | Negate a single rule      |
+| Operator | Format                         | Meaning                                                   |
+|----------|--------------------------------|-----------------------------------------------------------|
+| `AND`    | `{ "AND": [rule1, rule2] }`    | All conditions required                                   |
+| `OR`     | `{ "OR": [rule1, rule2] }`     | When the text offers **alternative acceptable options**   |
+| `NOT`    | `{ "NOT": rule }`              | Negate a single rule                                      |
 
 ## Numerical comparison logic
 

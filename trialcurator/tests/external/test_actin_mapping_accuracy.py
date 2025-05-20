@@ -176,7 +176,6 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
         self.assertEqual(expected_output, actual_output)
 
     # The tests below compares the accuracy between feeding the entire ACTIN list to the LLM versus providing a subset of rules
-
     def test_labvalue_complete_list(self):
         input_text = '''
 INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration
@@ -330,7 +329,7 @@ INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
                         {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
                     },
                     {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE': ['CRPC']}]
+                    {'HAS_CANCER_TYPE_X': ['CRPC']}]
                 }
             },
             {
@@ -344,14 +343,14 @@ INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
                         },
                         {'HAS_METASTATIC_CANCER': []}]
                     },
-                    {'HAS_CANCER_TYPE': ['cholangiocarcinoma']}]}
+                    {'HAS_CANCER_TYPE_X': ['cholangiocarcinoma']}]}
             },
             {
                 'description': 'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer',
                 'actin_rule': {'AND': [
                     {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
                     {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE': ['prostate cancer']}]
+                    {'HAS_CANCER_TYPE_X': ['prostate cancer']}]
                 }
             },
             {
@@ -362,7 +361,7 @@ INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
                         {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
                     },
                     {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE': ['uveal melanoma']}]}
+                    {'HAS_CANCER_TYPE_X': ['uveal melanoma']}]}
             }
         ]
 
