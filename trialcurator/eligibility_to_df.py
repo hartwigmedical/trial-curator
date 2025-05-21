@@ -6,6 +6,7 @@ from typing import NamedTuple
 import pandas as pd
 from sentence_transformers import SentenceTransformer, SimilarityFunction
 
+from trialcurator.actin_formatter import format_actin_rule
 from trialcurator.criterion_compare import criterion_diff
 from trialcurator.criterion_schema import *
 from trialcurator.criterion_serializer import CriterionSerializer
@@ -123,8 +124,8 @@ def criteria_to_rule_count_df(trial_id, criteria: list[BaseCriterion]) -> pd.Dat
 def merge_py_actin_criteria(py_criteria: list[BaseCriterion], actin_mappings, fuzzymatch_model) -> pd.DataFrame:
     py_criteria_desc = [c.description for c in py_criteria]
     actin_rule_dict = {}
-    for r in actin_mappings['mappings']:
-        actin_rule_dict[f"{r['tag']} {r['input_text']}"] = r["ACTIN_rules"]
+    for r in actin_mappings:
+        actin_rule_dict[r['description']] = format_actin_rule(r['actin_rule'])
 
     # write the diffs into a dataframe
     diffs = criterion_diff(py_criteria_desc, list(actin_rule_dict.keys()), fuzzymatch_model)
@@ -155,6 +156,9 @@ def main():
     dfs = []
 
     for trial_id in trial_list:
+
+        logger.info(f"processing trial: {trial_id}")
+
         py_file = f"{args.trial_py_dir}/{trial_id}.py"
         df = None
 
@@ -173,13 +177,15 @@ def main():
             # load the curated actin rules as well
             with open(f"{args.trial_actin_dir}/{trial_id}.actin.json", 'r') as f:
                 # only first cohort for now
-                actin_mappings = json.load(f)[0]
+                actin_mappings = json.load(f)[list(cohort_criteria.keys())[0]]
 
             # match the cohort rules up
             # TODO: work out how to deal with empty description
             df = df.merge(merge_py_actin_criteria(criteria, actin_mappings, fuzzymatch_model),
                           on='Description', how='right', sort=False)
 
+        # make sure the trial id field is always set
+        df["TrialId"] = trial_id
         dfs.append(df)
 
     df = pd.concat(dfs)

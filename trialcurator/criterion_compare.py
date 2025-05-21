@@ -78,6 +78,7 @@ def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_
     criteria1_ids = [id(c) for c in old_criteria]
     matches.sort(key=lambda x: criteria1_ids.index(id(x.old_criterion)))
 
+    # create the initial matches
     diffs: list[CriteriaDiff] = [CriteriaDiff(m.old_criterion, m.new_criterion, m.similarity,
                                               list(unified_diff(m.old_criterion, m.new_criterion))) for m in matches]
 
@@ -87,13 +88,15 @@ def criterion_diff(old_criteria: list[str], new_criteria: list[str], fuzzymatch_
     new_i = 0
     i = 0
     while i < len(diffs):
-        # find any unmatched old criteria before this match
-        while old_i < len(old_criteria) and (old_criteria[old_i] is not diffs[i].old_criterion):
+        # find any unmatched old criteria before this match, since the diff is sorted by
+        # the old criteria ordering, we can just insert them in the right place
+        while old_i < len(old_criteria) and (old_criteria[old_i] != diffs[i].old_criterion):
             diffs.insert(i, CriteriaDiff(old_criteria[old_i], None, 0.0, []))
             i += 1
             old_i += 1
-        # find any unmatched new criteria before this match  
-        while new_i < len(new_criteria) and (new_criteria[new_i] is not diffs[i].new_criterion):
+        # find any unmatched new criteria before this match
+        while (new_i < len(new_criteria) and (new_criteria[new_i] != diffs[i].new_criterion)
+               and id(new_criteria[new_i]) in unmatched_c2_ids):
             diffs.insert(i, CriteriaDiff(None, new_criteria[new_i], 0.0, []))
             i += 1
             new_i += 1

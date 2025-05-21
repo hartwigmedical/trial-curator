@@ -1,7 +1,7 @@
 
 def actin_json_to_text_format(criterion: dict) -> str:
     description = criterion.get("description", "").strip()
-    rule_expr = render_rule(criterion["actin_rule"])
+    rule_expr = format_actin_rule(criterion["actin_rule"])
     new_rules = criterion.get("new_rule")
 
     output = (
@@ -11,7 +11,7 @@ def actin_json_to_text_format(criterion: dict) -> str:
     )
     return output
 
-def render_rule(rule_obj, indent=4):
+def format_actin_rule(rule_obj, indent=4):
     indent_str = " " * indent
     inner_indent_str = " " * (indent + 2)
 
@@ -19,17 +19,17 @@ def render_rule(rule_obj, indent=4):
         for key, value in rule_obj.items():
             if key in ("AND", "OR"):
                 rendered = "\n".join(
-                    f"{inner_indent_str}{render_rule(r, indent + 2).lstrip()}" for r in value
+                    f"{inner_indent_str}{format_actin_rule(r, indent + 2).lstrip()}" for r in value
                 )
-                return f"{key}: [\n{rendered}\n{indent_str}]"
+                return f"{key} (\n{rendered}\n{indent_str})"
             elif key == "NOT":
-                return f"NOT({render_rule(value, indent)})"
+                return f"NOT ({format_actin_rule(value, indent)})"
             elif key == "IF":
-                condition = render_rule(rule_obj[key]["condition"], indent + 2).lstrip()
-                then = render_rule(rule_obj[key]["then"], indent + 2).lstrip()
+                condition = format_actin_rule(rule_obj[key]["condition"], indent + 2).lstrip()
+                then = format_actin_rule(rule_obj[key]["then"], indent + 2).lstrip()
                 else_clause = rule_obj[key].get("else")
                 if else_clause:
-                    else_rendered = render_rule(else_clause, indent + 2).lstrip()
+                    else_rendered = format_actin_rule(else_clause, indent + 2).lstrip()
                     return f"IF {condition} THEN {then} ELSE {else_rendered}"
                 return f"IF {condition} THEN {then}"
             else:

@@ -99,6 +99,7 @@ class TestActinCuratorUtils(unittest.TestCase):
         "actin_rule": { "IS_MALE" },
         "actin_rule": "IS_MALE": [],
         "actin_rule": "POCKET_TWO": [1+1, "two"],
+        "actin_rule": "NOT": "IS_MALE"
     }
     {
         "description": "EXCLUDE Prior gastrointestinal disease",
@@ -112,6 +113,7 @@ class TestActinCuratorUtils(unittest.TestCase):
         "actin_rule": "IS_MALE",
         "actin_rule": { "IS_MALE": [] },
         "actin_rule": { "POCKET_TWO": [2, "two"] },
+        "actin_rule": { "NOT": "IS_MALE" }
     }
     {
         "description": "EXCLUDE Prior gastrointestinal disease",

@@ -98,6 +98,16 @@ def fix_malformed_json(json_str: str) -> str:
     replacement = r'\1: { \2: \3 }'
     json_str = re.sub(pattern, replacement, json_str)
 
+    """
+    Fix malformed entries like:
+      "actin_rule": "NOT": "RULE_NAME"
+    to:
+      "actin_rule": { "NOT": "RULE_NAME" }
+    """
+    pattern = r'("\w+")\s*:\s*("\w+")\s*:\s*("\w+")'
+    replacement = r'\1: { \2: \3 }'
+    json_str = re.sub(pattern, replacement, json_str)
+
     # fix up anything that has uncompleted numerical calculations
     json_str = fix_json_math_expressions(json_str)
 
@@ -163,4 +173,3 @@ def find_new_actin_rules(rule: dict, defined_rules: set[str]) -> list[str]:
             new_rules.add(rule_name)
 
     return sorted(list(new_rules))
-
