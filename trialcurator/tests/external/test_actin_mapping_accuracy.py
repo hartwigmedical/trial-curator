@@ -335,7 +335,7 @@ INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
             {
                 'description': 'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
                 'actin_rule': {'AND': [
-                    {'HAS_PATHOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
+                    {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
                     {'OR': [
                         {'AND': [
                             {'HAS_LOCALLY_ADVANCED_CANCER': []},
@@ -405,7 +405,7 @@ INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
             {
                 'description': 'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
                 'actin_rule': {'AND': [
-                    {'HAS_PATHOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
+                    {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
                     {'OR': [
                         {'AND': [
                             {'HAS_LOCALLY_ADVANCED_CANCER': []},
