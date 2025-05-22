@@ -20,13 +20,21 @@ def unescape_json_str(json_str: str) -> str:
             .replace("\\]", "]"))
 
 
-def extract_code_blocks(text: str, lang: str) -> str:
+# def extract_code_blocks(text: str, lang: str) -> str:
+#     """
+#     Extracts and returns a list of <lang> code snippets found within
+#     i.e. triple backtick Python code blocks (```python ... ```).
+#     """
+#     pattern = re.compile(r"```" + lang + "(.*?)```", re.DOTALL)
+#     return "".join(pattern.findall(text))
+
+def extract_code_blocks(text: str, lang: str = "json") -> str:
     """
-    Extracts and returns a list of <lang> code snippets found within
-    i.e. triple backtick Python code blocks (```python ... ```).
+    Extracts <lang> code block from triple backticks. If not found, return full text.
     """
-    pattern = re.compile(r"```" + lang + "(.*?)```", re.DOTALL)
-    return "".join(pattern.findall(text))
+    pattern = re.compile(rf"```{lang}\s*(.*?)```", re.DOTALL)
+    match = pattern.search(text)
+    return match.group(1).strip() if match else text.strip()
 
 def split_tagged_criteria(text: str) -> list[str]:
     """

@@ -47,7 +47,7 @@ INSTRUCTIONS:
 
 Example:
 {{
-    "INCLUDE Histologically or cytologically confirmed metastatic CRPC": ["cancer_type"],
+    "INCLUDE Histologically or cytologically confirmed metastatic CRPC": ["cancer_type_and_tumor_and_lesion_localization"],
     "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment": ["infections"]
 }}
 """
@@ -59,7 +59,7 @@ Classify the following eligibility criterion:
 \"\"\"
 """
     eligibility_criteria_w_category = client.llm_ask(user_prompt, system_prompt)
-    # print(f"Here are the categories {eligibility_criteria_w_category}")
+    # print(eligibility_criteria_w_category)
 
     try:
         eligibility_criteria_w_category_obj = llm_output_to_rule_obj(eligibility_criteria_w_category)
@@ -230,6 +230,11 @@ def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_file: pd.
     actin_rules = (
         pd.Series(actin_file.to_numpy().flatten()).dropna().str.strip().tolist()
     )
+
+    cancer_rules = [r for r in actin_rules if "CANCER_TYPE_X" in r]
+    print("Cancer rules found:", cancer_rules)
+    print("Number of cancer rules:", len(cancer_rules))
+
     return actin_mark_new_rules(actin_mapping, actin_rules)
 
 
