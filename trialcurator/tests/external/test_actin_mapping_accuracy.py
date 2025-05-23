@@ -1,16 +1,17 @@
 import unittest
 from pathlib import Path
 
+from trialcurator.openai_client import OpenaiClient
 from trialcurator.tests.external import test_actin_inputs as ti
 import trialcurator.eligibility_curator_actin as actin
-from trialcurator.openai_client import OpenaiClient
+
 
 
 class BaseActinClass(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = OpenaiClient()
-        cls.actin_rules = actin.load_actin_file(
+        cls.actin_rules, cls.actin_categories = actin.load_actin_resource(
             str(Path(__file__).resolve().parent / "data/ACTIN_test_cases/ACTIN_list_w_categories_23052025.csv"))
 
 
@@ -31,7 +32,7 @@ class TestActinCategoryAssignment(BaseActinClass):
             "abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.": [
                 'Laboratory_and_Blood_Count_Requirements'],
         }
-        actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_rules)
+        actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_categories)
         self.assertEqual(expected_categories, actual_categories)
 
     def test_category_assignment_2(self):
@@ -52,7 +53,7 @@ class TestActinCategoryAssignment(BaseActinClass):
             'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma': [
                 'Cancer_Type_and_Tumor_Site_Localization']
         }
-        actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_rules)
+        actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_categories)
         self.assertEqual(expected_categories, actual_categories)
 
 

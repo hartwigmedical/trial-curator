@@ -10,6 +10,7 @@ from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria
 from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
+from trialcurator import actin_common_mapping_prompts
 
 logger = logging.getLogger(__name__)
 
@@ -22,61 +23,60 @@ class ActinMapping(TypedDict):
     new_rule: list[str]
 
 
-def load_actin_file(file_path: str) -> pd.DataFrame:
-    df = pd.read_csv(file_path, header=0)
-    df.columns = df.columns.str.strip()
-    return df
+def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
+    actin_df = pd.read_csv(filepath, header=0)
+    actin_categories = actin_df.columns.str.strip().tolist()
+    return actin_df, actin_categories
 
 
-def identify_actin_categories(input_eligibility_criteria: str, client: LlmClient, actin_file: pd.DataFrame) -> dict:
-    categories_list = actin_file.columns.tolist()
+def identify_actin_categories(eligibility_criteria: str, client: LlmClient, actin_categories: list[str]) -> dict:
+    category_str = "\n".join(f"- {cat}" for cat in actin_categories)
+    logger.info(f"Classifying {len(eligibility_criteria.splitlines())} criteria into ACTIN categories.")
 
     system_prompt = f"""
-You are an assistant that classifies eligibility criteria into relevant ACTIN categories.
-Each criterion belongs to one or more categories.
+## ROLE
+You are a clinical trial curation assistant for a system called ACTIN, which determines available 
+treatment options for cancer patients.
 
-ACTIN categories:
-{categories_list}
+## TASK
+Classify each eligibility criterion into one or more ACTIN categories.
 
-INSTRUCTIONS:
-- Return a single JSON object
-- Each eligibility criterion should be a key
-- The value should be a list of matched ACTIN categories
-- Do NOT include any text outside the JSON
+## ACTIN CATEGORIES
+The following categories are available:
+{category_str}
+
+## OUTPUT FORMAT
+Return a valid JSON object. Do not include any extra text.
 
 Example:
 {{
-    "INCLUDE Histologically or cytologically confirmed metastatic CRPC": ["cancer_type_and_tumor_and_lesion_localization"],
-    "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment": ["infections"]
+    "INCLUDE Histologically or cytologically confirmed metastatic CRPC": ["Cancer_Type_and_Tumor_Site_Localization"],
+    "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infectious_Disease_History_and_Status"]
 }}
 """
 
     user_prompt = f"""
-Classify the following eligibility criterion:
-\"\"\"
-{input_eligibility_criteria}
-\"\"\"
+Classify the following eligibility criteria:
+{eligibility_criteria}
 """
-    eligibility_criteria_w_category = client.llm_ask(user_prompt, system_prompt)
+
+    response = client.llm_ask(user_prompt, system_prompt)
 
     try:
-        eligibility_criteria_w_category_obj = llm_output_to_rule_obj(eligibility_criteria_w_category)
+        return llm_output_to_rule_obj(response)
     except JSONDecodeError:
-        user_prompt = f"""Fix up the following JSON:
-{eligibility_criteria_w_category}
-Return answer in a ```json code block```.
+        repair_prompt = f"""Fix the following JSON so it parses correctly. Return only the corrected JSON object:
+{response}
 """
-        eligibility_criteria_w_category = client.llm_ask(user_prompt)
-        eligibility_criteria_w_category_obj = llm_output_to_rule_obj(eligibility_criteria_w_category)
-
-    return eligibility_criteria_w_category_obj
+        repaired_response = client.llm_ask(repair_prompt)
+        return llm_output_to_rule_obj(repaired_response)
 
 
-def sort_criteria_by_category(eligibility_criteria_w_category_obj: dict) -> dict:
+def sort_criteria_by_category(criteria_w_category_obj: dict) -> dict:
     sel_categories_single = {}
     sel_categories_grouped = {}
 
-    for key, val in eligibility_criteria_w_category_obj.items():
+    for key, val in criteria_w_category_obj.items():
         val = tuple(sorted(val))
 
         if len(val) > 1:
@@ -90,106 +90,21 @@ def sort_criteria_by_category(eligibility_criteria_w_category_obj: dict) -> dict
             else:
                 sel_categories_grouped[val].append(key)
 
-    eligibility_criteria_w_category_obj_sorted = sel_categories_grouped.copy()
-    eligibility_criteria_w_category_obj_sorted.update(sel_categories_single)
-    return eligibility_criteria_w_category_obj_sorted
+    criteria_w_category_obj_sorted = sel_categories_grouped.copy()
+    criteria_w_category_obj_sorted.update(sel_categories_single)
+    return criteria_w_category_obj_sorted
 
 
-def map_to_actin_categorised(categorised_eligibility_criteria: dict, client: LlmClient, actin_file: pd.DataFrame) -> list[dict]:
+def map_to_actin_categorised(categorised_eligibility_criteria: dict, client: LlmClient, actin_file: pd.DataFrame) -> \
+        list[dict]:
+
     results = []
 
     for key, val in categorised_eligibility_criteria.items():
         sel_actin_rules = "\n".join(pd.Series(actin_file[list(key)].to_numpy().flatten()).dropna().str.strip().tolist())
         eligibility_criteria = "\n".join(val)
 
-        system_prompt = """
-You are a clinical trial curation assistant for a system called ACTIN.
-Your task is to convert each free-text eligibility criterion into structured ACTIN rules.
-
-## Input format
-
-- Each line starting with `INCLUDE` or `EXCLUDE` begins a new **eligibility block**.
-- All **indented or bullet-point lines** underneath belong to that block.
-- Treat the **entire block (header + sub-points)** as a **single criterion**.
-
-### Example:
-INCLUDE Adequate bone marrow function:
-  - ANC ≥ 1.5 x 10^9/L
-  - Platelet count ≥ 100 x 10^9/L
-
-## ACTIN rule structure
-
-- ACTIN rules are defined with a rule name, 
-    E.g. HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS, where X, Y, Z are placeholders for parameters. 
-- Parameters are based on placeholders:
-  - RULE → no param: `[]`
-  - RULE_X → one param: `["value"]`
-  - RULE_X_Y_Z → three params: `["v1", "v2", 5]`
-
-## MAIN RULE MATCHING INSTRUCTIONS
-
-- Match each eligibility block into one or more ACTIN rules from the ACTIN RULES LIST.
-    - Match by **rule name pattern**, not exact text.
-- Accept biologically equivalent terms (e.g. “fusion” = “rearrangement”).
-- Prefer general rules unless specificity is required.
-- Only create a new rule if there is truly no match
-
-## Fallback rules
-
-Use if no exact rule match applies:
-
-| Scenario              | Rule                                     |
-|-----------------------|------------------------------------------|
-| Treatment line        | `IS_ELIGIBLE_FOR_TREATMENT_LINE_X[...]`  |
-| Gene rearrangement    | `FUSION_IN_GENE_X[...]`                  |
-| Comorbidity           | `NOT(HAS_SEVERE_CONCOMITANT_CONDITION)`  |
-| Disease history       | `HAS_HISTORY_OF_CARDIOVASCULAR_DISEASE`  |
-
-## Logical operators
-
-| Operator | Format                         | Meaning                                                   |
-|----------|--------------------------------|-----------------------------------------------------------|
-| `AND`    | `{ "AND": [rule1, rule2] }`    | All conditions required                                   |
-| `OR`     | `{ "OR": [rule1, rule2] }`     | When the text offers **alternative acceptable options**   |
-| `NOT`    | `{ "NOT": rule }`              | Negate a single rule                                      |
-
-## Numerical comparison logic
-
-| Text  | Rule Format                               |
-|-------|-------------------------------------------|
-| ≥ X   | `SOMETHING_IS_AT_LEAST_X[...]`            |
-| > X   | `SOMETHING_IS_AT_LEAST_X[...]` (adjusted) |
-| ≤ X   | `SOMETHING_IS_AT_MOST_X[...]`             |
-| < X   | `SOMETHING_IS_AT_MOST_X[...]` (adjusted)  |
-
-## Exclusion logic
-- For every EXCLUDE line, the **entire logical condition** must be wrapped in a single `NOT`, unless the matched ACTIN \
-rule is already negative in meaning (e.g. `HAS_NOT`, `IS_NOT`)
-
-## Output format
-Output an JSON array of objects representing the criteria. Example:
-```json
-[
-    {
-        "description": "EXCLUDE Body weight over 150 kg",
-        "actin_rule": { "NOT": { "HAS_BODY_WEIGHT_OF_AT_LEAST_X": [150] } },
-    },
-    {
-        "description": "INCLUDE Eligible for systemic treatment with capecitabine + anti-VEGF antibody",
-        "actin_rule": { "IS_ELIGIBLE_FOR_TREATMENT_LINE_X": ["capecitabine", "anti-VEGF antibody"] },
-    }
-    {
-        "description": "INCLUDE Is female",
-        "actin_rule": { "IS_FEMALE": [] },
-    }
-]
-```
-
-## General guidance/Reminders
-
-- Capture full clinical and logical meaning.
-- Do not paraphrase or omit relevant details.
-"""
+        system_prompt = actin_common_mapping_prompts.COMMON_MAPPING_PROMPTS
 
         user_prompt = f"""
 # ACTIN RULES for category {list(key)}:
@@ -237,7 +152,7 @@ def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_file: pd.
     return actin_mark_new_rules(actin_mapping, actin_rules)
 
 
-def actin_map_by_cohort(eligibility_criteria: str, client: LlmClient, actin_rules) -> dict[str, list[ActinMapping]]:
+def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin_rules) -> dict[str, list[ActinMapping]]:
     cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)
     logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
 
@@ -257,12 +172,12 @@ def main():
     args = parser.parse_args()
 
     client = OpenaiClient(TEMPERATURE)
-    actin_rules = load_actin_file(args.ACTIN_path)
+    actin_df, actin_categories = load_actin_resource(args.ACTIN_path)
 
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
 
-    actin_outputs = actin_map_by_cohort(eligibility_criteria, client, actin_rules)
+    actin_outputs = actin_workflow_by_cohort(eligibility_criteria, client, actin_rules)
 
     with open(args.out_trial_file, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
