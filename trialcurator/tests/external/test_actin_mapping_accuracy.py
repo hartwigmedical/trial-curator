@@ -11,7 +11,7 @@ class BaseActinClass(unittest.TestCase):
     def setUpClass(cls):
         cls.client = OpenaiClient()
         cls.actin_rules = actin.load_actin_file(
-            str(Path(__file__).resolve().parent / "data/ACTIN_test_cases/ACTIN_list_w_categories_21052025.csv"))
+            str(Path(__file__).resolve().parent / "data/ACTIN_test_cases/ACTIN_list_w_categories_23052025.csv"))
 
 
 class TestActinCategoryAssignment(BaseActinClass):
@@ -22,14 +22,14 @@ class TestActinCategoryAssignment(BaseActinClass):
         expected_categories = {
             'EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients '
             'treated for Hepatitis C and have undetectable viral loads are eligible.': [
-                'infections'],
+                'Infectious_Disease_History_and_Status'],
             "INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory "
             "requirements within 30 days before the start of study intervention: - Hemoglobin ≥9.0 g/dL. - Absolute "
             "neutrophil count (ANC) ≥1500/mm^3. - Platelet count ≥100,000/mm^3. - Total bilirubin ≤1.5 x ULN, "
             "or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome. - ALT and AST <2.5 x ULN ("
             "≤5 x ULN for participants with liver involvement). - eGFR >60 mL/min/1.73 m^2, according to the MDRD "
             "abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.": [
-                'laboratory_measurements'],
+                'Laboratory_and_Blood_Count_Requirements'],
         }
         actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_rules)
         self.assertEqual(expected_categories, actual_categories)
@@ -38,19 +38,19 @@ class TestActinCategoryAssignment(BaseActinClass):
         input_text = ti.input_labvalue_1 + ti.input_bodily_function_1 + ti.input_cancer_type_1 + ti.input_cancer_type_2
 
         expected_categories = {
-            'EXCLUDE Resting heart rate > 100 bpm': ['vital_function_and_bodyweight_measurements'],
+            'EXCLUDE Resting heart rate > 100 bpm': ['Vital_Signs_and_Body_Function_Metrics'],
             'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this '
             'study, the ULN for ALT is 45 U/L': [
-                'laboratory_measurements'],
+                'Laboratory_and_Blood_Count_Requirements'],
             'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or '
             'metastatic cholangiocarcinoma': [
-                'cancer_type_and_tumor_and_lesion_localization'],
+                'Cancer_Type_and_Tumor_Site_Localization'],
             'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer': [
-                'cancer_type_and_tumor_and_lesion_localization'],
+                'Cancer_Type_and_Tumor_Site_Localization'],
             'INCLUDE Histologically or cytologically confirmed metastatic CRPC': [
-                'cancer_type_and_tumor_and_lesion_localization'],
+                'Cancer_Type_and_Tumor_Site_Localization'],
             'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma': [
-                'cancer_type_and_tumor_and_lesion_localization']
+                'Cancer_Type_and_Tumor_Site_Localization']
         }
         actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_rules)
         self.assertEqual(expected_categories, actual_categories)
@@ -62,23 +62,23 @@ class TestActinCategorySorting(BaseActinClass):
         input_text = ti.input_cancer_type_1 + ti.input_infection_1 + ti.input_cancer_type_2 + ti.input_labvalue_2 + ti.input_bodily_function_1 + ti.input_labvalue_1
 
         expected_output = {
-            ('cancer_type_and_tumor_and_lesion_localization',):
+            ('Cancer_Type_and_Tumor_Site_Localization',):
                 [
                     'INCLUDE Histologically or cytologically confirmed metastatic CRPC',
                     'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
                     'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer',
                     'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma'
                 ],
-            ('infections',):
+            ('Infectious_Disease_History_and_Status',):
                 [
                     'EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.'
                 ],
-            ('laboratory_measurements',):
+            ('Laboratory_and_Blood_Count_Requirements',):
                 [
                     "INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory requirements within 30 days before the start of study intervention: - Hemoglobin ≥9.0 g/dL. - Absolute neutrophil count (ANC) ≥1500/mm^3. - Platelet count ≥100,000/mm^3. - Total bilirubin ≤1.5 x ULN, or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome. - ALT and AST <2.5 x ULN (≤5 x ULN for participants with liver involvement). - eGFR >60 mL/min/1.73 m^2, according to the MDRD abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.",
                     'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L'
                 ],
-            ('vital_function_and_bodyweight_measurements',):
+            ('Vital_Signs_and_Body_Function_Metrics',):
                 [
                     'EXCLUDE Resting heart rate > 100 bpm'
                 ]
@@ -252,7 +252,7 @@ class TestActinMapping(BaseActinClass):
                 'description': 'INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration',
                 'actin_rule': {'NOT': {'IS_PREGNANT': []}},
                 "new_rule": []
-            },
+            }
         ]
         actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
         self.assertEqual(expected_mapping, actual_mapping)
