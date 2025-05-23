@@ -2,72 +2,38 @@ import unittest
 from pathlib import Path
 
 import trialcurator.eligibility_curator_actin as actin
-import trialcurator.eligibility_curator_actin_categorised as actin_categorised
 from trialcurator.openai_client import OpenaiClient
 
-actin_rules_complete = actin.load_actin_rules(
-    str(Path(__file__).resolve().parent / "data/ACTIN_test_cases/ACTIN_CompleteList_03042025.csv"))
 
-actin_rules_by_category = actin_categorised.load_actin_file(
-    str(Path(__file__).resolve().parent / "data/ACTIN_test_cases/ACTIN_rules_categorised_21052025.csv"))
+class BaseActinClass(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.client = OpenaiClient()
+        cls.actin_rules = actin.load_actin_file(
+            str(Path(__file__).resolve().parent / "data/ACTIN_test_cases/ACTIN_list_w_categories_21052025.csv"))
 
 
-class TestActinMappingAccuracy(unittest.TestCase):
-
-    def setUp(self):
-        self.client = OpenaiClient()
-
-    def test_initial_correct_simple(self):
-        input_text = '''
+input_general_1 = '''
 INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.
-EXCLUDE Participants who have any untreated symptomatic CNS metastases.
-INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site
-EXCLUDE Are pregnant.
 INCLUDE Are at least 18 years old.
 INCLUDE Has an ECOG performance status of 0 or 1
-INCLUDE Has adequate organ and bone marrow function as defined in the protocol
-EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol
 '''
-        expected_output = [
-            {
-                "description": "INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.",
-                "actin_rule": {"HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_MONTHS": [3]}
-            },
-            {
-                "description": "EXCLUDE Participants who have any untreated symptomatic CNS metastases.",
-                "actin_rule": {"NOT": {"HAS_KNOWN_ACTIVE_CNS_METASTASES": []}}
-            },
-            {
-                "description": "INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site",
-                "actin_rule": {"CAN_PROVIDE_FRESH_TISSUE_SAMPLE_FOR_FURTHER_ANALYSIS": []}
-            },
-            {
-                "description": "EXCLUDE Are pregnant.",
-                "actin_rule": {"NOT": {"IS_PREGNANT": []}}
-            },
-            {
-                "description": "INCLUDE Are at least 18 years old.",
-                "actin_rule": {"IS_AT_LEAST_X_YEARS_OLD": [18]}
-            },
-            {
-                "description": "INCLUDE Has an ECOG performance status of 0 or 1",
-                "actin_rule": {"HAS_WHO_STATUS_OF_AT_MOST_X": [1]}
-            },
-            {
-                "description": "INCLUDE Has adequate organ and bone marrow function as defined in the protocol",
-                "actin_rule": {"HAS_ADEQUATE_ORGAN_FUNCTION": []}
-            },
-            {
-                "description": "EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol",
-                "actin_rule": {"NOT": {"HAS_ACTIVE_SECOND_MALIGNANCY": []}}
-            }
-        ]
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_complete)
-        self.assertEqual(expected_output, actual_output)
-
-    def test_initial_correct_complex(self):
-        # Pass rate ~50%, ignoring formatting differences in `description`
-        input_text = '''
+input_bodily_function_1 = '''
+EXCLUDE Resting heart rate > 100 bpm
+'''
+input_infection_1 = '''
+EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.
+'''
+input_reproduction_1 = '''
+EXCLUDE Are pregnant.
+'''
+input_reproduction_2 = '''
+INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration
+'''
+input_labvalue_1 = '''
+INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L
+'''
+input_labvalue_2 = '''
 INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory requirements within 30 days before the start of study intervention:
     - Hemoglobin ≥9.0 g/dL.
     - Absolute neutrophil count (ANC) ≥1500/mm^3.
@@ -75,9 +41,172 @@ INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the fo
     - Total bilirubin ≤1.5 x ULN, or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome.
     - ALT and AST <2.5 x ULN (≤5 x ULN for participants with liver involvement).
     - eGFR >60 mL/min/1.73 m^2, according to the MDRD abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.
-EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.
 '''
-        expected_output = [
+input_labvalue_3 = '''
+INCLUDE Has adequate organ and bone marrow function as defined in the protocol
+'''
+input_cancer_type_1 = '''
+INCLUDE Histologically or cytologically confirmed metastatic CRPC
+INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma
+'''
+input_cancer_type_2 = '''
+INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer
+INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
+'''
+input_cancer_type_3 = '''
+EXCLUDE Participants who have any untreated symptomatic CNS metastases.
+INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site
+'''
+input_cancer_type_4 = '''
+INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.
+'''
+input_second_malignancy_1 = '''
+EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol
+'''
+input_treatment_1 = '''
+INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1
+'''
+input_treatment_2 = '''
+EXCLUDE Is currently participating in another study of a therapeutic agent
+'''
+input_toxicity_1 = '''
+INCLUDE Any abnormalities in magnesium are not > Grade 2
+'''
+input_washout_period_1 = '''
+EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol
+'''
+
+
+class TestActinCategoryAssignment(BaseActinClass):
+
+    def test_category_assignment_1(self):
+        input_text = input_labvalue_2 + input_infection_1
+
+        expected_categories = {
+            'EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients '
+            'treated for Hepatitis C and have undetectable viral loads are eligible.': [
+                'infections'],
+            "INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory "
+            "requirements within 30 days before the start of study intervention: - Hemoglobin ≥9.0 g/dL. - Absolute "
+            "neutrophil count (ANC) ≥1500/mm^3. - Platelet count ≥100,000/mm^3. - Total bilirubin ≤1.5 x ULN, "
+            "or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome. - ALT and AST <2.5 x ULN ("
+            "≤5 x ULN for participants with liver involvement). - eGFR >60 mL/min/1.73 m^2, according to the MDRD "
+            "abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.": [
+                'laboratory_measurements'],
+        }
+        actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_categories, actual_categories)
+
+    def test_category_assignment_2(self):
+        input_text = input_labvalue_1 + input_bodily_function_1 + input_cancer_type_1 + input_cancer_type_2
+
+        expected_categories = {
+            'EXCLUDE Resting heart rate > 100 bpm': ['vital_function_and_bodyweight_measurements'],
+            'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this '
+            'study, the ULN for ALT is 45 U/L': [
+                'laboratory_measurements'],
+            'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or '
+            'metastatic cholangiocarcinoma': [
+                'cancer_type_and_tumor_and_lesion_localization'],
+            'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer': [
+                'cancer_type_and_tumor_and_lesion_localization'],
+            'INCLUDE Histologically or cytologically confirmed metastatic CRPC': [
+                'cancer_type_and_tumor_and_lesion_localization'],
+            'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma': [
+                'cancer_type_and_tumor_and_lesion_localization']
+        }
+        actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_categories, actual_categories)
+
+
+class TestActinCategorySorting(BaseActinClass):
+
+    def test_category_sorting(self):
+        input_text = input_cancer_type_1 + input_infection_1 + input_cancer_type_2 + input_labvalue_2 + input_bodily_function_1 + input_labvalue_1
+
+        expected_output = {
+            ('cancer_type_and_tumor_and_lesion_localization',):
+                [
+                    'INCLUDE Histologically or cytologically confirmed metastatic CRPC',
+                    'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
+                    'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer',
+                    'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma'
+                ],
+            ('infections',):
+                [
+                    'EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.'
+                ],
+            ('laboratory_measurements',):
+                [
+                    "INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory requirements within 30 days before the start of study intervention: - Hemoglobin ≥9.0 g/dL. - Absolute neutrophil count (ANC) ≥1500/mm^3. - Platelet count ≥100,000/mm^3. - Total bilirubin ≤1.5 x ULN, or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome. - ALT and AST <2.5 x ULN (≤5 x ULN for participants with liver involvement). - eGFR >60 mL/min/1.73 m^2, according to the MDRD abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.",
+                    'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L'
+                ],
+            ('vital_function_and_bodyweight_measurements',):
+                [
+                    'EXCLUDE Resting heart rate > 100 bpm'
+                ]
+        }
+
+        actual_output = actin.sort_criteria_by_category(
+            actin.identify_actin_categories(input_text, self.client, self.actin_rules)
+        )
+        self.assertEqual(expected_output, actual_output)
+
+
+class TestActinMapping(BaseActinClass):
+
+    def test_mapping_1(self):
+        input_text = input_general_1 + input_reproduction_1 + input_cancer_type_3 + input_labvalue_3 + input_second_malignancy_1
+
+        expected_mapping = [
+            {
+                "description": "INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.",
+                "actin_rule": {"HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_MONTHS": [3]},
+                'new_rule': []
+            },
+            {
+                "description": "INCLUDE Are at least 18 years old.",
+                "actin_rule": {"IS_AT_LEAST_X_YEARS_OLD": [18]},
+                'new_rule': []
+            },
+            {
+                "description": "INCLUDE Has an ECOG performance status of 0 or 1",
+                "actin_rule": {"HAS_WHO_STATUS_OF_AT_MOST_X": [1]},
+                'new_rule': []
+            },
+            {
+                "description": "EXCLUDE Are pregnant.",
+                "actin_rule": {"NOT": {"IS_PREGNANT": []}},
+                'new_rule': []
+            },
+            {
+                "description": "EXCLUDE Participants who have any untreated symptomatic CNS metastases.",
+                "actin_rule": {"NOT": {"HAS_KNOWN_ACTIVE_CNS_METASTASES": []}},
+                'new_rule': []
+            },
+            {
+                "description": "INCLUDE Willing to provide tumor tissue from newly obtained biopsy (at a minimum core biopsy) from a tumor site",
+                "actin_rule": {"CAN_PROVIDE_FRESH_TISSUE_SAMPLE_FOR_FURTHER_ANALYSIS": []},
+                'new_rule': []
+            },
+            {
+                "description": "INCLUDE Has adequate organ and bone marrow function as defined in the protocol",
+                "actin_rule": {"HAS_ADEQUATE_ORGAN_FUNCTION": []},
+                'new_rule': []
+            },
+            {
+                "description": "EXCLUDE Has second malignancy that is progressing or requires active treatment as defined in the protocol",
+                "actin_rule": {"NOT": {"HAS_ACTIVE_SECOND_MALIGNANCY": []}},
+                'new_rule': []
+            }
+        ]
+        actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_mapping, actual_mapping)
+
+    def test_mapping_2(self):
+        input_text = input_labvalue_2 + input_infection_1
+
+        expected_mapping = [
             {
                 "description": "INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory requirements within 30 days before the start of study intervention:\n    - Hemoglobin ≥9.0 g/dL.\n    - Absolute neutrophil count (ANC) ≥1500/mm^3.\n    - Platelet count ≥100,000/mm^3.\n    - Total bilirubin ≤1.5 x ULN, or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome.\n    - ALT and AST <2.5 x ULN (≤5 x ULN for participants with liver involvement).\n    - eGFR >60 mL/min/1.73 m^2, according to the MDRD abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.",
                 "actin_rule": {
@@ -95,7 +224,8 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                             {"HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X": [60]}
                         ]}
                     ]
-                }
+                },
+                'new_rule': []
             },
             {
                 "description": "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.",
@@ -110,27 +240,17 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                             {"HAS_KNOWN_HEPATITIS_C_INFECTION": []}
                         ]
                     }
-                }
+                },
+                'new_rule': []
             }
         ]
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_complete)
-        self.assertEqual(expected_output, actual_output)
+        actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_mapping, actual_mapping)
 
-    def test_drug_category_correction(self):
-        input_mappings = [
-            {
-                "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
-                "actin_rule": {"NOT": {"HAS_HAD_TREATMENT_WITH_ANY_DRUG_X": ["PD-1/PD-L1 inhibitors"]}},
-                "new_rule": []
-            },
-            {
-                "description": "EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protocol",
-                "actin_rule": {
-                    "NOT": {"HAS_RECEIVED_ANY_ANTI_CANCER_THERAPY_WITHIN_X_WEEKS": ["anti-EGFR antibody therapy"]}},
-                "new_rule": []
-            }
-        ]
-        expected_output = [
+    def test_mapping_3(self):
+        input_text = input_treatment_1 + input_washout_period_1
+
+        expected_mapping = [
             {
                 "description": "INCLUDE Is anti-PD-1/PD-L1 naïve, defined as never having previously been treated with a drug that targets the PD-1",
                 "actin_rule": {"NOT":
@@ -148,23 +268,13 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                 "new_rule": []
             }
         ]
-        actual_output = actin.correct_actin_mistakes(input_mappings, self.client)
-        self.assertEqual(expected_output, actual_output)
+        actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_mapping, actual_mapping)
 
-    def test_other_incorrect_correction(self):
-        input_mappings = [
-            {
-                "description": "INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.",
-                "actin_rule": {"HAS_MEASURABLE_DISEASE_RECIST": []},
-                "new_rule": []
-            },
-            {
-                "description": "EXCLUDE Is currently participating in another study of a therapeutic agent",
-                "actin_rule": {"NOT": {"IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL": []}},
-                "new_rule": []
-            }
-        ]
-        expected_output = [
+    def test_mapping_4(self):
+        input_text = input_cancer_type_4 + input_treatment_2
+
+        expected_mapping = [
             {
                 "description": "INCLUDE Participants must have at least one measurable lesion per response evaluation criteria in solid tumors.",
                 "actin_rule": {"HAS_MEASURABLE_DISEASE": []},
@@ -176,435 +286,56 @@ EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or 
                 "new_rule": []
             }
         ]
-        actual_output = actin.correct_actin_mistakes(input_mappings, self.client)
-        self.assertEqual(expected_output, actual_output)
+        actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_mapping, actual_mapping)
 
-    # The tests below compares the accuracy between feeding the entire ACTIN list to the LLM versus providing a subset of rules
-    def test_labvalue_complete_list(self):
-        input_text = '''
-INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration
-INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L
-EXCLUDE Resting heart rate > 100 bpm
-INCLUDE Any abnormalities in magnesium are not > Grade 2
-'''
-        expected_mapping = [
-            {
-                'description': 'INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration',
-                'actin_rule': {'NOT': {'IS_PREGNANT': []}}
-            },
-            {
-                'description': 'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L',
-                'actin_rule': {'HAS_ALAT_ULN_OF_AT_MOST_X': [3]}
-            },
-            {
-                'description': 'EXCLUDE Resting heart rate > 100 bpm',
-                'actin_rule': {'HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y': [0, 100]}
-            },
-            {
-                'description': 'INCLUDE Any abnormalities in magnesium are not > Grade 2',
-                'actin_rule': {
-                    'NOT': {
-                        'HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y': [3, 'magnesium']}
-                }
-            }
-        ]
+    def test_mapping_5(self):
+        input_text = input_reproduction_2 + input_labvalue_1 + input_bodily_function_1 + input_toxicity_1
 
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_complete)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_labvalue_partial_list_1(self):
-        actin_rules_subset_labvalue_1 = [
-            "IS_MALE",
-            "IS_FEMALE",
-            "IS_PREGNANT",
-            "HAS_ALBUMIN_G_PER_DL_OF_AT_LEAST_X",
-            "HAS_ALBUMIN_LLN_OF_AT_LEAST_X",
-            "HAS_ASAT_ULN_OF_AT_MOST_X",
-            "HAS_ALAT_ULN_OF_AT_MOST_X",
-            "HAS_ASAT_AND_ALAT_ULN_OF_AT_MOST_X_OR_AT_MOST_Y_WHEN_LIVER_METASTASES_PRESENT",
-            "HAS_ALP_ULN_OF_AT_MOST_X",
-            "HAS_ALP_ULN_OF_AT_LEAST_X",
-            "HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X",
-            "HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X_OR_Y_IF_GILBERT_DISEASE",
-            "HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X_OR_DIRECT_BILIRUBIN_ULN_OF_AT_MOST_Y_IF_GILBERT_DISEASE",
-            "HAS_TOTAL_BILIRUBIN_UMOL_PER_L_OF_AT_MOST_X",
-            "HAS_TOTAL_BILIRUBIN_MG_PER_DL_OF_AT_MOST_X",
-            "HAS_DIRECT_BILIRUBIN_ULN_OF_AT_MOST_X",
-            "HAS_SBP_MMHG_OF_AT_LEAST_X",
-            "HAS_SBP_MMHG_OF_AT_MOST_X",
-            "HAS_DBP_MMHG_OF_AT_LEAST_X",
-            "HAS_DBP_MMHG_OF_AT_MOST_X",
-            "HAS_PULSE_OXIMETRY_OF_AT_LEAST_X",
-            "HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y",
-            "HAS_BODY_WEIGHT_OF_AT_LEAST_X",
-            "HAS_BODY_WEIGHT_OF_AT_MOST_X",
-            "HAS_BMI_OF_AT_MOST_X",
-            "REQUIRES_REGULAR_HEMATOPOIETIC_SUPPORT",
-            "HAS_HISTORY_OF_ANAPHYLAXIS",
-            "HAS_EXPERIENCED_IMMUNOTHERAPY_RELATED_ADVERSE_EVENTS",
-            "HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X",
-            "HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y",
-            "HAS_TOXICITY_ASTCT_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y",
-            "HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_IGNORING_ICD_TITLES_Y"
-        ]
-
-        input_text = '''
-INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration
-INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L
-EXCLUDE Resting heart rate > 100 bpm
-INCLUDE Any abnormalities in magnesium are not > Grade 2
-'''
-        expected_mapping = [
-            {
-                'description': 'INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration',
-                'actin_rule': {'NOT': {'IS_PREGNANT': []}}
-            },
-            {
-                'description': 'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L',
-                'actin_rule': {'HAS_ALAT_ULN_OF_AT_MOST_X': [3]}
-            },
-            {
-                'description': 'EXCLUDE Resting heart rate > 100 bpm',
-                'actin_rule': {'HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y': [0, 100]}
-            },
-            {
-                'description': 'INCLUDE Any abnormalities in magnesium are not > Grade 2',
-                'actin_rule': {
-                    'NOT': {
-                        'HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y': [3, 'magnesium']}
-                }
-            }
-        ]
-
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_subset_labvalue_1)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_labvalue_partial_list_2(self):
-        actin_rules_subset_labvalue_2 = [
-            "IS_PREGNANT",
-            "HAS_ASAT_ULN_OF_AT_MOST_X",
-            "HAS_ALAT_ULN_OF_AT_MOST_X",
-            "HAS_ASAT_AND_ALAT_ULN_OF_AT_MOST_X_OR_AT_MOST_Y_WHEN_LIVER_METASTASES_PRESENT",
-            "HAS_ALP_ULN_OF_AT_MOST_X",
-            "HAS_ALP_ULN_OF_AT_LEAST_X",
-            "HAS_PULSE_OXIMETRY_OF_AT_LEAST_X",
-            "HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y",
-            "HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X",
-            "HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y",
-            "HAS_TOXICITY_ASTCT_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y",
-            "HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_IGNORING_ICD_TITLES_Y"
-        ]
-
-        input_text = '''
-INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration
-EXCLUDE Resting heart rate > 100 bpm
-INCLUDE Any abnormalities in magnesium are not > Grade 2
-'''
-        expected_mapping = [
-            {
-                'description': 'INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration',
-                'actin_rule': {'NOT': {'IS_PREGNANT': []}}
-            },
-            {
-                'description': 'EXCLUDE Resting heart rate > 100 bpm',
-                'actin_rule': {'HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y': [0, 100]}
-            },
-            {
-                'description': 'INCLUDE Any abnormalities in magnesium are not > Grade 2',
-                'actin_rule': {
-                    'NOT': {
-                        'HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y': [3, 'magnesium']}
-                }
-            }
-        ]
-
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_subset_labvalue_2)
-        self.assertEqual(expected_mapping, actual_output)
-
-    # Conclusion:
-    # 1. Restricting the selection list increases performance PROVIDED alternative choices do not have a high percentage of matching chars
-    # eg. HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y vs HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_IGNORING_ICD_TITLES_Y
-    # 2. Reducing the size of the list does NOTHING to correct logical errors wrt to NOT(...)
-
-    def test_cancertype_complete_list(self):
-        input_text = '''
-INCLUDE Histologically or cytologically confirmed metastatic CRPC
-INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma
-INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer
-INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
-'''
-        expected_mapping = [
-            {
-                'description': 'INCLUDE Histologically or cytologically confirmed metastatic CRPC',
-                'actin_rule': {'AND': [
-                    {'OR': [
-                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
-                    },
-                    {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE_X': ['CRPC']}]
-                }
-            },
-            {
-                'description': 'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
-                'actin_rule': {'AND': [
-                    {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                    {'OR': [
-                        {'AND': [
-                            {'HAS_LOCALLY_ADVANCED_CANCER': []},
-                            {'HAS_UNRESECTABLE_CANCER': []}]
-                        },
-                        {'HAS_METASTATIC_CANCER': []}]
-                    },
-                    {'HAS_CANCER_TYPE_X': ['cholangiocarcinoma']}]}
-            },
-            {
-                'description': 'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer',
-                'actin_rule': {'AND': [
-                    {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                    {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE_X': ['prostate cancer']}]
-                }
-            },
-            {
-                'description': 'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma',
-                'actin_rule': {'AND': [
-                    {'OR': [
-                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
-                    },
-                    {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE_X': ['uveal melanoma']}]}
-            }
-        ]
-
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_complete)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_cancertype_partial_list(self):
-        actin_rules_subset_cancertype = [
-            "HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE",
-            "HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE",
-            "HAS_PATHOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE",
-            "HAS_ANY_STAGE_X",
-            "HAS_TNM_T_SCORE_X",
-            "HAS_LOCALLY_ADVANCED_CANCER",
-            "HAS_METASTATIC_CANCER",
-            "HAS_UNRESECTABLE_CANCER",
-            "HAS_UNRESECTABLE_STAGE_III_CANCER",
-            "HAS_RECURRENT_CANCER",
-            "HAS_INCURABLE_CANCER",
-            "HAS_CANCER_TYPE_X"
-        ]
-
-        input_text = '''
-INCLUDE Histologically or cytologically confirmed metastatic CRPC
-INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma
-INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer
-INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
-'''
-        expected_mapping = [
-            {
-                'description': 'INCLUDE Histologically or cytologically confirmed metastatic CRPC',
-                'actin_rule': {'AND': [
-                    {'OR': [
-                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
-                    },
-                    {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE_X': ['CRPC']}]
-                }
-            },
-            {
-                'description': 'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
-                'actin_rule': {'AND': [
-                    {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                    {'OR': [
-                        {'AND': [
-                            {'HAS_LOCALLY_ADVANCED_CANCER': []},
-                            {'HAS_UNRESECTABLE_CANCER': []}]
-                        },
-                        {'HAS_METASTATIC_CANCER': []}]
-                    },
-                    {'HAS_CANCER_TYPE_X': ['cholangiocarcinoma']}]}
-            },
-            {
-                'description': 'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer',
-                'actin_rule': {'AND': [
-                    {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                    {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE_X': ['prostate cancer']}]
-                }
-            },
-            {
-                'description': 'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma',
-                'actin_rule': {'AND': [
-                    {'OR': [
-                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
-                    },
-                    {'HAS_METASTATIC_CANCER': []},
-                    {'HAS_CANCER_TYPE_X': ['uveal melanoma']}]}
-            }
-        ]
-
-        actual_output = actin.map_to_actin(input_text, self.client, actin_rules_subset_cancertype)
-        self.assertEqual(expected_mapping, actual_output)
-
-    # Conclusion:
-    # 1. It is essential to add "HAS_CANCER_TYPE_X"
-    # 2. The reduced list improves performance wrt to choosing between OR v AND
-    # 3. Does not fix nested logical errors
-
-    # The regression tests below are related to the categorisation approach:
-    # Step 1: Given the criterion, identify the relevant ACTIN category
-    # Step 2: Map using only rules from the selected category
-
-    def test_categorisation_1(self):
-        input_text = '''
-INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory requirements within 30 days before the start of study intervention:
-    - Hemoglobin ≥9.0 g/dL.
-    - Absolute neutrophil count (ANC) ≥1500/mm^3.
-    - Platelet count ≥100,000/mm^3.
-    - Total bilirubin ≤1.5 x ULN, or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome.
-    - ALT and AST <2.5 x ULN (≤5 x ULN for participants with liver involvement).
-    - eGFR >60 mL/min/1.73 m^2, according to the MDRD abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.
-EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients treated for Hepatitis C and have undetectable viral loads are eligible.
-'''
-        expected_categories = {
-            'EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C; patients '
-            'treated for Hepatitis C and have undetectable viral loads are eligible.': [
-                'infections'],
-            "INCLUDE Adequate bone marrow, hepatic, and renal function, as assessed by the following laboratory "
-            "requirements within 30 days before the start of study intervention: - Hemoglobin ≥9.0 g/dL. - Absolute "
-            "neutrophil count (ANC) ≥1500/mm^3. - Platelet count ≥100,000/mm^3. - Total bilirubin ≤1.5 x ULN, "
-            "or ≤3 x ULN if the participant has a confirmed history of Gilbert's syndrome. - ALT and AST <2.5 x ULN ("
-            "≤5 x ULN for participants with liver involvement). - eGFR >60 mL/min/1.73 m^2, according to the MDRD "
-            "abbreviated formula and creatinine clearance (CrCl) >60 mL/min based on Cockcroft-Gault formula.": [
-                'laboratory_measurements'],
-        }
-
-        actual_categories = actin_categorised.identify_actin_categories(input_text, self.client,
-                                                                        actin_rules_by_category)
-        self.assertEqual(expected_categories, actual_categories)
-
-    def test_categorisation_2(self):
-        input_text = '''
-INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L
-EXCLUDE Resting heart rate > 100 bpm
-INCLUDE Histologically or cytologically confirmed metastatic CRPC
-INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma
-INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer
-INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
-'''
-        expected_categories = {
-            'EXCLUDE Resting heart rate > 100 bpm': ['vital_function_and_bodyweight_measurements'],
-            'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this '
-            'study, the ULN for ALT is 45 U/L': [
-                'laboratory_measurements'],
-            'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or '
-            'metastatic cholangiocarcinoma': [
-                'cancer_type_and_tumor_and_lesion_localization'],
-            'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer': [
-                'cancer_type_and_tumor_and_lesion_localization'],
-            'INCLUDE Histologically or cytologically confirmed metastatic CRPC': [
-                'cancer_type_and_tumor_and_lesion_localization'],
-            'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma': [
-                'cancer_type_and_tumor_and_lesion_localization']
-        }
-
-        actual_categories = actin_categorised.identify_actin_categories(input_text, self.client,
-                                                                        actin_rules_by_category)
-        self.assertEqual(expected_categories, actual_categories)
-
-    def test_mapping_w_category_1(self):
-        input_text = '''
-INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration
-'''
-        expected_mapping = [
-            {
-                'description': 'INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration',
-                'actin_rule': {'NOT': {'IS_PREGNANT': []}},
-                'new_rule': []
-            }
-        ]
-
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_mapping_w_category_2(self):
-        input_text = '''
-INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L
-'''
         expected_mapping = [
             {
                 'description': 'INCLUDE ALT =< 135 U/L (must be performed within 7 days prior to enrollment). For the purpose of this study, the ULN for ALT is 45 U/L',
                 'actin_rule': {'HAS_ALAT_ULN_OF_AT_MOST_X': [3]},
-                'new_rule': []
-            }
-        ]
-
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_mapping_w_category_3(self):
-        input_text = '''
-EXCLUDE Resting heart rate > 100 bpm
-'''
-        expected_mapping = [
+                "new_rule": []
+            },
+            {
+                'description': 'INCLUDE Any abnormalities in magnesium are not > Grade 2',
+                'actin_rule': {
+                    'NOT': {
+                        'HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y': [3, 'magnesium']}
+                },
+                "new_rule": []
+            },
             {
                 'description': 'EXCLUDE Resting heart rate > 100 bpm',
                 'actin_rule': {'HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y': [0, 100]},
-                'new_rule': []
-            }
-        ]
-
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_mapping_w_category_4(self):
-        input_text = '''
-INCLUDE Any abnormalities in magnesium are not > Grade 2
-'''
-        expected_mapping = [
+                "new_rule": []
+            },
             {
-                'description': 'INCLUDE Any abnormalities in magnesium are not > Grade 2',
-                'actin_rule': {'NOT': {
-                    'HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y': [3, 'magnesium']}},
-                'new_rule': []
-            }
+                'description': 'INCLUDE Women of childbearing potential must have a negative serum pregnancy test within 72 hours prior to CNA3103 administration',
+                'actin_rule': {'NOT': {'IS_PREGNANT': []}},
+                "new_rule": []
+            },
         ]
+        actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_mapping, actual_mapping)
 
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
+    def test_mapping_6(self):
+        input_text = input_cancer_type_1 + input_cancer_type_2
 
-    def test_mapping_w_category_5(self):
-        input_text = '''
-INCLUDE Histologically or cytologically confirmed metastatic CRPC
-'''
         expected_mapping = [
             {
                 'description': 'INCLUDE Histologically or cytologically confirmed metastatic CRPC',
                 'actin_rule': {'AND': [
                     {'OR': [
-                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
+                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
+                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
                     },
                     {'HAS_METASTATIC_CANCER': []},
                     {'HAS_CANCER_TYPE_X': ['CRPC']}]
                 },
-                'new_rule': []
-            }
-        ]
-
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_mapping_w_category_6(self):
-        input_text = '''
-INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma
-'''
-        expected_mapping = [
+                "new_rule": []
+            },
             {
                 'description': 'INCLUDE Have a histopathologically confirmed diagnosis consistent with locally advanced unresectable or metastatic cholangiocarcinoma',
                 'actin_rule': {'AND': [
@@ -617,19 +348,8 @@ INCLUDE Have a histopathologically confirmed diagnosis consistent with locally a
                         {'HAS_METASTATIC_CANCER': []}]
                     },
                     {'HAS_CANCER_TYPE_X': ['cholangiocarcinoma']}]},
-                'new_rule': []
-            }
-        ]
-
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
-
-    def test_mapping_w_category_7(self):
-        input_text = '''
-INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer
-INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
-'''
-        expected_mapping = [
+                "new_rule": []
+            },
             {
                 'description': 'INCLUDE Histologically confirmed diagnosis of metastatic prostate cancer',
                 'actin_rule': {'AND': [
@@ -637,20 +357,19 @@ INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma
                     {'HAS_METASTATIC_CANCER': []},
                     {'HAS_CANCER_TYPE_X': ['prostate cancer']}]
                 },
-                'new_rule': []
+                "new_rule": []
             },
             {
                 'description': 'INCLUDE Histologically or cytologically confirmed metastatic uveal melanoma',
                 'actin_rule': {'AND': [
                     {'OR': [
-                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
-                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
+                        {'HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []},
+                        {'HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE': []}]
                     },
                     {'HAS_METASTATIC_CANCER': []},
                     {'HAS_CANCER_TYPE_X': ['uveal melanoma']}]},
-                'new_rule': []
+                "new_rule": []
             }
         ]
-
-        actual_output = actin_categorised.actin_workflow(input_text, self.client, actin_rules_by_category)
-        self.assertEqual(expected_mapping, actual_output)
+        actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules)
+        self.assertEqual(expected_mapping, actual_mapping)

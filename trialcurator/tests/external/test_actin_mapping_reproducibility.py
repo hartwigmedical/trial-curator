@@ -12,7 +12,7 @@ def test_actin_reproducibility():
 
     client = OpenaiClient(0.0)
 
-    actin_rules = actin.load_actin_rules(str(Path(__file__).resolve().parent/"data/ACTIN_test_cases/ACTIN_CompleteList_03042025.csv"))
+    actin_rules = actin.load_actin_rules(str(Path(__file__).resolve().parent/"data/ACTIN_test_cases/ACTIN_list_03042025.csv"))
 
     input_text = '''
     - INCLUDE Has histologically or cytologically confirmed cancer that meets criteria as defined in the protocol
