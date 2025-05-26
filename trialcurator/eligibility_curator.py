@@ -2,27 +2,79 @@ import inspect
 import json
 import logging
 import re
+from json import JSONDecodeError
 
+from trialcurator.criterion_schema import BaseCriterion
 from . import criterion_schema
-from .eligibility_curator_actin import map_to_actin, load_actin_rules
+from .eligibility_curator_actin import load_actin_rules, actin_map_by_batch, BATCH_SIZE
 from .eligibility_sanitiser import llm_extract_cohort_tagged_text
 from .llm_client import LlmClient
-from .utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria
+from .utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria, \
+    batch_tagged_criteria_by_words
 from .openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
 
-CRITERION_BATCH_SIZE = 5
+BATCH_MAX_WORDS = 60
+
+CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
+
+# We give instructions only when a given criterion type is present
+INSTRUCTION_CRITERION_TYPES = {
+    '- Use `PrimaryTumorCriterion` for tumor types and / or locations (e.g., melanoma, prostate).'
+    : ['PrimaryTumor'],
+    '- Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).'
+    : ['MolecularBiomarker'],
+    '- Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).'
+    : ['MolecularSignature'],
+    '- Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion). \
+When specifying protein variants, always use the HGVS protein notation format.'
+    : ['GeneAlteration'],
+    '- Use `LabValueCriterion` only for lab-based requirements that have lab measurement, unit, value, and operator.'
+    : ['LabValue'],
+    '- Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").'
+    : ['PrimaryTumor', 'MolecularSignature'],
+    '- Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", \
+    "mucinous histology"). Use PrimaryTumorCriterion together with HistologyCriterion for tumor types + histologic type.'
+    : ['Histology', 'PrimaryTumor'],
+    '- DiagnosticFindingCriterion for statements like "histological confirmation of cancer", but use only PrimaryTumorCriterion \
+if specific tumor type or location is mentioned (e.g., "histological confirmation of melanoma").'
+    : ['DiagnosticFinding', ' PrimaryTumor', 'Histology'],
+    '- Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related to the tumor. \
+measurements like lab values.'
+    : ['Symptom'],
+    '- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
+ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.'
+    : ['PrimaryTumorCriterion', 'Comorbidity'],
+    '- Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
+explicit "if...then" or equivalent.'
+    : ['PriorTherapy'],
+    '- Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
+not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.'
+    : ['TreatmentOption'],
+    '- Use `ClinicalJudgementCriterion` only for subjective clinical assessment that are not defined or followed by objective \
+measurements like lab values.'
+    : ['ClinicalJudgement', 'LabValue'],
+    '- Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
+, population qualifiers, or general clinical appropriateness.'
+    : ['Other']
+}
+
 
 def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
     # split into small batches and curate
-    criteria_batches = batch_tagged_criteria(eligibility_criteria, CRITERION_BATCH_SIZE)
+    criteria_batches = batch_tagged_criteria_by_words(eligibility_criteria, BATCH_MAX_WORDS)
 
     # split into batches
     curated_py_list = []
     for criteria_text in criteria_batches:
         while True:
-            curated = llm_curate_from_text(criteria_text, client)
+            criteria_to_types: dict[str, list[str]] = categorise_criteria(criteria_text, client)
+
+            # collect all the criteria types
+            criteria_types = set([t for type_list in criteria_to_types.values() for t in type_list])
+
+            curated = llm_curate_from_text(criteria_text, criteria_types, client)
 
             # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
             # we want to extract just the criteria in the list
@@ -40,17 +92,95 @@ def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
     # join them back together
     return '[\n' + ',\n'.join(curated_py_list) + '\n]'
 
-def llm_curate_from_text(eligibility_criteria: str, client: LlmClient) -> str:
+
+def categorise_criteria(tagged_criteria: str, client: LlmClient) -> dict[str, list[str]]:
+    categories = [c for c in CRITERION_TYPES if c not in ['Not', 'And', 'Or', 'If']]
+
+    system_prompt = f"""
+You are an assistant that classifies eligibility criteria into relevant categories.
+Each criterion belongs to one or more categories.
+
+# Categories:
+{categories}
+
+# INSTRUCTIONS:
+- Return a single JSON code block.
+- Each eligibility criterion should be a key
+- The value should be a list of matched categories
+- Do NOT include any text outside the JSON
+
+# Criterion Mapping Rules
+- Use `PrimaryTumor` for tumor types and / or locations (e.g., melanoma, prostate).
+- Use `MolecularBiomarker` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).
+- Use `MolecularSignature` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).
+- Use `GeneAlteration` for genomic alterations (e.g., EGFR mutation, ALK fusion).
+- When specifying protein variants, always use the HGVS protein notation format.
+- Use `LabValue` only for lab-based requirements that have lab measurement, unit, value, and operator.
+- Use `PrimaryTumor` AND `MolecularSignature` for tumor type with biomarker (e.g., "PD-L1-positive melanoma").
+- Use `Histology` only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", "mucinous histology").
+- Use `DiagnosticFinding` for statements like "histological confirmation of cancer", but use only PrimaryTumorCriterion \
+if specific tumor type or location is mentioned (e.g., "histological confirmation of melanoma").
+- Use `Symptom` only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related to the tumor.
+- Use `ClinicalJudgement` only for subjective clinical assessment that are not defined or followed by objective \
+measurements like lab values.
+- Do not use `PrimaryTumor` for criteria involving other cancers or prior malignancies; instead, use \
+`Comorbidity` with a condition like "other active malignancy" and specify a timeframe if provided.
+- Use `PriorTherapy` for past treatment.
+- Use `TreatmentOption` for requirements related to available, appropriate, amenability or eligible treatments.
+- Use `Other` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
+, population qualifiers, or general clinical appropriateness.
+
+Example:
+```json
+{{
+    "INCLUDE Histologically or cytologically confirmed metastatic CRC": ["PrimaryTumor"],
+    "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infection", "CurrentMedication"]
+}}
+```
+"""
+
+    user_prompt = f"""
+Classify the following eligibility criterion:
+```
+{tagged_criteria}
+```
+"""
+    llm_output = client.llm_ask(user_prompt, system_prompt)
+    # print(f"Here are the categories {eligibility_criteria_w_category}")
+
+    try:
+        json_code_block = extract_code_blocks(llm_output, "json")
+        criteria_categories = json.loads(json_code_block)
+    except JSONDecodeError:
+        user_prompt = f"""Fix up the following JSON:
+{llm_output}
+Return answer in a ```json code block```.
+"""
+        llm_output = client.llm_ask(user_prompt)
+        json_code_block = extract_code_blocks(llm_output, "json")
+        criteria_categories = json.loads(json_code_block)
+
+    return criteria_categories
+
+
+def llm_curate_from_text(criteria_text: str, criteria_types: set[str], client: LlmClient) -> str:
+    #logger.info(f'criteria_types: {criteria_types}')
+
+    criterion_mapping_rules = '\n'.join(
+        [k for k, v in INSTRUCTION_CRITERION_TYPES.items() if criteria_types.intersection(set(v))])
+
     system_prompt = '''
 You are an expert clinical trial curator. Your role is to convert unstructured inclusion and exclusion criteria into a \
 structured format using a predefined Python schema.'''
 
     # print the clinical trial schema
-    prompt = f'{inspect.getsource(criterion_schema)}\n'
+    prompt = f'{extract_criterion_schema_classes(criteria_types)}\n'
     prompt += 'Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the following \
 criteria:\n'
-    prompt += f"```\n{eligibility_criteria}\n```\n"
-    prompt += '''
+    prompt += f'''```
+{criteria_text}
+```
+
 INSTRUCTIONS:
 
 # General
@@ -77,27 +207,7 @@ top-level criterion, wrapping all relevant subconditions using AndCriterion, OrC
 Wrap elements in NotCriterion if they are part of a negation.
 
 # Criterion Mapping Rules
-- Use `PrimaryTumorCriterion` for tumor types and / or locations (e.g., melanoma, prostate).
-- Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).
-- Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).
-- Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion).
-- When specifying protein variants, always use the HGVS protein notation format.
-- Use `LabValueCriterion` only for lab-based requirements that have lab measurement, unit, value, and operator.
-- Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").
-- Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", "mucinous histology").
-- DiagnosticFindingCriterion for statements like "histological confirmation of cancer", but use only PrimaryTumorCriterion \
-if specific tumor type or location is mentioned (e.g., "histological confirmation of melanoma").
-- Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related to the tumor.
-- Use ClinicalJudgementCriterion only for subjective clinical assessment that are not defined or followed by objective \
-measurements like lab values.
-- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
-ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.
-- Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
-explicit "if...then" or equivalent.
-- Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
-not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.
-- Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
-, population qualifiers, or general clinical appropriateness.
+{criterion_mapping_rules}
 '''
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
@@ -114,7 +224,7 @@ structured eligibility criteria based on a predefined schema (modeled using Pyda
 These objects are created from free-text eligibility criteria in oncology trials.'''
 
     # make sure the schema is included
-    clinical_trial_code = prepend_schema_if_missing(clinical_trial_code)
+    clinical_trial_code = prepend_schema(clinical_trial_code, [])
     prompt = 'Given the following code:\n\n'
     prompt += f"```python\n{clinical_trial_code}\n```\n"
     prompt += '''
@@ -180,14 +290,35 @@ def remove_up_to(text, pattern):
         return ""
 
 
+def extract_criterion_schema_classes(criterion_types: set[str] | list[str]) -> str:
+    criterion_schema_code = inspect.getsource(criterion_schema)
+
+    pattern = (
+        r"(?:^[ \t]*#.*\n"  # Match comment lines
+        r"|^[ \t]*@.*\n)*"  # Or decorators
+        r"^class\s+(\w+)\(.*?\):\n"  # Class header
+        r"(?:^[ \t]+.*\n)*"  # Class body (indented lines)
+    )
+    matches = re.finditer(pattern, criterion_schema_code, flags=re.MULTILINE)
+
+    filtered_class_code = ""
+    for match in matches:
+        class_name = match.group(1)
+        class_code = match.group()
+
+        # always include BaseCriterion and non-Criterion classes
+        if class_name == 'BaseCriterion' or \
+                not class_name.endswith('Criterion') or \
+                [t for t in criterion_types if t.lower() in class_name.lower()]:
+            filtered_class_code += '\n' + class_code
+
+    return filtered_class_code
+
+
 # Prepend the schema if it is not added by the LLM. The reason is that
 # it is necessary for the next stage to know the class definitions
-def prepend_schema_if_missing(trial_code: str) -> str:
-    search_str = 'class BaseCriterion'
-    if search_str not in trial_code:
-        trial_code = f'{inspect.getsource(criterion_schema)}\n{trial_code}'
-        if search_str not in trial_code:
-            raise Exception(f'{search_str} not in schema')
+def prepend_schema(trial_code: str, criterion_types: set[str]) -> str:
+    trial_code = f'{extract_criterion_schema_classes(criterion_types)}\n{trial_code}'
     return trial_code
 
 
@@ -211,6 +342,7 @@ def parse_actin_output_to_json(cohort: str, mapped_text: str) -> dict:
         })
 
     return result
+
 
 def main():
     import argparse
@@ -237,11 +369,10 @@ def main():
     # if we have ACTIN specified, curate it also
     if args.out_actin:
         actin_rules = load_actin_rules(args.actin_rules)
-        cohort_actin = []
+        cohort_actin = {}
         for cohort_name, tagged_text in cohort_texts.items():
-            actin_output = map_to_actin(tagged_text, client, actin_rules)
-            actin_json = parse_actin_output_to_json(cohort_name, actin_output)
-            cohort_actin.append(actin_json)
+            actin_mapping = actin_map_by_batch(tagged_text, client, actin_rules, BATCH_SIZE)
+            cohort_actin[cohort_name] = actin_mapping
         # write to file
         with open(args.out_actin, "w") as f:
             json.dump(cohort_actin, f, indent=2)
