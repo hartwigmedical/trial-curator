@@ -95,7 +95,7 @@ def sort_criteria_by_category(criteria_w_category_obj: dict) -> dict:
     return criteria_w_category_obj_sorted
 
 
-def map_to_actin_categorised(categorised_eligibility_criteria: dict, client: LlmClient, actin_file: pd.DataFrame) -> \
+def map_to_actin_categorised(categorised_eligibility_criteria: dict, client: LlmClient, actin_df: pd.DataFrame) -> \
         list[dict]:
 
     results = []
