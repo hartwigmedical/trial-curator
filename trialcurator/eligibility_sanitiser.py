@@ -62,6 +62,20 @@ or alanine amino transferase (ALT) > or equal to three times the upper limit of 
 > five times the upper limit of normal)", rewrite it as two separate bullet points:
     - AST ≥ 3 × ULN (if related to liver metastases > 5 × ULN)
     - ALT) ≥ 3 × ULN (if related to liver metastases > 5 × ULN)
+    
+GENDER CRITERIA
+- If gender is expressed as both male and female, and the criterion does not impose a different condition for each, \
+remove the gender part and retain only the meaningful eligibility condition. Example:
+  - “Male or female, aged 18 years or older” → “Aged 18 years or older”
+  - “Male and female participants must use contraception” → “Must use contraception”
+- If gender is mentioned solely to describe a condition that is already sex-specific (e.g., ovarian cancer), remove \
+the gender descriptor. Example:
+  - “Female participants with ovarian cancer” → “Participants with ovarian cancer”
+- Retain gender references only when they impose a restriction, such as:
+  - Differentiated rules based on gender (e.g., “Males must...”, “Females must not...”)
+  - Criteria that apply only to a subset, such as “females of childbearing potential”
+- Remove gender in pregnancy and breastfeeding criteria. Example:
+  - “Females who are pregnant or breastfeeding” → “Pregnant or breastfeeding”
 
 OUTPUT STRUCTURE
 - Answer in one text block with no additional explanation.
