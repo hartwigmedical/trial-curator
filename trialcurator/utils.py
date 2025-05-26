@@ -1,9 +1,6 @@
-import inspect
 import json
 import re
 from typing import Any
-
-from trialcurator import criterion_schema
 
 
 def load_trial_data(json_file: str) -> dict:

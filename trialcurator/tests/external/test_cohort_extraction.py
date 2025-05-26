@@ -1,8 +1,7 @@
+import logging
 import unittest
 
-from trialcurator.eligibility_curator import *
 from trialcurator.eligibility_sanitiser import llm_extract_cohorts
-from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)

@@ -1,7 +1,6 @@
 import unittest
 
 from trialcurator.eligibility_sanitiser import llm_tag_text
-from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
 # test that this input gets the following output

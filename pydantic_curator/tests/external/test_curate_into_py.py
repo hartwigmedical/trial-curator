@@ -1,8 +1,8 @@
 import unittest
 
-from trialcurator.criterion_schema import *
-from trialcurator.eligibility_curator import llm_curate_from_text, llm_curate_by_batch
-from trialcurator.eligibility_py_loader import exec_py_into_variable
+from pydantic_curator.criterion_schema import *
+from pydantic_curator.eligibility_curator import llm_curate_by_batch
+from pydantic_curator.eligibility_py_loader import exec_py_into_variable
 from trialcurator.openai_client import OpenaiClient
 
 class TestCurateIntoPy(unittest.TestCase):
@@ -22,16 +22,17 @@ EXCLUDE History of another malignancy in the previous 2 years
 
         expected_criteria = [
             NotCriterion(
-                criterion=OtherCriterion(
+                criterion=CurrentTherapyCriterion(
                     description="Receiving additional, concurrent, active therapy for GBM outside of the trial",
-                    reason="Receiving additional, concurrent, active therapy for GBM outside of the trial"
+                    therapy="Receiving additional, concurrent, active therapy for GBM outside of the trial"
                 ),
                 description="EXCLUDE Receiving additional, concurrent, active therapy for GBM outside of the trial"
             ),
             NotCriterion(
-                criterion=DiagnosticFindingCriterion(
-                    finding="extensive leptomeningeal disease",
-                    description="Extensive leptomeningeal disease"
+                criterion=MetastasesCriterion(
+                    description="Extensive leptomeningeal disease",
+                    location="leptomeningeal",
+                    additional_details=['extensive']
                 ),
                 description="EXCLUDE Extensive leptomeningeal disease"
             ),
@@ -184,8 +185,6 @@ INCLUDE Adequate liver function
 INCLUDE Adequate renal function (creatinine clearance > 50 mL/min)'''
 
         python_code = llm_curate_by_batch(input_text, self.client)
-
-        print(python_code)
 
         criteria: list[BaseCriterion] = exec_py_into_variable(python_code)
         self.assertEqual(3, len(criteria))

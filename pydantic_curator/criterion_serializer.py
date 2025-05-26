@@ -1,8 +1,8 @@
 import re
 from typing import Any
 
-from .criterion_schema import BaseCriterion, AndCriterion, OrCriterion, NotCriterion, IfCriterion
-from .utils import deep_remove_field
+from pydantic_curator.criterion_schema import BaseCriterion, AndCriterion, OrCriterion, NotCriterion, IfCriterion
+from trialcurator.utils import deep_remove_field
 
 '''
 write the criterion in a customised format:

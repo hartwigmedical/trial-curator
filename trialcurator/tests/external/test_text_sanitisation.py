@@ -2,7 +2,6 @@ import re
 import unittest
 
 from trialcurator.eligibility_sanitiser import llm_sanitise_text
-from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
 def remove_blank_lines_and_trailing_footstops(text: str) -> str:

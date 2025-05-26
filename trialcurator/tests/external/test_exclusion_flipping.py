@@ -1,7 +1,6 @@
 import unittest
 
 from trialcurator.eligibility_sanitiser import llm_simplify_text_logic
-from trialcurator.gemini_client import GeminiClient
 from trialcurator.openai_client import OpenaiClient
 
 # test exclusion rules in input are correctly converted to inclusion rules in output

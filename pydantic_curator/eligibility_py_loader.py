@@ -1,5 +1,5 @@
 # this import is necessary for the python code to load correctly
-from trialcurator.criterion_schema import *
+from .criterion_schema import *
 
 def exec_py_into_variable(py_code: str):
     ldic = locals()

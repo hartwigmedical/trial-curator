@@ -8,9 +8,9 @@ from sentence_transformers import SentenceTransformer, SimilarityFunction
 
 from trialcurator.actin_formatter import format_actin_rule
 from trialcurator.criterion_compare import criterion_diff
-from trialcurator.criterion_schema import *
-from trialcurator.criterion_serializer import CriterionSerializer
-from trialcurator.eligibility_py_loader import exec_file_into_variable
+from pydantic_curator.criterion_schema import *
+from pydantic_curator.criterion_serializer import CriterionSerializer
+from pydantic_curator.eligibility_py_loader import exec_file_into_variable
 from trialcurator.utils import deep_remove_field
 
 logger = logging.getLogger(__name__)

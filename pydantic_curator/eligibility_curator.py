@@ -4,14 +4,12 @@ import logging
 import re
 from json import JSONDecodeError
 
-from trialcurator.criterion_schema import BaseCriterion
-from . import criterion_schema
-from .eligibility_curator_actin import load_actin_rules, actin_map_by_batch, BATCH_SIZE
-from .eligibility_sanitiser import llm_extract_cohort_tagged_text
-from .llm_client import LlmClient
-from .utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria, \
-    batch_tagged_criteria_by_words
-from .openai_client import OpenaiClient
+from pydantic_curator.criterion_schema import BaseCriterion
+from pydantic_curator import criterion_schema
+from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
+from trialcurator.llm_client import LlmClient
+from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
+from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +183,9 @@ INSTRUCTIONS:
 
 # General
 - Exclusion criteria must be expressed as inclusion criteria wrapped in a `NotCriterion`
-- Top-Level Grouping Requirement: For each top-level INCLUDE or EXCLUDE rule in the original text, generate exactly one \
+- Top-level grouping requirement: For each top-level INCLUDE or EXCLUDE rule in the original text, generate exactly one \
 top-level criterion, wrapping all relevant subconditions using AndCriterion, OrCriterion, or NotCriterion as needed.
+- Assume gender is either male or female only. Use `if male ... else: ...` instead of checking both values.
 - Answer should be given in a single code block with no explanation.
 
 # Description field
@@ -208,6 +207,7 @@ Wrap elements in NotCriterion if they are part of a negation.
 
 # Criterion Mapping Rules
 {criterion_mapping_rules}
+
 '''
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)

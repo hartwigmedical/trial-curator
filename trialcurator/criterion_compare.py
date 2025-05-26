@@ -4,8 +4,6 @@ from difflib import unified_diff
 
 from sentence_transformers import SentenceTransformer, SimilarityFunction, util
 
-from .eligibility_py_loader import exec_file_into_variable
-
 logger = logging.getLogger(__name__)
 
 FUZZY_MATCH_THRESHOLD = 0.9
@@ -153,25 +151,3 @@ def format_differences(differences: list[CriteriaDiff]) -> str:
 
 def find_matching_cohort(old_cohort_names, new_cohort_names):
     pass
-
-
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Criteria compare")
-    parser.add_argument('--old_criteria_file', help='python file containing old criteria', required=True)
-    parser.add_argument('--new_criteria_file', help='python file containing old criteria', required=True)
-    parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
-    args = parser.parse_args()
-
-    old_cohort_criteria = exec_file_into_variable(args.old_criteria_file)
-    old_cohort_criteria = next(iter(old_cohort_criteria.values()))
-    new_cohort_criteria = exec_file_into_variable(args.new_criteria_file)
-    new_cohort_criteria = next(iter(new_cohort_criteria.values()))
-
-    diffs = criterion_diff([c.description for c in old_cohort_criteria], [c.description for c in new_cohort_criteria])
-
-    print(format_differences(diffs))
-
-
-if __name__ == "__main__":
-    main()
