@@ -12,6 +12,7 @@ class TimingInfo(BaseModel):
 class BaseCriterion(BaseModel):
     type: str = Field(init=False)
     description: str = ''
+    confidence: float = 1.0
 
     @model_validator(mode='before')
     def add_type(cls, values):

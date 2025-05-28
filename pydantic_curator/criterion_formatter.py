@@ -17,13 +17,15 @@ and{
 }
 '''
 
-def custom_format(obj: Any, indent: int = 0) -> str:
-    indent_str = '  ' * indent
+INDENT_UNIT = '   '
+
+def format_criterion(obj: Any, indent: int = 0) -> str:
+    indent_str = INDENT_UNIT * indent
 
     if isinstance(obj, dict):
         items = []
         for k, v in obj.items():
-            formatted_value = custom_format(v, 0)
+            formatted_value = format_criterion(v, 0)
             if isinstance(v, dict):
                 # if this is a dictionary, we make it person(name="Tom", age=25)
                 items.append(f'{indent_str}{k}({formatted_value})')
@@ -32,7 +34,7 @@ def custom_format(obj: Any, indent: int = 0) -> str:
         inner = ', '.join(items)
         return f'{inner}'
     elif isinstance(obj, list):
-        items = [custom_format(item, indent + 1) for item in obj]
+        items = [format_criterion(item, indent + 1) for item in obj]
         inner = ', '.join(f'{item}' for item in items)
         return f'[{inner}]'
     elif isinstance(obj, str):
@@ -42,40 +44,44 @@ def custom_format(obj: Any, indent: int = 0) -> str:
     else:
         return str(obj)  # number, boolean: as is
 
-class CriterionSerializer:
+class CriterionFormatter:
     @staticmethod
-    def serialize(criterion: BaseCriterion) -> str:
-        return CriterionSerializer._serialize(criterion, indent=0)
+    def format(criterion: BaseCriterion) -> str:
+        return CriterionFormatter._format(criterion, indent=0)
 
     @staticmethod
-    def _serialize(criterion: BaseCriterion, indent: int) -> str:
-        indent_str = '  ' * indent
+    def _format(criterion: BaseCriterion, indent: int) -> str:
+        indent_str = INDENT_UNIT * indent
         if isinstance(criterion, (AndCriterion, OrCriterion)):
             typename = criterion.type
             lines = []
             for subcriterion in criterion.criteria:
-                lines.append(CriterionSerializer._serialize(subcriterion, indent + 1))
+                lines.append(CriterionFormatter._format(subcriterion, indent + 1))
             inner = ',\n'.join(lines)
             return (
-                f'{indent_str}{typename}{{\n'
+                f'{indent_str}{typename} {{\n'
                 f'{inner}\n'
                 f'{indent_str}}}'
             )
         elif isinstance(criterion, NotCriterion):
-            inner = CriterionSerializer._serialize(criterion.criterion, 0)
-            return f'{indent_str}not{{{inner}}}'
+            inner = CriterionFormatter._format(criterion.criterion, indent + 1)
+            return (
+                f'{indent_str}not {{\n'
+                f'{inner}\n'
+                f'{indent_str}}}'
+            )
         elif isinstance(criterion, IfCriterion):
-            condition = CriterionSerializer._serialize(criterion.condition, 0)
-            then = CriterionSerializer._serialize(criterion.then, 0)
-            output = f'{indent_str}if{{{condition}}}\n{indent_str} then {{{then}}}'
+            condition = CriterionFormatter._format(criterion.condition, 0)
+            then = CriterionFormatter._format(criterion.then, 0)
+            output = f'{indent_str}if {{{condition}}}\n{indent_str} then {{{then}}}'
             if criterion.else_:
-                else_ = CriterionSerializer._serialize(criterion.else_, 0)
+                else_ = CriterionFormatter._format(criterion.else_, 0)
                 output = output + f'\n{indent_str} else {{{else_}}}'
             return output
         else:
             # For normal (leaf) criteria, single-line compact JSON
             value_dict = deep_remove_field(criterion.model_dump(serialize_as_any=True, exclude_none=True), 'description')
-            compact_json = custom_format(value_dict)
+            compact_json = format_criterion(value_dict)
 
             # now we want to change those type = criterion to criterion ()
             compact_json = re.sub(f'type\\s*=\\s*\\"{criterion.type}\\",?\\s*', f'{criterion.type}(', compact_json) + ')'
