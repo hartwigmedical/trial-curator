@@ -8,13 +8,14 @@ from typing import TypedDict, cast
 from trialcurator.actin_curator_utils import llm_output_to_rule_obj, find_new_actin_rules
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
-from trialcurator.utils import load_trial_data, load_eligibility_criteria
+from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria_by_words
 from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
-from trialcurator import actin_common_mapping_prompts
+from trialcurator import actin_mapping_prompts
 
 logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
+BATCH_MAX_WORDS = 60
 
 
 class ActinMapping(TypedDict):
@@ -72,66 +73,115 @@ Classify the following eligibility criteria:
         return llm_output_to_rule_obj(repaired_response)
 
 
-def sort_criteria_by_category(criteria_w_category_obj: dict) -> dict:
-    sel_categories_single = {}
-    sel_categories_grouped = {}
+def sort_criteria_by_category(cat_criteria: dict) -> dict:
 
-    for key, val in criteria_w_category_obj.items():
-        val = tuple(sorted(val))
+    sorted_cat_criteria = {}
+    temp_cat = None
+    temp_criteria = []
 
-        if len(val) > 1:
-            if val not in sel_categories_single.keys():
-                sel_categories_single[val] = [key]
-            else:
-                sel_categories_single[val].append(key)
+    for criterion, cat in cat_criteria.items():
+        cat = tuple(cat)
+
+        if cat == temp_cat:
+            temp_criteria.append(criterion)
         else:
-            if val not in sel_categories_grouped.keys():
-                sel_categories_grouped[val] = [key]
-            else:
-                sel_categories_grouped[val].append(key)
+            if temp_cat is not None:
+                sorted_cat_criteria[temp_cat] = temp_criteria
+            temp_cat = cat
+            temp_criteria = [criterion]
 
-    criteria_w_category_obj_sorted = sel_categories_grouped.copy()
-    criteria_w_category_obj_sorted.update(sel_categories_single)
-    return criteria_w_category_obj_sorted
+    if temp_criteria:
+        sorted_cat_criteria[temp_cat] = temp_criteria
+
+    return sorted_cat_criteria
 
 
-def map_to_actin_categorised(categorised_eligibility_criteria: dict, client: LlmClient, actin_df: pd.DataFrame) -> \
-        list[dict]:
+def map_to_actin_by_category(sorted_cat_criteria: dict, client: LlmClient, actin_df: pd.DataFrame) -> list[dict]:
+    mapped_results = []
+    logger.info(f"Mapping criterion by ACTIN categories")
 
-    results = []
+    for cat, criteria_list in sorted_cat_criteria.items():
+        category_prompts = "\n".join(actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS[i] for i in cat)
+        sel_actin_rules = "\n".join(pd.Series(actin_df[list(cat)].to_numpy().flatten()).dropna().str.strip().tolist())
 
-    for key, val in categorised_eligibility_criteria.items():
-        sel_actin_rules = "\n".join(pd.Series(actin_file[list(key)].to_numpy().flatten()).dropna().str.strip().tolist())
-        eligibility_criteria = "\n".join(val)
+        system_prompt = actin_mapping_prompts.COMMON_SYSTEM_PROMPTS
 
-        system_prompt = actin_common_mapping_prompts.COMMON_MAPPING_PROMPTS
+        if len(cat) > 1:
+            for criterion in criteria_list:
+                user_prompt = f"""
+## ELIGIBILITY CRITERION
+```
+{criterion}
+```
 
-        user_prompt = f"""
-# ACTIN RULES for category {list(key)}:
+## CATEGORY ASSIGNMENT
+This criterion belongs to the following ACTIN categories:
+- {"\n- ".join(cat)}
+
+## RELEVANT ACTIN RULES
+The ACTIN rules associated with these categories are:
 ```
 {sel_actin_rules}
 ```
 
-# ELIGIBILITY CRITERIA:
-```
-{eligibility_criteria}
-```
+## TASK
+Map the above eligibility criterion to one or more ACTIN rules from the list above. 
+Use the guidelines and formatting conventions provided.
+
+### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS
+{category_prompts}
 """
-
-        mapped_eligibility_criteria = client.llm_ask(user_prompt, system_prompt)
-
-        try:
-            rule_obj = llm_output_to_rule_obj(mapped_eligibility_criteria)
-        except JSONDecodeError:
-            user_prompt = f"""Fix up the following JSON:
-{mapped_eligibility_criteria}
-Return answer in a ```json code block```.
+                response = client.llm_ask(user_prompt, system_prompt)
+                try:
+                    result = llm_output_to_rule_obj(response)
+                except JSONDecodeError:
+                    repair_prompt = f"""Fix the following JSON so it parses correctly. Return only the corrected JSON 
+                    object: {response}
 """
-            mapped_eligibility_criteria = client.llm_ask(user_prompt)
-            rule_obj = llm_output_to_rule_obj(mapped_eligibility_criteria)
+                    repaired_response = client.llm_ask(repair_prompt)
+                    result = llm_output_to_rule_obj(repaired_response)
+                mapped_results.extend(result)
 
-        results.extend(rule_obj)
-    return results
+        elif len(cat) == 1:
+            joined_criteria = "\n\n".join(criteria_list)
+            word_limit_batches = batch_tagged_criteria_by_words(joined_criteria, BATCH_MAX_WORDS)
+
+            for batch in word_limit_batches:
+                user_prompt = f"""
+## ELIGIBILITY CRITERIA
+```
+{batch}
+```
+
+## CATEGORY ASSIGNMENT
+These criteria belong to the ACTIN category:
+- {cat[0]}
+
+## RELEVANT ACTIN RULES
+The ACTIN rules associated with this category are:
+```
+{sel_actin_rules}
+```
+
+## TASK
+Map the above eligibility criterion to one or more ACTIN rules from the list above. 
+Use the guidelines and formatting conventions provided.
+
+### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS
+{category_prompts}
+"""
+                response = client.llm_ask(user_prompt, system_prompt)
+                try:
+                    result = llm_output_to_rule_obj(response)
+                except JSONDecodeError:
+                    repair_prompt = f"""Fix the following JSON so it parses correctly. Return only the corrected JSON 
+                    object: {response}
+    """
+                    repaired_response = client.llm_ask(repair_prompt)
+                    result = llm_output_to_rule_obj(repaired_response)
+                mapped_results.extend(result)
+
+    return mapped_results
 
 
 def actin_mark_new_rules(actin_mappings: list[dict], actin_rules: list[str]) -> list[ActinMapping]:
@@ -141,24 +191,22 @@ def actin_mark_new_rules(actin_mappings: list[dict], actin_rules: list[str]) -> 
     return cast(list[ActinMapping], actin_mappings)
 
 
-def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_file: pd.DataFrame) -> list[ActinMapping]:
-    eligibility_criteria_w_category = identify_actin_categories(eligibility_criteria, client, actin_file)
-    eligibility_criteria_w_category = sort_criteria_by_category(eligibility_criteria_w_category)
-    actin_mapping = map_to_actin_categorised(eligibility_criteria_w_category, client, actin_file)
+def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> list[ActinMapping]:
+    cat_criteria = identify_actin_categories(eligibility_criteria, client, actin_categories)
+    sorted_cat_criteria = sort_criteria_by_category(cat_criteria)
+    actin_mapping = map_to_actin_by_category(sorted_cat_criteria, client, actin_df)
 
-    actin_rules = (
-        pd.Series(actin_file.to_numpy().flatten()).dropna().str.strip().tolist()
-    )
+    actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
     return actin_mark_new_rules(actin_mapping, actin_rules)
 
 
-def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin_rules) -> dict[str, list[ActinMapping]]:
+def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> dict[str, list[ActinMapping]]:
     cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)
     logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
 
     cohort_actin_outputs: dict[str, list[ActinMapping]] = {}
     for cohort_name, tagged_text in cohort_texts.items():
-        cohort_actin_outputs[cohort_name] = actin_workflow(tagged_text, client, actin_rules)
+        cohort_actin_outputs[cohort_name] = actin_workflow(tagged_text, client, actin_df, actin_categories)
 
     return cohort_actin_outputs
 
@@ -177,7 +225,7 @@ def main():
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
 
-    actin_outputs = actin_workflow_by_cohort(eligibility_criteria, client, actin_rules)
+    actin_outputs = actin_workflow_by_cohort(eligibility_criteria, client, actin_df, actin_categories)
 
     with open(args.out_trial_file, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
