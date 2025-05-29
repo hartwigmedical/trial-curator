@@ -22,6 +22,7 @@ class ActinMapping(TypedDict):
     description: str
     actin_rule: dict[str, list | dict]
     new_rule: list[str]
+    confidence: int
 
 
 def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
@@ -177,21 +178,42 @@ Use the guidelines and formatting conventions provided.
 
 def actin_mark_new_rules(actin_mappings: list[dict], actin_rules: list[str]) -> list[ActinMapping]:
     actin_rules = set(actin_rules)
-    for actin_mapping in actin_mappings:
-        actin_mapping['new_rule'] = find_new_actin_rules(actin_mapping['actin_rule'], actin_rules)
+    for mapping in actin_mappings:
+        mapping['new_rule'] = find_new_actin_rules(mapping['actin_rule'], actin_rules)
     return cast(list[ActinMapping], actin_mappings)
 
 
-def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> list[ActinMapping]:
+def actin_mark_confidence_score(actin_mappings: list[dict]) -> list[ActinMapping]:
+    for mapping in actin_mappings:
+        # Idea:
+        # Baseline score x: A single mapping from actin_rules list with no parameter value
+        # Deduct score:
+        # - multiple rules
+        # - multiple logical operators
+        # - difference operators
+        # - exclusion has lower baseline score than inclusion criterion
+        # - new rule used
+        # - require parameter value
+        mapping['confidence'] = 99
+    return cast(list[ActinMapping], actin_mappings)
+
+
+def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> \
+list[ActinMapping]:
+    actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
+
     cat_criteria = identify_actin_categories(eligibility_criteria, client, actin_categories)
     sorted_cat_criteria = sort_criteria_by_category(cat_criteria)
+
     actin_mapping = map_to_actin_by_category(sorted_cat_criteria, client, actin_df)
+    actin_mapping = actin_mark_new_rules(actin_mapping, actin_rules)
+    actin_mapping = actin_mark_confidence_score(actin_mapping)
 
-    actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
-    return actin_mark_new_rules(actin_mapping, actin_rules)
+    return actin_mapping
 
 
-def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> dict[str, list[ActinMapping]]:
+def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame,
+                             actin_categories: list[str]) -> dict[str, list[ActinMapping]]:
     cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)
     logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
 
