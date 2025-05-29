@@ -74,24 +74,15 @@ Classify the following eligibility criteria:
 
 
 def sort_criteria_by_category(cat_criteria: dict) -> dict:
-
     sorted_cat_criteria = {}
-    temp_cat = None
-    temp_criteria = []
 
     for criterion, cat in cat_criteria.items():
         cat = tuple(cat)
 
-        if cat == temp_cat:
-            temp_criteria.append(criterion)
-        else:
-            if temp_cat is not None:
-                sorted_cat_criteria[temp_cat] = temp_criteria
-            temp_cat = cat
-            temp_criteria = [criterion]
+        if cat not in sorted_cat_criteria:
+            sorted_cat_criteria[cat] = []
 
-    if temp_criteria:
-        sorted_cat_criteria[temp_cat] = temp_criteria
+        sorted_cat_criteria[cat].append(criterion)
 
     return sorted_cat_criteria
 
