@@ -1,4 +1,6 @@
 import re
+from typing import Any
+
 from .criterion_schema import *
 
 CRITERION_CLASS_MAP = {
@@ -32,113 +34,109 @@ def parse_criterion(text: str) -> BaseCriterion:
     return load_criterion(parse_criterion_to_dict(text))
 
 def parse_criterion_to_dict(text: str) -> dict:
-    text = re.sub(r'\s+', ' ', text).strip()
+    return CriterionParser(text).consume_criterion()
 
-    def parse_expr(expr: str) -> dict:
-        expr = expr.strip()
-        # Match and{...}, or{...}, not{...}, if{...}
-        match = re.match(r'(\w+)\s*\{(.*)\}$', expr)
-        if match:
-            op, body = match.groups()
-            op = op.lower()
-            items = _split_top_level(body)
+class CriterionParser:
+    def __init__(self, text: str) -> None:
+        self.text: str = text
+        self.i: int = 0
+        self.n: int = len(text)
+        self.line_idx: int = 0
 
-            if op in ('and', 'or'):
-                return {
-                    "type": op,
-                    "criteria": [parse_expr(item) for item in items]
-                }
-            elif op == 'not':
-                return {
-                    "type": "not",
-                    "criterion": parse_expr(items[0])
-                }
-            elif op == 'if':
-                cond = parse_expr(items[0])
-                then = parse_expr(items[1])
-                else_ = parse_expr(items[2]) if len(items) > 2 else None
-                result = {"type": "if", "condition": cond, "then": then}
-                if else_:
-                    result["else"] = else_
-                return result
-            raise ValueError(f"Invalid expression: {expr}")
-        else:
-            # Match terminal: e.g., diagnosis(finding="...")
-            match = re.match(r'(\w+)\((.*)\)$', expr)
-            if not match:
-                raise ValueError(f"Invalid expression: {expr}")
-            criterion_type, args = match.groups()
-            return _parse_args(f'type="{criterion_type}", ' + args)
+    def error(self, message: str) -> None:
+        lines = self.text.splitlines()
+        start = max(0, self.line_idx - 2)
+        end = min(len(lines), self.line_idx + 1)
+        snippet = lines[start:end]
+        pointer = ' ' * (self.i - (self.text.rfind('\n', 0, self.i) + 1)) + '^'
+        raise ValueError(f"{message} (line {self.line_idx + 1}):\n" +
+                         '\n'.join(snippet) + f"\n{pointer}")
 
-    return parse_expr(text)
+    def peek(self) -> str:
+        return self.text[self.i] if self.i < self.n else ''
 
-def _split_top_level(s: str) -> list[str]:
-    parts = []
-    buf = ''
-    depth = 0
-    in_string = False
-    escape = False
+    def consume(self) -> str:
+        c = self.text[self.i]
+        self.i += 1
+        if c == '\n':
+            self.line_idx += 1
+        return c
 
-    for c in s:
-        if escape:
-            buf += c
-            escape = False
-            continue
-
-        if c == '\\':
-            buf += c
-            escape = True
-            continue
-
-        if c == '"' and not escape:
-            in_string = not in_string
-            buf += c
-            continue
-
-        if not in_string:
-            if c in '([{':
-                depth += 1
-            elif c in ')]}':
-                depth -= 1
-            if c == ',' and depth == 0:
-                parts.append(buf.strip())
-                buf = ''
-                continue
-
-        buf += c
-
-    if buf.strip():
-        parts.append(buf.strip())
-
-    return parts
-
-def _parse_args(s: str) -> dict:
-    def parse_block(b):
-        items = _split_top_level(b)
-        result = {}
-        for item in items:
-            item = item.strip()
-            # key=value
-            if '=' in item and not re.search(r'\w+\s*\(', item):
-                key, val = item.split('=', 1)
-                result[key.strip()] = parse_value(val.strip())
-            # key(...)
-            elif m := re.match(r'(\w+)\((.*)\)$', item):
-                key, inner = m.groups()
-                result[key] = parse_block(inner)
-            else:
-                raise ValueError(f"Unrecognized format: {item}")
+    def consume_while(self, condition: callable) -> str:
+        result: str = ''
+        while self.i < self.n and condition(self.text[self.i]):
+            c = self.text[self.i]
+            result += c
+            self.i += 1
+            if c == '\n':
+                self.line_idx += 1
         return result
 
-    def parse_value(v):
-        # Handle quoted strings
-        if v.startswith('"') and v.endswith('"'):
-            return v[1:-1]
-        elif v.lower() == 'true':
+    def consume_whitespace(self) -> None:
+        self.consume_while(str.isspace)
+
+    def consume_identifier(self) -> str:
+        return self.consume_while(lambda c: c.isalnum() or c == '_')
+
+    def consume_quoted_string(self) -> str:
+        if self.peek() != '"':
+            self.error("Expected opening quote for string")
+        self.i += 1  # skip opening quote
+        s: str = ''
+        escape: bool = False
+        while self.i < self.n:
+            c = self.text[self.i]
+            if escape:
+                s += c
+                escape = False
+            elif c == '\\':
+                s += c
+                escape = True
+            elif c == '"':
+                self.i += 1  # skip closing quote
+                break
+            else:
+                s += c
+            self.i += 1
+        return s.encode('raw_unicode_escape').decode('unicode_escape')
+
+    def is_eof(self) -> bool:
+        return self.i >= self.n
+
+    def startswith(self, s: str) -> bool:
+        return self.text.startswith(s, self.i)
+
+    def consume_list_like(self, open_char: str, close_char: str, consumer: callable):
+        self.consume_whitespace()
+        if (next_char := self.peek()) != open_char:
+            self.error(f"Expected '{open_char}', got '{next_char}'")
+        self.consume()
+        self.consume_whitespace()
+        if self.peek() == close_char:
+            self.consume()
+            return
+
+        while True:
+            self.consume_whitespace()
+            consumer()
+            self.consume_whitespace()
+            if (next_char := self.peek()) not in (',', close_char):
+                self.error(f"Expected ',' or '{close_char}', got '{next_char}'")
+            self.consume()
+            if next_char == close_char:
+                break
+
+    def consume_value(self) -> float | int | None | bool | list | str:
+        if self.startswith('"'):
+            return self.consume_quoted_string()
+        elif self.startswith('['):
+            return self.consume_list()
+        v = self.consume_while(lambda c: c.isalnum() or c in '._-')
+        if v == 'true':
             return True
-        elif v.lower() == 'false':
+        elif v == 'false':
             return False
-        elif v.lower() == 'null':
+        elif v == 'null':
             return None
         try:
             return int(v)
@@ -146,6 +144,83 @@ def _parse_args(s: str) -> dict:
             try:
                 return float(v)
             except ValueError:
-                return v  # fallback as raw string
+                self.error(f"Invalid expresison: {v}'")
 
-    return parse_block(s)
+    def consume_list(self) -> list:
+        items = []
+        self.consume_list_like('[', ']', lambda: items.append(self.consume_value()))
+        return items
+
+    def consume_braced_criteria(self) -> list[dict[str, Any]]:
+        criteria: list[dict[str, Any]] = []
+        self.consume_list_like('{', '}', lambda: criteria.append(self.consume_criterion()))
+        return criteria
+
+    def consume_braced_criterion(self) -> dict[str, Any]:
+        criteria = self.consume_braced_criteria()
+        if len(criteria) != 1:
+            self.error('Expected 1 criterion')
+        return criteria[0]
+
+    def consume_criterion(self) -> dict:
+        self.consume_whitespace()
+        if self.startswith('and') or self.startswith('or') or self.startswith('not') or self.startswith('if'):
+            op = self.consume_identifier()
+            if op in ('and', 'or'):
+                return {
+                    "type": op,
+                    "criteria": self.consume_braced_criteria()
+                }
+            elif op == 'not':
+                return {
+                    "type": "not",
+                    "criterion": self.consume_braced_criterion()
+                }
+            elif op == 'if':
+                cond = self.consume_braced_criterion()
+                self.consume_whitespace()
+
+                identifier = self.consume_identifier()
+                if identifier != 'then':
+                    self.error(f"Expected 'then' after 'if', got '{identifier}'")
+
+                then = self.consume_braced_criterion()
+
+                result = {"type": "if", "condition": cond, "then": then}
+
+                # check if there is else case
+                self.consume_whitespace()
+                if self.startswith('else_'):
+                    self.consume_identifier()
+                    result["else"] = self.consume_braced_criterion()
+                return result
+            self.error(f"Invalid expression: {op}")
+        else:
+            # Match terminal: e.g., diagnosis(finding="...")
+            criterion_type = self.consume_identifier()
+            args = self.consume_arg_list()
+            return {'type': criterion_type, **args}
+
+    def consume_arg_list(self) -> dict[str, Any]:
+        """
+        consume arg list in the form of (key1=val1, key2="val2", key3(k="v")) to a nested dict.
+        :return: dict of args.
+        """
+        args = {}
+
+        def consume_arg():
+            nonlocal args
+            key = self.consume_identifier()
+            self.consume_whitespace()
+            if self.peek() == '(':
+                # function style call
+                args[key] = self.consume_arg_list()
+            elif self.peek() == '=':
+                self.consume()
+                self.consume_whitespace()
+                args[key] = self.consume_value()
+            else:
+                self.error(f"Expected '=' after key, got {self.peek()} instead.")
+
+        self.consume_list_like('(', ')', consume_arg)
+        return args
