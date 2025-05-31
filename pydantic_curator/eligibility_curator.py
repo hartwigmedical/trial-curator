@@ -6,6 +6,7 @@ from json import JSONDecodeError
 
 from pydantic_curator.criterion_schema import BaseCriterion
 from pydantic_curator import criterion_schema
+from trialcurator.eligibility_curator_actin import load_actin_resource
 from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
@@ -21,38 +22,56 @@ CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in Ba
 INSTRUCTION_CRITERION_TYPES = {
     '- Use `PrimaryTumorCriterion` for tumor types and / or locations (e.g., melanoma, prostate).'
     : ['PrimaryTumor'],
+
     '- Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).'
     : ['MolecularBiomarker'],
+
     '- Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).'
     : ['MolecularSignature'],
+
     '- Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion). \
 When specifying protein variants, always use the HGVS protein notation format.'
     : ['GeneAlteration'],
-    '- Use `LabValueCriterion` only for lab-based requirements that have lab measurement, unit, value, and operator.'
+
+    '- Use `LabValueCriterion` for lab-based requirements that have lab measurement, unit, value, and operator.'
     : ['LabValue'],
-    '- Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive melanoma").'
+
+    '- Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive \
+melanoma").'
     : ['PrimaryTumor', 'MolecularSignature'],
+
     '- Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", \
-    "mucinous histology"). Use PrimaryTumorCriterion together with HistologyCriterion for tumor types + histologic type.'
+"mucinous histology"). Use PrimaryTumorCriterion together with HistologyCriterion for tumor types + histologic type. \
+Multiple histology types must be seperated into multiple HistologyCriterion wrapped inside OrCriterion.'
     : ['Histology', 'PrimaryTumor'],
+
     '- DiagnosticFindingCriterion for statements like "histological confirmation of cancer", but use only PrimaryTumorCriterion \
 if specific tumor type or location is mentioned (e.g., "histological confirmation of melanoma").'
     : ['DiagnosticFinding', ' PrimaryTumor', 'Histology'],
-    '- Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related to the tumor. \
-measurements like lab values.'
+
+    '- Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related \
+to the tumor.'
     : ['Symptom'],
+
     '- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
 ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.'
     : ['PrimaryTumorCriterion', 'Comorbidity'],
+
     '- Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
 explicit "if...then" or equivalent.'
     : ['PriorTherapy'],
+
     '- Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
 not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.'
     : ['TreatmentOption'],
-    '- Use `ClinicalJudgementCriterion` only for subjective clinical assessment that are not defined or followed by objective \
-measurements like lab values.'
+
+    '''- Use `ClinicalJudgementCriterion` only for subjective clinical assessment that are not defined or followed by \
+objective measurements like lab values.
+- If a criterion includes subjective or qualitative language (e.g., "adequate", "sufficient", "acceptable") but \
+provides a concrete lab-based threshold (e.g., a named lab test with a value and unit), the *entire criterion* must be \
+modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in these cases.**'''
     : ['ClinicalJudgement', 'LabValue'],
+
     '- Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
 , population qualifiers, or general clinical appropriateness.'
     : ['Other']
@@ -175,7 +194,8 @@ structured format using a predefined Python schema.'''
     prompt = f'{extract_criterion_schema_classes(criteria_types)}\n'
     prompt += 'Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the following \
 criteria:\n'
-    prompt += f'''```
+    prompt += f'''
+```
 {criteria_text}
 ```
 
@@ -194,6 +214,9 @@ top-level criterion, wrapping all relevant subconditions using AndCriterion, OrC
   - sub-bullet points with original formatting.
 - Non–top-level criteria: the description must provide a complete, self-contained explanation of the original criterion.
 - The `description` field must always be populated for every criterion, including composite criteria.
+
+# Confidence field
+- Use `confidence` field to indicate the confidence level (0 - 1) that the curation is accurate. 1 being most confident.
 
 # Composite Criterion
 - When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
@@ -368,7 +391,7 @@ def main():
 
     # if we have ACTIN specified, curate it also
     if args.out_actin:
-        actin_rules = load_actin_rules(args.actin_rules)
+        actin_rules = load_actin_resource(args.actin_rules)
         cohort_actin = {}
         for cohort_name, tagged_text in cohort_texts.items():
             actin_mapping = actin_map_by_batch(tagged_text, client, actin_rules, BATCH_SIZE)

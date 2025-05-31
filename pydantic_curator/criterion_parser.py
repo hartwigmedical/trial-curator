@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any
 
@@ -36,6 +37,10 @@ def parse_criterion(text: str) -> BaseCriterion:
 def parse_criterion_to_dict(text: str) -> dict:
     return CriterionParser(text).consume_criterion()
 
+class ParseError(ValueError):
+    """Raised when the CriterionParser encounters a syntax or structure error."""
+    pass
+
 class CriterionParser:
     def __init__(self, text: str) -> None:
         self.text: str = text
@@ -43,13 +48,13 @@ class CriterionParser:
         self.n: int = len(text)
         self.line_idx: int = 0
 
-    def error(self, message: str) -> None:
+    def raise_error(self, message: str) -> None:
         lines = self.text.splitlines()
         start = max(0, self.line_idx - 2)
         end = min(len(lines), self.line_idx + 1)
         snippet = lines[start:end]
         pointer = ' ' * (self.i - (self.text.rfind('\n', 0, self.i) + 1)) + '^'
-        raise ValueError(f"{message} (line {self.line_idx + 1}):\n" +
+        raise ParseError(f"{message} (line {self.line_idx + 1}):\n" +
                          '\n'.join(snippet) + f"\n{pointer}")
 
     def peek(self) -> str:
@@ -80,7 +85,7 @@ class CriterionParser:
 
     def consume_quoted_string(self) -> str:
         if self.peek() != '"':
-            self.error("Expected opening quote for string")
+            self.raise_error("Expected opening quote for string")
         self.i += 1  # skip opening quote
         s: str = ''
         escape: bool = False
@@ -109,7 +114,7 @@ class CriterionParser:
     def consume_list_like(self, open_char: str, close_char: str, consumer: callable):
         self.consume_whitespace()
         if (next_char := self.peek()) != open_char:
-            self.error(f"Expected '{open_char}', got '{next_char}'")
+            self.raise_error(f"Expected '{open_char}', got '{next_char}'")
         self.consume()
         self.consume_whitespace()
         if self.peek() == close_char:
@@ -121,7 +126,7 @@ class CriterionParser:
             consumer()
             self.consume_whitespace()
             if (next_char := self.peek()) not in (',', close_char):
-                self.error(f"Expected ',' or '{close_char}', got '{next_char}'")
+                self.raise_error(f"Expected ',' or '{close_char}', got '{next_char}'")
             self.consume()
             if next_char == close_char:
                 break
@@ -144,7 +149,7 @@ class CriterionParser:
             try:
                 return float(v)
             except ValueError:
-                self.error(f"Invalid expresison: {v}'")
+                self.raise_error(f"Invalid expresison: {v}'")
 
     def consume_list(self) -> list:
         items = []
@@ -159,47 +164,46 @@ class CriterionParser:
     def consume_braced_criterion(self) -> dict[str, Any]:
         criteria = self.consume_braced_criteria()
         if len(criteria) != 1:
-            self.error('Expected 1 criterion')
+            self.raise_error('Expected 1 criterion')
         return criteria[0]
 
     def consume_criterion(self) -> dict:
         self.consume_whitespace()
-        if self.startswith('and') or self.startswith('or') or self.startswith('not') or self.startswith('if'):
-            op = self.consume_identifier()
-            if op in ('and', 'or'):
-                return {
-                    "type": op,
-                    "criteria": self.consume_braced_criteria()
-                }
-            elif op == 'not':
-                return {
-                    "type": "not",
-                    "criterion": self.consume_braced_criterion()
-                }
-            elif op == 'if':
-                cond = self.consume_braced_criterion()
-                self.consume_whitespace()
+        identifier = self.consume_identifier()
+        self.consume_whitespace()
+        if identifier == 'and' or identifier == 'or':
+            return {
+                "type": identifier,
+                "criteria": self.consume_braced_criteria()
+            }
+        elif identifier == 'not':
+            return {
+                "type": "not",
+                "criterion": self.consume_braced_criterion()
+            }
+        elif identifier == 'if':
+            cond = self.consume_braced_criterion()
+            self.consume_whitespace()
 
-                identifier = self.consume_identifier()
-                if identifier != 'then':
-                    self.error(f"Expected 'then' after 'if', got '{identifier}'")
+            identifier = self.consume_identifier()
+            if identifier != 'then':
+                self.raise_error(f"Expected 'then' after 'if', got '{identifier}'")
 
-                then = self.consume_braced_criterion()
+            then = self.consume_braced_criterion()
 
-                result = {"type": "if", "condition": cond, "then": then}
+            result = {"type": "if", "condition": cond, "then": then}
 
-                # check if there is else case
-                self.consume_whitespace()
-                if self.startswith('else_'):
-                    self.consume_identifier()
-                    result["else"] = self.consume_braced_criterion()
-                return result
-            self.error(f"Invalid expression: {op}")
+            # check if there is else case
+            self.consume_whitespace()
+            if self.startswith('else'):
+                if (identifier := self.consume_identifier()) != 'else':
+                    self.raise_error(f"Expected 'else' after 'if', got '{identifier}'")
+                result["else"] = self.consume_braced_criterion()
+            return result
         else:
             # Match terminal: e.g., diagnosis(finding="...")
-            criterion_type = self.consume_identifier()
             args = self.consume_arg_list()
-            return {'type': criterion_type, **args}
+            return {'type': identifier, **args}
 
     def consume_arg_list(self) -> dict[str, Any]:
         """
@@ -220,7 +224,7 @@ class CriterionParser:
                 self.consume_whitespace()
                 args[key] = self.consume_value()
             else:
-                self.error(f"Expected '=' after key, got {self.peek()} instead.")
+                self.raise_error(f"Expected '=' after key, got {self.peek()} instead.")
 
         self.consume_list_like('(', ')', consume_arg)
         return args

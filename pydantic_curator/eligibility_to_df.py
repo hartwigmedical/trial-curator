@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer, SimilarityFunction
 from trialcurator.actin_formatter import format_actin_rule
 from trialcurator.criterion_compare import criterion_diff
 from pydantic_curator.criterion_schema import *
-from pydantic_curator.criterion_serializer import CriterionSerializer
+from pydantic_curator.criterion_formatter import CriterionFormatter
 from pydantic_curator.eligibility_py_loader import exec_file_into_variable
 from trialcurator.utils import deep_remove_field
 
@@ -26,7 +26,7 @@ class EligibilityRule(NamedTuple):
 
 # format it nicely by using key=value and remove quotes
 def format_criterion(c: BaseCriterion) -> str:
-    return CriterionSerializer.serialize(c)
+    return CriterionFormatter.format(c)
 
 # generate rule id
 def process(parent_rule_id: str, c: BaseCriterion, child_id: int, rule_list: list[EligibilityRule]):
@@ -93,7 +93,7 @@ def count_rule_types(criterion: BaseCriterion, rule_type_counts: dict[str, int])
             count_rule_types(criterion.else_, rule_type_counts)
 
 # add all these rules into a panda dictionary
-def criteria_to_rule_count_df(trial_id, criteria: list[BaseCriterion]) -> pd.DataFrame:
+def criteria_to_rule_count_df(trial_id, cohort, criteria: list[BaseCriterion]) -> pd.DataFrame:
     rule_ids = []
     rule_nums = []
     rule_types_counts = {t: [] for t in rule_types}
@@ -112,6 +112,7 @@ def criteria_to_rule_count_df(trial_id, criteria: list[BaseCriterion]) -> pd.Dat
 
     data = {
         "TrialId": [trial_id] * len(criteria),
+        "Cohort": [cohort] * len(criteria),
         "RuleNum": rule_nums,
         "RuleId": rule_ids,
         "Description": descriptions,
@@ -160,7 +161,6 @@ def main():
         logger.info(f"processing trial: {trial_id}")
 
         py_file = f"{args.trial_py_dir}/{trial_id}.py"
-        df = None
 
         try:
             cohort_criteria = exec_file_into_variable(py_file)
@@ -168,25 +168,29 @@ def main():
             logger.warning(f'failed to load {py_file}, error: {e}')
             continue
 
-        # for now we just take the first cohort
-        criteria = cohort_criteria[list(cohort_criteria.keys())[0]]
-        #dfs.append(criteria_to_df(trial_id, criteria))
-        df = criteria_to_rule_count_df(trial_id, criteria)
+        cohort_actin_mappings = None
 
         if args.trial_actin_dir:
             # load the curated actin rules as well
             with open(f"{args.trial_actin_dir}/{trial_id}.actin.json", 'r') as f:
-                # only first cohort for now
-                actin_mappings = json.load(f)[list(cohort_criteria.keys())[0]]
+                cohort_actin_mappings = json.load(f)
 
-            # match the cohort rules up
-            # TODO: work out how to deal with empty description
-            df = df.merge(merge_py_actin_criteria(criteria, actin_mappings, fuzzymatch_model),
-                          on='Description', how='right', sort=False)
+        # process cohort by cohort
+        for cohort, criteria in cohort_criteria.items():
+            df = criteria_to_rule_count_df(trial_id, cohort, criteria)
 
-        # make sure the trial id field is always set
-        df["TrialId"] = trial_id
-        dfs.append(df)
+            if cohort_actin_mappings is not None and cohort in cohort_actin_mappings:
+                actin_mappings = cohort_actin_mappings[cohort]
+                # load the curated actin rules as well
+                # match the cohort rules up
+                # TODO: work out how to deal with empty description
+                df = df.merge(merge_py_actin_criteria(criteria, actin_mappings, fuzzymatch_model),
+                              on='Description', how='right', sort=False)
+
+            # make sure the trial id and cohort field is always set
+            df["TrialId"] = trial_id
+            df["Cohort"] = cohort
+            dfs.append(df)
 
     df = pd.concat(dfs)
     df.to_csv(args.out_df, sep='\t', index=False)
