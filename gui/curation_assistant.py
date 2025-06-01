@@ -1,141 +1,98 @@
 import logging
 import os
-import inspect
-from abc import ABC
-from typing import Dict, Any, Type
+import pandas as pd
 from nicegui import ui
 
 from gui.criterion_editor import CriterionEditor
+from pydantic_curator.criterion_parser import parse_criterion
 from pydantic_curator.criterion_schema import *
-from pydantic_curator.eligibility_py_loader import exec_file_into_variable
 
 logger = logging.getLogger(__name__)
 
 BUTON_CLASS = 'bg-blue-500 text-sm'
 
-def build_criterion_tree_data(criterion: BaseCriterion) -> dict:
-    """Build tree data structure for a criterion."""
-    criterion_type = criterion.__class__.__name__
-
-    # For composite criteria (And, Or, Not, If)
-    if isinstance(criterion, AndCriterion):
-        return {
-            'id': f"{criterion_type}: {criterion.description or 'AND Condition'}",
-            'children': [build_criterion_tree_data(sub) for sub in criterion.criteria]
-        }
-    elif isinstance(criterion, OrCriterion):
-        return {
-            'id': f"{criterion_type}: {criterion.description or 'OR Condition'}",
-            'children': [build_criterion_tree_data(sub) for sub in criterion.criteria]
-        }
-    elif isinstance(criterion, NotCriterion):
-        return {
-            'id': f"{criterion_type}: {criterion.description or 'NOT Condition'}",
-            'children': [build_criterion_tree_data(criterion.criterion)]
-        }
-    elif isinstance(criterion, IfCriterion):
-        children = [
-            {'id': 'Condition:', 'children': [build_criterion_tree_data(criterion.condition)]},
-            {'id': 'Then:', 'children': [build_criterion_tree_data(criterion.then)]}
-        ]
-        if criterion.else_:
-            children.append({'text': 'Else:', 'children': [build_criterion_tree_data(criterion.else_)]})
-        return {
-            'id': f"{criterion_type}: {criterion.description or 'IF Condition'}",
-            'children': children
-        }
-    else:
-        # For simple criteria
-        details = []
-        for field_name, field_value in criterion:
-            if field_name != 'description' and field_value is not None:
-                if isinstance(field_value, BaseModel):
-                    nested_data = field_value.model_dump()
-                    nested_str = ", ".join(f"{k}: {v}" for k, v in nested_data.items() if v is not None)
-                    details.append(f"{field_name}: {{{nested_str}}}")
-                elif isinstance(field_value, list) and field_value:
-                    details.append(f"{field_name}: [{', '.join(str(item) for item in field_value)}]")
-                else:
-                    details.append(f"{field_name}: {field_value}")
-
-        criterion_details = " | ".join(details)
-        display_text = f"{criterion_type}: {criterion.description or criterion_details}"
-        return {'id': display_text}
-
-
 class CurationAssistant:
     def __init__(self):
-        self.cohort_criteria = {}
+        self.trial_df = None
+        self.trial_viewer = None
         self.cohort_viewer = None
         self.criterion_viewer = None
+        self.page_size = 10
 
     @staticmethod
-    def get_criterion_classes() -> Dict[str, Type[BaseCriterion]]:
-        """Get all criterion classes from the schema."""
-        criterion_classes = {}
-        for name, obj in globals().items():
-            if (inspect.isclass(obj) and issubclass(obj, BaseCriterion) and
-                    obj != BaseCriterion and not ABC in obj.__bases__):
-                criterion_classes[name] = obj
-        return criterion_classes
-
-    @staticmethod
-    def criterion_to_dict(criterion: BaseCriterion) -> Dict[str, Any]:
-        """Convert a criterion to a dictionary with its class name."""
-        data = criterion.model_dump()
-        data['_type'] = criterion.__class__.__name__
-
-        # Handle nested criteria for composite types
-        if isinstance(criterion, (AndCriterion, OrCriterion)):
-            data['criteria'] = [CurationAssistant.criterion_to_dict(c) for c in criterion.criteria]
-        elif isinstance(criterion, NotCriterion):
-            data['criterion'] = CurationAssistant.criterion_to_dict(criterion.criterion)
-        elif isinstance(criterion, IfCriterion):
-            data['condition'] = CurationAssistant.criterion_to_dict(criterion.condition)
-            data['then'] = CurationAssistant.criterion_to_dict(criterion.then)
-            if criterion.else_:
-                data['else'] = CurationAssistant.criterion_to_dict(criterion.else_)
-
-        # Handle TimingInfo
-        if hasattr(criterion, 'timing_info') and criterion.timing_info:
-            data['timing_info'] = criterion.timing_info.model_dump()
-            if criterion.timing_info.window_days:
-                data['timing_info']['window_days'] = criterion.timing_info.window_days.model_dump()
-
-        return data
-
-    @staticmethod
-    def load_criteria_from_file(file_path: str) -> Dict[str, list[BaseCriterion]]:
-        """Load eligibility criteria from a Python file in format {cohort: list[BaseCriterion]}."""
+    def load_trial_df(file_path: str) -> pd.DataFrame | None:
+        """Load eligibility criteria from a TSV file."""
         file_path = os.path.expanduser(file_path)
         try:
-            # Check if file exists
             if not os.path.exists(file_path):
-                return {}
-
-            # Find all dictionaries with BaseCriterion values in the module
-            cohort_criteria = exec_file_into_variable(file_path)
-            return cohort_criteria
+                return None
+            return pd.read_csv(file_path, sep='\t')
         except Exception as e:
             ui.notify(f"Error loading file: {str(e)}", type="negative")
-            return {}
+            return None
 
-    def update_cohort_viewer(self):
+    def update_trial_viewer(self):
+        self.trial_viewer.clear()
+
+        with self.trial_viewer:
+            if self.trial_df is None:
+                with self.trial_viewer:
+                    ui.label('No trials loaded').classes('text-italic')
+                    return
+
+            ui.label('Trial IDs:').classes('text-h6 font-bold')
+            trial_id_container = ui.element().classes('w-full h-full')
+
+            trial_ids = self.trial_df['TrialId'].unique().tolist()
+
+            page_size = 10
+            total_pages = (len(trial_ids) + page_size - 1) // page_size
+
+            def show_page(page: int):
+                trial_id_container.clear()
+                start_idx = page * page_size
+                end_idx = min(start_idx + page_size, len(trial_ids))
+                with trial_id_container:
+                    with ui.grid(columns=2).classes('gap-4 w-full'):
+                        for idx in range(start_idx, end_idx):
+                            trial_id = trial_ids[idx]
+                            ui.label(f"Trial ID: {trial_id}").classes('border shadow-sm p-2 rounded')
+                            ui.button('View', on_click=lambda r=trial_id: self.switch_to_trial(r)).classes(
+                                'bg-green-500 text-sm')
+                    ui.pagination(1, total_pages, on_change=lambda e: show_page(e.value - 1)).classes('mt-4')
+
+            show_page(0)
+
+    def display_trial(self, trial_row: pd.Series):
+        self.criterion_viewer.clear()
+        with self.criterion_viewer:
+            with ui.card().classes('w-full'):
+                for col in trial_row.index:
+                    with ui.row().classes('items-center gap-2'):
+                        ui.label(f"{col}:").classes('font-bold')
+                        ui.label(str(trial_row[col]))
+
+    def switch_to_trial(self, trial_id):
+        # show all the cohorts
+
         self.cohort_viewer.clear()
 
-        if not self.cohort_criteria:
-            with self.cohort_viewer:
+        with self.cohort_viewer:
+            if self.trial_df.empty:
                 ui.label('No criteria loaded').classes('text-italic')
                 return
 
-        # Group by cohort
-        with self.cohort_viewer:
-            with ui.grid(columns=2).classes('gap-4 w-full'):
-                for cohort, criteria in self.cohort_criteria.items():
-                    ui.label(f"{cohort}").classes('border shadow-sm p-2 rounded')
+            cohorts = self.trial_df[self.trial_df['TrialId'] == trial_id]['Cohort'].unique().tolist()
+            logger.info(f"cohorts: {cohorts}")
+
+            ui.label(f'Cohorts for trial ID: {trial_id}').classes('text-h6 font-bold')
+
+            with ui.grid(columns=3).classes('gap-4 w-full'):
+                for cohort in cohorts:
+                    # spans 2 columns
+                    ui.label(f"{cohort}").classes('col-span-2 border shadow-sm p-2 rounded')
                     ui.button('View',
-                              on_click=lambda c=cohort, cr=criteria: self.display_criteria(c,
-                                                                                           cr)).classes(
+                              on_click=lambda: self.display_criteria(trial_id, cohort)).classes(
                         'bg-green-500 text-sm')
 
     # Main Application
@@ -147,7 +104,7 @@ class CurationAssistant:
             with ui.column().classes('w-1/5'):
                 with ui.card().classes('w-full'):
                     # File input section
-                    file_path = ui.input(label='File Path').classes('w-full text-sm border rounded')
+                    file_path = ui.input(label='TSV File Path').classes('w-full text-sm border rounded')
 
                     # Load button
                     def load_file():
@@ -155,26 +112,23 @@ class CurationAssistant:
                             ui.notify('Please provide a file path', type='warning')
                             return
 
-                        self.cohort_criteria = self.load_criteria_from_file(file_path.value)
-                        if self.cohort_criteria:
-                            ui.notify(f'Successfully loaded {len(self.cohort_criteria)} cohort criteria',
+                        self.trial_df = self.load_trial_df(file_path.value)
+                        if self.trial_df is not None:
+                            ui.notify(f'Successfully loaded {len(self.trial_df)} trials',
                                       type='positive')
-                            self.update_cohort_viewer()
+                            self.update_trial_viewer()
 
                             if self.criterion_viewer:
                                 self.criterion_viewer.clear()
                         else:
-                            ui.notify('No criteria found in file', type='warning')
+                            ui.notify('No trials found in file', type='warning')
 
                     ui.button('Load File', on_click=load_file).classes(BUTON_CLASS)
 
-                # cohort viewer
-                with ui.card().classes('w-full mt-4'):
-                    ui.label('Cohorts:')
-                    self.cohort_viewer = ui.element().classes('w-full h-full')
-
-                    # Initial update
-                    self.update_cohort_viewer()
+                # trial viewer
+                self.trial_viewer = ui.card().classes('w-full mt-4')
+                self.cohort_viewer = self.trial_viewer
+                self.update_trial_viewer()
 
             # Right panel - Criterion Viewer
             with ui.column().classes('w-4/5'):
@@ -188,7 +142,14 @@ class CurationAssistant:
         except Exception as e:
             ui.notify(f'Error saving criteria: {str(e)}', type='negative')
 
-    def display_criteria(self, cohort: str, criteria: list[BaseCriterion]):
+    def display_criteria(self, trial_id: str, cohort: str):
+
+        # load up all the criteria
+        criteria_df = self.trial_df[(self.trial_df['TrialId'] == trial_id) & (self.trial_df['Cohort'] == cohort)]
+
+        # convert them to criterion objects
+        criteria = criteria_df.apply(lambda row: (row['Description'], parse_criterion(row['Values'])), axis=1)
+
         self.criterion_viewer.clear()
         with self.criterion_viewer:
             with ui.row().classes('items-center gap-2'):
@@ -201,9 +162,9 @@ class CurationAssistant:
                 ui.label('Code').classes('border shadow-sm p-2 rounded col-span-2')
 
             with ui.grid(columns=3).classes('grid-cols-2 gap-2 w-full'):
-                for criterion in criteria:
+                for description, criterion in criteria:
                     with ui.card():
-                        ui.label(criterion.description).classes('text-base')
+                        ui.label(description).classes('text-base')
                     CriterionEditor(criterion).get().classes('col-span-2 p-3')
 
 

@@ -1,4 +1,3 @@
-import json
 import re
 from typing import Any
 
@@ -81,9 +80,11 @@ class CriterionParser:
         self.consume_while(str.isspace)
 
     def consume_identifier(self) -> str:
+        self.consume_whitespace()
         return self.consume_while(lambda c: c.isalnum() or c == '_')
 
     def consume_quoted_string(self) -> str:
+        self.consume_whitespace()
         if self.peek() != '"':
             self.raise_error("Expected opening quote for string")
         self.i += 1  # skip opening quote
@@ -168,7 +169,6 @@ class CriterionParser:
         return criteria[0]
 
     def consume_criterion(self) -> dict:
-        self.consume_whitespace()
         identifier = self.consume_identifier()
         self.consume_whitespace()
         if identifier == 'and' or identifier == 'or':
@@ -183,8 +183,6 @@ class CriterionParser:
             }
         elif identifier == 'if':
             cond = self.consume_braced_criterion()
-            self.consume_whitespace()
-
             identifier = self.consume_identifier()
             if identifier != 'then':
                 self.raise_error(f"Expected 'then' after 'if', got '{identifier}'")
