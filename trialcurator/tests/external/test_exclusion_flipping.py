@@ -1,4 +1,4 @@
-import unittest
+import pytest
 
 from trialcurator.eligibility_sanitiser import llm_simplify_text_logic
 from trialcurator.openai_client import OpenaiClient
@@ -7,14 +7,13 @@ from trialcurator.openai_client import OpenaiClient
 # NCT00875433
 # TO DO: Serum creatinine > 1.5 x ULN or calculated/measured creatinine clearance ≥ 45 mL/min. --> checking this rule is medically incorrect as clearance should be <=
 
-class TestExclusionFlipping(unittest.TestCase):
+@pytest.fixture
+def client():
+    return OpenaiClient()
+    # return GeminiClient()
 
-    def setUp(self):
-        self.client = OpenaiClient()
-        #self.client = GeminiClient()
-
-    def test_flip_labvalue_exclusion(self):
-        input_text = '''
+def test_flip_labvalue_exclusion(client):
+    input_text = '''
 EXCLUDE QTcF interval > 470 ms at screening.
 EXCLUDE PR interval > 230 ms at screening.
 EXCLUDE QRS interval > 120 ms at screening.
@@ -25,7 +24,7 @@ EXCLUDE AST ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
 EXCLUDE ALT ≥ 3 × ULN (if related to liver metastases > 5 × ULN).
 '''
 
-        expected_output_text = '''INCLUDE QTcF interval ≤ 470 ms at screening
+    expected_output_text = '''INCLUDE QTcF interval ≤ 470 ms at screening
 INCLUDE PR interval ≤ 230 ms at screening
 INCLUDE QRS interval ≤ 120 ms at screening
 INCLUDE ANC ≥ 1,500/mm^3
@@ -34,58 +33,58 @@ INCLUDE Bilirubin ≤ 1.5 mg/dL (≤ 26 μmol/L, SI unit equivalent)
 INCLUDE AST < 3 × ULN (if related to liver metastases ≤ 5 × ULN)
 INCLUDE ALT < 3 × ULN (if related to liver metastases ≤ 5 × ULN)'''
 
-        output_text = llm_simplify_text_logic(input_text, self.client)
+    output_text = llm_simplify_text_logic(input_text, client)
 
-        # remove any trailing fullstops
-        output_text = output_text.replace('.\n', '\n')
+    # remove any trailing fullstops
+    output_text = output_text.replace('.\n', '\n')
 
-        # check that the number of trial groups are the same
-        self.assertEqual(expected_output_text, output_text)
+    # check that the number of trial groups are the same
+    assert output_text == expected_output_text
 
-    def test_non_labvalue_exclusion(self):
-        input_text = '''
+def test_non_labvalue_exclusion(client):
+    input_text = '''
 EXCLUDE Does not demonstrate adequate organ function as defined by laboratory limits.
 EXCLUDE Prior radiotherapy within 2 weeks of start of study intervention.
 EXCLUDE Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline.
 '''
 
-        expected_output_text = '''INCLUDE Demonstrates adequate organ function as defined by laboratory limits
+    expected_output_text = '''INCLUDE Demonstrates adequate organ function as defined by laboratory limits
 EXCLUDE Prior radiotherapy within 2 weeks of start of study intervention
 EXCLUDE Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline'''
 
-        output_text = llm_simplify_text_logic(input_text, self.client)
-        # remove any trailing fullstops
-        output_text = output_text.replace('.\n', '\n')
+    output_text = llm_simplify_text_logic(input_text, client)
+    # remove any trailing fullstops
+    output_text = output_text.replace('.\n', '\n')
 
-        # check that the number of trial groups are the same
-        self.assertEqual(expected_output_text, output_text)
+    # check that the number of trial groups are the same
+    assert output_text == expected_output_text
 
-    def test_redundant_phrasing(self):
-        input_text = '''
+def test_redundant_phrasing(client):
+    input_text = '''
 EXCLUDE Participants must not have diabetes
 EXCLUDE Participants must not have EGFR mutation
 '''
 
-        expected_output_text = '''EXCLUDE Patients who have diabetes
+    expected_output_text = '''EXCLUDE Patients who have diabetes
 EXCLUDE Patients who have EGFR mutation'''
 
-        output_text = llm_simplify_text_logic(input_text, self.client)
-        # remove any trailing fullstops
-        output_text = output_text.replace('.\n', '\n')
+    output_text = llm_simplify_text_logic(input_text, client)
+    # remove any trailing fullstops
+    output_text = output_text.replace('.\n', '\n')
 
-        # sometimes the output uses Participants instead of Patients, harmonise it
-        output_text = output_text.replace('Participants', 'patients')
-        output_text = output_text.replace('patients', 'Patients')
+    # sometimes the output uses Participants instead of Patients, harmonise it
+    output_text = output_text.replace('Participants', 'patients')
+    output_text = output_text.replace('patients', 'Patients')
 
-        # check that the number of trial groups are the same
-        self.assertEqual(expected_output_text, output_text)
+    # check that the number of trial groups are the same
+    assert output_text == expected_output_text
 
-    def test_difficult_flipping(self):
-        input_text = '''EXCLUDE Haematocrit ≥ 50%, untreated severe obstructive sleep apnea or poorly controlled heart failure (NYHA > 1)
-        '''
-        expected_output_text = '''INCLUDE Haematocrit < 50%
+def test_difficult_flipping(client):
+    input_text = '''EXCLUDE Haematocrit ≥ 50%, untreated severe obstructive sleep apnea or poorly controlled heart failure (NYHA > 1)
+    '''
+    expected_output_text = '''INCLUDE Haematocrit < 50%
 EXCLUDE untreated severe obstructive sleep apnea
 EXCLUDE poorly controlled heart failure (NYHA > 1)'''
 
-        output_text = llm_simplify_text_logic(input_text, self.client)
-        self.assertEqual(expected_output_text, output_text)
+    output_text = llm_simplify_text_logic(input_text, client)
+    assert output_text == expected_output_text

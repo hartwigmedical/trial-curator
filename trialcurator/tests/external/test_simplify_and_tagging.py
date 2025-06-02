@@ -1,20 +1,18 @@
-import unittest
+import pytest
 
 from trialcurator.eligibility_sanitiser import llm_tag_text
 from trialcurator.openai_client import OpenaiClient
 
 # test that this input gets the following output
+@pytest.fixture
+def client():
+    return OpenaiClient()
+    # return GeminiClient()
 
-class TestSimplifyAndTagging(unittest.TestCase):
+# test that simplify and tagging gets the correct output
+def test_simplify_and_tag_text(client):
 
-    def setUp(self):
-        self.client = OpenaiClient()
-        #self.client = GeminiClient()
-
-    # test that simplify and tagging gets the correct output
-    def test_simplify_and_tag_text(self):
-
-        input_text = '''
+    input_text = '''
 Inclusion Criteria:
 
 - Age ≥ 18 years
@@ -50,7 +48,7 @@ Exclusion Criteria:
 - Recent myocardial infarction (< 6 months) or unstable angina
 '''
 
-        expected_output_text = '''
+    expected_output_text = '''
 INCLUDE Age ≥ 18 years
 INCLUDE Biopsy proven primary adenocarcinoma (or undifferentiated carcinoma) of the stomach, including tumors at the oesophagogastric junction provided that the bulk of the tumor is located in the stomach, and the intended surgical treatment is a gastric resection and not an oesophagectomy
 INCLUDE cT3-cT4 tumor (TNM classification, 7th edition), considered to be resectable (including lymph nodes)
@@ -78,5 +76,5 @@ EXCLUDE A known history of HBV or HCV with active viral replication
 EXCLUDE Recent myocardial infarction (< 6 months) or unstable angina
 '''
 
-        output_text = llm_tag_text(input_text, self.client)
-        self.assertEqual(expected_output_text, output_text)
+    output_text = llm_tag_text(input_text, client)
+    assert output_text == expected_output_text

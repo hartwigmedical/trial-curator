@@ -1,5 +1,5 @@
 import re
-import unittest
+import pytest
 
 from trialcurator.eligibility_sanitiser import llm_sanitise_text
 from trialcurator.openai_client import OpenaiClient
@@ -9,15 +9,13 @@ def remove_blank_lines_and_trailing_footstops(text: str) -> str:
             .strip('.\n\r')
             .replace('.\n', '\n'))
 
-class TestTextSanitisation(unittest.TestCase):
+@pytest.fixture
+def client():
+    return OpenaiClient()
+    # return GeminiClient()
 
-    def setUp(self):
-        self.client = OpenaiClient()
-        # self.client = GeminiClient()
-
-    def test_criterion_retention_and_removal(self):
-
-        input_text = '''
+def test_criterion_retention_and_removal(client):
+    input_text = '''
 Key Inclusion Criteria:
 1. Has an Eastern Cooperative Oncology Group (ECOG) performance status of 0 or 1.
 5. Willing to provide tumor tissue from newly obtained biopsy from a tumor site that has not been previously irradiated
@@ -27,47 +25,48 @@ Key Inclusion Criteria:
 9. Patient's informed consent is required.
 '''
 
-        expected_output_text = '''Inclusion Criteria:
+    expected_output_text = '''Inclusion Criteria:
 - ECOG performance status of 0 or 1
 - Willing to provide tumor tissue from a newly obtained biopsy from a tumor site that has not been previously irradiated
 - Adequate organ and bone marrow function as defined in the protocol
 - In the judgment of the investigator, has a life expectancy of at least 3 months'''
 
-        output_text = llm_sanitise_text(input_text, self.client)
+    output_text = llm_sanitise_text(input_text, client)
 
-        # remove preceding and trailing blank lines and trailing fullstops
-        output_text = output_text = remove_blank_lines_and_trailing_footstops(output_text)
+    # remove preceding and trailing blank lines and trailing fullstops
+    output_text = output_text = remove_blank_lines_and_trailing_footstops(output_text)
 
-        # check that each condition is the one we want. For some rules it seems to change
-        # between runs so we look for the substring to check
-        # i.e. radiotherapy is allowed and patient consent removed, the rest retained
-        lines = output_text.split('\n')
-        self.assertEqual(len(lines), 5)
-        self.assertEqual(lines[0], 'Inclusion Criteria:')
-        self.assertIn('ECOG performance status of 0 or 1', lines[1])
-        self.assertEqual(lines[2], '- Willing to provide tumor tissue from a newly obtained biopsy from a tumor site that has not been previously irradiated')
-        self.assertIn('adequate organ and bone marrow function', lines[3].lower())
-        self.assertIn('life expectancy of at least 3 months', lines[4].lower())
+    # check that each condition is the one we want. For some rules it seems to change
+    # between runs so we look for the substring to check
+    # i.e. radiotherapy is allowed and patient consent removed, the rest retained
+    lines = output_text.split('\n')
+    assert len(lines) == 5
+    assert lines[0] == 'Inclusion Criteria:'
+    assert 'ECOG performance status of 0 or 1' in lines[1]
+    assert (lines[2] ==
+            '- Willing to provide tumor tissue from a newly obtained biopsy from a tumor site that has not been previously irradiated')
+    assert 'adequate organ and bone marrow function' in lines[3].lower()
+    assert 'life expectancy of at least 3 months' in lines[4].lower()
 
-    def test_criterion_splitting(self):
-        input_text = '''
+def test_criterion_splitting(client):
+    input_text = '''
 Exclusion Criteria:
 1. Haematocrit ≥ 50%, untreated severe obstructive sleep apnoea or poorly controlled heart failure (NYHA >1)
         '''
 
-        expected_output_text = '''Exclusion Criteria:
+    expected_output_text = '''Exclusion Criteria:
 - Hematocrit ≥ 50%
 - Untreated severe obstructive sleep apnea
 - Poorly controlled heart failure (NYHA > 1)'''
 
-        output_text = llm_sanitise_text(input_text, self.client)
+    output_text = llm_sanitise_text(input_text, client)
 
-        # remove preceding and trailing blank lines and trailing fullstops
-        output_text = remove_blank_lines_and_trailing_footstops(output_text)
-        self.assertEqual(expected_output_text, output_text)
+    # remove preceding and trailing blank lines and trailing fullstops
+    output_text = remove_blank_lines_and_trailing_footstops(output_text)
+    assert output_text == expected_output_text
 
-    def test_removal_redundant_sex(self):
-        input_text = '''
+def test_removal_redundant_sex(client):
+    input_text = '''
 Inclusion Criteria:
 * Male or female, aged 18 years or older at the time consent is obtained.
 * Men and women must use effective contraceptive methods.
@@ -80,7 +79,7 @@ Exclusion Criteria:
 * For women only: pregnant or breastfeeding
 '''
 
-        expected_output_text = '''Inclusion Criteria:
+    expected_output_text = '''Inclusion Criteria:
 - Aged 18 years or older
 - Must use effective contraceptive methods
 - Must agree to use highly effective contraceptive precautions if conception is possible during the dosing period and up to \
@@ -91,14 +90,14 @@ to receiving the first dose of study medication
 Exclusion Criteria:
 - Pregnant or breastfeeding'''
 
-        output_text = llm_sanitise_text(input_text, self.client)
+    output_text = llm_sanitise_text(input_text, client)
 
-        # remove blank lines
-        output_text = remove_blank_lines_and_trailing_footstops(output_text)
-        self.assertEqual(expected_output_text, output_text)
+    # remove blank lines
+    output_text = remove_blank_lines_and_trailing_footstops(output_text)
+    assert output_text == expected_output_text
 
-    def test_removal_redundant_sex2(self):
-        input_text = '''
+def test_removal_redundant_sex2(client):
+    input_text = '''
 Inclusion Criteria:
 * Male or female
 * Men with prostate cancer
@@ -108,7 +107,7 @@ Inclusion Criteria:
   - Is a WOCBP who is abstinent from heterosexual intercourse
 '''
 
-        expected_output_text = '''Inclusion Criteria:
+    expected_output_text = '''Inclusion Criteria:
 - Men with prostate cancer
 - Not pregnant or breastfeeding
 - At least one of the following applies during the study and for ≥4 days after:
@@ -116,9 +115,9 @@ Inclusion Criteria:
   - WOCBP and uses highly effective contraception
   - WOCBP who is abstinent from heterosexual intercourse'''
 
-        output_text = llm_sanitise_text(input_text, self.client)
+    output_text = llm_sanitise_text(input_text, client)
 
-        # remove blank lines
-        output_text = remove_blank_lines_and_trailing_footstops(output_text)
-        self.assertNotIn("male or female", output_text.lower())
-        self.assertNotIn("female", output_text.lower())
+    # remove blank lines
+    output_text = remove_blank_lines_and_trailing_footstops(output_text)
+    assert "male or female" not in output_text.lower()
+    assert "female" not in output_text.lower()

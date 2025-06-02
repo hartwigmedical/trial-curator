@@ -1,4 +1,4 @@
-import unittest
+import pytest
 from pathlib import Path
 
 from trialcurator.openai_client import OpenaiClient
@@ -84,11 +84,11 @@ EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protoco
 '''
 
 
-class BaseActinClass(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.client = OpenaiClient()
-        cls.actin_rules, cls.actin_categories = actin.load_actin_resource(
+class BaseActinClass:
+    @pytest.fixture(autouse=True)
+    def setup_class(self):
+        self.client = OpenaiClient()
+        self.actin_rules, self.actin_categories = actin.load_actin_resource(
             str(Path(__file__).resolve().parent / "data/ACTIN_rules/ACTIN_rules_w_categories_28052025.csv"))
 
 
@@ -110,7 +110,7 @@ class TestActinCategoryAssignment(BaseActinClass):
                 'Hematologic_Parameters', 'Liver_Function', 'Renal_Function'],
         }
         actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_categories)
-        self.assertEqual(expected_categories, actual_categories)
+        assert expected_categories == actual_categories
 
     def test_category_assignment_2(self):
         input_text = input_labvalue_1 + input_bodily_function_1 + input_cancer_type_1 + input_cancer_type_2
@@ -131,7 +131,7 @@ class TestActinCategoryAssignment(BaseActinClass):
                 'Cancer_Type_and_Tumor_Site_Localization']
         }
         actual_categories = actin.identify_actin_categories(input_text, self.client, self.actin_categories)
-        self.assertEqual(expected_categories, actual_categories)
+        assert actual_categories == expected_categories
 
 
 class TestActinCategorySorting(BaseActinClass):
@@ -178,7 +178,7 @@ class TestActinCategorySorting(BaseActinClass):
         actual_output = actin.sort_criteria_by_category(
             actin.identify_actin_categories(input_text, self.client, self.actin_categories)
         )
-        self.assertEqual(expected_output, actual_output)
+        assert expected_output == actual_output
 
 
 class TestActinMapping(BaseActinClass):
@@ -400,4 +400,4 @@ class TestActinMapping(BaseActinClass):
             }
         ]
         actual_mapping = actin.actin_workflow(input_text, self.client, self.actin_rules, self.actin_categories)
-        self.assertEqual(expected_mapping, actual_mapping)
+        assert expected_mapping == actual_mapping

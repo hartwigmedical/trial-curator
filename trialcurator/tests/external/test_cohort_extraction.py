@@ -1,19 +1,17 @@
 import logging
-import unittest
+import pytest
 
 from trialcurator.eligibility_sanitiser import llm_extract_cohorts
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
 
-class TestCohortExtraction(unittest.TestCase):
+@pytest.fixture
+def client():
+    return OpenaiClient()
 
-    def setUp(self):
-        self.client = OpenaiClient()
-        #self.client = GeminiClient()
-
-    def test_extract_from_header(self):
-        criteria = '''
+def test_extract_from_header(client):
+    criteria = '''
 Newly Diagnosed Inclusion Criteria:
 - Age ≥ 18 years.
 - Histologically confirmed Grade IV GBM, inclusive of gliosarcoma (WHO criteria; IDH wild-type by IHC or sequencing for IDH) established following either a surgical resection or biopsy.
@@ -39,11 +37,11 @@ Recurrent Exclusion Criteria:
 - Any prior treatment with prolifeprospan 20 with carmustine wafer.
         '''
 
-        cohorts = llm_extract_cohorts(criteria, self.client)
-        self.assertEqual(['Newly Diagnosed', 'Recurrent'], cohorts)
+    cohorts = llm_extract_cohorts(criteria, client)
+    assert cohorts == ['Newly Diagnosed', 'Recurrent']
 
-    def test_extract_from_inline_phrases(self):
-        criteria = '''
+def test_extract_from_inline_phrases(client):
+    criteria = '''
 Inclusion Criteria:
 
 - Ovarian Cancer Cohorts Only: Histologically or cytologically confirmed diagnosis of advanced, epithelial ovarian \
@@ -68,11 +66,11 @@ Exclusion Criteria:
 - History and/or current cardiovascular disease, as defined in the protocol.
 - Severe and/or uncontrolled hypertension at screening.
 '''
-        cohorts = llm_extract_cohorts(criteria, self.client)
-        self.assertEqual(["Ovarian Cancer Cohorts",  "Endometrial Cancer Cohorts"], cohorts)
+    cohorts = llm_extract_cohorts(criteria, client)
+    assert cohorts == ["Ovarian Cancer Cohorts", "Endometrial Cancer Cohorts"]
 
-    def test_extract_from_header_phrase(self):
-        criteria = '''
+def test_extract_from_header_phrase(client):
+    criteria = '''
 Inclusion Criteria part 1:
 - Patients referred to a participating research centre with suspicion of or confirmed endometrial cancer.
 
@@ -90,11 +88,11 @@ Exclusion Criteria part 2:
 - Patients <18 years of age.
 - Patients who do not agree to the proposed treatment or will receive (part of) the treatment in a non-participating centre.
 '''
-        cohorts = llm_extract_cohorts(criteria, self.client)
-        self.assertEqual(['part 1', 'part 2'], cohorts)
+    cohorts = llm_extract_cohorts(criteria, client)
+    assert cohorts == ['part 1', 'part 2']
 
-    def test_default_and_expansion_cohorts(self):
-        criteria = '''
+def test_default_and_expansion_cohorts(client):
+    criteria = '''
 Inclusion Criteria:
 - Has an ECOG performance status of 0 or 1
 - Has histologically or cytologically confirmed cancer that meets criteria as defined in the protocol
@@ -119,5 +117,5 @@ Exclusion Criteria:
 - Has encephalitis, meningitis, organic brain disease (e.g., Parkinson's disease) or uncontrolled seizures within 1 year prior to the first dose of study drug
 - Has any ongoing inflammatory skin disease as defined in the protocol    
 '''
-        cohorts = llm_extract_cohorts(criteria, self.client)
-        self.assertEqual(['default','Expansion Cohorts'], cohorts)
+    cohorts = llm_extract_cohorts(criteria, client)
+    assert cohorts == ['default', 'Expansion Cohorts']
