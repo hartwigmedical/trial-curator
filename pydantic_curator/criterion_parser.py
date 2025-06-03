@@ -1,6 +1,7 @@
 import re
 from typing import Any
 
+from utils.parser import Parser
 from .criterion_schema import *
 
 CRITERION_CLASS_MAP = {
@@ -36,101 +37,13 @@ def parse_criterion(text: str) -> BaseCriterion:
 def parse_criterion_to_dict(text: str) -> dict:
     return CriterionParser(text).consume_criterion()
 
-class ParseError(ValueError):
-    """Raised when the CriterionParser encounters a syntax or structure error."""
-    pass
-
-class CriterionParser:
+class CriterionParser(Parser):
     def __init__(self, text: str) -> None:
-        self.text: str = text
-        self.i: int = 0
-        self.n: int = len(text)
-        self.line_idx: int = 0
-
-    def raise_error(self, message: str) -> None:
-        lines = self.text.splitlines()
-        start = max(0, self.line_idx - 2)
-        end = min(len(lines), self.line_idx + 1)
-        snippet = lines[start:end]
-        pointer = ' ' * (self.i - (self.text.rfind('\n', 0, self.i) + 1)) + '^'
-        raise ParseError(f"{message} (line {self.line_idx + 1}):\n" +
-                         '\n'.join(snippet) + f"\n{pointer}")
-
-    def peek(self) -> str:
-        return self.text[self.i] if self.i < self.n else ''
-
-    def consume(self) -> str:
-        c = self.text[self.i]
-        self.i += 1
-        if c == '\n':
-            self.line_idx += 1
-        return c
-
-    def consume_while(self, condition: callable) -> str:
-        result: str = ''
-        while self.i < self.n and condition(self.text[self.i]):
-            c = self.text[self.i]
-            result += c
-            self.i += 1
-            if c == '\n':
-                self.line_idx += 1
-        return result
-
-    def consume_whitespace(self) -> None:
-        self.consume_while(str.isspace)
+        super().__init__(text)
 
     def consume_identifier(self) -> str:
         self.consume_whitespace()
         return self.consume_while(lambda c: c.isalnum() or c == '_')
-
-    def consume_quoted_string(self) -> str:
-        self.consume_whitespace()
-        if self.peek() != '"':
-            self.raise_error("Expected opening quote for string")
-        self.i += 1  # skip opening quote
-        s: str = ''
-        escape: bool = False
-        while self.i < self.n:
-            c = self.text[self.i]
-            if escape:
-                s += c
-                escape = False
-            elif c == '\\':
-                s += c
-                escape = True
-            elif c == '"':
-                self.i += 1  # skip closing quote
-                break
-            else:
-                s += c
-            self.i += 1
-        return s.encode('raw_unicode_escape').decode('unicode_escape')
-
-    def is_eof(self) -> bool:
-        return self.i >= self.n
-
-    def startswith(self, s: str) -> bool:
-        return self.text.startswith(s, self.i)
-
-    def consume_list_like(self, open_char: str, close_char: str, consumer: callable):
-        self.consume_whitespace()
-        if (next_char := self.peek()) != open_char:
-            self.raise_error(f"Expected '{open_char}', got '{next_char}'")
-        self.consume()
-        self.consume_whitespace()
-        if self.peek() == close_char:
-            self.consume()
-            return
-
-        while True:
-            self.consume_whitespace()
-            consumer()
-            self.consume_whitespace()
-            if (next_char := self.peek()) not in (',', close_char):
-                self.raise_error(f"Expected ',' or '{close_char}', got '{next_char}'")
-            self.consume()
-            if next_char == close_char:
-                break
 
     def consume_value(self) -> float | int | None | bool | list | str:
         if self.startswith('"'):
