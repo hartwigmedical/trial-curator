@@ -19,6 +19,7 @@ and {
 
 INDENT_UNIT = '   '
 
+
 def format_criterion(obj: Any, indent: int = 0) -> str:
     indent_str = INDENT_UNIT * indent
 
@@ -43,6 +44,7 @@ def format_criterion(obj: Any, indent: int = 0) -> str:
         return 'null'  # match JSON null
     else:
         return str(obj)  # number, boolean: as is
+
 
 class CriterionFormatter:
     @staticmethod
@@ -71,12 +73,18 @@ class CriterionFormatter:
                 f'{indent_str}}}'
             )
         elif isinstance(criterion, IfCriterion):
-            condition = CriterionFormatter._format(criterion.condition, 0, keep_description)
-            then = CriterionFormatter._format(criterion.then, 0, keep_description)
-            output = f'{indent_str}if {{{condition}}}\n{indent_str} then {{{then}}}'
+            condition = CriterionFormatter._format(criterion.condition, indent + 1, keep_description)
+            then = CriterionFormatter._format(criterion.then, indent + 1, keep_description)
+            output = (f'{indent_str}if {{\n'
+                      f'{condition}\n'
+                      f'{indent_str}}} then {{\n'
+                      f'{then}\n'
+                      f'{indent_str}}}')
             if criterion.else_:
-                else_ = CriterionFormatter._format(criterion.else_, 0, keep_description)
-                output = output + f'\n{indent_str} else {{{else_}}}'
+                else_ = CriterionFormatter._format(criterion.else_, indent + 1, keep_description)
+                output = output + (f'\n{indent_str}else {{\n'
+                                   f'{else_}}}\n'
+                                   f'{indent_str}}}')
             return output
         else:
             # For normal (leaf) criteria, single-line compact JSON
