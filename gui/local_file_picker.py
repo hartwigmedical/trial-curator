@@ -1,4 +1,4 @@
-# this file is downloaded from
+# this file is downloaded and modified from
 # https://github.com/zauberzeug/nicegui/blob/main/examples/local_file_picker/local_file_picker.py
 
 import platform
@@ -35,7 +35,11 @@ class local_file_picker(ui.dialog):
             self.grid = ui.aggrid({
                 'columnDefs': [{'field': 'name', 'headerName': 'File'}],
                 'rowSelection': 'multiple' if multiple else 'single',
-            }, html_columns=[0]).classes('w-96').on('cellDoubleClicked', self.handle_double_click)
+            }, html_columns=[0]).classes('w-96 h-96').on('cellDoubleClicked', self.handle_double_click)
+
+            with ui.row().classes('items-center w-full'):
+                self.new_filename_input = ui.input('Or enter a new file name').props('dense outlined').classes('w-full')
+
             with ui.row().classes('w-full justify-end'):
                 ui.button('Cancel', on_click=self.close).props('outline')
                 ui.button('Ok', on_click=self._handle_ok)
@@ -80,6 +84,15 @@ class local_file_picker(ui.dialog):
         else:
             self.submit([str(self.path)])
 
-    async def _handle_ok(self):
+    async def _handle_ok(self):  # Remove async
+        input_name = self.new_filename_input.value.strip()
+        if input_name:
+            self.submit([str(self.path / input_name)])
+            return
+
         rows = await self.grid.get_selected_rows()
+        if not rows:
+            ui.notify('Please select a file or enter a name', color='warning')
+            return
+
         self.submit([r['path'] for r in rows])

@@ -1,3 +1,5 @@
+from typing import Callable
+
 from nicegui import ui
 
 from pydantic_curator.criterion_formatter import CriterionFormatter
@@ -6,14 +8,15 @@ from pydantic_curator.criterion_schema import BaseCriterion, SexCriterion
 
 
 class CriterionEditor:
-    def __init__(self, criterion: BaseCriterion, language: str = 'Python', height: str = 'h-60'):
+    def __init__(self, criterion: BaseCriterion, on_save: Callable, height: str = 'h-60'):
         self.criterion = criterion
         self.code = CriterionFormatter.format(criterion, True)
-        self.language = language
+        self.language = 'Text'
         self.height_class = height
         self.edit_mode = False
+        self.on_save = on_save
         self._key_listener = None
-        self.card = ui.card()
+        self.card = ui.card().classes('text-sm')
         self._build()
 
     def _build(self):
@@ -27,10 +30,10 @@ class CriterionEditor:
             self.error_display.set_visibility(False)
 
             with ui.row().classes('items-center'):
-                self.edit_button = ui.button('Edit', on_click=self._enable_edit).classes('text-sm')
-                self.save_button = ui.button('Done', on_click=self._save_code).props('outline').classes('text-sm')
+                self.edit_button = ui.button('Edit', on_click=self._enable_edit)
+                self.save_button = ui.button('Done', on_click=self._save_code).props('outline')
                 self.save_button.set_visibility(False)
-                self.checkbox = ui.checkbox('Checked').classes('text-sm')
+                self.checkbox = ui.checkbox('Checked')
                 self.checkbox.set_visibility(True)
 
     def _enable_edit(self):
@@ -60,16 +63,18 @@ class CriterionEditor:
             self._key_listener.close()
             self._key_listener = None
 
+        if self.on_save:
+            self.on_save(self.code)
+
     def _show_code(self):
         self.code_display_container.clear()
         with self.code_display_container:
-            ui.code(self.code, language=self.language).classes('w-full')
+            ui.code(self.code, language=self.language).classes('w-full text-xs')
 
     def _show_editor(self):
         self.code_display_container.clear()
         with self.code_display_container:
-            with ui.element().classes(f'w-full overflow-x-auto {self.height_class}'):
-                self.editor = ui.codemirror(self.code, indent='   ', language=self.language).classes('min-w-max')
+            self.editor = ui.codemirror(self.code, indent='   ', language=self.language).classes('text-xs')
             self._key_listener = ui.on('keydown', self._handle_keypress)
 
     def _handle_keypress(self, e):

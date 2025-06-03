@@ -1,26 +1,24 @@
 import logging
 import os
-from math import isnan
 
 import pandas as pd
 from nicegui import ui
 
 from gui.criterion_editor import CriterionEditor
 from gui.excel_style_filter import ExcelStyleFilter
-from gui.filter_sidebar import FilterSidebar
+from gui.local_file_picker import local_file_picker
 from pydantic_curator.criterion_parser import parse_criterion
 
 logger = logging.getLogger(__name__)
 
-BUTON_CLASS = 'text-sm'
-CRTERION_GRID_COL_SPANS = [2, 3, 1, 5, 7]
+BUTTON_CLASS = 'text-sm'
+CRTERION_GRID_COL_SPANS = [2, 2, 1, 5, 10]
 
 class CurationAssistant:
     def __init__(self):
         self.trial_df = None
         self.filters: dict[str, list[str]] = {}
         self.filtered_trial_df = None
-        self.filter_sidebar = None
         self.criterion_viewer = None
         self.criterion_grid = None
         self.criterion_pagination = None
@@ -38,8 +36,9 @@ class CurationAssistant:
             ui.notify(f"Error loading file: {str(e)}", type="negative")
             return None
 
-    def update_filter_sidebar(self):
-        self.filter_sidebar.set_trial_df(self.trial_df)
+    def update_filter_bar(self):
+        #self.filter_sidebar.set_trial_df(self.trial_df)
+        pass
 
     def display_trial(self, trial_row: pd.Series):
         self.criterion_viewer.clear()
@@ -54,18 +53,13 @@ class CurationAssistant:
     def run(self):
         with ui.header().classes('justify-between items-center'):
             ui.label('Clinical Trial Eligibility Criteria Editor').classes('text-h6')
-            with ui.row().classes('items-center gap-2'):
-                file_path = ui.input(label='TSV File Path').classes('w-64 text-sm border rounded')
-                ui.button('Load File', on_click=lambda: self.load_file(file_path)).classes(BUTON_CLASS)
+            with ui.row().classes('items-center gap-2 text-sm'):
+                file_path = ui.input(label='TSV File Path').classes('w-64 border rounded')
+                ui.button('Load File', on_click=lambda: self.load_file(file_path)).classes(BUTTON_CLASS)
 
         with ui.row().classes('w-full no-wrap'):
-            with ui.column().classes('w-1/8'):
-                self.filter_sidebar = FilterSidebar(on_apply=self.display_criteria)
-
-            # Right panel - Criterion Viewer
-            with ui.column().classes('w-7/8'):
-                self.criterion_viewer = ui.card().classes('w-full h-screen')
-                self.criterion_viewer.set_visibility(False)
+            self.criterion_viewer = ui.card().classes('w-full h-screen').tight()
+            self.criterion_viewer.set_visibility(False)
 
     # Load button
     def load_file(self, file_path):
@@ -76,19 +70,45 @@ class CurationAssistant:
         self.trial_df = self.load_trial_df(file_path.value)
         self.filtered_trial_df = self.trial_df
         if self.trial_df is not None:
+            self.trial_df['Override'] = self.trial_df['Override'].fillna('')
+
             ui.notify(f'Successfully loaded {len(self.trial_df)} trials',
                       type='positive')
-            self.update_filter_sidebar()
+            self.update_filter_bar()
             self.build_criterion_viewer()
             self.display_criteria()
         else:
             ui.notify('No trials found in file', type='warning')
 
-    def save_criteria(self):
+    async def save_criteria(self):
         """Save the current criteria for the cohort."""
+
+        def do_save(path: str):
+            logger.info(f'Saving criteria to {path}')
+            self.trial_df.to_csv(path, sep='\t', index=False)
+            ui.notify(f'Saved criteria to {path}', type='positive')
+
         try:
-            # TODO: Implement actual save logic
-            ui.notify(f'Saved criteria', type='positive')
+            paths = await local_file_picker('~', multiple=False)
+
+            if paths is None:
+                return
+
+            out_tsv = paths[0]
+            if os.path.exists(out_tsv):
+                dialog = ui.dialog().props('persistent')
+                with dialog:
+                    with ui.card():
+                        ui.label(f'File "{out_tsv}" already exists. Overwrite?')
+                        with ui.row().classes('justify-end w-full'):
+                            ui.button('Cancel', on_click=dialog.close).props('outline')
+                            ui.button('Overwrite',
+                                      on_click=lambda: (dialog.close(), do_save(out_tsv)))
+                dialog.open()
+
+            else:
+                do_save(out_tsv)
+
         except Exception as e:
             ui.notify(f'Error saving criteria: {str(e)}', type='negative')
 
@@ -102,7 +122,7 @@ class CurationAssistant:
 
             with ui.row().classes('items-center gap-10'):
                 # ui.label(f"Cohort: {cohort}").classes('text-base border shadow-sm p-2 rounded')
-                ui.button('Save', on_click=lambda: self.save_criteria()).classes(BUTON_CLASS)
+                ui.button('Save', on_click=lambda: self.save_criteria()).classes(BUTTON_CLASS)
 
                 self.criterion_pagination = ui.pagination(1, total_pages, direction_links=True,
                                                           on_change=lambda e: self.show_page(e.value - 1))
@@ -131,24 +151,26 @@ class CurationAssistant:
     def show_page(self, page: int):
         # convert them to criterion objects
         criteria = self.filtered_trial_df.apply(
-            lambda row: (row['TrialId'], row['Cohort'], row['Override'], row['Description'], parse_criterion(row['Values'])), axis=1)
+            lambda row: (row.name, row['TrialId'], row['Cohort'], row['Override'], row['Description'], row['Values']), axis=1)
 
         #logger.info(f"showing {len(criteria)} criteria")
 
         self.criterion_grid.clear()
 
-        with self.criterion_grid:
+        with ((self.criterion_grid)):
             # filter by page number
             page_criteria: list = criteria[page * self.page_size:(page + 1) * self.page_size]
             if len(page_criteria) > 0:
-                for trial_id, cohort, override, description, criterion in page_criteria:
-                    logger.info(f'override: {override}')
+                for index, trial_id, cohort, override, description, value in page_criteria:
+                    criterion = parse_criterion(override if override else value)
                     colspan_itr = iter(CRTERION_GRID_COL_SPANS)
                     ui.label(trial_id).classes(f'border shadow-sm p-2 col-span-{next(colspan_itr)}')
                     ui.label(cohort).classes(f'border shadow-sm p-2 col-span-{next(colspan_itr)}')
-                    ui.label('No' if isnan(override) else 'Yes').classes(f'border shadow-sm p-2 col-span-{next(colspan_itr)}')
+                    label_color = 'bg-green-200' if override else ''
+                    ui.label('Yes' if override else 'No').classes(f'{label_color} border shadow-sm p-2 col-span-{next(colspan_itr)}')
                     ui.label(description).classes(f'border shadow-sm p-2 col-span-{next(colspan_itr)}')
-                    CriterionEditor(criterion).get().classes(f'border shadow-sm p-2 col-span-{next(colspan_itr)}')
+                    CriterionEditor(criterion, on_save=lambda code, index=index: self.on_code_save(index, code)).get()\
+                        .classes(f'border shadow-sm p-2 col-span-{next(colspan_itr)}')
 
     def on_filter_change(self, filter_name, filter_value):
         self.filters[filter_name] = filter_value
@@ -162,9 +184,21 @@ class CurationAssistant:
         self.filtered_trial_df = self.trial_df[filter_flag]
         self.display_criteria()
 
-def main():
+    def on_code_save(self, index, criterion):
+        # save it on the dataframe
+        logger.info(f'updating index: {index} with criterion: {criterion}')
+        self.trial_df.loc[index, 'Override'] = criterion
+
+@ui.page('/gui')
+def gui():
     app = CurationAssistant()
     app.run()
+
+@ui.page('/')
+def index():
+    ui.navigate.to('/gui')
+
+def main():
     ui.run(title="Clinical Trial Eligibility Criteria Editor")
 
 

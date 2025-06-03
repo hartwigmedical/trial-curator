@@ -15,7 +15,7 @@ class ExcelStyleFilter:
         with ui.column().classes('w-full ' + classes):
             with ui.row().classes('items-center gap-2 w-full'):
                 with ui.button(label) \
-                        .classes('normal-case border shadow-sm p-2 bg-white text-black rounded-none w-full') \
+                        .classes('normal-case border shadow-sm p-2 bg-white text-black font-bold rounded-none w-full') \
                         .props('flat'):
                     with ui.menu() as self.menu:
                         with ui.column().classes('p-2 min-w-[200px] max-h-[300px] overflow-y-auto'):
