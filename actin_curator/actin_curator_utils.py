@@ -2,20 +2,45 @@ import json
 import logging
 import re
 
-from .utils import extract_code_blocks
+from trialcurator.utils import extract_code_blocks
 
 logger = logging.getLogger(__name__)
 
 
-def llm_output_to_rule_obj(llm_output: str):
+def parse_llm_category_output(llm_output: str) -> dict[str, list[str]]:
     json_code_block = extract_code_blocks(llm_output, "json")
     json_code_block = fix_malformed_json(json_code_block)
 
     try:
-        rule_object = json.loads(json_code_block)
-        find_and_fix_actin_rule(rule_object)
-        logger.info(f"Loaded into actin rule object: {rule_object}")
-        return rule_object
+        obj = json.loads(json_code_block)
+
+        if not isinstance(obj, dict):
+            raise ValueError("Expected a dictionary mapping criteria to category lists")
+        for key, value in obj.items():
+            if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
+                raise ValueError(f"Invalid category assignment for: {key}")
+        return obj
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse JSON\n{e}")
+        logger.warning(json_code_block)
+        raise e
+
+
+def parse_llm_mapping_output(llm_output: str) -> list[dict]:
+    json_code_block = extract_code_blocks(llm_output, "json")
+    json_code_block = fix_malformed_json(json_code_block)
+
+    try:
+        obj = json.loads(json_code_block)
+        find_and_fix_actin_rule(obj)
+        if isinstance(obj, list):
+            return obj
+        elif isinstance(obj, dict):
+            return [obj]
+        else:
+            raise ValueError("Unexpected JSON structure: must be dict or list of dicts")
+
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse JSON\n{e}")
         logger.warning(json_code_block)
@@ -23,7 +48,6 @@ def llm_output_to_rule_obj(llm_output: str):
 
 
 def fix_actin_rule(rule: str | dict | bool) -> dict:
-
     """
     Recursively fixes
 
@@ -57,8 +81,8 @@ def fix_actin_rule(rule: str | dict | bool) -> dict:
 
     return rule
 
-def find_and_fix_actin_rule(data):
 
+def find_and_fix_actin_rule(data):
     """
     recursively search for all occurrences of the key 'actin_rule' and fix the value
     :param data: 
@@ -145,10 +169,10 @@ def fix_json_math_expressions(raw_json: str) -> str:
     # Match values after :, [ or , that are math expressions,
     # but NOT quoted (no ")
     pattern = re.compile(
-        r'([:\[,]\s*)'    # matches the prefix
+        r'([:\[,]\s*)'  # matches the prefix
         r'([\d.\s+\-*/()%]+\d)'  # matches the math expression
-        r'(\s*)'                 # spaces after the expression
-        r'(?=[,\]}])',           # lookahead: ensures that what follows the expression is ,] or }
+        r'(\s*)'  # spaces after the expression
+        r'(?=[,\]}])',  # lookahead: ensures that what follows the expression is ,] or }
         re.MULTILINE
     )
     fixed = pattern.sub(replacer, raw_json)
@@ -157,7 +181,6 @@ def fix_json_math_expressions(raw_json: str) -> str:
 
 
 def find_new_actin_rules(rule: dict, defined_rules: set[str]) -> list[str]:
-
     """
     Find rules that are not already defined in the defined_rules list
     """

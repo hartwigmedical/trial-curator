@@ -1,4 +1,3 @@
-
 def actin_json_to_text_format(criterion: dict) -> str:
     description = criterion.get("description", "").strip()
     rule_expr = format_actin_rule(criterion["actin_rule"])
@@ -10,6 +9,7 @@ def actin_json_to_text_format(criterion: dict) -> str:
         f"New rule:\n    {str(new_rules)}"
     )
     return output
+
 
 def format_actin_rule(rule_obj, indent=4):
     indent_str = " " * indent
@@ -37,6 +37,7 @@ def format_actin_rule(rule_obj, indent=4):
                 return f"{key}[{param_str}]"
     else:
         return str(rule_obj)
+
 
 def indent_multiline(text, indent=4):
     pad = " " * indent
