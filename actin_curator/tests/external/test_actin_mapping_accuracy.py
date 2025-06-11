@@ -88,8 +88,9 @@ EXCLUDE Has received recent anti-EGFR antibody therapy as defined in the protoco
 def client_and_actin_data():
     client = OpenaiClient()
 
-    actin_path = Path(__file__).resolve().parent / "data/ACTIN_rules/ACTIN_rules_w_categories_28052025.csv"
-    actin_rules, actin_categories = actin.load_actin_resource(str(actin_path))
+    actin_repo_root = Path(__file__).resolve().parents[2]
+    actin_rules_path = actin_repo_root / "data/ACTIN_rules/ACTIN_rules_w_categories_28052025.csv"
+    actin_rules, actin_categories = actin.load_actin_resource(str(actin_rules_path))
 
     return client, actin_rules, actin_categories
 

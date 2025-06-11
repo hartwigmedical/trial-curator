@@ -6,7 +6,7 @@ from typing import NamedTuple
 import pandas as pd
 from sentence_transformers import SentenceTransformer, SimilarityFunction
 
-from actin_curator.actin_formatter import format_actin_rule
+from actin_curator.actin_curator_utils import format_actin_rule
 from trialcurator.criterion_compare import criterion_diff
 from pydantic_curator.criterion_schema import *
 from pydantic_curator.criterion_formatter import CriterionFormatter
