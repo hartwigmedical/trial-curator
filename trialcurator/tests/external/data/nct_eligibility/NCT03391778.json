@@ -1,8 +1,0 @@
-{
-  "trial_id": "NCT03391778",
-  "eligibility_criteria": "Inclusion Criteria:\n\n* Participants who have received at least one dose of ADP adoptive cell therapy agent.\n* Participants who have completed ADP sponsored or supported interventional study or have withdrawn from it.\n* Participants who have completed treatment as part of managed access to a GSK adoptive cell therapy.\n* Contraceptive use by men or women should be consistent with local regulations regarding the methods of contraception for those participating in clinical studies.\n* The investigator is responsible for review of medical history.\n* Capable of giving signed informed consent.\n\nExclusion Criteria:\n\n- None",
-  "sanitised_criteria": "Inclusion Criteria:\n\n- Participants who have received at least one dose of ADP adoptive cell therapy agent.\n- Participants who have completed an ADP sponsored or supported interventional study.\n- Participants who have withdrawn from an ADP sponsored or supported interventional study.\n- Participants who have completed treatment as part of managed access to a GSK adoptive cell therapy.\n- Contraceptive use by men or women should be consistent with local regulations regarding the methods of contraception for those participating in clinical studies.\n- The investigator is responsible for review of medical history.\n\nExclusion Criteria:\n\n- None",
-  "eligibility_groups": [
-    "default"
-  ]
-}

@@ -1,8 +1,0 @@
-{
-  "trial_id": "NCT03340506",
-  "eligibility_criteria": "Inclusion Criteria:\n\n* Patient is currently receiving treatment with dabrafenib/trametinib monotherapy or combination within a Novartis or former GSK sponsored study which has fulfilled the requirements for the primary objective.\n* In the opinion of the Investigator would benefit from continued treatment.\n\nExclusion Criteria:\n\n* Patient has been previously permanently discontinued from study treatment in the parent protocol.\n* Patient's indication is commercially available and reimbursed in the local country.\n* Patient currently has unresolved toxicities for which dabrafenib and/or trametinib dosing has been interrupted in the parent study.",
-  "sanitised_criteria": "Inclusion Criteria:\n\n- Patient is currently receiving treatment with dabrafenib/trametinib monotherapy or combination within a Novartis or former GSK sponsored study which has fulfilled the requirements for the primary objective.\n- In the opinion of the Investigator, the patient would benefit from continued treatment.\n\nExclusion Criteria:\n\n- Patient has been previously permanently discontinued from study treatment in the parent protocol.\n- Patient's indication is commercially available and reimbursed in the local country.\n- Patient currently has unresolved toxicities for which dabrafenib and/or trametinib dosing has been interrupted in the parent study.",
-  "eligibility_groups": [
-    "default"
-  ]
-}
