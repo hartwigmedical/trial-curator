@@ -1,40 +1,16 @@
-import re
+import inspect
 from typing import Any
 
 from utils.parser import Parser
+from . import criterion_schema
 from .criterion_schema import *
 
-CRITERION_CLASS_MAP = {
-    re.search(r'.*\.(\w+)Criterion', str(c)).group(1).lower(): c for c in BaseCriterion.__subclasses__()
-}
-
-def load_criterion(data: dict) -> BaseCriterion:
-    if not isinstance(data, dict) or "type" not in data:
-        raise ValueError("Invalid criterion object: missing 'type' field")
-
-    criterion_type = data["type"].lower()
-    cls = CRITERION_CLASS_MAP.get(criterion_type)
-    if cls is None:
-        raise ValueError(f"Unknown criterion type: {criterion_type}")
-
-    # Recursively process nested fields
-    processed_data = {}
-    for key, value in data.items():
-        if key == "type":
-            continue
-        if isinstance(value, dict) and "type" in value:
-            processed_data[key] = load_criterion(value)
-        elif isinstance(value, list) and all(isinstance(item, dict) and "type" in item for item in value):
-            processed_data[key] = [load_criterion(item) for item in value]
-        else:
-            processed_data[key] = value
-
-    return cls(type=criterion_type, **processed_data)
+CRITERION_SCHEMA_CLS = {name: obj for name, obj in inspect.getmembers(criterion_schema) if inspect.isclass(obj)}
 
 def parse_criterion(text: str) -> BaseCriterion:
-    return load_criterion(parse_criterion_to_dict(text))
+    return CriterionParser(text).consume_criterion()
 
-def parse_criterion_to_dict(text: str) -> dict:
+def parse_criterion_to_dict(text: str) -> BaseCriterion:
     return CriterionParser(text).consume_criterion()
 
 class CriterionParser(Parser):
@@ -81,40 +57,40 @@ class CriterionParser(Parser):
             self.raise_error('Expected 1 criterion')
         return criteria[0]
 
-    def consume_criterion(self) -> dict:
-        identifier = self.consume_identifier()
+    def consume_criterion(self) -> Any:
+        typename = self.consume_identifier()
         self.consume_whitespace()
-        if identifier == 'and' or identifier == 'or':
-            return {
-                "type": identifier,
-                "criteria": self.consume_braced_criteria()
-            }
-        elif identifier == 'not':
-            return {
-                "type": "not",
-                "criterion": self.consume_braced_criterion()
-            }
-        elif identifier == 'if':
-            cond = self.consume_braced_criterion()
-            identifier = self.consume_identifier()
-            if identifier != 'then':
-                self.raise_error(f"Expected 'then' after 'if', got '{identifier}'")
 
-            then = self.consume_braced_criterion()
+        # is there an arg list?
+        args = {}
+        if self.peek() == '(':
+            args = self.consume_arg_list()
 
-            result = {"type": "if", "condition": cond, "then": then}
+        # for composite types we need to parse the subcriterions
+        if typename == 'And' or typename == 'Or':
+            args["criteria"] = self.consume_braced_criteria()
+        elif typename == 'Not' or typename == 'Timing':
+            args["criterion"] = self.consume_braced_criterion()
+        elif typename == 'If':
+            args["condition"] = self.consume_braced_criterion()
+            key = self.consume_identifier()
+            if key != 'then':
+                self.raise_error(f"Expected 'then' after 'if', got '{key}'")
+
+            args["then"] = self.consume_braced_criterion()
 
             # check if there is else case
             self.consume_whitespace()
             if self.startswith('else'):
-                if (identifier := self.consume_identifier()) != 'else':
-                    self.raise_error(f"Expected 'else' after 'if', got '{identifier}'")
-                result["else"] = self.consume_braced_criterion()
-            return result
-        else:
-            # Match terminal: e.g., diagnosis(finding="...")
-            args = self.consume_arg_list()
-            return {'type': identifier, **args}
+                if (key := self.consume_identifier()) != 'else':
+                    self.raise_error(f"Expected 'else' after 'if', got '{key}'")
+                args["else_"] = self.consume_braced_criterion()
+
+        # construct directly
+        criterion_cls = CRITERION_SCHEMA_CLS[typename + 'Criterion']
+        if criterion_cls is None:
+            self.raise_error(f"Unknown type '{typename}'")
+        return criterion_cls(**args)
 
     def consume_arg_list(self) -> dict[str, Any]:
         """
@@ -127,13 +103,21 @@ class CriterionParser(Parser):
             nonlocal args
             key = self.consume_identifier()
             self.consume_whitespace()
-            if self.peek() == '(':
-                # function style call
-                args[key] = self.consume_arg_list()
-            elif self.peek() == '=':
+            if self.peek() == '=':
                 self.consume()
                 self.consume_whitespace()
-                args[key] = self.consume_value()
+                i = self.i
+                try:
+                    val = self.consume_value()
+                    args[key] = val
+                except ValueError:
+                    self.i = i  # back track
+                    # type and constructor call
+                    typename = self.consume_identifier()
+                    type_cls = CRITERION_SCHEMA_CLS[typename]
+                    if type_cls is None:
+                        self.raise_error(f"Unknown type '{typename}'")
+                    args[key] = type_cls(**self.consume_arg_list())
             else:
                 self.raise_error(f"Expected '=' after key, got {self.peek()} instead.")
 

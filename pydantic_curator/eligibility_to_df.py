@@ -8,10 +8,10 @@ from sentence_transformers import SentenceTransformer, SimilarityFunction
 
 from actin_curator.actin_curator_utils import format_actin_rule
 from trialcurator.criterion_compare import criterion_diff
-from pydantic_curator.criterion_schema import *
-from pydantic_curator.criterion_formatter import CriterionFormatter
-from pydantic_curator.eligibility_py_loader import exec_file_into_variable
-from trialcurator.utils import deep_remove_field
+from .criterion_schema import *
+from .criterion_formatter import format_criterion
+from .eligibility_py_loader import exec_file_into_variable
+from .utils import deep_remove_field
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,6 @@ class EligibilityRule(NamedTuple):
     rule_type: str
     description: str
     values: str
-
-# format it nicely by using key=value and remove quotes
-def format_criterion(c: BaseCriterion) -> str:
-    return CriterionFormatter.format(c)
 
 # generate rule id
 def process(parent_rule_id: str, c: BaseCriterion, child_id: int, rule_list: list[EligibilityRule]):
@@ -193,6 +189,7 @@ def main():
             dfs.append(df)
 
     df = pd.concat(dfs)
+    df["Override"] = None
     df.to_csv(args.out_df, sep='\t', index=False)
 
 

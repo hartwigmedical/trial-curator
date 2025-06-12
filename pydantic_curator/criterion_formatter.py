@@ -1,101 +1,116 @@
-import re
 from typing import Any
 
-from pydantic_curator.criterion_schema import BaseCriterion, AndCriterion, OrCriterion, NotCriterion, IfCriterion
-from trialcurator.utils import deep_remove_field
+from pydantic import BaseModel
+
+from .criterion_schema import BaseCriterion
 
 '''
 write the criterion in a customised format:
-and {
-   diagnosticfinding(finding="histological or cytological documentation of cancer"),
-   primarytumor(primary_tumor_location="colorectal", primary_tumor_type="metastatic colorectal cancer"),
+And {
+   DiagnosticFinding(finding="histological or cytological documentation of cancer"),
+   PrimaryTumor(primary_tumor_location="colorectal", primary_tumor_type="metastatic colorectal cancer"),
    or {
-      metastases(location="≥ 2 different organs", additional_details=[">1 extra-hepatic metastases"]),
+      Metastases(location="≥ 2 different organs", additional_details=[">1 extra-hepatic metastases"]),
    },
-   surgery(surgical_procedure="Feasible radical tumor debulking"),
-   priortherapy(therapy="radiotherapy", timing_info(reference="now", window_days(min_inclusive=30)))
+   PriorTreatment(treatment=RadioTherapy())
 }
 '''
 
-INDENT_UNIT = '   '
+INDENT_UNIT = '    '
 
+def add_indentation(input: str, indent: int) -> str:
+    return input.replace('\n', '\n' + INDENT_UNIT * indent)
 
-def format_criterion(obj: Any, indent: int = 0) -> str:
+def format_criterion(obj: Any) -> str:
+    return format_dump(obj)
+
+def format_dump(item: Any, indent: int = 0):
+
+    def criterion_type(cls_name: str) -> str:
+        return cls_name.replace('Criterion', '')
+
     indent_str = INDENT_UNIT * indent
 
-    if isinstance(obj, dict):
-        items = []
-        for k, v in obj.items():
-            formatted_value = format_criterion(v, 0)
-            if isinstance(v, dict):
-                # if this is a dictionary, we make it person(name="Tom", age=25)
-                items.append(f'{indent_str}{k}({formatted_value})')
-            else:
-                items.append(f'{indent_str}{k}={formatted_value}')
-        inner = ', '.join(items)
-        return f'{inner}'
-    elif isinstance(obj, list):
-        items = [format_criterion(item, indent + 1) for item in obj]
-        inner = ', '.join(f'{item}' for item in items)
-        return f'[{inner}]'
-    elif isinstance(obj, str):
-        return f'"{obj}"'  # string: add quotes
-    elif obj is None:
-        return 'null'  # match JSON null
-    else:
-        return str(obj)  # number, boolean: as is
+    match item:
+        case BaseCriterion() as criterion:
+            args = {}
+            subcriteria_fields = []
 
+            for field, value in criterion:
+                if field == 'type':
+                    continue
+                elif isinstance(value, BaseCriterion):
+                    subcriteria_fields.append((field, format_dump(value, 1)))
+                elif isinstance(value, list) and value and isinstance(value[0], BaseCriterion):
+                    lines = [format_dump(subcriterion, 1) for subcriterion in criterion.criteria ]
+                    inner = ',\n'.join(lines)
+                    subcriteria_fields.append((field, inner))
+                elif value is not None:
+                    #print(f'{field}, type={type(value)}')
+                    args[field] = value
 
-class CriterionFormatter:
-    @staticmethod
-    def format(criterion: BaseCriterion, keep_description=False) -> str:
-        return CriterionFormatter._format(criterion, indent=0, keep_description=keep_description)
+            argstr = ''
 
-    @staticmethod
-    def _format(criterion: BaseCriterion, indent: int, keep_description) -> str:
-        indent_str = INDENT_UNIT * indent
-        if isinstance(criterion, (AndCriterion, OrCriterion)):
-            typename = criterion.type
-            lines = []
-            for subcriterion in criterion.criteria:
-                lines.append(CriterionFormatter._format(subcriterion, indent + 1, keep_description))
-            inner = ',\n'.join(lines)
-            return (
-                f'{indent_str}{typename} {{\n'
-                f'{inner}\n'
-                f'{indent_str}}}'
+            if args:
+                argstr = ',\n'.join([f'{k}={format_dump(v)}' for k, v in args.items()])
+                argstr = add_indentation(f'({argstr})', indent=indent + 1)
+
+            subcriteria_str = ''
+
+            if subcriteria_fields:
+                # to make the format nicer, if the field name is criterion or criteria, we omit the field name
+                subcriteria_fields = [('' if k in ('criterion', 'criteria') else k, v) for k, v in subcriteria_fields]
+                subcriteria_str = '\n' + '\n'.join([f'{k}{{\n{v}\n}}' for k, v in subcriteria_fields])
+                subcriteria_str = add_indentation(subcriteria_str, indent=indent)
+
+            return f'{indent_str}{criterion_type(criterion.__class__.__name__)}{argstr}{subcriteria_str}'
+
+        case BaseModel() as model:
+            #print(item)
+            subitems = {}
+            for field, value in model:
+                if field != 'type' and value is not None:
+                    subitems[field] = format_dump(value)
+
+            argsstr = add_indentation(','.join([f'{k}={v}' for k, v in subitems.items()]), indent=indent+1)
+            return f'{model.__class__.__name__}({argsstr})'
+
+        case list() as container:  # pyright: ignore
+            # Pyright finds this disgusting; this passes `mypy` though. `  # type:
+            # ignore` would fail `mypy` is it'd be unused (because there's nothing to
+            # ignore because `mypy` is content)
+            return '[' + ', '.join([format_dump(i) for i in container]) + ']'
+        case dict():
+            return {
+                k: format_dump(v)
+                for k, v in item.items()  # pyright: ignore[reportUnknownVariableType]
+            }
+        case str():
+            return f'"{item}"'
+        case _:
+            return str(item)
+
+def format_like_py_code(item: Any, indent: int = 0):
+    match item:
+        case BaseModel() as model:
+            subitems = {}
+            for field, value in model:
+                if field != 'type' and value is not None:
+                    subitems[field] = format_dump(value)
+
+            argsstr = add_indentation('\n' + ',\n'.join([f'{k} = {v}' for k, v in subitems.items()]), indent=indent+1)
+            return f'{model.__class__.__name__}({argsstr}\n)'
+
+        case list() | tuple() | set() as container:  # pyright: ignore
+            return type(container)(  # pyright: ignore
+                format_dump(i) for i in container  # pyright: ignore
             )
-        elif isinstance(criterion, NotCriterion):
-            inner = CriterionFormatter._format(criterion.criterion, indent + 1, keep_description)
-            return (
-                f'{indent_str}not {{\n'
-                f'{inner}\n'
-                f'{indent_str}}}'
-            )
-        elif isinstance(criterion, IfCriterion):
-            condition = CriterionFormatter._format(criterion.condition, indent + 1, keep_description)
-            then = CriterionFormatter._format(criterion.then, indent + 1, keep_description)
-            output = (f'{indent_str}if {{\n'
-                      f'{condition}\n'
-                      f'{indent_str}}} then {{\n'
-                      f'{then}\n'
-                      f'{indent_str}}}')
-            if criterion.else_:
-                else_ = CriterionFormatter._format(criterion.else_, indent + 1, keep_description)
-                output = output + (f'\n{indent_str}else {{\n'
-                                   f'{else_}}}\n'
-                                   f'{indent_str}}}')
-            return output
-        else:
-            # For normal (leaf) criteria, single-line compact JSON
-            value_dict = criterion.model_dump(serialize_as_any=True, exclude_none=True)
-
-            if not keep_description:
-                value_dict = deep_remove_field(value_dict, 'description')
-
-            compact_json = format_criterion(value_dict)
-
-            # now we want to change those type = criterion to criterion ()
-            compact_json = re.sub(f'type\\s*=\\s*\\"{criterion.type}\\",?\\s*',
-                                  f'{criterion.type}(', compact_json) + ')'
-            return indent_str + compact_json
+        case dict():
+            return {
+                k: format_dump(v)
+                for k, v in item.items()  # pyright: ignore[reportUnknownVariableType]
+            }
+        case str():
+            return f'"{item}"'
+        case _:
+            return str(item)

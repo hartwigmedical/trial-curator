@@ -1,23 +1,21 @@
 from typing import Literal, Optional
 from pydantic import BaseModel, SkipValidation, model_validator, Field
 
-class IntRange(BaseModel):
-    min_inclusive: Optional[int] = None
-    max_inclusive: Optional[int] = None
-
-class TimingInfo(BaseModel):
-    reference: Optional[str] = None  # e.g. "now", "last_dose"
-    window_days: Optional[IntRange] = None
-
-class BaseCriterion(BaseModel):
+class TypedModel(BaseModel):
     type: str = Field(init=False)
-    description: str = ''
-    confidence: float = 1.0
 
     @model_validator(mode='before')
     def add_type(cls, values):
-        values['type'] = cls.__name__.replace("Criterion", "").lower()
+        values['type'] = cls.__name__
         return values
+
+class IntRange(TypedModel):
+    min_inclusive: Optional[int] = None
+    max_inclusive: Optional[int] = None
+
+class BaseCriterion(TypedModel):
+    description: str = ''
+    exceptions: Optional[str] = None
 
 class AgeCriterion(BaseCriterion):
     age: int
@@ -66,10 +64,6 @@ class DiagnosticFindingCriterion(BaseCriterion):
     method: Optional[str] = None    # e.g. "radiology", "pathology", "clinical_examination", "biopsy", "endoscopy"
     modality: Optional[str] = None  # e.g., "CT", "MRI", "NGS", "H&E stain"
 
-class SurgeryCriterion(BaseCriterion):
-    surgical_procedure: Optional[str] = None
-    timing_info: Optional[TimingInfo] = None
-
 class MetastasesCriterion(BaseCriterion):
     location: str
     size_cm: Optional[float] = None
@@ -77,30 +71,44 @@ class MetastasesCriterion(BaseCriterion):
 
 class ComorbidityCriterion(BaseCriterion):
     comorbidity: str  # diabetes, heart failure, organ transplant
-    timing_info: Optional[TimingInfo] = None
     severity: Optional[str] = None  # e.g. "severe", "uncontrolled"
 
-class PriorMedicationCriterion(BaseCriterion):
-    medications: str
-    timing_info: Optional[TimingInfo] = None
+class Treatment(TypedModel):
+    description: str = ''
 
-class CurrentMedicationCriterion(BaseCriterion):
-    medications: str
+class StandardOfCare(Treatment):
+    pass
 
-# prior treatment / therapy that are not drug specific, such as systemic therapy or radiotherapy
-class PriorTherapyCriterion(BaseCriterion):
-    therapy: str      # e.g. "systemic therapy", "radiotherapy"
+class SystemicTherapy(Treatment):
+    pass
+
+class Radiotherapy(Treatment):
+    location: Optional[str] = None
+    dosage_gy: Optional[IntRange] = None
+
+class Chemotherapy(Treatment):
+    chemo_type: Optional[str] = None
+
+class Medication(Treatment):
+    medications: list[str]
+    dosage: Optional[str] = None
+
+class Surgery(Treatment):
+    surgical_procedure: Optional[str] = None
+
+class PriorTreatmentCriterion(BaseCriterion):
+    treatment: Treatment
     number_of_prior_lines: Optional[IntRange] = None
-    timing_info: Optional[TimingInfo] = None
     therapy_outcome: Optional[str] = None
     indication: Optional[str] = None
 
-class CurrentTherapyCriterion(BaseCriterion):
-    therapy: str
+class CurrentTreatmentCriterion(BaseCriterion):
+    treatment: Treatment
+    indication: Optional[str] = None
 
 # What treatment is appropriate, as judged by the clinician or protocol
 class TreatmentOptionCriterion(BaseCriterion):
-    treatment_option: str  # e.g. "anti-EGFR monotherapy", "chemotherapy", "standard of care"
+    treatment: Treatment
 
 class ContraindicationCriterion(BaseCriterion):
     contraindication: str  # e.g. "immunotherapy", "pembrolizumab", "general anesthesia"
@@ -151,3 +159,9 @@ class IfCriterion(BaseCriterion):
     condition: BaseCriterion
     then: BaseCriterion
     else_: Optional[BaseCriterion] = None
+
+class TimingCriterion(BaseCriterion):
+    """Add timing information to criterion"""
+    reference: Optional[str] = None  # e.g. "now", "last_dose"
+    window_days: Optional[IntRange] = None
+    criterion: BaseCriterion

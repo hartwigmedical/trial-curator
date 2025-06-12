@@ -1,12 +1,10 @@
-import inspect
 import json
 import logging
 import re
 from json import JSONDecodeError
 
-from pydantic_curator.criterion_schema import BaseCriterion
-from pydantic_curator import criterion_schema
-from trialcurator.eligibility_curator_actin import load_actin_resource
+from .utils import extract_criterion_schema_classes
+from .criterion_schema import BaseCriterion
 from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
@@ -20,7 +18,7 @@ CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in Ba
 
 # We give instructions only when a given criterion type is present
 INSTRUCTION_CRITERION_TYPES = {
-    '- Use `PrimaryTumorCriterion` for tumor types and / or locations (e.g., melanoma, prostate).'
+    '- Use `PrimaryTumorCriterion` for tumor types and / or locations under current study (e.g., melanoma, prostate).'
     : ['PrimaryTumor'],
 
     '- Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).'
@@ -54,12 +52,16 @@ to the tumor.'
     : ['Symptom'],
 
     '- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
-ComorbidityCriterion with a condition like "other active malignancy" and specify a timeframe if provided.'
+ComorbidityCriterion with a condition like "other active malignancy".'
     : ['PrimaryTumorCriterion', 'Comorbidity'],
 
-    '- Use PriorTherapyCriterion with timing_info for past treatment + timing. Only use IfCriterion if the text includes an \
-explicit "if...then" or equivalent.'
-    : ['PriorTherapy'],
+    '- Use PriorTreatmentCriterion for past treatments. Multiple prior treatments must be separated into separate \
+PriorTreatmentCriterion objects enclosed in appropriate OrCriterion / AndCriterion.'
+    : ['PriorTreatment'],
+
+    '- Use CurrentTreatmentCriterion for current treatments. Multiple current treatments must be separated into separate \
+CurrentTreatmentCriterion objects enclosed in appropriate OrCriterion / AndCriterion.'
+    : ['CurrentTreatment'],
 
     '- Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
 not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.'
@@ -69,14 +71,16 @@ not amenable to or not eligible for a specific treatment, model it as a NotCrite
 objective measurements like lab values.
 - If a criterion includes subjective or qualitative language (e.g., "adequate", "sufficient", "acceptable") but \
 provides a concrete lab-based threshold (e.g., a named lab test with a value and unit), the *entire criterion* must be \
-modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in these cases.**'''
+modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in these cases.**
+- comorbidity must be modelled using `ComorbidityCriterion` and not `ClinicalJudgementCriterion`'''
     : ['ClinicalJudgement', 'LabValue'],
 
-    '- Use `OtherCriterion` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
-, population qualifiers, or general clinical appropriateness.'
+    '- Use `OtherCriterion` for criteria that do not fit any other types defined in the schema.'
     : ['Other']
 }
 
+def add_essential_types(criteria_types: set[str]):
+    criteria_types.update(['And', 'Or', 'Not', 'If'])
 
 def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
     # split into small batches and curate
@@ -86,12 +90,9 @@ def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
     curated_py_list = []
     for criteria_text in criteria_batches:
         while True:
-            criteria_to_types: dict[str, list[str]] = categorise_criteria(criteria_text, client)
+            criteria_to_types: dict[str, list[str]] = llm_categorise_criteria(criteria_text, client)
 
-            # collect all the criteria types
-            criteria_types = set([t for type_list in criteria_to_types.values() for t in type_list])
-
-            curated = llm_curate_from_text(criteria_text, criteria_types, client)
+            curated = llm_curate_from_text(criteria_to_types, client)
 
             # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
             # we want to extract just the criteria in the list
@@ -110,7 +111,7 @@ def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
     return '[\n' + ',\n'.join(curated_py_list) + '\n]'
 
 
-def categorise_criteria(tagged_criteria: str, client: LlmClient) -> dict[str, list[str]]:
+def llm_categorise_criteria(tagged_criteria: str, client: LlmClient) -> dict[str, list[str]]:
     categories = [c for c in CRITERION_TYPES if c not in ['Not', 'And', 'Or', 'If']]
 
     system_prompt = f"""
@@ -121,10 +122,10 @@ Each criterion belongs to one or more categories.
 {categories}
 
 # INSTRUCTIONS:
-- Return a single JSON code block.
 - Each eligibility criterion should be a key
 - The value should be a list of matched categories
-- Do NOT include any text outside the JSON
+- Be inclusive in classification—if there is any uncertainty, err on the side of including a potentially relevant category.
+- Return a single JSON code block. Do NOT include any text outside the JSON
 
 # Criterion Mapping Rules
 - Use `PrimaryTumor` for tumor types and / or locations (e.g., melanoma, prostate).
@@ -142,16 +143,17 @@ if specific tumor type or location is mentioned (e.g., "histological confirmatio
 measurements like lab values.
 - Do not use `PrimaryTumor` for criteria involving other cancers or prior malignancies; instead, use \
 `Comorbidity` with a condition like "other active malignancy" and specify a timeframe if provided.
-- Use `PriorTherapy` for past treatment.
+- Use `PriorTreatment` for past treatment.
 - Use `TreatmentOption` for requirements related to available, appropriate, amenability or eligible treatments.
-- Use `Other` when a criterion doesn’t clearly fit any other class, including study participation restrictions \
+- Use `Sex` if gender (e.g. male, female) is mentioned.
+- Use `Other` when a criterion doesn’t clearly fit any other category, including study participation restrictions \
 , population qualifiers, or general clinical appropriateness.
 
 Example:
 ```json
 {{
     "INCLUDE Histologically or cytologically confirmed metastatic CRC": ["PrimaryTumor"],
-    "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infection", "CurrentMedication"]
+    "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infection", "CurrentTreatment"]
 }}
 ```
 """
@@ -179,10 +181,18 @@ Return answer in a ```json code block```.
 
     return criteria_categories
 
-
-def llm_curate_from_text(criteria_text: str, criteria_types: set[str], client: LlmClient) -> str:
+# Important lessons:
+# 1. Categorisation step is much better at choosing criterion type, giving it the type improves performance.
+# 2. We must tell LLM to choose criterion types from schema, otherwise it only use those ones with detailed
+#    instructions
+# 3.
+def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient) -> str:
     #logger.info(f'criteria_types: {criteria_types}')
 
+    # collect all the criteria types
+    criteria_types = set([t for type_list in criteria_to_types.values() for t in type_list])
+
+    add_essential_types(criteria_types)
     criterion_mapping_rules = '\n'.join(
         [k for k, v in INSTRUCTION_CRITERION_TYPES.items() if criteria_types.intersection(set(v))])
 
@@ -192,45 +202,47 @@ structured format using a predefined Python schema.'''
 
     # print the clinical trial schema
     prompt = f'{extract_criterion_schema_classes(criteria_types)}\n'
-    prompt += 'Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the following \
-criteria:\n'
-    prompt += f'''
-```
-{criteria_text}
-```
-
+    prompt += '''
 INSTRUCTIONS:
 
 # General
 - Exclusion criteria must be expressed as inclusion criteria wrapped in a `NotCriterion`
 - Top-level grouping requirement: For each top-level INCLUDE or EXCLUDE rule in the original text, generate exactly one \
 top-level criterion, wrapping all relevant subconditions using AndCriterion, OrCriterion, or NotCriterion as needed.
-- Assume gender is either male or female only. Use `if male ... else: ...` instead of checking both values.
+- Assume gender is either male or female only. Therefore:
+  - Use `if male ... else: ...` instead of checking both values.
+  - Phrases such as "male or female", "males and females" is the same as "all participants".
+- DO NOT invent new criterion type, only use those provided.
 - Answer should be given in a single code block with no explanation.
 
 # Description field
 - Top-level criteria: `description` field **must** capture the **full original text exactly as written**, including:
   - the `INCLUDE` or `EXCLUDE` tag at the beginning
   - sub-bullet points with original formatting.
-- Non–top-level criteria: the description must provide a complete, self-contained explanation of the original criterion.
-- The `description` field must always be populated for every criterion, including composite criteria.
-
-# Confidence field
-- Use `confidence` field to indicate the confidence level (0 - 1) that the curation is accurate. 1 being most confident.
+- Non–top-level criteria: the description should be complete and self-contained.
 
 # Composite Criterion
-- When an inclusion criterion includes an embedded exception (e.g., “X excluding Y”), model it as X AND (NOT Y).
 - Use IfCriterion for any conditional logic, explicit or implied (e.g., “if X then Y”, “Y in males, Z in females”, \
 “≥10 if X-negative”). Never use AND for mutually exclusive criteria, use IF instead (e.g., “Y in males and X in females”).
 - Always decompose any criterion containing multiple distinct conditions joined by logical conjunctions (“and”, “or”, \
 “as well as”, “with”, “without”) into individual components, using:
   - AndCriterion for “and”-like phrases
   - OrCriterion for “or”-like phrases
-Wrap elements in NotCriterion if they are part of a negation.
-
+- Wrap criterion in NotCriterion if it should be negated.
+- Wrap criterion in TimingCriterion if it timing or time frame is provided.
+'''
+    prompt += f'''
 # Criterion Mapping Rules
+In general, choose appropriate criterion type from the schema. Following are more specific rules to help with ambiguity:  
 {criterion_mapping_rules}
 
+Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the \
+following criteria along with their criteria types:
+'''
+    prompt += f'''
+```json
+{json.dumps(criteria_to_types, indent=2)}
+```
 '''
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
@@ -313,31 +325,6 @@ def remove_up_to(text, pattern):
         return ""
 
 
-def extract_criterion_schema_classes(criterion_types: set[str] | list[str]) -> str:
-    criterion_schema_code = inspect.getsource(criterion_schema)
-
-    pattern = (
-        r"(?:^[ \t]*#.*\n"  # Match comment lines
-        r"|^[ \t]*@.*\n)*"  # Or decorators
-        r"^class\s+(\w+)\(.*?\):\n"  # Class header
-        r"(?:^[ \t]+.*\n)*"  # Class body (indented lines)
-    )
-    matches = re.finditer(pattern, criterion_schema_code, flags=re.MULTILINE)
-
-    filtered_class_code = ""
-    for match in matches:
-        class_name = match.group(1)
-        class_code = match.group()
-
-        # always include BaseCriterion and non-Criterion classes
-        if class_name == 'BaseCriterion' or \
-                not class_name.endswith('Criterion') or \
-                [t for t in criterion_types if t.lower() in class_name.lower()]:
-            filtered_class_code += '\n' + class_code
-
-    return filtered_class_code
-
-
 # Prepend the schema if it is not added by the LLM. The reason is that
 # it is necessary for the next stage to know the class definitions
 def prepend_schema(trial_code: str, criterion_types: set[str]) -> str:
@@ -389,6 +376,7 @@ def main():
     with open(args.out_trial_py, 'w', encoding='utf-8') as f:
         f.write(clinical_trial_code)
 
+    '''
     # if we have ACTIN specified, curate it also
     if args.out_actin:
         actin_rules = load_actin_resource(args.actin_rules)
@@ -399,7 +387,7 @@ def main():
         # write to file
         with open(args.out_actin, "w") as f:
             json.dump(cohort_actin, f, indent=2)
-
+    '''
 
 if __name__ == "__main__":
     main()
