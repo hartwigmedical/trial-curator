@@ -17,7 +17,7 @@ from actin_curator import actin_mapping_prompts
 logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
-BATCH_MAX_WORDS = 60
+BATCH_MAX_WORDS = 30
 
 
 class ActinMapping(TypedDict, total=False):
@@ -61,6 +61,13 @@ treatment options for cancer patients.
 
 ## TASK
 Classify each eligibility criterion into one or more ACTIN categories.
+
+- Most criteria should be assigned to a single, most relevant category.
+- Assign multiple categories **only** when the criterion clearly describes **clinically distinct concepts** that each map to different categories.
+- Do **not** assign a category based on a term appearing in the text unless the clinical meaning directly aligns with that category.
+
+Examples:
+- A criterion mentioning “untreated CNS metastases” should typically fall under **Medical_History_and_Comorbidities**, not **Cancer_Type_and_Tumor_Site_Localization**, unless tumor classification is explicitly discussed.
 
 ## ACTIN CATEGORIES
 The following categories are available:
