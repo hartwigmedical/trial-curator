@@ -1,5 +1,3 @@
-import pytest
-
 from actin_curator.actin_curator_utils import (
     fix_malformed_json,
     find_and_fix_actin_rule,
