@@ -188,7 +188,6 @@ def index() -> rx.Component:
         padding="20px"
     )
 
-
 style = {
     "font_size": "10px",
 }

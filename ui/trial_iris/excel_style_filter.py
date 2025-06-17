@@ -66,6 +66,7 @@ class ExcelStyleFilterState(rx.State):
 
 def excel_style_filter(
         key: str,
+        thin: bool,
         options: dict[str, list[str]],
         selected: dict[str, list[str]],
         toggle_option: rx.EventHandler,
@@ -163,7 +164,11 @@ def excel_style_filter(
         compact,
         # Compact mode for table headers
         rx.hstack(
-            rx.text(label, font_weight="semibold"),
+            rx.cond(
+                thin,
+                rx.text(label, font_weight="semibold"),
+                rx.text(label, font_weight="semibold")
+            ),
             filter_indicator,
             rx.icon(
                 "filter",

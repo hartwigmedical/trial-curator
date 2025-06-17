@@ -11,16 +11,37 @@ from .excel_style_filter import excel_style_filter
 
 logger = logging.getLogger(__name__)
 
+AVAILABLE_COLUMNS = [
+    "TrialId", "Cohort", "RuleNum", "RuleId", "Description", "Age", "Sex",
+    "LabValue", "PrimaryTumor", "Histology", "MolecularBiomarker", "GeneAlteration",
+    "MolecularSignature", "DiagnosticFinding", "Metastases", "Comorbidity",
+    "PriorTreatment", "CurrentTreatment", "TreatmentOption", "Contraindication",
+    "ClinicalJudgement", "ReproductiveStatus", "Infection", "Symptom",
+    "PerformanceStatus", "LifeExpectancy", "RequiredAction",
+    "TissueAvailability", "Other", "And", "Or", "Not", "If", "Timing",
+    "Edit", "Code", "Error"
+]
+
+CRITERION_TYPE_COLUMNS = ["Age", "Sex",
+        "LabValue", "PrimaryTumor", "Histology", "MolecularBiomarker", "GeneAlteration",
+        "MolecularSignature", "DiagnosticFinding", "Metastases", "Comorbidity",
+        "PriorTreatment", "CurrentTreatment", "TreatmentOption", "Contraindication",
+        "ClinicalJudgement", "ReproductiveStatus", "Infection", "Symptom",
+        "PerformanceStatus", "LifeExpectancy", "RequiredAction",
+        "TissueAvailability", "Other", "And", "Or", "Not", "If", "Timing"]
 
 class CriterionGridState(rx.State):
-
     # Data state
     _trial_df: pd.DataFrame = pd.DataFrame()
     _filtered_trial_df: pd.DataFrame = pd.DataFrame()
+    available_columns: list[str] = AVAILABLE_COLUMNS
+    _hidden_columns: set[str] = {c for c in CRITERION_TYPE_COLUMNS}
+    no_filter_columns = ['Description', 'Code', 'RuleNum', 'RuleId', 'Edit', 'Error']
+    thin_columns: list[str] = CRITERION_TYPE_COLUMNS
 
     # UI state
     current_page: int = 0
-    page_size: int = 30
+    page_size: int = 50
     total_pages: int = 0
     show_save_dialog: bool = False
     show_editor: bool = False
@@ -29,6 +50,21 @@ class CriterionGridState(rx.State):
     def is_data_loaded(self) -> bool:
         """Check if data is loaded."""
         return not self._trial_df.empty
+
+    @rx.event
+    async def set_trial_df(self, trial_df: pd.DataFrame):
+
+        self._trial_df = trial_df
+        self._filtered_trial_df = self._trial_df
+
+        self.total_pages = (len(self._trial_df) + self.page_size - 1) // self.page_size
+        self.current_page = 0
+
+        filter_state = await self.get_state(FilterState)
+
+        for c in self.available_columns:
+            if c not in self.no_filter_columns:
+                await filter_state.add_filter(c, self._trial_df[c].unique().tolist())
 
     @rx.event
     def apply_filters(self, filters: dict[str, list[str]]):
@@ -71,28 +107,17 @@ class CriterionGridState(rx.State):
 
             result.append({
                 'index': idx,
-                'Trial ID': row['TrialId'],
-                'Cohort': row['Cohort'],
-                'Override': bool(row['Override']),
-                'Text': row['Description'],
+                ** {c: row[c] for c in self.available_columns if c in page_data.columns},
                 'Code': formatted_criterion,
                 'Error': parse_error
             })
+
+        logger.info(f'result: {result[0]}')
         return result
 
-    @rx.event
-    async def set_trial_df(self, trial_df: pd.DataFrame):
-
-        self._trial_df = trial_df
-        self._filtered_trial_df = self._trial_df
-
-        self.total_pages = (len(self._trial_df) + self.page_size - 1) // self.page_size
-        self.current_page = 0
-
-        filter_state = await self.get_state(FilterState)
-
-        for c in ['TrialId', 'Cohort', 'Override']:
-            await filter_state.add_filter(c, self._trial_df[c].unique().tolist())
+    @rx.var
+    def visible_columns(self) -> list[str]:
+        return [c for c in self.available_columns if c not in self._hidden_columns]
 
     @rx.event
     def go_to_page(self, page: int):
@@ -146,6 +171,13 @@ class CriterionGridState(rx.State):
         except Exception as e:
             return rx.toast.error(f"Error updating criterion: {str(e)}")
 
+    @rx.event
+    def toggle_column_visibility(self, column: str):
+        """Toggle visibility of a specific column."""
+        if column in self._hidden_columns:
+            self._hidden_columns.remove(column)
+        else:
+            self._hidden_columns.add(column)
 
 class FilterState(rx.State):
     """State for individual filter components."""
@@ -185,6 +217,7 @@ class FilterState(rx.State):
         grid_state = await self.get_state(CriterionGridState)
         grid_state.apply_filters(self.selected_dict)
 
+
 @rx.event
 def filter_dialog():
     """Filter dialog component."""
@@ -200,108 +233,145 @@ def filter_dialog():
         )
     )
 
+
+def render_cell(row, col) -> rx.Component:
+    return rx.match(
+        col,
+        ("Edit", rx.table.cell(editor_dialog(row['index'], row['Code']))),
+        ("Code",
+            rx.table.cell(
+                rx.code_block(
+                    row["Code"], language="python", can_copy=True,
+                     copy_button=rx.button(
+                         rx.icon(tag="copy", size=15),
+                         size="1",
+                         on_click=rx.set_clipboard(row["Code"]),
+                         style={"position": "absolute", "top": "0.5em", "right": "0"}
+                     ),
+                     font_size="12px",
+                     style={
+                         "margin": "0"
+                     }
+                ),
+                max_width="800px"
+            )
+        ),
+        ("Override",
+            rx.table.cell(
+                rx.text(
+                    rx.cond(row["Override"], "Yes", "No"),
+                    bg=rx.cond(
+                        row["Override"],
+                        "green.100",
+                        "gray.100"
+                    ),
+                    color=rx.cond(
+                        row["Override"],
+                        "green.800",
+                        "gray.700"
+                    ),
+                    padding="2px 8px",
+                    border_radius="4px",
+                    font_size="12px",
+                    font_weight="500",
+                )
+            )
+        ),
+        ("Description", rx.table.cell(row["Description"], white_space="pre-wrap", min_width="200px", max_width="300px")),
+        rx.cond(CriterionGridState.thin_columns.contains(col),
+            rx.table.cell(row[col], max_width="20px"),
+            rx.table.cell(row[col], white_space="pre-wrap", max_width="150px")
+        )
+    )
+
 def construct_table() -> rx.Component:
     """Create the table component for displaying criteria."""
     return rx.table.root(
         rx.table.header(
             rx.table.row(
-                rx.table.column_header_cell(
-                    excel_style_filter(
-                        'TrialId',
-                        options=FilterState.options_dict,
-                        selected=FilterState.selected_dict,
-                        toggle_option=FilterState.toggle_option,
-                        select_all=FilterState.select_all,
-                        clear_all=FilterState.clear_all,
-                        label="Trial ID",
-                        compact=True
+                rx.foreach(
+                    CriterionGridState.visible_columns,
+                    lambda col: rx.table.column_header_cell(
+                        rx.cond(CriterionGridState.no_filter_columns.contains(col),
+                                rx.text(col),
+                                excel_style_filter(
+                                    col,
+                                    CriterionGridState.thin_columns.contains(col),
+                                    options=FilterState.options_dict,
+                                    selected=FilterState.selected_dict,
+                                    toggle_option=FilterState.toggle_option,
+                                    select_all=FilterState.select_all,
+                                    clear_all=FilterState.clear_all,
+                                    label=col,
+                                    compact=True
+                                )
+                            )
                     )
-                ),
-                rx.table.column_header_cell(
-                    excel_style_filter(
-                        'Cohort',
-                        options=FilterState.options_dict,
-                        selected=FilterState.selected_dict,
-                        toggle_option=FilterState.toggle_option,
-                        select_all=FilterState.select_all,
-                        clear_all=FilterState.clear_all,
-                        label="Cohort",
-                        compact=True
-                    ), max_width="10%"),
-                rx.table.column_header_cell(
-                    excel_style_filter(
-                        'Override',
-                        options=FilterState.options_dict,
-                        selected=FilterState.selected_dict,
-                        toggle_option=FilterState.toggle_option,
-                        select_all=FilterState.select_all,
-                        clear_all=FilterState.clear_all,
-                        label="Override",
-                        compact=True,
-                    ), max_width="5%"),
-                rx.table.column_header_cell("Text", max_width="20%"),
-                rx.table.column_header_cell("Edit", max_width="5%"),
-                rx.table.column_header_cell("Code", max_width="35%"),
+                )
             )
         ),
         rx.table.body(
             rx.foreach(
                 CriterionGridState.current_page_data,
                 lambda row: rx.table.row(
-                    rx.table.cell(row["Trial ID"]),
-                    rx.table.cell(row["Cohort"]),
-                    rx.table.cell(
-                        rx.text(
-                            rx.cond(row["Override"], "Yes", "No"),
-                            bg=rx.cond(
-                                row["Override"],
-                                "green.100",
-                                "gray.100"
-                            ),
-                            color=rx.cond(
-                                row["Override"],
-                                "green.800",
-                                "gray.700"
-                            ),
-                            padding="2px 8px",
-                            border_radius="4px",
-                            font_size="12px",
-                            font_weight="500",
-                        )
-                    ),
-                    rx.table.cell(rx.text(row["Text"]), white_space="pre-wrap"),
-                    rx.table.cell(editor_dialog(row['index'], row['Code'])),
-                    rx.table.cell(rx.code_block(row["Code"], language="python", can_copy=True,
-                                                copy_button=rx.button(
-                                                    rx.icon(tag="copy", size=15),
-                                                    size="1",
-                                                    on_click=rx.set_clipboard(row["Code"]),
-                                                    style={"position": "absolute", "top": "0.5em", "right": "0"}),
-                                                font_size="12px",
-                                                style={
-                                                    "margin": "0"
-                                                }),
-                                  max_width="1000px"
-                                  ),
+                    rx.foreach(
+                        CriterionGridState.visible_columns,
+                        lambda col: render_cell(row, col)
+                    )
                 )
             )
-        ),
-        width="100%",
+        )
     )
+
+
+def column_control_menu() -> rx.Component:
+    """Create column control menu component."""
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                rx.hstack(
+                    rx.text("Columns"),
+                    rx.icon("columns_3_cog", size=15),
+                    align="center"
+                ),
+                variant="outline",
+            ),
+        ),
+        rx.menu.content(
+            rx.vstack(
+                rx.foreach(CriterionGridState.available_columns,
+                           lambda col: rx.hstack(
+                               rx.checkbox(
+                                   checked=CriterionGridState.visible_columns.contains(col),
+                                   on_change=lambda: CriterionGridState.toggle_column_visibility(col),
+                               ),
+                               rx.text(col),
+                               width="100%",
+                           ),
+                           ),
+                padding="1em",
+            ),
+        )
+    )
+
 
 def criteria_table() -> rx.Component:
     return rx.vstack(
         rx.hstack(
             rx.button(
                 "Prev",
-                on_click=CriterionGridState.prev_page,
-            ),
-            rx.text(
-                f"page {CriterionGridState.current_page + 1} / {CriterionGridState.total_pages}"
-            ),
+                on_click=CriterionGridState.prev_page),
+            rx.text(f"page {CriterionGridState.current_page + 1} / {CriterionGridState.total_pages}",
+                    size="2",),
             rx.button(
                 "Next",
                 on_click=CriterionGridState.next_page,
             ),
+            rx.spacer(spacing="0"),
+            column_control_menu(),
+            align="center",
+            width="20%",
         ),
-        construct_table())
+        rx.box(construct_table(), width="100%"),
+        width="100%"
+    )
