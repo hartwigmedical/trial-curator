@@ -1,12 +1,10 @@
+import logging
 import os
 
-from .criterion_grid import criteria_table, CriterionGridState
-
-import reflex as rx
 import pandas as pd
-import logging
+import reflex as rx
 
-from .local_file_picker import file_picker_dialog, FilePickerState
+from .criterion_grid import criteria_table, CriterionGridState
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +12,7 @@ class TrialIrisState(rx.State):
     """State management for the Curation Assistant."""
 
     # Data state
-    trial_df: pd.DataFrame = None
+    _trial_df: pd.DataFrame = None
 
     # UI state
     file_path: str = rx.Cookie(name="TrialTsv")
@@ -23,7 +21,11 @@ class TrialIrisState(rx.State):
     @rx.var
     def is_data_loaded(self) -> bool:
         """Check if data is loaded."""
-        return self.trial_df is not None
+        return self._trial_df is not None
+
+    @rx.var
+    def total_records(self) -> int:
+        return 0 if self._trial_df is None else self._trial_df.shape[0]
 
     @rx.event
     async def load_file(self, file_path: str):
@@ -35,7 +37,7 @@ class TrialIrisState(rx.State):
 
             df = pd.read_csv(file_path, sep='\t')
             df['Override'] = df['Override'].fillna('')
-            self.trial_df = df
+            self._trial_df = df
             criterion_grid_state = await self.get_state(CriterionGridState)
             await criterion_grid_state.set_trial_df(df)
 
@@ -45,17 +47,20 @@ class TrialIrisState(rx.State):
                                   duration=180, close_button=True)
 
     @rx.event
-    def save_criteria(self):
+    def save_criteria(self, save_paths: list[str]):
+        logger.info(f"save criteria: {save_paths}")
         """Save the current criteria to file."""
+        if not save_paths:
+            return rx.toast.error("Please provide a save path")
+        if len(save_paths) > 1:
+            return rx.toast.error("Please select only one file to save.")
+        save_path = save_paths[0]
         try:
-            if not self.save_path:
+            if not save_path:
                 return rx.toast.error("Please provide a save path")
 
-
-
-            save_path = os.path.expanduser(self.save_path)
-            self.trial_df.to_csv(save_path, sep='\t', index=False)
-            self.show_save_dialog = False
+            save_path = os.path.expanduser(save_path)
+            self._trial_df.to_csv(save_path, sep='\t', index=False)
             return rx.toast.success(f"Saved criteria to {save_path}")
         except Exception as e:
             return rx.toast.error(f"Error saving criteria: {str(e)}")
@@ -63,82 +68,17 @@ class TrialIrisState(rx.State):
     @rx.event
     def edit_criterion(self, index: int):
         try:
-            self.trial_df.loc[index]
+            self._trial_df.loc[index]
             self.show_editor = True
             return None
         except Exception as e:
             return rx.toast.error(f"Error updating criterion: {str(e)}")
 
-
-def save_dialog():
-    """Save dialog component."""
-
-    return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button("Save", on_click=lambda: FilePickerState.open_file_picker("."))
-        ),
-        rx.dialog.content(
-            rx.dialog.title("Save Criteria"),
-            rx.form(
-                rx.vstack(
-                    file_picker_dialog(),
-                    rx.text("Enter the path where you want to save the criteria:"),
-                    rx.input(
-                        placeholder="~/criteria.tsv",
-                        id="save_path",
-                        width="100%"
-                    ),
-                    rx.hstack(
-                        rx.dialog.close(
-                            rx.button("Cancel", variant="soft", color_scheme="gray", type="button")
-                        ),
-                        rx.button("Save", type="submit"),
-                        spacing="2",
-                        justify="end"
-                    ),
-                    spacing="3",
-                    width="100%"
-                ),
-                on_submit=TrialIrisState.save_criteria,
-            ),
-            style={"max_width": "500px"}
-        )
-    )
-
-@rx.event
-def filter_dialog():
-    """Filter dialog component."""
-    return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button("Filter")
-        ),
-        rx.dialog.content(
-            rx.dialog.title("Filter Criteria"),
-            rx.vstack(
-                rx.text("Trial ID:")
-            )
-        )
-    )
-
 def main_content():
     """Main content area."""
     return rx.cond(
         TrialIrisState.is_data_loaded,
-        rx.vstack(
-            # Controls row
-            rx.hstack(
-                save_dialog(),
-                rx.text(f"Total records: {0}", font_size="sm", color="gray.600"),
-                spacing="4",
-                justify="between",
-                width="100%",
-                padding="4"
-            ),
-            # Table
-            criteria_table(),
-            spacing="2",
-            width="100%"
-        ),
+        criteria_table(TrialIrisState.save_criteria),
         rx.center(
             rx.vstack(
                 rx.icon("file-text", size=48, color="gray.400"),

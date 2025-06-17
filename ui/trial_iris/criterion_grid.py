@@ -8,6 +8,7 @@ import logging
 from typing import Any
 from pydantic_curator.criterion_parser import parse_criterion
 from .excel_style_filter import excel_style_filter
+from .local_file_picker import file_picker_dialog, FilePickerState
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class CriterionGridState(rx.State):
     _trial_df: pd.DataFrame = pd.DataFrame()
     _filtered_trial_df: pd.DataFrame = pd.DataFrame()
     available_columns: list[str] = AVAILABLE_COLUMNS
-    _hidden_columns: set[str] = {c for c in CRITERION_TYPE_COLUMNS}
+    _hidden_columns: set[str] = {*{c for c in CRITERION_TYPE_COLUMNS}, "RuleNum", "RuleId"}
     no_filter_columns = ['Description', 'Code', 'RuleNum', 'RuleId', 'Edit', 'Error']
     thin_columns: list[str] = CRITERION_TYPE_COLUMNS
 
@@ -47,9 +48,8 @@ class CriterionGridState(rx.State):
     show_editor: bool = False
 
     @rx.var
-    def is_data_loaded(self) -> bool:
-        """Check if data is loaded."""
-        return not self._trial_df.empty
+    def total_records(self) -> int:
+        return self._trial_df.shape[0]
 
     @rx.event
     async def set_trial_df(self, trial_df: pd.DataFrame):
@@ -354,10 +354,11 @@ def column_control_menu() -> rx.Component:
         )
     )
 
-
-def criteria_table() -> rx.Component:
+def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
     return rx.vstack(
         rx.hstack(
+            file_picker_dialog(button_text="Save", on_submit=save_criteria),
+            column_control_menu(),
             rx.button(
                 "Prev",
                 on_click=CriterionGridState.prev_page),
@@ -367,10 +368,13 @@ def criteria_table() -> rx.Component:
                 "Next",
                 on_click=CriterionGridState.next_page,
             ),
-            rx.spacer(spacing="0"),
-            column_control_menu(),
+            rx.spacer(spacing="3"),
+            rx.text(f"Total records: {CriterionGridState.total_records}", font_size="sm", color="gray.600"),
+            spacing="4",
+            justify="between",
+            padding="4",
             align="center",
-            width="20%",
+            width="100%",
         ),
         rx.box(construct_table(), width="100%"),
         width="100%"
