@@ -58,6 +58,26 @@ def test_parse_if_else():
     criterion = parse_criterion(formatted)
     assert isinstance(criterion, IfCriterion)
 
+    formatted = '''
+    If(description="A performance status ≥2 on the ECOG Performance Scale (solid tumours cohort) or Karnofsky performance scale of ≥60 (haematologic malignancies cohort)") {
+        PrimaryTumor(description="solid tumours cohort",
+            primary_tumor_type="solid tumours")
+    }
+    then {
+        PerformanceStatus(description="A performance status ≥2 on the ECOG Performance Scale",
+            scale="ECOG",
+            value_range=IntRange(min_inclusive=2))
+    }
+    else {
+        PerformanceStatus(description="Karnofsky performance scale of ≥60 (haematologic malignancies cohort)",
+            scale="Karnofsky",
+            value_range=IntRange(min_inclusive=60))
+    }
+    '''
+
+    criterion = parse_criterion(formatted)
+    assert isinstance(criterion, IfCriterion)
+
 def test_parse_list():
 
     formatted = 'Metastases(location="CNS", additional_details=["symptomatic", "typical of lung cancer"])'

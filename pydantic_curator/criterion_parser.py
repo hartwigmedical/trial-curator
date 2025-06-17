@@ -75,7 +75,7 @@ class CriterionParser(Parser):
             args["condition"] = self.consume_braced_criterion()
             key = self.consume_identifier()
             if key != 'then':
-                self.raise_error(f"Expected 'then' after 'if', got '{key}'")
+                self.raise_error(f"Expected 'then' after 'If', got '{key}'")
 
             args["then"] = self.consume_braced_criterion()
 

@@ -39,7 +39,10 @@ def format_dump(item: Any, indent: int = 0):
             for field, value in criterion:
                 if field == 'type':
                     continue
-                elif isinstance(value, BaseCriterion):
+                # change else_ to else
+                if field == 'else_':
+                    field = 'else'
+                if isinstance(value, BaseCriterion):
                     subcriteria_fields.append((field, format_dump(value, 1)))
                 elif isinstance(value, list) and value and isinstance(value[0], BaseCriterion):
                     lines = [format_dump(subcriterion, 1) for subcriterion in criterion.criteria ]
@@ -58,9 +61,10 @@ def format_dump(item: Any, indent: int = 0):
             subcriteria_str = ''
 
             if subcriteria_fields:
-                # to make the format nicer, if the field name is criterion or criteria, we omit the field name
-                subcriteria_fields = [('' if k in ('criterion', 'criteria') else k, v) for k, v in subcriteria_fields]
-                subcriteria_str = '\n' + '\n'.join([f'{k}{{\n{v}\n}}' for k, v in subcriteria_fields])
+                # to make the format nicer, if the field name is criterion, criteria or condition, we omit the field name
+                subcriteria_str_list = [f'{{\n{v}\n}}' if k in ('criterion', 'criteria', 'condition') else f'{k} {{\n{v}\n}}'
+                                        for k, v in subcriteria_fields]
+                subcriteria_str = '\n' + '\n'.join(subcriteria_str_list)
                 subcriteria_str = add_indentation(subcriteria_str, indent=indent)
 
             return f'{indent_str}{criterion_type(criterion.__class__.__name__)}{argstr}{subcriteria_str}'
@@ -72,7 +76,7 @@ def format_dump(item: Any, indent: int = 0):
                 if field != 'type' and value is not None:
                     subitems[field] = format_dump(value)
 
-            argsstr = add_indentation(','.join([f'{k}={v}' for k, v in subitems.items()]), indent=indent+1)
+            argsstr = add_indentation(', '.join([f'{k}={v}' for k, v in subitems.items()]), indent=indent+1)
             return f'{model.__class__.__name__}({argsstr})'
 
         case list() as container:  # pyright: ignore

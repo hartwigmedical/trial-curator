@@ -213,7 +213,7 @@ top-level criterion, wrapping all relevant subconditions using AndCriterion, OrC
   - Use `if male ... else: ...` instead of checking both values.
   - Phrases such as "male or female", "males and females" is the same as "all participants".
 - DO NOT invent new criterion type, only use those provided.
-- Answer should be given in a single code block with no explanation.
+- Answer should be given in a single python code block with no explanation. Use python classes instead of dict.
 
 # Description field
 - Top-level criteria: `description` field **must** capture the **full original text exactly as written**, including:
