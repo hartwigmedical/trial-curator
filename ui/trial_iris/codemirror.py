@@ -1,4 +1,5 @@
 import reflex as rx
+from reflex import ImportVar
 
 
 class CodeMirror(rx.Component):
@@ -18,5 +19,15 @@ class CodeMirror(rx.Component):
 
     extensions: rx.Var[list]
 
+    def add_imports(self):
+        """Add imports to the component."""
+        return {
+            "@uiw/codemirror-extensions-langs": ImportVar(
+                tag="langs",
+                is_default=False),
+            "@uiw/react-codemirror": ImportVar(
+                tag="EditorView",
+                is_default=False,
+            )}
 
 codemirror = CodeMirror.create

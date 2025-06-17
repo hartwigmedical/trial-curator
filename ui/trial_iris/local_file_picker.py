@@ -2,7 +2,6 @@ import platform
 import reflex as rx
 from pathlib import Path
 from typing import Optional, List
-from reflex_ag_grid import ag_grid
 
 
 class FilePickerState(rx.State):
@@ -16,9 +15,9 @@ class FilePickerState(rx.State):
     show_hidden_files: bool = False
 
     # UI state
-    grid_data: List[dict] = []
-    selected_files: List[str] = []
-    drives: List[str] = []
+    grid_data: list[dict] = []
+    selected_files: list[str] = []
+    drives: list[str] = []
     current_drive: str = ""
 
     # Result
@@ -103,12 +102,9 @@ class FilePickerState(rx.State):
         except PermissionError:
             self.grid_data = [{'name': 'Permission denied', 'path': '', 'is_dir': False}]
 
-    def handle_cell_click(self, cell_data):
-        """Handle cell double click to navigate directories or select files"""
-        if not cell_data or 'data' not in cell_data:
-            return
-
-        path_str = cell_data['data'].get('path', '')
+    def handle_row_click(self, row_data: dict):
+        """Handle row click to navigate directories or select files"""
+        path_str = row_data.get('path', '')
         if not path_str:
             return
 
@@ -118,14 +114,22 @@ class FilePickerState(rx.State):
             self.current_path = str(path_obj)
             self.update_grid()
         else:
-            # File selected - submit immediately for single selection
-            if not self.multiple:
+            # File selected - toggle selection for multiple mode
+            if self.multiple:
+                if path_str in self.selected_files:
+                    self.selected_files.remove(path_str)
+                else:
+                    self.selected_files.append(path_str)
+            else:
+                # Single selection - submit immediately
                 self.submit_files([path_str])
 
-    def handle_selection_change(self, selection_data):
-        """Handle grid selection changes"""
-        if selection_data and 'selectedRows' in selection_data:
-            self.selected_files = [row['path'] for row in selection_data['selectedRows'] if row.get('path')]
+    def toggle_file_selection(self, file_path: str):
+        """Toggle file selection for multiple mode"""
+        if file_path in self.selected_files:
+            self.selected_files.remove(file_path)
+        else:
+            self.selected_files.append(file_path)
 
     def handle_form_submit(self, form_data: dict):
         """Handle form submission"""
@@ -151,14 +155,6 @@ class FilePickerState(rx.State):
 
 def file_picker_dialog():
     """File picker dialog component"""
-    column_defs = [
-        {
-            "field": "name",
-            "header_name": "File",
-            "flex": 1,
-        }
-    ]
-
     return rx.dialog.root(
         rx.dialog.content(
             rx.dialog.title("Select File"),
@@ -181,22 +177,61 @@ def file_picker_dialog():
                     # Current path display
                     rx.text(f"Current path: {FilePickerState.current_path}", size="2", color="gray"),
 
-                    # File grid
-                    ag_grid(
-                        id="file_picker_grid",
-                        row_data=FilePickerState.grid_data,
-                        column_defs=column_defs,
-                        row_selection="multiple" if FilePickerState.multiple else "single",
-                        on_cell_double_clicked=FilePickerState.handle_cell_click,
-                        on_selection_changed=FilePickerState.handle_selection_change,
-                        class_name="w-96 h-96"
+                    # File table
+                    rx.table.root(
+                        rx.table.header(
+                            rx.table.row(
+                                rx.cond(
+                                    FilePickerState.multiple,
+                                    rx.table.column_header_cell("Select"),
+                                ),
+                                rx.table.column_header_cell("File"),
+                            )
+                        ),
+                        rx.table.body(
+                            rx.foreach(
+                                FilePickerState.grid_data,
+                                lambda row: rx.table.row(
+                                    rx.cond(
+                                        FilePickerState.multiple,
+                                        rx.table.cell(
+                                            rx.cond(
+                                                ~row['is_dir'],
+                                                rx.checkbox(
+                                                    checked=row['checked'],
+                                                    on_change=lambda checked: FilePickerState.toggle_file_selection(row['path']),
+                                                ),
+                                                rx.text("")
+                                            )
+                                        ),
+                                    ),
+                                    rx.table.cell(
+                                        rx.text(
+                                            row['name'],
+                                            cursor="pointer",
+                                            _hover={"background_color": "var(--gray-3)"},
+                                            padding="2",
+                                            border_radius="4px",
+                                            on_click=lambda: FilePickerState.handle_row_click(row)
+                                        )
+                                    ),
+                                    _hover={"background_color": "var(--gray-2)"}
+                                )
+                            )
+                        ),
+                        size="2",
+                        variant="surface",
+                        height="300px",
+                        overflow="auto",
+                        border="1px solid var(--gray-6)",
+                        border_radius="8px"
                     ),
 
                     # New filename input
                     rx.input(
-                        name="new_filename",  # Important: name attribute for form
+                        name="new_filename",
                         placeholder="Or enter a new file name",
-                        class_name="w-full"
+                        width="100%"
                     ),
 
                     # Buttons
@@ -207,15 +242,14 @@ def file_picker_dialog():
                         rx.button("OK", type="submit"),
                         spacing="3",
                         justify="end",
-                        class_name="w-full"
+                        width="100%"
                     ),
 
                     spacing="4",
-                    class_name="w-full"
+                    width="100%"
                 ),
                 on_submit=FilePickerState.handle_form_submit
-            ),
-            max_width="500px"
+            )
         ),
         open=FilePickerState.dialog_open,
         on_open_change=FilePickerState.set_dialog_open
