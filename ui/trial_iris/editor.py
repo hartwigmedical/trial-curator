@@ -1,6 +1,8 @@
 import reflex as rx
 
 from .codemirror import codemirror
+from .codemirror_merge import codemirror_original, codemirror_merge, codemirror_modified
+
 
 class EditorState(rx.State):
     local_code: str = rx.LocalStorage("code")
@@ -21,9 +23,28 @@ def editor_dialog(idx, code):
         ),
         rx.dialog.content(
             rx.vstack(
-                codemirror(
-                    value=EditorState.local_code,
-                    extensions=rx.Var("[EditorView.lineWrapping, langs.python()]"),
+                codemirror_merge(
+                    codemirror_original(
+                        value=code,
+                        extensions=rx.Var(
+                            "[EditorView.editable.of(false), EditorState.readOnly.of(true)]"
+                        ),
+                        style={
+                            "maxWidth": "50%",
+                            "overflow": "auto"
+                        }
+                    ),
+                    codemirror_modified(
+                        value=EditorState.local_code,
+                        extensions=rx.Var(
+                            "[EditorView.editable.of(true), EditorState.readOnly.of(false)]"
+                        ),
+                        style={
+                            "maxWidth": "50%",
+                            "overflow": "auto"
+                        }
+                    ),
+                    orientation="a-b",
                     style={
                         "fontSize": "12px",
                         "maxWidth": "100%",
@@ -33,7 +54,7 @@ def editor_dialog(idx, code):
                 ),
                 rx.hstack(
                     rx.button("Save", on_click=EditorState.save_code),
-                    rx.dialog.close(rx.button("Cancel"), on_click=EditorState.set_local_code("")),
+                    rx.dialog.close(rx.button("Cancel")),
                     spacing="1",
                 ),
                 spacing="1",
@@ -45,7 +66,7 @@ def editor_dialog(idx, code):
                 }
             ),
             style={
-                "width": "1000px",
+                "width": "1400px",
                 "maxWidth": "80%",
                 "height": "600px",
                 "flexDirection": "column",

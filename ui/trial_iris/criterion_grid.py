@@ -1,6 +1,5 @@
 import os
-
-from .editor import editor_dialog
+import numpy as np
 
 import reflex as rx
 import pandas as pd
@@ -8,7 +7,8 @@ import logging
 from typing import Any
 from pydantic_curator.criterion_parser import parse_criterion
 from .excel_style_filter import excel_style_filter
-from .local_file_picker import file_picker_dialog, FilePickerState
+from .local_file_picker import file_picker_dialog
+from .editor import editor_dialog
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ AVAILABLE_COLUMNS = [
     "ClinicalJudgement", "ReproductiveStatus", "Infection", "Symptom",
     "PerformanceStatus", "LifeExpectancy", "RequiredAction",
     "TissueAvailability", "Other", "And", "Or", "Not", "If", "Timing",
-    "Edit", "Code", "Error"
+    "Checked", "Edit", "Code", "Error"
 ]
 
 CRITERION_TYPE_COLUMNS = ["Age", "Sex",
@@ -64,7 +64,10 @@ class CriterionGridState(rx.State):
 
         for c in self.available_columns:
             if c not in self.no_filter_columns:
-                await filter_state.add_filter(c, self._trial_df[c].unique().tolist())
+                if c in ('Checked', 'Override'):
+                    await filter_state.add_filter(c, ['true', 'false'])
+                else:
+                    await filter_state.add_filter(c, sorted(self._trial_df[c].unique().tolist()))
 
     @rx.event
     def apply_filters(self, filters: dict[str, list[str]]):
@@ -77,7 +80,9 @@ class CriterionGridState(rx.State):
         logger.info('applying filter')
 
         for filter_name, filter_values in filters.items():
-            filter_mask &= self._trial_df[filter_name].isin(filter_values)
+            filter_mask &= self._trial_df[filter_name].isin(
+                [convert_string_to_column_type(v, self._trial_df[filter_name]) for v in filter_values]
+            )
 
         self._filtered_trial_df = self._trial_df[filter_mask]
         self.total_pages = (len(self._filtered_trial_df) + self.page_size - 1) // self.page_size
@@ -237,6 +242,7 @@ def filter_dialog():
 def render_cell(row, col) -> rx.Component:
     return rx.match(
         col,
+        ("Checked", rx.table.cell(rx.checkbox(row['Checked']))),
         ("Edit", rx.table.cell(editor_dialog(row['index'], row['Code']))),
         ("Code",
             rx.table.cell(
@@ -368,7 +374,7 @@ def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
                 "Next",
                 on_click=CriterionGridState.next_page,
             ),
-            rx.spacer(spacing="3"),
+            rx.spacer(width="100px"),
             rx.text(f"Total records: {CriterionGridState.total_records}", font_size="sm", color="gray.600"),
             spacing="4",
             justify="between",
@@ -379,3 +385,39 @@ def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
         rx.box(construct_table(), width="100%"),
         width="100%"
     )
+
+def convert_string_to_column_type(value_str, column_dtype):
+    """
+    Convert a string to the same type as a pandas column dtype.
+
+    Parameters:
+        value_str (str): The string to convert.
+        column_dtype: The dtype of the target pandas column.
+
+    Returns:
+        Converted value in the column's dtype.
+    """
+    if pd.api.types.is_datetime64_any_dtype(column_dtype):
+        # For datetime columns
+        return pd.to_datetime(value_str)
+
+    elif pd.api.types.is_bool_dtype(column_dtype):
+        # For boolean columns
+        value_lower = value_str.strip().lower()
+        if value_lower in ["true", "1", "yes"]:
+            return True
+        elif value_lower in ["false", "0", "no"]:
+            return False
+        else:
+            raise ValueError(f"Cannot convert '{value_str}' to boolean.")
+
+    elif pd.api.types.is_numeric_dtype(column_dtype):
+        # For numeric types (int, float)
+        return np.dtype(column_dtype).type(value_str)
+
+    elif pd.api.types.is_object_dtype(column_dtype) or pd.api.types.is_string_dtype(column_dtype):
+        # For object/string types, return as-is
+        return value_str
+
+    else:
+        raise TypeError(f"Conversion for dtype '{column_dtype}' is not supported.")
