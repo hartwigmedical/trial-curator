@@ -20,7 +20,7 @@ AVAILABLE_COLUMNS = [
     "ClinicalJudgement", "ReproductiveStatus", "Infection", "Symptom",
     "PerformanceStatus", "LifeExpectancy", "RequiredAction",
     "TissueAvailability", "Other", "And", "Or", "Not", "If", "Timing",
-    "Checked", "Edit", "Code", "Error"
+    "Checked", "Edit", "Code", "Error", "LlmCode", "OverrideCode"
 ]
 
 CRITERION_TYPE_COLUMNS = ["Age", "Sex",
@@ -36,8 +36,8 @@ class CriterionGridState(rx.State):
     _trial_df: pd.DataFrame = pd.DataFrame()
     _filtered_trial_df: pd.DataFrame = pd.DataFrame()
     available_columns: list[str] = AVAILABLE_COLUMNS
-    _hidden_columns: set[str] = {*{c for c in CRITERION_TYPE_COLUMNS}, "RuleNum", "RuleId"}
-    no_filter_columns = ['Description', 'Code', 'RuleNum', 'RuleId', 'Edit', 'Error']
+    _hidden_columns: set[str] = {*{c for c in CRITERION_TYPE_COLUMNS}, "RuleNum", "RuleId", 'LlmCode', 'OverrideCode'}
+    no_filter_columns = ['Description', 'Code', 'RuleNum', 'RuleId', 'Edit', 'Error', 'LlmCode', 'OverrideCode']
     thin_columns: list[str] = CRITERION_TYPE_COLUMNS
 
     # UI state
@@ -111,10 +111,12 @@ class CriterionGridState(rx.State):
                 parse_error = str(e)
 
             result.append({
-                'index': idx,
+                'idx': idx,
                 ** {c: row[c] for c in self.available_columns if c in page_data.columns},
                 'Code': formatted_criterion,
-                'Error': parse_error
+                'Error': parse_error,
+                'LlmCode': row['Values'],
+                'OverrideCode': row['Override']
             })
 
         logger.info(f'result: {result[0]}')
@@ -143,12 +145,14 @@ class CriterionGridState(rx.State):
             self.current_page -= 1
 
     @rx.event
-    def update_criterion(self, index: int, criterion: str):
+    async def update_criterion(self, index: int, criterion: str):
+        logger.info(f"update criterion: index={index}")
         """Update criterion override for a specific row."""
         try:
             self._trial_df.loc[index, 'Override'] = criterion
             # Refresh the filtered dataframe
-            self.apply_filters()
+            filter_state = await self.get_state(FilterState)
+            await filter_state.apply_filters()
             return rx.toast.success("Criterion updated")
         except Exception as e:
             return rx.toast.error(f"Error updating criterion: {str(e)}")
@@ -243,7 +247,13 @@ def render_cell(row, col) -> rx.Component:
     return rx.match(
         col,
         ("Checked", rx.table.cell(rx.checkbox(row['Checked']))),
-        ("Edit", rx.table.cell(editor_dialog(row['index'], row['Code']))),
+        ("Edit", rx.table.cell(
+            editor_dialog(
+                row['idx'],
+                row['LlmCode'],
+                rx.cond(row['OverrideCode'] == '', row['LlmCode'], row['OverrideCode']),
+                CriterionGridState.update_criterion))
+        ),
         ("Code",
             rx.table.cell(
                 rx.code_block(

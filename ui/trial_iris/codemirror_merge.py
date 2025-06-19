@@ -24,6 +24,7 @@ class CodeMirrorOriginal(rx.Component):
         }
 
     def add_custom_code(self) -> list[str]:
+        # this is needed to make sure we can reference the type using Original as name
         return ['const Original = CodeMirrorMerge.Original;']
 
 
@@ -41,8 +42,8 @@ class CodeMirrorModified(rx.Component):
         }
 
     def add_custom_code(self) -> list[str]:
+        # this is needed to make sure we can reference the type using Modified as name
         return ['const Modified = CodeMirrorMerge.Modified;']
-
 
 codemirror_merge = CodeMirrorMerge.create
 codemirror_original = CodeMirrorOriginal.create
