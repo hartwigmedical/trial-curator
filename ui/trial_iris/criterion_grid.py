@@ -6,39 +6,24 @@ import pandas as pd
 import logging
 from typing import Any
 from pydantic_curator.criterion_parser import parse_criterion
+from .column_definitions import ColumnDefinition, COLUMN_DEFINITIONS, CRITERION_TYPE_NAMES
 from .excel_style_filter import excel_style_filter
 from .local_file_picker import file_picker_dialog
 from .editor import editor_dialog
 
 logger = logging.getLogger(__name__)
 
-AVAILABLE_COLUMNS = [
-    "TrialId", "Cohort", "RuleNum", "RuleId", "Description", "Age", "Sex",
-    "LabValue", "PrimaryTumor", "Histology", "MolecularBiomarker", "GeneAlteration",
-    "MolecularSignature", "DiagnosticFinding", "Metastases", "Comorbidity",
-    "PriorTreatment", "CurrentTreatment", "TreatmentOption", "Contraindication",
-    "ClinicalJudgement", "ReproductiveStatus", "Infection", "Symptom",
-    "PerformanceStatus", "LifeExpectancy", "RequiredAction",
-    "TissueAvailability", "Other", "And", "Or", "Not", "If", "Timing",
-    "Checked", "Edit", "Code", "Error", "LlmCode", "OverrideCode"
-]
+AVAILABLE_COLUMNS = [col.name for col in COLUMN_DEFINITIONS]
+CRITERION_TYPE_COLUMNS = CRITERION_TYPE_NAMES
 
-CRITERION_TYPE_COLUMNS = ["Age", "Sex",
-        "LabValue", "PrimaryTumor", "Histology", "MolecularBiomarker", "GeneAlteration",
-        "MolecularSignature", "DiagnosticFinding", "Metastases", "Comorbidity",
-        "PriorTreatment", "CurrentTreatment", "TreatmentOption", "Contraindication",
-        "ClinicalJudgement", "ReproductiveStatus", "Infection", "Symptom",
-        "PerformanceStatus", "LifeExpectancy", "RequiredAction",
-        "TissueAvailability", "Other", "And", "Or", "Not", "If", "Timing"]
 
 class CriterionGridState(rx.State):
     # Data state
     _trial_df: pd.DataFrame = pd.DataFrame()
     _filtered_trial_df: pd.DataFrame = pd.DataFrame()
-    available_columns: list[str] = AVAILABLE_COLUMNS
-    _hidden_columns: set[str] = {*{c for c in CRITERION_TYPE_COLUMNS}, "RuleNum", "RuleId", 'LlmCode', 'OverrideCode'}
-    no_filter_columns = ['Description', 'Code', 'RuleNum', 'RuleId', 'Edit', 'Error', 'LlmCode', 'OverrideCode']
-    thin_columns: list[str] = CRITERION_TYPE_COLUMNS
+    _hidden_columns: set[str] = {col.name for col in COLUMN_DEFINITIONS if col.defaultHidden}
+    no_filter_columns: list[str] = [col.name for col in COLUMN_DEFINITIONS if not col.filterable]
+    thin_columns: list[str] = [col.name for col in COLUMN_DEFINITIONS if col.thin]
 
     # UI state
     current_page: int = 0
@@ -51,6 +36,14 @@ class CriterionGridState(rx.State):
     def total_records(self) -> int:
         return self._trial_df.shape[0]
 
+    @rx.var
+    def available_columns(self) -> list[str]:
+        return [c.name for c in COLUMN_DEFINITIONS]
+
+    @rx.var
+    def visible_columns(self) -> list[str]:
+        return [c.name for c in COLUMN_DEFINITIONS if c.name not in self._hidden_columns]
+
     @rx.event
     async def set_trial_df(self, trial_df: pd.DataFrame):
 
@@ -62,12 +55,12 @@ class CriterionGridState(rx.State):
 
         filter_state = await self.get_state(FilterState)
 
-        for c in self.available_columns:
-            if c not in self.no_filter_columns:
-                if c in ('Checked', 'Override'):
-                    await filter_state.add_filter(c, ['true', 'false'])
+        for c in COLUMN_DEFINITIONS:
+            if c.filterable:
+                if c.type == bool:
+                    await filter_state.add_filter(c.name, ['true', 'false'])
                 else:
-                    await filter_state.add_filter(c, sorted(self._trial_df[c].unique().tolist()))
+                    await filter_state.add_filter(c.name, sorted(self._trial_df[c.name].unique().tolist()))
 
     @rx.event
     def apply_filters(self, filters: dict[str, list[str]]):
@@ -102,7 +95,7 @@ class CriterionGridState(rx.State):
 
         result = []
         for idx, row in page_data.iterrows():
-            formatted_criterion = row['Override'] if row['Override'] else row['Values']
+            formatted_criterion = row['OverrideCode'] if row['OverrideCode'] else row['LlmCode']
             parse_error = None
             try:
                 parse_criterion(formatted_criterion)
@@ -112,19 +105,13 @@ class CriterionGridState(rx.State):
 
             result.append({
                 'idx': idx,
-                ** {c: row[c] for c in self.available_columns if c in page_data.columns},
+                ** {c.name: row[c.name] for c in COLUMN_DEFINITIONS if c.name in page_data.columns},
                 'Code': formatted_criterion,
                 'Error': parse_error,
-                'LlmCode': row['Values'],
-                'OverrideCode': row['Override']
+                'LlmCode': row['LlmCode'],
+                'OverrideCode': row['OverrideCode']
             })
-
-        logger.info(f'result: {result[0]}')
         return result
-
-    @rx.var
-    def visible_columns(self) -> list[str]:
-        return [c for c in self.available_columns if c not in self._hidden_columns]
 
     @rx.event
     def go_to_page(self, page: int):
@@ -146,7 +133,7 @@ class CriterionGridState(rx.State):
 
     @rx.event
     async def update_criterion(self, index: int, criterion: str):
-        logger.info(f"update criterion: index={index}")
+        logger.info(f"update criterion: index={index}, criterion={criterion}")
         """Update criterion override for a specific row."""
         try:
             self._trial_df.loc[index, 'Override'] = criterion
@@ -254,7 +241,7 @@ def render_cell(row, col) -> rx.Component:
                 rx.cond(row['OverrideCode'] == '', row['LlmCode'], row['OverrideCode']),
                 CriterionGridState.update_criterion))
         ),
-        ("Code",
+        ("Code", "LlmCode", "OverrideCode",
             rx.table.cell(
                 rx.code_block(
                     row["Code"], language="python", can_copy=True,
@@ -269,7 +256,7 @@ def render_cell(row, col) -> rx.Component:
                          "margin": "0"
                      }
                 ),
-                max_width="800px"
+                max_width="600px"
             )
         ),
         ("Override",

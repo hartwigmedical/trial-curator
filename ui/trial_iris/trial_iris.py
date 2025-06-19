@@ -4,9 +4,11 @@ import os
 import pandas as pd
 import reflex as rx
 
+from .column_definitions import COLUMN_DEFINITIONS
 from .criterion_grid import criteria_table, CriterionGridState
 
 logger = logging.getLogger(__name__)
+
 
 class TrialIrisState(rx.State):
     """State management for the Curation Assistant."""
@@ -36,7 +38,20 @@ class TrialIrisState(rx.State):
                 return rx.toast.error("File not found")
 
             df = pd.read_csv(file_path, sep='\t')
-            df['Override'] = df['Override'].fillna('')
+
+            # add any missing columns
+            for col in COLUMN_DEFINITIONS:
+                if col.name not in df.columns:
+                    logger.info(f"adding missing column: {col.name}")
+                    if col.type == bool:
+                        df[col.name] = False
+                    elif col.type == int:
+                        df[col.name] = 0
+                    elif col.type == float:
+                        df[col.name] = 0.0
+                    else:
+                        df[col.name] = None
+
             self._trial_df = df
             criterion_grid_state = await self.get_state(CriterionGridState)
             await criterion_grid_state.set_trial_df(df)
@@ -65,14 +80,6 @@ class TrialIrisState(rx.State):
         except Exception as e:
             return rx.toast.error(f"Error saving criteria: {str(e)}")
 
-    @rx.event
-    def edit_criterion(self, index: int):
-        try:
-            self._trial_df.loc[index]
-            self.show_editor = True
-            return None
-        except Exception as e:
-            return rx.toast.error(f"Error updating criterion: {str(e)}")
 
 def main_content():
     """Main content area."""

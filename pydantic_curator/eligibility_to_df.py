@@ -8,10 +8,9 @@ from sentence_transformers import SentenceTransformer, SimilarityFunction
 
 from actin_curator.actin_curator_utils import format_actin_rule
 from trialcurator.criterion_compare import criterion_diff
-from .criterion_schema import *
 from .criterion_formatter import format_criterion
+from .criterion_schema import *
 from .eligibility_py_loader import exec_file_into_variable
-from .utils import deep_remove_field
 
 logger = logging.getLogger(__name__)
 
@@ -23,53 +22,6 @@ class EligibilityRule(NamedTuple):
     rule_type: str
     description: str
     values: str
-
-# generate rule id
-def process(parent_rule_id: str, c: BaseCriterion, child_id: int, rule_list: list[EligibilityRule]):
-
-    rule_id = f"{parent_rule_id}.{child_id}"
-    rule_type = c.__class__.__name__.replace('Criterion', '')
-    description = c.description
-
-    if isinstance(c, (AndCriterion, OrCriterion, NotCriterion, IfCriterion)):
-        values = None
-    else:
-        value_dict = deep_remove_field(c.model_dump(serialize_as_any=True, exclude_none=True), 'description')
-        values = '; '.join(f'{k}={v}' for k, v in value_dict.items())
-
-    rule_list.append(EligibilityRule(rule_id, rule_type, description, values))
-
-    if isinstance(c, AndCriterion):
-        [process(rule_id, c.criteria[i], i + 1, rule_list) for i in range(len(c.criteria))]
-    elif isinstance(c, OrCriterion):
-        [process(rule_id, c.criteria[i], i + 1, rule_list) for i in range(len(c.criteria))]
-    elif isinstance(c, NotCriterion):
-        process(rule_id, c.criterion, 1, rule_list)
-    elif isinstance(c, IfCriterion):
-        process(rule_id, c.condition, 1, rule_list)
-        process(rule_id, c.then, 2, rule_list)
-        if c.else_:
-            process(rule_id, c.else_, 3, rule_list)
-
-# add all these rules into a panda dictionary
-def criteria_to_df(trial_id, criteria: list[BaseCriterion]) -> pd.DataFrame:
-
-    rule_list = []
-    for i in range(len(criteria)):
-        process(trial_id, criteria[i], i + 1, rule_list)
-
-    data = [
-        {
-            "TrialId": trial_id,
-            "RuleNum": [i + 1 for i in range(len(rule_list))],
-            "RuleId": rule.rule_id,
-            "Type": rule.rule_type,
-            "Description": rule.description,
-            "Values": rule.values,
-        }
-        for rule in rule_list
-    ]
-    return pd.DataFrame(data)
 
 def count_rule_types(criterion: BaseCriterion, rule_type_counts: dict[str, int]):
 
@@ -94,7 +46,7 @@ def criteria_to_rule_count_df(trial_id, cohort, criteria: list[BaseCriterion]) -
     rule_nums = []
     rule_types_counts = {t: [] for t in rule_types}
     descriptions = []
-    values = []
+    llm_code = []
     for i in range(len(criteria)):
         rule_ids.append(f'{trial_id}.{i + 1}')
         rule_nums.append(i + 1)
@@ -103,8 +55,11 @@ def criteria_to_rule_count_df(trial_id, cohort, criteria: list[BaseCriterion]) -
         # add it to each rule type
         for k, v in rule_types_counts.items():
             v.append(rule_type_counts.get(k, 0))
-        descriptions.append(criteria[i].description)
-        values.append(format_criterion(criteria[i]))
+        try:
+            descriptions.append(criteria[i].description)
+        except Exception as e:
+            logger.warning(f'failed to get description for rule {i}({trial_id}): {criteria[i]}, error: {e}')
+        llm_code.append(format_criterion(criteria[i]))
 
     data = {
         "TrialId": [trial_id] * len(criteria),
@@ -114,7 +69,7 @@ def criteria_to_rule_count_df(trial_id, cohort, criteria: list[BaseCriterion]) -
         "Description": descriptions,
     }
     data.update(rule_types_counts)
-    data.update({"Values": values})
+    data.update({"LlmCode": llm_code})
     return pd.DataFrame(data)
 
 # merge the py and actin rules together and return a dataframe with the data
@@ -189,7 +144,6 @@ def main():
             dfs.append(df)
 
     df = pd.concat(dfs)
-    df["Override"] = None
     df.to_csv(args.out_df, sep='\t', index=False)
 
 
