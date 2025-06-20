@@ -1,5 +1,4 @@
 import os
-import numpy as np
 
 import reflex as rx
 import pandas as pd
@@ -7,40 +6,36 @@ import logging
 from typing import Any
 from pydantic_curator.criterion_parser import parse_criterion
 from .column_definitions import *
+from .column_filter import column_control_menu, ColumnFilterState
 from .excel_style_filter import excel_style_filter
+from .grid_action_menu import grid_action_menu, grid_action_menu_dialogs
 from .local_file_picker import file_picker_dialog
-from .editor import editor_dialog
 
 logger = logging.getLogger(__name__)
 
-AVAILABLE_COLUMNS = [col.name for col in COLUMN_DEFINITIONS]
+# need to make them rx.Var such that can use them on rx.cond
+NO_FILTER_COLUMNS: rx.Var[list[str]] = rx.Var.create([col.name for col in COLUMN_DEFINITIONS if not col.filterable])
+THIN_COLUMNS: rx.Var[list[str]] = rx.Var.create([col.name for col in COLUMN_DEFINITIONS if col.thin])
 
 class CriterionGridState(rx.State):
     # Data state
     _trial_df: pd.DataFrame = pd.DataFrame()
     _filtered_trial_df: pd.DataFrame = pd.DataFrame()
-    _hidden_columns: set[str] = {col.name for col in COLUMN_DEFINITIONS if col.defaultHidden}
-    no_filter_columns: list[str] = [col.name for col in COLUMN_DEFINITIONS if not col.filterable]
-    thin_columns: list[str] = [col.name for col in COLUMN_DEFINITIONS if col.thin]
+
+    # page data
+    current_page_data: list[dict[str, Any]]
 
     # UI state
     current_page: int = 0
     page_size: int = 50
     total_pages: int = 0
-    show_save_dialog: bool = False
-    show_editor: bool = False
 
     @rx.var
     def total_records(self) -> int:
         return self._trial_df.shape[0]
 
-    @rx.var
-    def visible_columns(self) -> list[str]:
-        return [c.name for c in COLUMN_DEFINITIONS if c.name not in self._hidden_columns]
-
     @rx.event
     async def set_trial_df(self, trial_df: pd.DataFrame):
-
         self._trial_df = trial_df
         self._filtered_trial_df = self._trial_df
 
@@ -57,7 +52,7 @@ class CriterionGridState(rx.State):
                     await filter_state.add_filter(c.name, sorted(self._trial_df[c.name].unique().tolist()))
 
     @rx.event
-    def apply_filters(self, filters: dict[str, list[str]]):
+    def apply_filters(self, filters: dict[str, list[Any]]):
         """Apply all active filters."""
         if self._trial_df.empty:
             return
@@ -68,21 +63,19 @@ class CriterionGridState(rx.State):
 
         for filter_name, filter_values in filters.items():
             if len(filter_values) > 0:
-                filter_mask &= ~self._trial_df[filter_name].isin(
-                    [convert_string_to_column_type(v, self._trial_df[filter_name]) for v in filter_values]
-                )
+                filter_mask &= ~self._trial_df[filter_name].isin(filter_values)
 
         self._filtered_trial_df = self._trial_df[filter_mask]
         self.total_pages = (len(self._filtered_trial_df) + self.page_size - 1) // self.page_size
         self.current_page = 0
+        self.update_current_page_data()
 
-    @rx.var
-    def current_page_data(self) -> list[dict[str, Any]]:
+    def update_current_page_data(self):
         """Get data for current page."""
         if self._filtered_trial_df.empty:
-            return []
+            self.current_page_data = []
 
-        logger.info('getting page data')
+        logger.info('updating page data')
 
         start_idx = self.current_page * self.page_size
         end_idx = start_idx + self.page_size
@@ -99,14 +92,14 @@ class CriterionGridState(rx.State):
                 parse_error = str(e)
 
             result.append({
-                'idx': idx,
+                INDEX_COLUMN: idx,
                 ** {c.name: row[c.name] for c in COLUMN_DEFINITIONS if c.name in page_data.columns},
                 Columns.CODE.name: formatted_criterion,
                 Columns.ERROR.name: parse_error,
                 Columns.LLM_CODE.name: row[Columns.LLM_CODE.name],
                 Columns.OVERRIDE_CODE.name: row[Columns.OVERRIDE_CODE.name]
             })
-        return result
+        self.current_page_data = result
 
     @rx.event
     def go_to_page(self, page: int):
@@ -141,12 +134,22 @@ class CriterionGridState(rx.State):
             logger.info(f"update criterion: index={index}, criterion={criterion}")
             self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = criterion
             self._trial_df.loc[index, Columns.OVERRIDE.name] = True
-            # Refresh the filtered dataframe
+            # Refresh the filtered dataframe, in case we got filter on override
             filter_state = await self.get_state(FilterState)
             await filter_state.apply_filters()
             return rx.toast.success("Criterion updated")
         except Exception as e:
             return rx.toast.error(f"Error updating criterion: {str(e)}")
+
+    @rx.event
+    async def delete_override(self, index: int):
+        logger.info(f"delete override: index={index}")
+        self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = None
+        self._trial_df.loc[index, Columns.OVERRIDE.name] = False
+        # Refresh the filtered dataframe, in case we got filter on override
+        filter_state = await self.get_state(FilterState)
+        await filter_state.apply_filters()
+        return rx.toast.success("Override deleted")
 
     @rx.event
     def save_criteria(self):
@@ -157,33 +160,25 @@ class CriterionGridState(rx.State):
 
             save_path = os.path.expanduser(self.save_path)
             self._trial_df.to_csv(save_path, sep='\t', index=False)
-            self.show_save_dialog = False
             return rx.toast.success(f"Saved criteria to {save_path}")
         except Exception as e:
             return rx.toast.error(f"Error saving criteria: {str(e)}")
 
-    @rx.event
-    def toggle_column_visibility(self, column: str):
-        """Toggle visibility of a specific column."""
-        if column in self._hidden_columns:
-            self._hidden_columns.remove(column)
-        else:
-            self._hidden_columns.add(column)
 
 class FilterState(rx.State):
     """State for individual filter components."""
-    options_dict: dict[str, list[str]] = {}
-    deselected_dict: dict[str, list[str]] = {}
+    options_dict: dict[str, list[Any]] = {}
+    deselected_dict: dict[str, list[Any]] = {}
 
     @rx.event
-    async def add_filter(self, filter_name: str, values: list[str]):
+    async def add_filter(self, filter_name: str, values: list[Any]):
         self.options_dict[filter_name] = values.copy()
         self.deselected_dict[filter_name] = []
         logger.info(f"added filter: {filter_name}")
         await self.apply_filters()
 
     @rx.event
-    async def toggle_option(self, filter_name: str, option: str):
+    async def toggle_option(self, filter_name: str, option: Any):
         logger.info(f"toggle option: {filter_name}")
         if option in self.deselected_dict[filter_name]:
             self.deselected_dict[filter_name].remove(option)
@@ -209,77 +204,49 @@ class FilterState(rx.State):
         grid_state.apply_filters(self.deselected_dict)
 
 
-@rx.event
-def filter_dialog():
-    """Filter dialog component."""
-    return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button("Filter")
-        ),
-        rx.dialog.content(
-            rx.dialog.title("Filter Criteria"),
-            rx.vstack(
-                rx.text("Trial ID:")
-            )
-        )
-    )
-
-
 def render_cell(row, col) -> rx.Component:
     return rx.match(
         col,
         ("Checked", rx.table.cell(rx.checkbox(row['Checked']))),
-        ("Edit", rx.table.cell(
-            editor_dialog(
-                row['idx'],
-                row[Columns.LLM_CODE.name],
-                rx.cond(row[Columns.OVERRIDE_CODE.name], row[Columns.OVERRIDE_CODE.name], row[Columns.LLM_CODE.name]),
-                CriterionGridState.update_criterion))
+        (Columns.ACTION.name,
+            rx.table.cell(
+                grid_action_menu(row)
+            )
         ),
         (Columns.CODE.name, Columns.LLM_CODE.name, Columns.OVERRIDE_CODE.name,
             rx.table.cell(
                 rx.code_block(
-                    row[col], language="python", can_copy=True,
-                     copy_button=rx.button(
-                         rx.icon(tag="copy", size=15),
-                         size="1",
-                         on_click=rx.set_clipboard(row[col]),
-                         style={"position": "absolute", "top": "0.5em", "right": "0"}
-                     ),
-                     font_size="12px",
-                     style={
-                         "margin": "0"
-                     }
+                    row[col],
+                    language="python",
+                    can_copy=False,
+                    wrap_long_lines=True,
+                    font_size="12px",
+                    style={
+                        "margin": "0"
+                    }
                 ),
                 max_width="600px"
             )
         ),
         (Columns.OVERRIDE.name,
             rx.table.cell(
-                rx.text(
-                    rx.cond(row[Columns.OVERRIDE_CODE.name], "Yes", "No"),
-                    bg=rx.cond(
+                rx.cond(
+                    row[Columns.OVERRIDE_CODE.name],
+                    rx.text(
                         "Yes",
-                        "green.100",
-                        "gray.100"
+                        background_color=rx.color("green", 5),
+                        padding="2px 8px",
+                        border_radius="4px"
                     ),
-                    color=rx.cond(
-                        "No",
-                        "green.800",
-                        "gray.700"
-                    ),
-                    padding="2px 8px",
-                    border_radius="4px",
-                    font_size="12px",
-                    font_weight="500",
+                    rx.text("No")
                 )
             )
         ),
         ("Description", rx.table.cell(row["Description"], white_space="pre-wrap", min_width="200px", max_width="300px")),
-        rx.cond(CriterionGridState.thin_columns.contains(col),
-            rx.table.cell(row[col], max_width="20px"),
-            rx.table.cell(row[col], white_space="pre-wrap", max_width="150px")
-        )
+        rx.cond(THIN_COLUMNS.contains(col),
+                rx.table.cell(row[col], max_width="20px"),
+                rx.table.cell(row[col], white_space="pre-wrap", max_width="150px")
+                )
     )
 
 def construct_table() -> rx.Component:
@@ -288,13 +255,13 @@ def construct_table() -> rx.Component:
         rx.table.header(
             rx.table.row(
                 rx.foreach(
-                    CriterionGridState.visible_columns,
+                    ColumnFilterState.visible_columns,
                     lambda col: rx.table.column_header_cell(
-                        rx.cond(CriterionGridState.no_filter_columns.contains(col),
+                        rx.cond(NO_FILTER_COLUMNS.contains(col),
                                 rx.text(col),
                                 excel_style_filter(
                                     col,
-                                    CriterionGridState.thin_columns.contains(col),
+                                    THIN_COLUMNS.contains(col),
                                     options=FilterState.options_dict,
                                     deselected=FilterState.deselected_dict,
                                     toggle_option=FilterState.toggle_option,
@@ -303,7 +270,7 @@ def construct_table() -> rx.Component:
                                     label=col,
                                     compact=True
                                 )
-                            )
+                                )
                     )
                 )
             )
@@ -313,43 +280,13 @@ def construct_table() -> rx.Component:
                 CriterionGridState.current_page_data,
                 lambda row: rx.table.row(
                     rx.foreach(
-                        CriterionGridState.visible_columns,
+                        ColumnFilterState.visible_columns,
                         lambda col: render_cell(row, col)
                     )
                 )
             )
-        )
-    )
-
-
-def column_control_menu() -> rx.Component:
-    """Create column control menu component."""
-    return rx.menu.root(
-        rx.menu.trigger(
-            rx.button(
-                rx.hstack(
-                    rx.text("Columns"),
-                    rx.icon("columns_3_cog", size=15),
-                    align="center"
-                ),
-                variant="outline",
-            ),
         ),
-        rx.menu.content(
-            rx.vstack(
-                rx.foreach(AVAILABLE_COLUMNS,
-                           lambda col: rx.hstack(
-                               rx.checkbox(
-                                   checked=CriterionGridState.visible_columns.contains(col),
-                                   on_change=lambda: CriterionGridState.toggle_column_visibility(col),
-                               ),
-                               rx.text(col),
-                               width="100%",
-                           ),
-                           ),
-                padding="1em",
-            ),
-        )
+        grid_action_menu_dialogs(CriterionGridState.update_criterion, CriterionGridState.delete_override)
     )
 
 def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
@@ -377,39 +314,3 @@ def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
         rx.box(construct_table(), width="100%"),
         width="100%"
     )
-
-def convert_string_to_column_type(value_str, column_dtype):
-    """
-    Convert a string to the same type as a pandas column dtype.
-
-    Parameters:
-        value_str (str): The string to convert.
-        column_dtype: The dtype of the target pandas column.
-
-    Returns:
-        Converted value in the column's dtype.
-    """
-    if pd.api.types.is_datetime64_any_dtype(column_dtype):
-        # For datetime columns
-        return pd.to_datetime(value_str)
-
-    elif pd.api.types.is_bool_dtype(column_dtype):
-        # For boolean columns
-        value_lower = value_str.strip().lower()
-        if value_lower in ["true", "1", "yes"]:
-            return True
-        elif value_lower in ["false", "0", "no"]:
-            return False
-        else:
-            raise ValueError(f"Cannot convert '{value_str}' to boolean.")
-
-    elif pd.api.types.is_numeric_dtype(column_dtype):
-        # For numeric types (int, float)
-        return np.dtype(column_dtype).type(value_str)
-
-    elif pd.api.types.is_object_dtype(column_dtype) or pd.api.types.is_string_dtype(column_dtype):
-        # For object/string types, return as-is
-        return value_str
-
-    else:
-        raise TypeError(f"Conversion for dtype '{column_dtype}' is not supported.")

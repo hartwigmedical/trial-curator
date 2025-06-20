@@ -35,7 +35,7 @@ class Columns:
     DESCRIPTION = ColumnDefinition("Description", width="200px")
     CHECKED = ColumnDefinition("Checked", type=bool, filterable=True)
     OVERRIDE = ColumnDefinition("Override", type=bool, isDerived=True, filterable=True)
-    EDIT = ColumnDefinition("Edit")
+    ACTION = ColumnDefinition("Action")
     CODE = ColumnDefinition("Code")
     ERROR = ColumnDefinition("Error", defaultHidden=True)
     LLM_CODE = ColumnDefinition("LlmCode", defaultHidden=True)
@@ -55,9 +55,12 @@ COLUMN_DEFINITIONS = [
     *DYNAMIC_COLUMNS.values(),
     Columns.CHECKED,
     Columns.OVERRIDE,
-    Columns.EDIT,
+    Columns.ACTION,
     Columns.CODE,
     Columns.ERROR,
     Columns.LLM_CODE,
     Columns.OVERRIDE_CODE
 ]
+
+# index of the dataframe
+INDEX_COLUMN = "idx"

@@ -1,5 +1,4 @@
 import logging
-from typing import ClassVar
 
 import reflex as rx
 from reflex import ImportVar
@@ -8,46 +7,50 @@ from .codemirror_merge import codemirror_original, codemirror_merge, codemirror_
 
 logger = logging.getLogger(__name__)
 
-class EditorState(rx.ComponentState):
-    # submit handler
-    on_save: ClassVar[rx.EventHandler] = None
+MODIFIED_EDITOR_VIEW_VAR = "trialIrisModifiedEditorView"
+
+class EditorState(rx.State):
+    idx: int = -1
+    code: str = ""
+    new_code: str = ""
+    editor_open: bool = False
+    save_override: rx.EventHandler = None
 
     @rx.event
-    def save_code(self, idx):
+    def save_code(self):
         return rx.call_script(
-            "modifiedEditor.state.doc.toString()",
-            callback=self.__class__.on_save(idx)
+            f"{MODIFIED_EDITOR_VIEW_VAR}.state.doc.toString()",
+            callback=self.__class__.save_override(self.idx)
         )
 
-    @classmethod
-    def get_component(cls, idx: int, code: str, new_code: str, on_save: rx.EventHandler, **props) -> rx.Component:
-        cls.on_save = on_save
-        return _create_editor_dialog(cls, idx, code, new_code)
-
-
-editor_dialog = EditorState.create
+    @rx.event
+    def open_dialog(self, idx: int, code: str, new_code: str):
+        self.idx = idx
+        self.code = code
+        self.new_code = new_code
+        self.editor_open = True
 
 class EditorSetup(rx.Fragment):
-
     def add_imports(self):
         return {
-            "/public/criterion-autocomplete": ImportVar(tag="criterionAutocomplete", is_default=False)
+            "/public/criterion-autocomplete": [
+                ImportVar(tag="criterionAutocomplete", is_default=False),
+                ImportVar(tag="tabAcceptKeymap", is_default=False)
+            ]
         }
 
 # NOTE: we use the update listener to store the view into a modifiedEditor variable
 # this way the code can be retrieved in the event handler
-def _create_editor_dialog(state, idx, code, new_code):
+def editor_dialog(save_override: rx.EventHandler):
+    EditorState.save_override = save_override
     return rx.dialog.root(
-        rx.script("var modifiedEditor = null;"),  # declare a variable
+        rx.script(f"var {MODIFIED_EDITOR_VIEW_VAR} = null;"),  # declare a variable
         EditorSetup.create(),
-        rx.dialog.trigger(
-            rx.button(rx.icon(tag="pen"))
-        ),
         rx.dialog.content(
             rx.vstack(
                 codemirror_merge(
                     codemirror_original(
-                        value=code,
+                        value=EditorState.code,
                         extensions=rx.Var(
                             "[EditorView.editable.of(false), EditorState.readOnly.of(true), EditorView.lineWrapping]"
                         ),
@@ -58,10 +61,10 @@ def _create_editor_dialog(state, idx, code, new_code):
                         }
                     ),
                     codemirror_modified(
-                        value=new_code,
+                        value=EditorState.new_code,
                         extensions=rx.Var(
-                            "[EditorView.lineWrapping, criterionAutocomplete, "
-                            "EditorView.updateListener.of(update => { modifiedEditor = update.view; })]"
+                            "[EditorView.lineWrapping, criterionAutocomplete, tabAcceptKeymap, "
+                            f"EditorView.updateListener.of(update => {{ {MODIFIED_EDITOR_VIEW_VAR} = update.view; }})]"
                         ),
                         style={
                             "minWidth": "600px",
@@ -78,7 +81,7 @@ def _create_editor_dialog(state, idx, code, new_code):
                     }
                 ),
                 rx.hstack(
-                    rx.button("Save", on_click=state.save_code(idx)),
+                    rx.dialog.close(rx.button("Save", on_click=EditorState.save_code)),
                     rx.dialog.close(rx.button("Close")),
                     spacing="1",
                 ),
@@ -97,5 +100,7 @@ def _create_editor_dialog(state, idx, code, new_code):
                 "flexDirection": "column",
                 "padding": "1em",
             },
-        )
+        ),
+        open=EditorState.editor_open,
+        on_open_change=EditorState.set_editor_open(False),
     )

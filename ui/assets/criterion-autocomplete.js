@@ -1,4 +1,5 @@
-import { autocompletion, CompletionContext } from '@codemirror/autocomplete'
+import { keymap } from "@codemirror/view";
+import { autocompletion, CompletionContext, acceptCompletion } from '@codemirror/autocomplete'
 
 const keywords = [
   { label: 'Age', type: 'function' },
@@ -52,3 +53,11 @@ function myCompletionSource(context) {
 export const criterionAutocomplete = autocompletion({
   override: [myCompletionSource]
 })
+
+export const tabAcceptKeymap = keymap.of([
+  {
+    key: "Tab",
+    run: acceptCompletion,
+    preventDefault: true
+  }
+]);

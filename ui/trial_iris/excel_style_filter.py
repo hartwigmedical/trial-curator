@@ -1,10 +1,12 @@
+from typing import Any
+
 import reflex as rx
 
 def excel_style_filter(
         key: str,
         thin: bool,
-        options: dict[str, list[str]],
-        deselected: dict[str, list[str]],
+        options: dict[str, list[Any]],
+        deselected: dict[str, list[Any]],
         toggle_option: rx.EventHandler,
         select_all: rx.EventHandler,
         clear_all: rx.EventHandler,
@@ -24,7 +26,7 @@ def excel_style_filter(
         storage_key: Key for localStorage (auto-generated if not provided)
         on_change: Callback function when selection changes
     """
-    def create_checkbox_item(option: str):
+    def create_checkbox_item(option: Any):
         return rx.hstack(
             rx.checkbox(
                 checked=~(deselected[key].contains(option)),
@@ -85,7 +87,7 @@ def excel_style_filter(
         rx.cond(
             deselected[key].length() != 0,
             rx.badge(
-                deselected[key].length(),
+                options[key].length() - deselected[key].length(),
                 color_scheme="blue",
                 size="1",
                 margin_left="2"
