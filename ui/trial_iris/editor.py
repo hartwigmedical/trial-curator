@@ -34,14 +34,11 @@ class EditorSetup(rx.Fragment):
             "/public/criterion-autocomplete": ImportVar(tag="criterionAutocomplete", is_default=False)
         }
 
-    def add_hooks(self) -> list[str | rx.Var]:
-        """Add the hooks for the component."""
-        return ["var modifiedEditor = null;"]
-
 # NOTE: we use the update listener to store the view into a modifiedEditor variable
 # this way the code can be retrieved in the event handler
 def _create_editor_dialog(state, idx, code, new_code):
     return rx.dialog.root(
+        rx.script("var modifiedEditor = null;"),  # declare a variable
         EditorSetup.create(),
         rx.dialog.trigger(
             rx.button(rx.icon(tag="pen"))

@@ -129,15 +129,16 @@ class CriterionGridState(rx.State):
     @rx.event
     async def update_criterion(self, index: int, criterion: str):
         """Update criterion override for a specific row."""
-        logger.info(f"update criterion: index={index}, criterion={criterion}")
 
         try:
             parse_criterion(criterion)
-        except ValueError as e:
+        except Exception as e:
             # put the error in the table
+            logger.info(f"error parsing criterion: index={index}, criterion={criterion}")
             return rx.toast.error(f"Error parsing criterion: {str(e)}")
 
         try:
+            logger.info(f"update criterion: index={index}, criterion={criterion}")
             self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = criterion
             self._trial_df.loc[index, Columns.OVERRIDE.name] = True
             # Refresh the filtered dataframe
