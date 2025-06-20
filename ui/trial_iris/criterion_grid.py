@@ -6,7 +6,7 @@ import pandas as pd
 import logging
 from typing import Any
 from pydantic_curator.criterion_parser import parse_criterion
-from .column_definitions import ColumnDefinition, COLUMN_DEFINITIONS, CRITERION_TYPE_NAMES
+from .column_definitions import *
 from .excel_style_filter import excel_style_filter
 from .local_file_picker import file_picker_dialog
 from .editor import editor_dialog
@@ -14,8 +14,6 @@ from .editor import editor_dialog
 logger = logging.getLogger(__name__)
 
 AVAILABLE_COLUMNS = [col.name for col in COLUMN_DEFINITIONS]
-CRITERION_TYPE_COLUMNS = CRITERION_TYPE_NAMES
-
 
 class CriterionGridState(rx.State):
     # Data state
@@ -35,10 +33,6 @@ class CriterionGridState(rx.State):
     @rx.var
     def total_records(self) -> int:
         return self._trial_df.shape[0]
-
-    @rx.var
-    def available_columns(self) -> list[str]:
-        return [c.name for c in COLUMN_DEFINITIONS]
 
     @rx.var
     def visible_columns(self) -> list[str]:
@@ -73,9 +67,10 @@ class CriterionGridState(rx.State):
         logger.info('applying filter')
 
         for filter_name, filter_values in filters.items():
-            filter_mask &= self._trial_df[filter_name].isin(
-                [convert_string_to_column_type(v, self._trial_df[filter_name]) for v in filter_values]
-            )
+            if len(filter_values) > 0:
+                filter_mask &= ~self._trial_df[filter_name].isin(
+                    [convert_string_to_column_type(v, self._trial_df[filter_name]) for v in filter_values]
+                )
 
         self._filtered_trial_df = self._trial_df[filter_mask]
         self.total_pages = (len(self._filtered_trial_df) + self.page_size - 1) // self.page_size
@@ -95,7 +90,7 @@ class CriterionGridState(rx.State):
 
         result = []
         for idx, row in page_data.iterrows():
-            formatted_criterion = row['OverrideCode'] if row['OverrideCode'] else row['LlmCode']
+            formatted_criterion = row[Columns.OVERRIDE_CODE.name] if row[Columns.OVERRIDE_CODE.name] else row[Columns.LLM_CODE.name]
             parse_error = None
             try:
                 parse_criterion(formatted_criterion)
@@ -106,10 +101,10 @@ class CriterionGridState(rx.State):
             result.append({
                 'idx': idx,
                 ** {c.name: row[c.name] for c in COLUMN_DEFINITIONS if c.name in page_data.columns},
-                'Code': formatted_criterion,
-                'Error': parse_error,
-                'LlmCode': row['LlmCode'],
-                'OverrideCode': row['OverrideCode']
+                Columns.CODE.name: formatted_criterion,
+                Columns.ERROR.name: parse_error,
+                Columns.LLM_CODE.name: row[Columns.LLM_CODE.name],
+                Columns.OVERRIDE_CODE.name: row[Columns.OVERRIDE_CODE.name]
             })
         return result
 
@@ -133,10 +128,18 @@ class CriterionGridState(rx.State):
 
     @rx.event
     async def update_criterion(self, index: int, criterion: str):
-        logger.info(f"update criterion: index={index}, criterion={criterion}")
         """Update criterion override for a specific row."""
+        logger.info(f"update criterion: index={index}, criterion={criterion}")
+
         try:
-            self._trial_df.loc[index, 'Override'] = criterion
+            parse_criterion(criterion)
+        except ValueError as e:
+            # put the error in the table
+            return rx.toast.error(f"Error parsing criterion: {str(e)}")
+
+        try:
+            self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = criterion
+            self._trial_df.loc[index, Columns.OVERRIDE.name] = True
             # Refresh the filtered dataframe
             filter_state = await self.get_state(FilterState)
             await filter_state.apply_filters()
@@ -159,15 +162,6 @@ class CriterionGridState(rx.State):
             return rx.toast.error(f"Error saving criteria: {str(e)}")
 
     @rx.event
-    def edit_criterion(self, index: int):
-        try:
-            self._trial_df.loc[index]
-            self.show_editor = True
-            return None
-        except Exception as e:
-            return rx.toast.error(f"Error updating criterion: {str(e)}")
-
-    @rx.event
     def toggle_column_visibility(self, column: str):
         """Toggle visibility of a specific column."""
         if column in self._hidden_columns:
@@ -178,40 +172,40 @@ class CriterionGridState(rx.State):
 class FilterState(rx.State):
     """State for individual filter components."""
     options_dict: dict[str, list[str]] = {}
-    selected_dict: dict[str, list[str]] = {}
+    deselected_dict: dict[str, list[str]] = {}
 
     @rx.event
     async def add_filter(self, filter_name: str, values: list[str]):
         self.options_dict[filter_name] = values.copy()
-        self.selected_dict[filter_name] = values.copy()
+        self.deselected_dict[filter_name] = []
         logger.info(f"added filter: {filter_name}")
         await self.apply_filters()
 
     @rx.event
     async def toggle_option(self, filter_name: str, option: str):
         logger.info(f"toggle option: {filter_name}")
-        if option in self.selected_dict[filter_name]:
-            self.selected_dict[filter_name].remove(option)
+        if option in self.deselected_dict[filter_name]:
+            self.deselected_dict[filter_name].remove(option)
         else:
-            self.selected_dict[filter_name].append(option)
+            self.deselected_dict[filter_name].append(option)
         await self.apply_filters()
 
     @rx.event
     async def select_all(self, filter_name: str):
         logger.info(f"select all: {filter_name}")
-        self.selected_dict[filter_name] = self.options_dict[filter_name].copy()
+        self.deselected_dict[filter_name].clear()
         await self.apply_filters()
 
     @rx.event
     async def clear_all(self, filter_name: str):
         logger.info(f"clear all: {filter_name}")
-        self.selected_dict[filter_name].clear()
+        self.deselected_dict[filter_name] = self.options_dict[filter_name].copy()
         await self.apply_filters()
 
     @rx.event
     async def apply_filters(self):
         grid_state = await self.get_state(CriterionGridState)
-        grid_state.apply_filters(self.selected_dict)
+        grid_state.apply_filters(self.deselected_dict)
 
 
 @rx.event
@@ -237,18 +231,18 @@ def render_cell(row, col) -> rx.Component:
         ("Edit", rx.table.cell(
             editor_dialog(
                 row['idx'],
-                row['LlmCode'],
-                rx.cond(row['OverrideCode'] == '', row['LlmCode'], row['OverrideCode']),
+                row[Columns.LLM_CODE.name],
+                rx.cond(row[Columns.OVERRIDE_CODE.name], row[Columns.OVERRIDE_CODE.name], row[Columns.LLM_CODE.name]),
                 CriterionGridState.update_criterion))
         ),
-        ("Code", "LlmCode", "OverrideCode",
+        (Columns.CODE.name, Columns.LLM_CODE.name, Columns.OVERRIDE_CODE.name,
             rx.table.cell(
                 rx.code_block(
-                    row["Code"], language="python", can_copy=True,
+                    row[col], language="python", can_copy=True,
                      copy_button=rx.button(
                          rx.icon(tag="copy", size=15),
                          size="1",
-                         on_click=rx.set_clipboard(row["Code"]),
+                         on_click=rx.set_clipboard(row[col]),
                          style={"position": "absolute", "top": "0.5em", "right": "0"}
                      ),
                      font_size="12px",
@@ -259,17 +253,17 @@ def render_cell(row, col) -> rx.Component:
                 max_width="600px"
             )
         ),
-        ("Override",
+        (Columns.OVERRIDE.name,
             rx.table.cell(
                 rx.text(
-                    rx.cond(row["Override"], "Yes", "No"),
+                    rx.cond(row[Columns.OVERRIDE_CODE.name], "Yes", "No"),
                     bg=rx.cond(
-                        row["Override"],
+                        "Yes",
                         "green.100",
                         "gray.100"
                     ),
                     color=rx.cond(
-                        row["Override"],
+                        "No",
                         "green.800",
                         "gray.700"
                     ),
@@ -301,7 +295,7 @@ def construct_table() -> rx.Component:
                                     col,
                                     CriterionGridState.thin_columns.contains(col),
                                     options=FilterState.options_dict,
-                                    selected=FilterState.selected_dict,
+                                    deselected=FilterState.deselected_dict,
                                     toggle_option=FilterState.toggle_option,
                                     select_all=FilterState.select_all,
                                     clear_all=FilterState.clear_all,
@@ -342,7 +336,7 @@ def column_control_menu() -> rx.Component:
         ),
         rx.menu.content(
             rx.vstack(
-                rx.foreach(CriterionGridState.available_columns,
+                rx.foreach(AVAILABLE_COLUMNS,
                            lambda col: rx.hstack(
                                rx.checkbox(
                                    checked=CriterionGridState.visible_columns.contains(col),
@@ -360,7 +354,7 @@ def column_control_menu() -> rx.Component:
 def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
     return rx.vstack(
         rx.hstack(
-            file_picker_dialog(button_text="Save", on_submit=save_criteria),
+            file_picker_dialog(directory="~", button_text="Save", on_submit=save_criteria),
             column_control_menu(),
             rx.button(
                 "Prev",

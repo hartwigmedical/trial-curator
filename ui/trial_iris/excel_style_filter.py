@@ -1,74 +1,10 @@
 import reflex as rx
 
-class ExcelStyleFilterState(rx.State):
-    """ComponentState for individual Excel-style filter instances."""
-
-    options: list[str] = []
-    selected: set[str] = set()
-    label: str = ""
-
-    on_change: rx.EventHandler = None
-
-    def __init__(self, *args, **kwargs):
-        print(f"constructing instance, kwargs: {kwargs}")
-        super().__init__(*args, **kwargs)
-
-    @rx.event
-    def initialize(self, options: list[str], label: str):
-        """Initialize the filter with options and settings."""
-        self.options.extend(options)
-        self.label = label
-        self.selected.update(options)  # Start with all selected
-
-    @rx.event
-    def toggle_option(self, option: str):
-        """Toggle a specific option on/off."""
-        #print(type(self))
-        print("toggled option: ", option, " self id: ", id(self), " on change: ", self.__class__.on_change)
-        if option in self.selected:
-            self.selected.discard(option)
-        else:
-            self.selected.add(option)
-        if self.__class__.on_change is not None:
-            print("triggering on change")
-            # returning this will let the handler get triggered by the system
-            return self.__class__.on_change(self.get_selected_list)
-
-    @rx.event
-    def select_all(self):
-        """Select all options."""
-        self.selected = set(self.options)
-
-    @rx.event
-    def clear_all(self):
-        """Clear all selections."""
-        self.selected = set()
-
-    @rx.var
-    def get_selected_list(self) -> list[str]:
-        """Get sorted list of selected options."""
-        return sorted(list(self.selected))
-
-    @rx.var
-    def selected_count(self) -> int:
-        """Get count of selected items."""
-        return len(self.selected)
-
-    @rx.var
-    def total_count(self) -> int:
-        """Get total count of options."""
-        return len(self.options)
-
-    @rx.var
-    def is_filtered(self) -> bool:
-        """Check if filter is active (not all options selected)."""
-        return len(self.selected) < len(self.options)
-
 def excel_style_filter(
         key: str,
         thin: bool,
         options: dict[str, list[str]],
-        selected: dict[str, list[str]],
+        deselected: dict[str, list[str]],
         toggle_option: rx.EventHandler,
         select_all: rx.EventHandler,
         clear_all: rx.EventHandler,
@@ -91,7 +27,7 @@ def excel_style_filter(
     def create_checkbox_item(option: str):
         return rx.hstack(
             rx.checkbox(
-                checked=selected[key].contains(option),
+                checked=~(deselected[key].contains(option)),
                 on_change=lambda: toggle_option(key, option),
                 size="1"
             ),
@@ -147,9 +83,9 @@ def excel_style_filter(
     filter_indicator = rx.cond(
         compact,
         rx.cond(
-            selected[key].length() != options[key].length(),
+            deselected[key].length() != 0,
             rx.badge(
-                selected[key].length(),
+                deselected[key].length(),
                 color_scheme="blue",
                 size="1",
                 margin_left="2"
@@ -173,7 +109,7 @@ def excel_style_filter(
             rx.icon(
                 "filter",
                 size=12,
-                color=rx.cond(selected[key].length() != options[key].length(), "blue.500", "gray.500")
+                color=rx.cond(deselected[key].length() != 0, "blue.500", "gray.500")
             ),
             align="center",
             spacing="1",

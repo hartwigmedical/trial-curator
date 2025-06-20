@@ -162,13 +162,13 @@ class FilePickerState(rx.ComponentState):
         return self.__class__.on_submit(file_paths)
 
     @classmethod
-    def get_component(cls, button_text: str, on_submit: rx.EventHandler, **props) -> rx.Component:
+    def get_component(cls, directory: str, button_text: str, on_submit: rx.EventHandler, **props) -> rx.Component:
         cls.on_submit = on_submit
-        return _create_file_picker_dialog(cls, button_text)
+        return _create_file_picker_dialog(cls, directory, button_text)
 
 
-def file_picker_dialog(*children, button_text: str, on_submit: rx.EventHandler, **props) -> rx.Component:
-    file_picker = FilePickerState.create(*children, button_text, on_submit, **props)
+def file_picker_dialog(*children, directory: str, button_text: str, on_submit: rx.EventHandler, **props) -> rx.Component:
+    file_picker = FilePickerState.create(*children, directory, button_text, on_submit, **props)
     return file_picker
 
 def file_table(state) -> rx.Component:
@@ -222,11 +222,11 @@ def file_table(state) -> rx.Component:
     )
 
 
-def _create_file_picker_dialog(state, button_text: str) -> rx.Component:
+def _create_file_picker_dialog(state, directory: str, button_text: str) -> rx.Component:
     """File picker dialog component"""
     return rx.dialog.root(
         rx.dialog.trigger(
-            rx.button(button_text, on_click=lambda: state.open_file_picker("."))
+            rx.button(button_text, on_click=lambda: state.open_file_picker(directory))
         ),
         rx.dialog.content(
             rx.dialog.title("Select File"),

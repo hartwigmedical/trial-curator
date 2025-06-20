@@ -2,6 +2,7 @@ import logging
 from typing import ClassVar
 
 import reflex as rx
+from reflex import ImportVar
 
 from .codemirror_merge import codemirror_original, codemirror_merge, codemirror_modified
 
@@ -26,11 +27,22 @@ class EditorState(rx.ComponentState):
 
 editor_dialog = EditorState.create
 
+class EditorSetup(rx.Fragment):
+
+    def add_imports(self):
+        return {
+            "/public/criterion-autocomplete": ImportVar(tag="criterionAutocomplete", is_default=False)
+        }
+
+    def add_hooks(self) -> list[str | rx.Var]:
+        """Add the hooks for the component."""
+        return ["var modifiedEditor = null;"]
+
 # NOTE: we use the update listener to store the view into a modifiedEditor variable
 # this way the code can be retrieved in the event handler
 def _create_editor_dialog(state, idx, code, new_code):
     return rx.dialog.root(
-        rx.script("var modifiedEditor = null;"),  # declare a variable
+        EditorSetup.create(),
         rx.dialog.trigger(
             rx.button(rx.icon(tag="pen"))
         ),
@@ -40,17 +52,22 @@ def _create_editor_dialog(state, idx, code, new_code):
                     codemirror_original(
                         value=code,
                         extensions=rx.Var(
-                            "[EditorView.editable.of(false), EditorState.readOnly.of(true)]"
+                            "[EditorView.editable.of(false), EditorState.readOnly.of(true), EditorView.lineWrapping]"
                         ),
                         style={
+                            "minWidth": "600px",
                             "maxWidth": "50%",
                             "overflow": "auto"
                         }
                     ),
                     codemirror_modified(
                         value=new_code,
-                        extensions=rx.Var("[EditorView.updateListener.of(update => { modifiedEditor = update.view; })]"),
+                        extensions=rx.Var(
+                            "[EditorView.lineWrapping, criterionAutocomplete, "
+                            "EditorView.updateListener.of(update => { modifiedEditor = update.view; })]"
+                        ),
                         style={
+                            "minWidth": "600px",
                             "maxWidth": "50%",
                             "overflow": "auto"
                         }
