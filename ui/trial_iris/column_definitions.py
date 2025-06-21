@@ -37,6 +37,7 @@ class Columns:
     OVERRIDE = ColumnDefinition("Override", type=bool, isDerived=True, filterable=True)
     ACTION = ColumnDefinition("Action")
     CODE = ColumnDefinition("Code")
+    NOTES = ColumnDefinition("Notes")
     ERROR = ColumnDefinition("Error", defaultHidden=True)
     LLM_CODE = ColumnDefinition("LlmCode", defaultHidden=True)
     OVERRIDE_CODE = ColumnDefinition("OverrideCode", defaultHidden=True)
@@ -57,6 +58,7 @@ COLUMN_DEFINITIONS = [
     Columns.OVERRIDE,
     Columns.ACTION,
     Columns.CODE,
+    Columns.NOTES,
     Columns.ERROR,
     Columns.LLM_CODE,
     Columns.OVERRIDE_CODE

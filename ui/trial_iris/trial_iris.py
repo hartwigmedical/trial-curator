@@ -106,7 +106,7 @@ def index() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.image('/trial_iris.ico'),
+                rx.icon('dna', size=30),
                 rx.heading("Trial Iris"),
                 rx.hstack(
                     rx.input(

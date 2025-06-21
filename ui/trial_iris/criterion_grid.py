@@ -6,7 +6,7 @@ import logging
 from typing import Any
 from pydantic_curator.criterion_parser import parse_criterion
 from .column_definitions import *
-from .column_filter import column_control_menu, ColumnFilterState
+from .column_control import column_control_menu, ColumnControlState
 from .excel_style_filter import excel_style_filter
 from .grid_action_menu import grid_action_menu, grid_action_menu_dialogs
 from .local_file_picker import file_picker_dialog
@@ -106,18 +106,21 @@ class CriterionGridState(rx.State):
         """Navigate to specific page."""
         if 0 <= page < self.total_pages:
             self.current_page = page
+            self.update_current_page_data()
 
     @rx.event
     def next_page(self):
         """Go to next page."""
         if self.current_page < self.total_pages - 1:
             self.current_page += 1
+            self.update_current_page_data()
 
     @rx.event
     def prev_page(self):
         """Go to previous page."""
         if self.current_page > 0:
             self.current_page -= 1
+            self.update_current_page_data()
 
     @rx.event
     async def update_criterion(self, index: int, criterion: str):
@@ -164,6 +167,22 @@ class CriterionGridState(rx.State):
         except Exception as e:
             return rx.toast.error(f"Error saving criteria: {str(e)}")
 
+    @rx.event
+    async def edit_notes(self, idx: int, notes: str):
+        logger.info(f"edit notes: idx={idx}, notes={notes}")
+        self._trial_df.loc[idx, Columns.NOTES.name] = notes
+        # Refresh the filtered dataframe, in case we got filter on override
+        filter_state = await self.get_state(FilterState)
+        await filter_state.apply_filters()
+
+    @rx.event
+    async def mark_checked(self, idx: int, checked: bool):
+        logger.info(f"mark checked: idx={idx}, checked={checked}")
+        self._trial_df.loc[idx, Columns.CHECKED.name] = checked
+        # Refresh the filtered dataframe, in case we got filter on override
+        filter_state = await self.get_state(FilterState)
+        await filter_state.apply_filters()
+
 
 class FilterState(rx.State):
     """State for individual filter components."""
@@ -207,7 +226,11 @@ class FilterState(rx.State):
 def render_cell(row, col) -> rx.Component:
     return rx.match(
         col,
-        ("Checked", rx.table.cell(rx.checkbox(row['Checked']))),
+        (Columns.CHECKED.name,
+            rx.table.cell(
+                rx.checkbox(row[col], on_change=CriterionGridState.mark_checked(row[INDEX_COLUMN]))
+            )
+         ),
         (Columns.ACTION.name,
             rx.table.cell(
                 grid_action_menu(row)
@@ -242,7 +265,20 @@ def render_cell(row, col) -> rx.Component:
                 )
             )
         ),
-        ("Description", rx.table.cell(row["Description"], white_space="pre-wrap", min_width="200px", max_width="300px")),
+        (Columns.DESCRIPTION.name,
+            rx.table.cell(row[Columns.DESCRIPTION.name], white_space="pre-wrap", min_width="200px", max_width="300px")),
+        (Columns.NOTES.name,
+            rx.table.cell(
+                rx.text_area(
+                    row[Columns.NOTES.name],
+                    on_blur=CriterionGridState.edit_notes(row[INDEX_COLUMN]),
+                    width="100%",
+                    height="100%"
+                ),
+                min_width="100px",
+                max_width="150px",
+            ),
+        ),
         rx.cond(THIN_COLUMNS.contains(col),
                 rx.table.cell(row[col], max_width="20px"),
                 rx.table.cell(row[col], white_space="pre-wrap", max_width="150px")
@@ -255,7 +291,7 @@ def construct_table() -> rx.Component:
         rx.table.header(
             rx.table.row(
                 rx.foreach(
-                    ColumnFilterState.visible_columns,
+                    ColumnControlState.visible_columns,
                     lambda col: rx.table.column_header_cell(
                         rx.cond(NO_FILTER_COLUMNS.contains(col),
                                 rx.text(col),
@@ -280,7 +316,7 @@ def construct_table() -> rx.Component:
                 CriterionGridState.current_page_data,
                 lambda row: rx.table.row(
                     rx.foreach(
-                        ColumnFilterState.visible_columns,
+                        ColumnControlState.visible_columns,
                         lambda col: render_cell(row, col)
                     )
                 )
