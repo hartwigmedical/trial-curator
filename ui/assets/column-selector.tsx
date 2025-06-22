@@ -1,20 +1,58 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { draggable, dropTargetForElements, monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import React, { useState, useEffect, useRef, ReactNode } from 'react';
+import {
+  draggable,
+  dropTargetForElements,
+  monitorForElements,
+} from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
-// Simple reorder utility function
-function reorder(list, startIndex, finishIndex) {
+type ColumnId = string;
+
+interface DragData {
+  id: string;
+  sourceZone: 'available' | 'selected';
+  type: string;
+}
+
+interface DropTargetData {
+  id?: string;
+  type?: string;
+  sourceZone?: 'available' | 'selected';
+  zoneId?: string;
+}
+
+interface DragEndPayload {
+  type: 'reorder' | 'insert' | 'move';
+  column: string;
+  oldIndex?: number;
+  newIndex?: number;
+  source?: string;
+  destinationIndex?: number;
+}
+
+function reorder<T>(list: T[], startIndex: number, finishIndex: number): T[] {
   const result = Array.from(list);
   const [removed] = result.splice(startIndex, 1);
   result.splice(finishIndex, 0, removed);
   return result;
 }
 
-const ForEach = ({ items, children }) => {
-  return items.map((item, index) => children(item, index));
+interface ForEachProps<T> {
+  items: T[];
+  children: (item: T, index: number) => ReactNode;
+}
+
+const ForEach = <T,>({ items, children }: ForEachProps<T>) => {
+  return <>{items.map((item, index) => children(item, index))}</>;
 };
 
-function DraggableItem({ id, children, sourceZone }) {
-  const ref = useRef(null);
+interface DraggableItemProps {
+  id: string;
+  children: ReactNode;
+  sourceZone: 'available' | 'selected';
+}
+
+function DraggableItem({ id, children, sourceZone }: DraggableItemProps) {
+  const ref = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggedOver, setIsDraggedOver] = useState(false);
 
@@ -24,20 +62,17 @@ function DraggableItem({ id, children, sourceZone }) {
 
     const cleanup1 = draggable({
       element,
-      getInitialData: () => ({ id, sourceZone, type: 'draggable-item' }),
+      getInitialData: (): DragData => ({ id, sourceZone, type: 'draggable-item' }),
       onDragStart: () => setIsDragging(true),
       onDrop: () => setIsDragging(false),
     });
 
-    // Only make it a drop target if it's in the selected zone (for reordering)
     let cleanup2 = () => {};
     if (sourceZone === 'selected') {
       cleanup2 = dropTargetForElements({
         element,
-        getData: () => ({ id, type: 'sortable-item', sourceZone }),
-        canDrop: ({ source }) => {
-          return source.data.id !== id; // Can't drop on itself
-        },
+        getData: (): DropTargetData => ({ id, type: 'sortable-item', sourceZone }),
+        canDrop: ({ source }) => source.data.id !== id,
         onDragEnter: () => setIsDraggedOver(true),
         onDragLeave: () => setIsDraggedOver(false),
         onDrop: () => setIsDraggedOver(false),
@@ -50,16 +85,22 @@ function DraggableItem({ id, children, sourceZone }) {
     };
   }, [id, sourceZone]);
 
-  const style = {
+  const style: React.CSSProperties = {
     opacity: isDragging ? 0.5 : 1,
     padding: '8px 12px',
     margin: '4px 0',
-    backgroundColor: sourceZone === 'selected'
-      ? (isDraggedOver ? '#90caf9' : '#bbdefb')
-      : '#f5f5f5',
-    border: sourceZone === 'selected'
-      ? (isDraggedOver ? '2px solid #1976d2' : '1px solid #90caf9')
-      : '1px solid #ddd',
+    backgroundColor:
+      sourceZone === 'selected'
+        ? isDraggedOver
+          ? '#90caf9'
+          : '#bbdefb'
+        : '#f5f5f5',
+    border:
+      sourceZone === 'selected'
+        ? isDraggedOver
+          ? '2px solid #1976d2'
+          : '1px solid #90caf9'
+        : '1px solid #ddd',
     borderRadius: '4px',
     cursor: 'grab',
     userSelect: 'none',
@@ -73,8 +114,14 @@ function DraggableItem({ id, children, sourceZone }) {
   );
 }
 
-function SortableItem({ id, children, sourceZone }) {
-  const ref = useRef(null);
+interface SortableItemProps {
+  id: string;
+  children: ReactNode;
+  sourceZone: 'available' | 'selected';
+}
+
+function SortableItem({ id, children, sourceZone }: SortableItemProps) {
+  const ref = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggedOver, setIsDraggedOver] = useState(false);
 
@@ -84,17 +131,15 @@ function SortableItem({ id, children, sourceZone }) {
 
     const cleanup1 = draggable({
       element,
-      getInitialData: () => ({ id, sourceZone, type: 'sortable-item' }),
+      getInitialData: (): DragData => ({ id, sourceZone, type: 'sortable-item' }),
       onDragStart: () => setIsDragging(true),
       onDrop: () => setIsDragging(false),
     });
 
     const cleanup2 = dropTargetForElements({
       element,
-      getData: () => ({ id, type: 'sortable-item', sourceZone }),
-      canDrop: ({ source }) => {
-        return source.data.id !== id; // Can't drop on itself
-      },
+      getData: (): DropTargetData => ({ id, type: 'sortable-item', sourceZone }),
+      canDrop: ({ source }) => source.data.id !== id,
       onDragEnter: () => setIsDraggedOver(true),
       onDragLeave: () => setIsDraggedOver(false),
       onDrop: () => setIsDraggedOver(false),
@@ -106,7 +151,7 @@ function SortableItem({ id, children, sourceZone }) {
     };
   }, [id, sourceZone]);
 
-  const style = {
+  const style: React.CSSProperties = {
     opacity: isDragging ? 0.5 : 1,
     padding: '8px 12px',
     margin: '4px 0',
@@ -125,8 +170,15 @@ function SortableItem({ id, children, sourceZone }) {
   );
 }
 
-function DroppableZone({ id, children, title, isSelected = false }) {
-  const ref = useRef(null);
+interface DroppableZoneProps {
+  id: string;
+  children: ReactNode;
+  title: string;
+  isSelected?: boolean;
+}
+
+function DroppableZone({ id, children, title, isSelected = false }: DroppableZoneProps) {
+  const ref = useRef<HTMLDivElement>(null);
   const [isOver, setIsOver] = useState(false);
 
   useEffect(() => {
@@ -135,14 +187,14 @@ function DroppableZone({ id, children, title, isSelected = false }) {
 
     return dropTargetForElements({
       element,
-      getData: () => ({ zoneId: id }),
+      getData: (): DropTargetData => ({ zoneId: id }),
       onDragEnter: () => setIsOver(true),
       onDragLeave: () => setIsOver(false),
       onDrop: () => setIsOver(false),
     });
   }, [id]);
 
-  const style = {
+  const style: React.CSSProperties = {
     minHeight: '200px',
     width: '200px',
     border: isOver ? '2px solid #007bff' : '2px dashed #ccc',
@@ -162,28 +214,34 @@ function DroppableZone({ id, children, title, isSelected = false }) {
   );
 }
 
-export default function PragmaticDndWrapper({ availableColumns, selectedColumns, onDragEnd }) {
+interface PragmaticDndWrapperProps {
+  availableColumns: ColumnId[];
+  selectedColumns: ColumnId[];
+  onDragEnd?: (payload: DragEndPayload) => void;
+}
+
+export default function PragmaticDndWrapper({
+  availableColumns,
+  selectedColumns,
+  onDragEnd,
+}: PragmaticDndWrapperProps) {
   useEffect(() => {
     return monitorForElements({
       onDrop({ source, location }) {
-        const sourceData = source.data;
+        const sourceData = source.data as DragData;
         const destination = location.current.dropTargets[0];
 
         if (!destination) return;
 
-        const destinationData = destination.data;
+        const destinationData = destination.data as DropTargetData;
         const sourceId = sourceData.id;
         const sourceZone = sourceData.sourceZone;
-
-        // Extract column name from draggable ID
         const columnName = sourceId.replace('draggable-', '');
 
-        // Handle dropping on specific items (reordering or inserting at position)
         if (destinationData.type === 'sortable-item') {
-          const targetColumn = destinationData.id.replace('draggable-', '');
+          const targetColumn = destinationData.id!.replace('draggable-', '');
 
           if (sourceZone === 'selected' && targetColumn !== columnName) {
-            // Reordering within selected columns
             const oldIndex = selectedColumns.indexOf(columnName);
             const newIndex = selectedColumns.indexOf(targetColumn);
 
@@ -194,46 +252,38 @@ export default function PragmaticDndWrapper({ availableColumns, selectedColumns,
                 newIndex
               );
 
-              if (onDragEnd) {
-                onDragEnd({
-                  type: 'reorder',
-                  column: columnName,
-                  oldIndex: oldIndex,
-                  newIndex: newIndex
-                });
-              }
+              onDragEnd?.({
+                type: 'reorder',
+                column: columnName,
+                oldIndex,
+                newIndex,
+              });
               return;
             }
           } else if (sourceZone === 'available') {
-            // Inserting from available to specific position in selected
             const targetIndex = selectedColumns.indexOf(targetColumn);
 
             if (targetIndex !== -1) {
               const newSelectedColumns = [...selectedColumns];
               newSelectedColumns.splice(targetIndex, 0, columnName);
 
-              if (onDragEnd) {
-                onDragEnd({
-                  type: 'insert',
-                  column: columnName,
-                  source: sourceZone,
-                  destinationIndex: targetIndex
-                });
-              }
+              onDragEnd?.({
+                type: 'insert',
+                column: columnName,
+                source: sourceZone,
+                destinationIndex: targetIndex,
+              });
               return;
             }
           }
         }
 
-        // Handle dropping on zones (append to end)
         if (destinationData.zoneId) {
-          if (onDragEnd) {
-            onDragEnd({
-              type: 'move',
-              column: columnName,
-              source: sourceZone
-            });
-          }
+          onDragEnd?.({
+            type: 'move',
+            column: columnName,
+            source: sourceZone,
+          });
         }
       },
     });

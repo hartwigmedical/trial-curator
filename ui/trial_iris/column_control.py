@@ -108,7 +108,7 @@ def column_control_menu() -> rx.Component:
         ),
         rx.menu.content(
             rx.vstack(
-                # Custom DnD Kit component
+                rx.button("Reset to default", on_click=ColumnControlState.reset_columns),
                 ColumnSelectorWrapper.create(
                     available_columns=ColumnControlState.available_columns,
                     selected_columns=ColumnControlState.visible_columns,
@@ -117,7 +117,7 @@ def column_control_menu() -> rx.Component:
                 padding="1em",
                 style={
                     "font_size": "12px",
-                }
+                },
             ),
         ),
         on_mount=ColumnControlState.load_preference
