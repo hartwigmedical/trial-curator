@@ -31,6 +31,7 @@ class FilePickerState(rx.ComponentState):
     def open_file_picker(self, directory: str, upper_limit: Optional[str] = None,
                          multiple: bool = False, show_hidden_files: bool = False):
         """Open the file picker dialog"""
+        #logger.info(f"Opening file picker dialog: directory={directory}, upper_limit={upper_limit}")
         self.current_path = str(Path(directory).expanduser())
         self.upper_limit = str(
             Path(directory if upper_limit == "..." else upper_limit).expanduser()) if upper_limit else None
@@ -162,13 +163,13 @@ class FilePickerState(rx.ComponentState):
         return self.__class__.on_submit(file_paths)
 
     @classmethod
-    def get_component(cls, directory: str, button_text: str, on_submit: rx.EventHandler, **props) -> rx.Component:
+    def get_component(cls, on_submit: rx.EventHandler, **props) -> rx.Component:
         cls.on_submit = on_submit
-        return _create_file_picker_dialog(cls, directory, button_text)
+        return _create_file_picker_dialog(cls)
 
 
-def file_picker_dialog(*children, directory: str, button_text: str, on_submit: rx.EventHandler, **props) -> rx.Component:
-    file_picker = FilePickerState.create(*children, directory, button_text, on_submit, **props)
+def file_picker_dialog(*children, on_submit: rx.EventHandler, **props) -> rx.Component:
+    file_picker = FilePickerState.create(*children, on_submit, **props)
     return file_picker
 
 def file_table(state) -> rx.Component:
@@ -222,12 +223,9 @@ def file_table(state) -> rx.Component:
     )
 
 
-def _create_file_picker_dialog(state, directory: str, button_text: str) -> rx.Component:
+def _create_file_picker_dialog(state) -> rx.Component:
     """File picker dialog component"""
     return rx.dialog.root(
-        rx.dialog.trigger(
-            rx.button(button_text, on_click=lambda: state.open_file_picker(directory))
-        ),
         rx.dialog.content(
             rx.dialog.title("Select File"),
             rx.form(
@@ -278,56 +276,3 @@ def _create_file_picker_dialog(state, directory: str, button_text: str) -> rx.Co
         open=state.dialog_open,
         on_open_change=state.set_dialog_open
     )
-
-
-def demo_page():
-    """Demo page showing how to use the file picker"""
-    return rx.vstack(
-        rx.heading("File Picker Demo"),
-
-        rx.hstack(
-            rx.button(
-                "Single File",
-                on_click=lambda: FilePickerState.open_file_picker(
-                    directory=".",
-                    multiple=False
-                )
-            ),
-            rx.button(
-                "Multiple Files",
-                on_click=lambda: FilePickerState.open_file_picker(
-                    directory=".",
-                    multiple=True
-                )
-            ),
-            rx.button(
-                "Show Hidden Files",
-                on_click=lambda: FilePickerState.open_file_picker(
-                    directory=".",
-                    show_hidden_files=True
-                )
-            ),
-            spacing="3"
-        ),
-
-        rx.cond(
-            FilePickerState.submitted_files,
-            rx.vstack(
-                rx.text("Selected files:", weight="bold"),
-                rx.foreach(
-                    FilePickerState.submitted_files,
-                    lambda file: rx.text(f"• {file}")
-                )
-            )
-        ),
-
-        file_picker_dialog(),
-
-        spacing="4",
-        align="start",
-        padding="4"
-    )
-
-
-app = rx.App()
-app.add_page(demo_page, route="/")

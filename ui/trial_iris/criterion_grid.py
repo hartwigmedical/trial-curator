@@ -9,7 +9,6 @@ from .column_definitions import *
 from .column_control import column_control_menu, ColumnControlState
 from .excel_style_filter import excel_style_filter
 from .grid_action_menu import grid_action_menu, grid_action_menu_dialogs
-from .local_file_picker import file_picker_dialog
 
 logger = logging.getLogger(__name__)
 
@@ -153,19 +152,6 @@ class CriterionGridState(rx.State):
         filter_state = await self.get_state(FilterState)
         await filter_state.apply_filters()
         return rx.toast.success("Override deleted")
-
-    @rx.event
-    def save_criteria(self):
-        """Save the current criteria to file."""
-        try:
-            if not self.save_path:
-                return rx.toast.error("Please provide a save path")
-
-            save_path = os.path.expanduser(self.save_path)
-            self._trial_df.to_csv(save_path, sep='\t', index=False)
-            return rx.toast.success(f"Saved criteria to {save_path}")
-        except Exception as e:
-            return rx.toast.error(f"Error saving criteria: {str(e)}")
 
     @rx.event
     async def edit_notes(self, idx: int, notes: str):
@@ -325,10 +311,9 @@ def construct_table() -> rx.Component:
         grid_action_menu_dialogs(CriterionGridState.update_criterion, CriterionGridState.delete_override)
     )
 
-def criteria_table(save_criteria: rx.EventHandler) -> rx.Component:
+def criteria_table() -> rx.Component:
     return rx.vstack(
         rx.hstack(
-            file_picker_dialog(directory="~", button_text="Save", on_submit=save_criteria),
             column_control_menu(),
             rx.button(
                 "Prev",

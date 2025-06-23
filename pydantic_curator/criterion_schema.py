@@ -96,6 +96,9 @@ class Medication(Treatment):
 class Surgery(Treatment):
     surgical_procedure: Optional[str] = None
 
+class OrganTransplant(Treatment):
+    organ: Optional[str] = None
+
 class PriorTreatmentCriterion(BaseCriterion):
     treatment: Treatment
     number_of_prior_lines: Optional[IntRange] = None
