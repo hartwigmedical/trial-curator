@@ -80,24 +80,30 @@ class CriterionGridState(rx.State):
         end_idx = start_idx + self.page_size
         page_data = self._filtered_trial_df.iloc[start_idx:end_idx]
 
-        result = []
-        for idx, row in page_data.iterrows():
-            formatted_criterion = row[Columns.OVERRIDE_CODE.name] if row[Columns.OVERRIDE_CODE.name] else row[Columns.LLM_CODE.name]
+        code = page_data[Columns.LLM_CODE.name]
+        code = code.mask(page_data[Columns.OVERRIDE_CODE.name].notna() & (page_data[Columns.OVERRIDE_CODE.name] != ""),
+                         page_data[Columns.OVERRIDE_CODE.name])
+
+        def process_row(idx, row):
+            formatted_criterion = code[idx]  # index-aligned access
             parse_error = None
             try:
                 parse_criterion(formatted_criterion)
-            except ValueError as e:
-                # put the error in the table
+            except Exception as e:
                 parse_error = str(e)
 
-            result.append({
+            result_row = {
                 INDEX_COLUMN: idx,
-                ** {c.name: row[c.name] for c in COLUMN_DEFINITIONS if c.name in page_data.columns},
+                **{c.name: row[c.name] for c in COLUMN_DEFINITIONS if c.name in page_data.columns},
                 Columns.CODE.name: formatted_criterion,
                 Columns.ERROR.name: parse_error,
                 Columns.LLM_CODE.name: row[Columns.LLM_CODE.name],
-                Columns.OVERRIDE_CODE.name: row[Columns.OVERRIDE_CODE.name]
-            })
+                Columns.OVERRIDE_CODE.name: row[Columns.OVERRIDE_CODE.name],
+            }
+            return result_row
+
+        # Apply row-wise using index-based access to the vectorized values
+        result = page_data.apply(lambda row: process_row(row.name, row), axis=1).tolist()
         self.current_page_data = result
 
     @rx.event

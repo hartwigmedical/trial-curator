@@ -25,9 +25,12 @@ class TrialIrisState(rx.State):
         try:
             file_path = os.path.expanduser(file_path)
             if not os.path.exists(file_path):
-                return rx.toast.error("File not found")
+                yield rx.toast.error("File not found")
 
-            df = pd.read_csv(file_path, sep='\t')
+            logger.info(f"loading file: {file_path}")
+            df = pd.read_csv(file_path, sep='\t',
+                dtype={col.name: pd.StringDtype() if col.type == str else col.type for col in COLUMN_DEFINITIONS})
+            logger.info(f"loaded file: {file_path}")
 
             # add any missing columns
             for col in COLUMN_DEFINITIONS:
@@ -47,10 +50,11 @@ class TrialIrisState(rx.State):
 
             self.is_data_loaded = True
             self.total_records = len(df)
-            return rx.toast.success(f"Successfully loaded {len(df)} criteria")
+            yield rx.toast.success(f"Successfully loaded {len(df)} criteria")
         except Exception as e:
-            return rx.toast.error(f"Error loading file: {str(e)}",
-                                  duration=180, close_button=True)
+            logger.error(f"error loading file: {str(e)}")
+            yield rx.toast.error(f"Error loading file: {str(e)}",
+                                  duration=5000, close_button=True)
 
     @rx.event
     def change_file_and_save(self, save_paths: list[str]):
@@ -69,7 +73,8 @@ class TrialIrisState(rx.State):
         criterion_grid_state = await self.get_state(CriterionGridState)
         try:
             save_path = os.path.expanduser(self.file_path)
-            criterion_grid_state._trial_df.to_csv(save_path, sep='\t', index=False)
+            columns = [c.name for c in COLUMN_DEFINITIONS if not c.isDerived]
+            criterion_grid_state._trial_df[columns].to_csv(save_path, sep='\t', index=False, na_rep='NULL')
             return rx.toast.success(f"Saved criteria to {self.file_path}")
         except Exception as e:
             return rx.toast.error(f"Error saving criteria: {str(e)}")
