@@ -82,7 +82,7 @@ modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in the
 def add_essential_types(criteria_types: set[str]):
     criteria_types.update(['And', 'Or', 'Not', 'If'])
 
-def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
+def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient, additional_instructions: str=None) -> str:
     # split into small batches and curate
     criteria_batches = batch_tagged_criteria_by_words(eligibility_criteria, BATCH_MAX_WORDS)
 
@@ -92,7 +92,7 @@ def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient) -> str:
         while True:
             criteria_to_types: dict[str, list[str]] = llm_categorise_criteria(criteria_text, client)
 
-            curated = llm_curate_from_text(criteria_to_types, client)
+            curated = llm_curate_from_text(criteria_to_types, client, additional_instructions)
 
             # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
             # we want to extract just the criteria in the list
@@ -186,7 +186,8 @@ Return answer in a ```json code block```.
 # 2. We must tell LLM to choose criterion types from schema, otherwise it only use those ones with detailed
 #    instructions
 # 3.
-def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient) -> str:
+def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient,
+                         additional_instructions: str=None) -> str:
     #logger.info(f'criteria_types: {criteria_types}')
 
     # collect all the criteria types
@@ -244,6 +245,9 @@ following criteria along with their criteria types:
 {json.dumps(criteria_to_types, indent=2)}
 ```
 '''
+    # use for gui recuration
+    if additional_instructions:
+        prompt += f'# Additional instructions:\n{additional_instructions}'
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
 
