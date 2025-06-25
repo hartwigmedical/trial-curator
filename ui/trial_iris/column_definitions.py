@@ -13,6 +13,7 @@ class ColumnDefinition:
     defaultHidden: bool = False
     thin: bool = False
     filterable: bool = False
+    sortable: bool = True
     width: Optional[str] = None
 
 

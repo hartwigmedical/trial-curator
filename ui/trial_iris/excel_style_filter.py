@@ -2,17 +2,42 @@ from typing import Any
 
 import reflex as rx
 
-def excel_style_filter(
+# this is a small state to support searching for options
+# similar to excel, when user type the search term, the
+# the list of options shown will be reduced to those matching
+class OptionSearchState(rx.State):
+    key: str = ""
+    search_matched_options: list[Any] = []
+
+    @rx.event
+    def on_search(self, key, search_term: str, options):
+        self.key = key
+        self.search_matched_options = [o for o in options if str(o).startswith(search_term)]
+
+    @rx.event
+    def on_clear(self):
+        self.key = ""
+        self.search_matched_options = []
+
+def sort_button(key: str, cycle_sort_by: rx.EventHandler) -> rx.Component:
+    return rx.button(
+                "Sort",
+                rx.icon("arrow-up-down", size=14),
+                on_click=lambda: cycle_sort_by(key),
+                variant="ghost",
+                size="1")
+
+def excel_style_header(
         key: str,
         thin: bool,
         options: dict[str, list[Any]],
         deselected: dict[str, list[Any]],
+        sorted_keys: list[str],
         toggle_option: rx.EventHandler,
         select_all: rx.EventHandler,
         clear_all: rx.EventHandler,
-        label: str = "",
-        classes: str = "",
-        compact: bool = False,
+        cycle_sort_by: rx.EventHandler,
+        label: str
 ) -> rx.Component:
     """
     Create an Excel-style filter component using ComponentState.
@@ -48,60 +73,67 @@ def excel_style_filter(
         # Control buttons
         rx.hstack(
             rx.button(
-                "Select All" if not compact else "All",
+                "All",
                 on_click=select_all(key),
                 size="1",
                 variant="ghost",
-                width="50%",
                 _hover={"bg": "blue.50"}
             ),
             rx.button(
-                "Clear All" if not compact else "None",
+                "None",
                 on_click=clear_all(key),
                 size="1",
                 variant="ghost",
-                width="50%",
                 _hover={"bg": "red.50"}
             ),
+            sort_button(key, cycle_sort_by),
             width="100%",
-            spacing="1"
+            spacing="1",
+            align="stretch",
+            justify="between"
         ),
         rx.divider(),
         # Options list
         rx.vstack(
-            rx.foreach(options[key], create_checkbox_item),
+            rx.input(
+                on_change=lambda o: OptionSearchState.on_search(key, o, options[key]),
+                radius="small",
+                width="90%",
+            ),
+            rx.cond(
+                OptionSearchState.key == key,
+                rx.foreach(
+                    OptionSearchState.search_matched_options,
+                    lambda option: create_checkbox_item(option)
+                ),
+                rx.foreach(
+                    options[key],
+                    lambda option: create_checkbox_item(option)
+                ),
+            ),
             spacing="1",
             width="100%",
-            max_height="300px" if not compact else "200px",
+            max_height="400px",
             overflow_y="auto",
             padding="4px"
         ),
         spacing="2",
-        padding="12px" if not compact else "8px",
-        min_width="220px" if not compact else "150px",
+        padding="8px",
+        min_width="150px",
     )
 
     # Filter indicator for compact mode
     filter_indicator = rx.cond(
-        compact,
-        rx.cond(
             deselected[key].length() != 0,
             rx.badge(
                 options[key].length() - deselected[key].length(),
                 color_scheme="blue",
                 size="1",
                 margin_left="2"
-            ),
-            rx.text("")  # No indicator when all selected
-        ),
-        rx.text("")
-    )
+            )
+        )
 
-    # Button content varies based on compact mode
-    button_content = rx.cond(
-        compact,
-        # Compact mode for table headers
-        rx.hstack(
+    button_content = rx.hstack(
             rx.cond(
                 thin,
                 rx.text(label, font_weight="semibold"),
@@ -113,40 +145,79 @@ def excel_style_filter(
                 size=12,
                 color=rx.cond(deselected[key].length() != 0, "blue.500", "gray.500")
             ),
+            rx.cond(
+                sorted_keys.contains(key),
+                rx.cond(
+                    sorted_keys[key],
+                    rx.icon("arrow-up", size=14),
+                    rx.icon("arrow-down", size=14)
+                )
+            ),
             align="center",
             spacing="1",
             justify="start",
             width="100%"
-        ),
-        # Regular mode
-        rx.hstack(
-            rx.text(label, font_weight="medium"),
-            justify="between",
-            align="center",
-            width="100%"
         )
-    )
 
     return rx.menu.root(
         rx.menu.trigger(
             rx.button(
                 button_content,
                 width="100%",
-                variant="outline" if not compact else "ghost",
-                bg="white" if not compact else "transparent",
+                variant="ghost",
+                bg="transparent",
                 color="black",
                 font_weight="bold",
-                border_radius="md" if not compact else "sm",
+                border_radius="sm",
                 height="auto",
-                _hover={"bg": "gray.50", "border_color": "gray.300" if not compact else "transparent"}
+                _hover={"bg": "gray.50", "border_color": "transparent"}
             ),
             width="100%"
         ),
         rx.menu.content(
             menu_content
         ),
-        position="relative",
         width="100%",
-        class_name=classes,
-        # Click outside handler would need to be implemented at parent level
+    )
+
+
+def excel_style_sort_header(
+        key: str,
+        sorted_keys: dict[str, bool],
+        cycle_sort_by: rx.EventHandler,
+        label: str = ""
+) -> rx.Component:
+
+    return rx.menu.root(
+        rx.menu.trigger(
+            rx.button(
+                rx.hstack(
+                    label,
+                    rx.cond(
+                        sorted_keys.contains(key),
+                        rx.cond(
+                            sorted_keys[key],
+                            rx.icon("arrow-up", size=14),
+                            rx.icon("arrow-down", size=14)
+                        )
+                    ),
+                    align="center",
+                    spacing="1"
+                ),
+                width="100%",
+                variant="ghost",
+                bg="transparent",
+                color="black",
+                font_weight="bold",
+                border_radius="sm",
+                height="auto",
+                _hover={"bg": "gray.50", "border_color": "transparent"}
+            ),
+            width="100%"
+        ),
+        rx.menu.content(
+            sort_button(key, cycle_sort_by),
+            align="center"
+        ),
+        width="100%",
     )

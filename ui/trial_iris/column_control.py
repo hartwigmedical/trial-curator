@@ -56,6 +56,8 @@ class ColumnControlState(rx.State):
                 self.available_columns.remove(column)
                 self.visible_columns.insert(index, column)
 
+        self.save_preference()
+
     # Persistence
     def save_preference(self):
         self.column_preference = json.dumps(self.visible_columns)

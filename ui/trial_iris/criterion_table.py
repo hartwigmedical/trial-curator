@@ -8,7 +8,7 @@ import reflex as rx
 from .column_control import column_control_menu, ColumnControlState
 from .column_definitions import *
 from .criterion_state import CriterionState
-from .excel_style_filter import excel_style_filter
+from .excel_style_filter import excel_style_header, excel_style_sort_header
 from .row_action_menu import row_action_menu, row_action_menu_dialogs
 from .local_file_picker import file_picker_dialog
 
@@ -179,20 +179,27 @@ def construct_table() -> rx.Component:
                 rx.foreach(
                     ColumnControlState.visible_columns,
                     lambda col: rx.table.column_header_cell(
-                        rx.cond(NO_FILTER_COLUMNS.contains(col),
-                                rx.text(col),
-                                excel_style_filter(
-                                    col,
-                                    THIN_COLUMNS.contains(col),
-                                    options=CriterionState.options_dict,
-                                    deselected=CriterionState.deselected_dict,
-                                    toggle_option=CriterionState.toggle_option,
-                                    select_all=CriterionState.select_all,
-                                    clear_all=CriterionState.clear_all,
-                                    label=col,
-                                    compact=True
-                                )
+                        rx.cond(
+                            NO_FILTER_COLUMNS.contains(col),
+                            excel_style_sort_header(
+                                col,
+                                sorted_keys=CriterionState.sort_by,
+                                cycle_sort_by=CriterionState.cycle_sort_by,
+                                label=col
+                            ),
+                            excel_style_header(
+                                col,
+                                THIN_COLUMNS.contains(col),
+                                options=CriterionState.options_dict,
+                                deselected=CriterionState.deselected_dict,
+                                sorted_keys=CriterionState.sort_by,
+                                toggle_option=CriterionState.toggle_option,
+                                select_all=CriterionState.select_all,
+                                clear_all=CriterionState.clear_all,
+                                cycle_sort_by=CriterionState.cycle_sort_by,
+                                label=col
                             )
+                        )
                     )
                 )
             )
@@ -311,10 +318,12 @@ def navbar() -> rx.Component:
             rx.button(
                 "Load File",
                 on_click=lambda: FileSaveLoadState.load_file(FileSaveLoadState.file_path),
+                variant="outline"
             ),
             rx.button(
                 "Save",
                 on_click=lambda: FileSaveLoadState.save_button_clicked,
+                variant="outline"
             ),
             spacing="2"
         ),

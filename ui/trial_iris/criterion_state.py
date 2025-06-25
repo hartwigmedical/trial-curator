@@ -16,6 +16,9 @@ class CriterionState(rx.State):
     options_dict: dict[str, list[Any]] = {}
     deselected_dict: dict[str, list[Any]] = {}
 
+    # sort by column and if it is ascending
+    sort_by: dict[str, bool] = {}
+
     # page data
     current_page_data: list[dict[str, Any]]
 
@@ -31,6 +34,13 @@ class CriterionState(rx.State):
     @rx.event
     async def set_trial_df(self, trial_df: pd.DataFrame):
         self._trial_df = trial_df
+
+        # set the CODE column
+        self._trial_df[Columns.CODE.name] = self._trial_df[Columns.LLM_CODE.name].mask(
+            self._trial_df[Columns.OVERRIDE_CODE.name].notna() & (self._trial_df[Columns.OVERRIDE_CODE.name] != ""),
+            self._trial_df[Columns.OVERRIDE_CODE.name]
+        )
+
         self._filtered_trial_df = self._trial_df
 
         self.total_pages = (len(self._trial_df) + self.page_size - 1) // self.page_size
@@ -71,6 +81,22 @@ class CriterionState(rx.State):
         self.deselected_dict[filter_name] = self.options_dict[filter_name].copy()
         self.apply_filters()
 
+    @rx.event
+    def cycle_sort_by(self, col: str):
+        # we cycle between unsorted -> sort ascending -> sort descending
+        logger.info(f"cycle sort by: {col}")
+        if col in self.sort_by:
+            ascending = self.sort_by[col]
+            if ascending:
+                # cycle to sort descending
+                self.sort_by[col] = False
+            else:
+                # set to not sorted
+                del self.sort_by[col]
+        else:
+            self.sort_by[col] = True
+        self.apply_filters(reset_page=True)
+
     def apply_filters(self, reset_page: bool = False):
         """Apply all active filters."""
         if self._trial_df.empty:
@@ -78,13 +104,19 @@ class CriterionState(rx.State):
 
         filter_mask = pd.Series(True, index=self._trial_df.index)
 
-        logger.info('applying filter')
+        logger.debug('applying filter')
 
         for filter_name, filter_values in self.deselected_dict.items():
             if len(filter_values) > 0:
                 filter_mask &= ~self._trial_df[filter_name].isin(filter_values)
 
         self._filtered_trial_df = self._trial_df[filter_mask]
+
+        if len(self.sort_by) > 0:
+            self._filtered_trial_df = self._filtered_trial_df.sort_values(
+                by=[s for s, _ in self.sort_by.items()],
+                ascending=[d for _, d in self.sort_by.items()])
+
         self.total_pages = (len(self._filtered_trial_df) + self.page_size - 1) // self.page_size
         if reset_page:
             self.current_page = 0
@@ -95,18 +127,14 @@ class CriterionState(rx.State):
         if self._filtered_trial_df.empty:
             self.current_page_data = []
 
-        logger.info('updating page data')
+        logger.debug('updating page data')
 
         start_idx = self.current_page * self.page_size
         end_idx = start_idx + self.page_size
         page_data = self._filtered_trial_df.iloc[start_idx:end_idx]
 
-        code = page_data[Columns.LLM_CODE.name]
-        code = code.mask(page_data[Columns.OVERRIDE_CODE.name].notna() & (page_data[Columns.OVERRIDE_CODE.name] != ""),
-                         page_data[Columns.OVERRIDE_CODE.name])
-
         def process_row(idx, row):
-            formatted_criterion = code[idx]  # index-aligned access
+            formatted_criterion = row[Columns.CODE.name]
             parse_error = None
             try:
                 parse_criterion(formatted_criterion)
@@ -116,10 +144,7 @@ class CriterionState(rx.State):
             result_row = {
                 INDEX_COLUMN: idx,
                 **{c.name: row[c.name] for c in COLUMN_DEFINITIONS if c.name in page_data.columns},
-                Columns.CODE.name: formatted_criterion,
                 Columns.ERROR.name: parse_error,
-                Columns.LLM_CODE.name: row[Columns.LLM_CODE.name],
-                Columns.OVERRIDE_CODE.name: row[Columns.OVERRIDE_CODE.name],
             }
             return result_row
 
@@ -157,12 +182,13 @@ class CriterionState(rx.State):
         except Exception as e:
             # put the error in the table
             logger.info(f"error parsing criterion: index={index}, criterion={criterion}")
-            return rx.toast.error(f"Error parsing criterion: {str(e)}")
+            return rx.toast.error(f"Error parsing criterion: {str(e)}", duration=300, close_button=True)
 
         try:
             logger.info(f"update criterion: index={index}, criterion={criterion}")
             self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = criterion
             self._trial_df.loc[index, Columns.OVERRIDE.name] = True
+            self._trial_df.loc[index, Columns.CODE.name] = criterion
             # Refresh the filtered dataframe, in case we got filter on override
             self.apply_filters()
             return rx.toast.success("Criterion updated")
@@ -174,6 +200,8 @@ class CriterionState(rx.State):
         logger.info(f"delete override: index={index}")
         self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = None
         self._trial_df.loc[index, Columns.OVERRIDE.name] = False
+        # restore the LLM code
+        self._trial_df.loc[index, Columns.CODE.name] = self._trial_df.loc[index, Columns.LLM_CODE.name]
         # Refresh the filtered dataframe, in case we got filter on override
         self.apply_filters()
         return rx.toast.success("Override deleted")
