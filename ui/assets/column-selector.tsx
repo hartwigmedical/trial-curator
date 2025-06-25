@@ -202,6 +202,7 @@ function DroppableZone({ id, children, title, isSelected = false }: DroppableZon
     padding: '16px',
     backgroundColor: isSelected ? '#e3f2fd' : '#fafafa',
     transition: 'border-color 0.2s ease, background-color 0.2s ease',
+    height: 'calc(100% - 26px)'
   };
 
   return (
@@ -290,7 +291,7 @@ export default function PragmaticDndWrapper({
   }, [selectedColumns, onDragEnd]);
 
   return (
-    <div style={{ display: 'flex', gap: '24px', justifyContent: 'center' }}>
+    <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', alignItems: 'stretch' }}>
       <DroppableZone id="available-droppable" title="Available Columns">
         <ForEach items={availableColumns}>
           {(column) => (

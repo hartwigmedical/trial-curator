@@ -8,7 +8,7 @@ import reflex as rx
 from .column_control import column_control_menu, ColumnControlState
 from .column_definitions import *
 from .criterion_state import CriterionState
-from .excel_style_filter import excel_style_header, excel_style_sort_header
+from .column_header import filter_header, column_header
 from .row_action_menu import row_action_menu, row_action_menu_dialogs
 from .local_file_picker import file_picker_dialog
 
@@ -103,10 +103,10 @@ class FileSaveLoadState(rx.State):
             columns = [c.name for c in COLUMN_DEFINITIONS if not c.isDerived]
             criterion_state._trial_df[columns].to_csv(save_path, sep='\t', index=False, na_rep='NULL')
             logger.info(f"saved criterion df to: {self.file_path}")
-            yield rx.toast.success(f"Saved criteria to {self.file_path}", duration=30, close_button=True)
+            yield rx.toast.success(f"Saved criteria to {self.file_path}", duration=3000, close_button=True)
         except Exception as e:
             logger.error(f"error saving criteria: {str(e)}")
-            yield rx.toast.error(f"Error saving criteria: {str(e)}", duration=300, close_button=True)
+            yield rx.toast.error(f"Error saving criteria: {str(e)}", duration=10_000, close_button=True)
 
 
 def render_cell(row: dict[str, Any], col: str) -> rx.Component:
@@ -181,15 +181,14 @@ def construct_table() -> rx.Component:
                     lambda col: rx.table.column_header_cell(
                         rx.cond(
                             NO_FILTER_COLUMNS.contains(col),
-                            excel_style_sort_header(
+                            column_header(
                                 col,
                                 sorted_keys=CriterionState.sort_by,
                                 cycle_sort_by=CriterionState.cycle_sort_by,
                                 label=col
                             ),
-                            excel_style_header(
+                            filter_header(
                                 col,
-                                THIN_COLUMNS.contains(col),
                                 options=CriterionState.options_dict,
                                 deselected=CriterionState.deselected_dict,
                                 sorted_keys=CriterionState.sort_by,
@@ -338,16 +337,17 @@ def navbar() -> rx.Component:
 def criteria_table() -> rx.Component:
     return rx.vstack(
         navbar(),
+        rx.separator(),
         rx.cond(
             FileSaveLoadState.is_data_loaded,
             rx.box(
                 construct_table(),
                 width="100%",
-                height="100%",
-                overflow="auto"   # show scrollbar
+                height="calc(100% - 30px)",  # needed for bottom scrollbar
+                overflow="scroll",   # show scrollbar
             )
         ),
-        row_action_menu_dialogs(CriterionState.update_criterion, CriterionState.delete_override),
+        row_action_menu_dialogs(CriterionState.update_override, CriterionState.delete_override),
         width="100%",
         height="100%"
     )

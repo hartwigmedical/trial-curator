@@ -26,8 +26,8 @@ def index() -> rx.Component:
         ),
         margin="15px",
         padding="15px",
-        width="98vw",
-        height="97vh"
+        width="calc(100vw - 30px)",
+        height="calc(100vh - 30px)"
     )
 
 style = {

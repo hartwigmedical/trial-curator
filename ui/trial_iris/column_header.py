@@ -27,9 +27,8 @@ def sort_button(key: str, cycle_sort_by: rx.EventHandler) -> rx.Component:
                 variant="ghost",
                 size="1")
 
-def excel_style_header(
+def filter_header(
         key: str,
-        thin: bool,
         options: dict[str, list[Any]],
         deselected: dict[str, list[Any]],
         sorted_keys: list[str],
@@ -40,10 +39,7 @@ def excel_style_header(
         label: str
 ) -> rx.Component:
     """
-    Create an Excel-style filter component using ComponentState.
-
     Args:
-        state:
         options: list of filter options
         label: The button label
         classes: Additional CSS classes
@@ -134,30 +130,26 @@ def excel_style_header(
         )
 
     button_content = rx.hstack(
+        rx.text(label, font_weight="semibold"),
+        filter_indicator,
+        rx.icon(
+            "filter",
+            size=12,
+            color=rx.cond(deselected[key].length() != 0, "blue.500", "gray.500")
+        ),
+        rx.cond(
+            sorted_keys.contains(key),
             rx.cond(
-                thin,
-                rx.text(label, font_weight="semibold"),
-                rx.text(label, font_weight="semibold")
-            ),
-            filter_indicator,
-            rx.icon(
-                "filter",
-                size=12,
-                color=rx.cond(deselected[key].length() != 0, "blue.500", "gray.500")
-            ),
-            rx.cond(
-                sorted_keys.contains(key),
-                rx.cond(
-                    sorted_keys[key],
-                    rx.icon("arrow-up", size=14),
-                    rx.icon("arrow-down", size=14)
-                )
-            ),
-            align="center",
-            spacing="1",
-            justify="start",
-            width="100%"
-        )
+                sorted_keys[key],
+                rx.icon("arrow-up", size=14),
+                rx.icon("arrow-down", size=14)
+            )
+        ),
+        align="center",
+        spacing="1",
+        justify="start",
+        width="100%"
+    )
 
     return rx.menu.root(
         rx.menu.trigger(
@@ -168,7 +160,6 @@ def excel_style_header(
                 bg="transparent",
                 color="black",
                 font_weight="bold",
-                border_radius="sm",
                 height="auto",
                 _hover={"bg": "gray.50", "border_color": "transparent"}
             ),
@@ -181,7 +172,7 @@ def excel_style_header(
     )
 
 
-def excel_style_sort_header(
+def column_header(
         key: str,
         sorted_keys: dict[str, bool],
         cycle_sort_by: rx.EventHandler,
@@ -209,7 +200,6 @@ def excel_style_sort_header(
                 bg="transparent",
                 color="black",
                 font_weight="bold",
-                border_radius="sm",
                 height="auto",
                 _hover={"bg": "gray.50", "border_color": "transparent"}
             ),
