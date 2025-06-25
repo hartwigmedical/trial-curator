@@ -24,10 +24,10 @@ class RowActionMenuState(rx.State):
     llm_curate_dialog_open: bool = False
     llm_instructions: str = ""
     rule_to_recurate: str = ""
+    existing_code: str = ""
 
-    llm_result_dialog_open: bool = False
+    llm_curate_status_dialog_open: bool = False
     waiting_for_llm: bool = False
-    llm_curate_result: str = ""
     llm_curation_error: str = ""
 
     @rx.event
@@ -36,9 +36,10 @@ class RowActionMenuState(rx.State):
         self.delete_override_dialog_open = True
 
     @rx.event
-    def open_llm_curate_dialog(self, idx: int, rule_to_recurate: str):
+    def open_llm_curate_dialog(self, idx: int, rule_to_recurate: str, existing_code: str):
         self.row_idx = idx
         self.rule_to_recurate = rule_to_recurate
+        self.existing_code = existing_code
         self.llm_curate_dialog_open = True
 
     def llm_curate(self) -> str:
@@ -52,17 +53,21 @@ class RowActionMenuState(rx.State):
     async def run_llm_curate(self):
         async with self:
             self.waiting_for_llm = True
-            self.llm_result_dialog_open = True
+            self.llm_curate_status_dialog_open = True
         try:
             llm_curate_task = asyncio.create_task(rx.run_in_thread(self.llm_curate))
             # Run with a timeout of 60 second (not enough time)
-            llm_curate_result = await asyncio.wait_for(
+            llm_curated_code = await asyncio.wait_for(
                 llm_curate_task,
                 timeout=60,
             )
             async with self:
-                self.llm_curate_result = llm_curate_result
                 self.waiting_for_llm = False
+                # open up the editor dialog with the LLM curation result
+                editor_state = await self.get_state(EditorState)
+                editor_state.open_dialog(self.row_idx, self.existing_code, llm_curated_code,
+                                               "AI curation result:")
+
         except asyncio.TimeoutError:
             async with self:
                 self.llm_curation_error = "Timeout: LLM recurate took too long."
@@ -83,9 +88,15 @@ class RowActionMenuState(rx.State):
 
     @rx.event
     def clear_llm_curate_state(self):
-        self.llm_curate_result = ""
-        self.waiting_for_llm = False
-        self.llm_curation_error = ""
+        self.llm_curate_dialog_open: bool = False
+        self.llm_instructions: str = ""
+        self.rule_to_recurate: str = ""
+        self.existing_code: str = ""
+
+        self.llm_curate_status_dialog_open: bool = False
+        self.waiting_for_llm: bool = False
+        self.llm_curate_status: str = ""
+        self.llm_curation_error: str = ""
 
 
 def row_action_menu(row: dict[str, Any]) -> rx.Component:
@@ -114,7 +125,11 @@ def row_action_menu(row: dict[str, Any]) -> rx.Component:
                 ),
                 rx.menu.item(
                     "AI recurate",
-                    on_click=RowActionMenuState.open_llm_curate_dialog(row[INDEX_COLUMN], row[Columns.DESCRIPTION.name]),
+                    on_click=RowActionMenuState.open_llm_curate_dialog(
+                        row[INDEX_COLUMN],
+                        row[Columns.DESCRIPTION.name],
+                        row[Columns.LLM_CODE.name]
+                    ),
                 ),
                 rx.menu.sub(
                     rx.menu.sub_trigger(
@@ -136,7 +151,7 @@ def row_action_menu_dialogs(save_override: rx.EventHandler, delete_override: rx.
         editor_dialog(save_override),
         delete_override_dialog(delete_override),
         llm_curate_dialog(),
-        llm_curate_result_dialog(save_override),
+        llm_curate_status_dialog(),
     )
 
 def delete_override_dialog(delete_override: rx.EventHandler) -> rx.Component:
@@ -199,12 +214,12 @@ def llm_waiting_for_llm_content() -> rx.Component:
         )
     )
 
-def llm_curate_result_dialog_content(save_override: rx.EventHandler) -> rx.Component:
+def llm_curate_status_dialog_content(save_override: rx.EventHandler) -> rx.Component:
     return rx.dialog.content(
         rx.vstack(
             rx.text("AI curation result:"),
             rx.code_block(
-                RowActionMenuState.llm_curate_result,
+                RowActionMenuState.llm_curate_status,
                 can_copy=False,
                 wrap_long_lines=True,
                 font_size="12px",
@@ -214,7 +229,7 @@ def llm_curate_result_dialog_content(save_override: rx.EventHandler) -> rx.Compo
                 rx.dialog.close(
                     rx.button(
                         "Accept",
-                        on_click=[save_override(RowActionMenuState.row_idx, RowActionMenuState.llm_curate_result),
+                        on_click=[save_override(RowActionMenuState.row_idx, RowActionMenuState.llm_curate_status),
                                   RowActionMenuState.clear_llm_curate_state]
                     ),
                 ),
@@ -239,18 +254,17 @@ def llm_curate_error_dialog_content() -> rx.Component:
         )
     )
 
-def llm_curate_result_dialog(save_override: rx.EventHandler) -> rx.Component:
+def llm_curate_status_dialog() -> rx.Component:
     return rx.dialog.root(
         rx.cond(
             RowActionMenuState.waiting_for_llm,
             llm_waiting_for_llm_content(),
             rx.cond(
-                RowActionMenuState.llm_curation_error == "",
-                llm_curate_result_dialog_content(save_override),
+                RowActionMenuState.llm_curation_error != "",
                 llm_curate_error_dialog_content()
             )
         ),
         height="500px",
-        open=RowActionMenuState.llm_result_dialog_open,
-        on_open_change=RowActionMenuState.set_llm_result_dialog_open(False)
+        open=RowActionMenuState.llm_curate_status_dialog_open,
+        on_open_change=RowActionMenuState.set_llm_curate_status_dialog_open(False)
     )

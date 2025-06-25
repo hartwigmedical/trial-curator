@@ -13,6 +13,7 @@ class EditorState(rx.State):
     idx: int = -1
     code: str = ""
     new_code: str = ""
+    title: str = ""
     editor_open: bool = False
     save_override: rx.EventHandler = None
 
@@ -24,10 +25,11 @@ class EditorState(rx.State):
         )
 
     @rx.event
-    def open_dialog(self, idx: int, code: str, new_code: str):
+    def open_dialog(self, idx: int, code: str, new_code: str, title: str = ""):
         self.idx = idx
         self.code = code
         self.new_code = new_code
+        self.title = title
         self.editor_open = True
 
 class EditorSetup(rx.Fragment):
@@ -48,44 +50,14 @@ def editor_dialog(save_override: rx.EventHandler):
         EditorSetup.create(),
         rx.dialog.content(
             rx.vstack(
-                codemirror_merge(
-                    codemirror_original(
-                        value=EditorState.code,
-                        extensions=rx.Var(
-                            "[EditorView.editable.of(false), EditorState.readOnly.of(true), EditorView.lineWrapping]"
-                        ),
-                        style={
-                            "minWidth": "600px",
-                            "maxWidth": "50%",
-                            "overflow": "auto"
-                        }
-                    ),
-                    codemirror_modified(
-                        value=EditorState.new_code,
-                        extensions=rx.Var(
-                            "[EditorView.lineWrapping, criterionAutocomplete, tabAcceptKeymap, "
-                            f"EditorView.updateListener.of(update => {{ {MODIFIED_EDITOR_VIEW_VAR} = update.view; }})]"
-                        ),
-                        style={
-                            "minWidth": "600px",
-                            "maxWidth": "50%",
-                            "overflow": "auto"
-                        }
-                    ),
-                    orientation="a-b",
-                    style={
-                        "fontSize": "12px",
-                        "maxWidth": "100%",
-                        "maxHeight": "90%",
-                        "overflow": "auto"
-                    }
-                ),
+                rx.text(EditorState.title),
+                codemirror_diff_card(),
                 rx.hstack(
                     rx.dialog.close(rx.button("Save", on_click=EditorState.save_code)),
-                    rx.dialog.close(rx.button("Close")),
-                    spacing="1",
+                    rx.dialog.close(rx.button("Cancel")),
+                    spacing="3",
                 ),
-                spacing="1",
+                spacing="3",
                 justify="between",  # pushes content to top and bottom
                 style={
                     "flexGrow": "1",
@@ -96,11 +68,45 @@ def editor_dialog(save_override: rx.EventHandler):
             style={
                 "width": "1400px",
                 "maxWidth": "80%",
-                "height": "600px",
-                "flexDirection": "column",
+                "height": "600px",  # fixed height
+                "display": "flex",  # required for flex children
                 "padding": "1em",
-            },
+            }
         ),
         open=EditorState.editor_open,
         on_open_change=EditorState.set_editor_open(False),
+    )
+
+def codemirror_diff_card() -> rx.Component:
+    return rx.card(
+        codemirror_merge(
+            codemirror_original(
+                value=EditorState.code,
+                extensions=rx.Var(
+                    "[EditorView.editable.of(false), EditorState.readOnly.of(true), EditorView.lineWrapping]"
+                ),
+                style={
+                    "minWidth": "50%",
+                    "maxWidth": "50%"
+                }
+            ),
+            codemirror_modified(
+                value=EditorState.new_code,
+                extensions=rx.Var(
+                    "[EditorView.lineWrapping, criterionAutocomplete, tabAcceptKeymap, "
+                    f"EditorView.updateListener.of(update => {{ {MODIFIED_EDITOR_VIEW_VAR} = update.view; }})]"
+                ),
+                style={
+                    "minWidth": "50%",
+                    "maxWidth": "50%"
+                }
+            ),
+            orientation="a-b",
+            width="100%",
+            height="100%",
+            fontSize="12px",
+            overflow="auto"  # required to show scrollbar
+        ),
+        width="100%",
+        height="100%",
     )

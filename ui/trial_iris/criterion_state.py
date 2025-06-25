@@ -71,8 +71,7 @@ class CriterionState(rx.State):
         self.deselected_dict[filter_name] = self.options_dict[filter_name].copy()
         self.apply_filters()
 
-    @rx.event
-    def apply_filters(self):
+    def apply_filters(self, reset_page: bool = False):
         """Apply all active filters."""
         if self._trial_df.empty:
             return
@@ -87,7 +86,8 @@ class CriterionState(rx.State):
 
         self._filtered_trial_df = self._trial_df[filter_mask]
         self.total_pages = (len(self._filtered_trial_df) + self.page_size - 1) // self.page_size
-        self.current_page = 0
+        if reset_page:
+            self.current_page = 0
         self.update_current_page_data()
 
     def update_current_page_data(self):
@@ -124,7 +124,7 @@ class CriterionState(rx.State):
             return result_row
 
         # Apply row-wise using index-based access to the vectorized values
-        result = page_data.apply(lambda row: process_row(row.name, row), axis=1).tolist()
+        result = page_data.apply(lambda row: process_row(row.name, row), axis=1).values.tolist()
         self.current_page_data = result
 
     @rx.event

@@ -126,7 +126,7 @@ def render_cell(row: dict[str, Any], col: str) -> rx.Component:
             rx.table.cell(
                 rx.code_block(
                     row[col],
-                    language="python",
+                    language="ada",
                     can_copy=False,
                     wrap_long_lines=True,
                     font_size="12px",
@@ -134,7 +134,7 @@ def render_cell(row: dict[str, Any], col: str) -> rx.Component:
                         "margin": "0"
                     }
                 ),
-                max_width="600px"
+                max_width="700px"
             )
         ),
         (Columns.OVERRIDE.name,
@@ -192,7 +192,7 @@ def construct_table() -> rx.Component:
                                     label=col,
                                     compact=True
                                 )
-                                )
+                            )
                     )
                 )
             )
@@ -208,7 +208,6 @@ def construct_table() -> rx.Component:
                 )
             )
         ),
-        row_action_menu_dialogs(CriterionState.update_criterion, CriterionState.delete_override)
     )
 
 def confirm_overwrite_file_dialog(file_picker) -> rx.Component:
@@ -270,19 +269,6 @@ def choose_file_dialog(file_picker) -> rx.Component:
         on_open_change=FileSaveLoadState.set_show_choose_file_dialog(False),
     )
 
-rx.center(
-    rx.vstack(
-        rx.icon("file-text", size=48, color="gray.400"),
-        rx.text("Load a TSV file to get started", color="gray.500", font_size="lg"),
-        rx.text("The grid will show your clinical trial criteria data with Excel-like filtering",
-                color="gray.400", font_size="sm"),
-        spacing="3",
-        align="center"
-    ),
-    height="400px"
-)
-
-
 def navbar() -> rx.Component:
     file_picker = file_picker_dialog(
         directory="~",
@@ -295,12 +281,14 @@ def navbar() -> rx.Component:
                 column_control_menu(),
                 rx.button(
                     "Prev",
-                    on_click=CriterionState.prev_page),
+                    on_click=CriterionState.prev_page,
+                    variant="outline"),
                 rx.text(f"page {CriterionState.current_page + 1} / {CriterionState.total_pages}",
                         size="2", ),
                 rx.button(
                     "Next",
                     on_click=CriterionState.next_page,
+                    variant="outline"
                 ),
                 rx.spacer(width="100px"),
                 rx.text(f"Total records: {CriterionState.total_records}", font_size="sm", color="gray.600"),
@@ -341,6 +329,16 @@ def navbar() -> rx.Component:
 def criteria_table() -> rx.Component:
     return rx.vstack(
         navbar(),
-        rx.cond(FileSaveLoadState.is_data_loaded, rx.flex(construct_table(), width="100%")),
-        width="100%"
+        rx.cond(
+            FileSaveLoadState.is_data_loaded,
+            rx.box(
+                construct_table(),
+                width="100%",
+                height="100%",
+                overflow="auto"   # show scrollbar
+            )
+        ),
+        row_action_menu_dialogs(CriterionState.update_criterion, CriterionState.delete_override),
+        width="100%",
+        height="100%"
     )

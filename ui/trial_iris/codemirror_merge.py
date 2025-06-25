@@ -8,6 +8,7 @@ class CodeMirrorMerge(rx.Component):
     is_default = True
 
     orientation: rx.Var[str]  # e.g., "a-b" or "b-a"
+    extensions: rx.Var[list]
 
 
 class CodeMirrorOriginal(rx.Component):

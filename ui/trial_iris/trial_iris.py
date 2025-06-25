@@ -21,14 +21,21 @@ def index() -> rx.Component:
                 padding="4"
             ),
             criteria_table(),
-            width="100%"
+            width="100%",
+            height="100%"
         ),
-        margin="20px",
-        padding="20px"
+        margin="15px",
+        padding="15px",
+        width="98vw",
+        height="97vh"
     )
 
 style = {
     "font_size": "10px",
+    rx.button: {
+        "variant": "outline",
+    },
+    "overflow": "hidden"
 }
 
 # Create the app
@@ -38,6 +45,9 @@ app = rx.App(
         radius="large",
         accent_color="blue",
     ),
-    style=style
+    style=style,
+    stylesheets=[
+        "/styles.css",  # required to force code block to wrap
+    ],
 )
 app.add_page(index)
