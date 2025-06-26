@@ -60,6 +60,7 @@ class ColumnControlState(rx.State):
 
     # Persistence
     def save_preference(self):
+        logger.info(f"Saving column preference to local storage: {self.visible_columns}")
         self.column_preference = json.dumps(self.visible_columns)
 
     def load_preference(self):
