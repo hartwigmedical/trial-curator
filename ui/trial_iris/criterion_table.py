@@ -9,6 +9,7 @@ from .column_control import column_control_menu, ColumnControlState
 from .column_definitions import *
 from .criterion_state import CriterionState
 from .column_header import filter_header, column_header
+from .pagination import pagination
 from .row_action_menu import row_action_menu, row_action_menu_dialogs
 from .local_file_picker import file_picker_dialog
 
@@ -285,20 +286,18 @@ def navbar() -> rx.Component:
         rx.cond(FileSaveLoadState.is_data_loaded,
             rx.hstack(
                 column_control_menu(),
-                rx.button(
-                    "Prev",
-                    on_click=CriterionState.prev_page,
-                    variant="outline"),
-                rx.text(f"page {CriterionState.current_page + 1} / {CriterionState.total_pages}",
-                        size="2", ),
-                rx.button(
-                    "Next",
-                    on_click=CriterionState.next_page,
-                    variant="outline"
+                pagination(
+                    CriterionState.current_page,
+                    CriterionState.total_pages,
+                    CriterionState.page_size,
+                    CriterionState.set_page_size,
+                    CriterionState.go_to_page,
+                    CriterionState.prev_page,
+                    CriterionState.next_page
                 ),
                 rx.spacer(width="100px"),
                 rx.text(f"Total records: {CriterionState.total_records}", font_size="sm", color="gray.600"),
-                spacing="4",
+                spacing="9",
                 justify="between",
                 padding="4",
                 align="center",

@@ -3,6 +3,7 @@ import logging
 import reflex as rx
 from reflex import ImportVar
 
+from pydantic_curator.criterion_parser import parse_criterion
 from .codemirror_merge import codemirror_original, codemirror_merge, codemirror_modified
 
 logger = logging.getLogger(__name__)
@@ -15,14 +16,34 @@ class EditorState(rx.State):
     new_code: str = ""
     title: str = ""
     editor_open: bool = False
+    error_message: str = ""
+
     save_override: rx.EventHandler = None
 
     @rx.event
-    def save_code(self):
+    def save_button_clicked(self):
+        logger.info("save button clicked")
         return rx.call_script(
             f"{MODIFIED_EDITOR_VIEW_VAR}.state.doc.toString()",
-            callback=self.__class__.save_override(self.idx)
+            callback=EditorState.check_save_code  # important: do not use self
         )
+
+    @rx.event
+    def check_save_code(self, new_code: str):
+        logger.info(f"checking save code: {new_code}")
+
+        # do this to ensure the edited code is not lost
+        self.new_code = new_code
+
+        # try to parse it
+        try:
+            parse_criterion(new_code)
+            self.editor_open = False
+            return self.__class__.save_override(self.idx, new_code)
+        except Exception as e:
+            # put the error in the table
+            logger.info(f"error parsing criterion: {new_code}, error: {str(e)}")
+            self.error_message = str(e)
 
     @rx.event
     def open_dialog(self, idx: int, code: str, new_code: str, title: str = ""):
@@ -30,6 +51,7 @@ class EditorState(rx.State):
         self.code = code
         self.new_code = new_code
         self.title = title
+        self.error_message = ""
         self.editor_open = True
 
 class EditorSetup(rx.Fragment):
@@ -53,9 +75,21 @@ def editor_dialog(save_override: rx.EventHandler):
                 rx.text(EditorState.title),
                 codemirror_diff_card(),
                 rx.hstack(
-                    rx.dialog.close(rx.button("Save", on_click=EditorState.save_code)),
+                    rx.button("Save", on_click=EditorState.save_button_clicked),
                     rx.dialog.close(rx.button("Cancel")),
+                    rx.spacer(width="150px"),
+                    rx.cond(
+                        EditorState.error_message != "",
+                        rx.code_block(
+                            EditorState.error_message,
+                            wrap_long_lines=True,
+                            font_size="12px",
+                            height="auto",
+                            overflow="auto"
+                        ),
+                    ),
                     spacing="3",
+                    align="center"
                 ),
                 spacing="3",
                 justify="between",  # pushes content to top and bottom

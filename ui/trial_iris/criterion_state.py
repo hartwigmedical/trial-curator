@@ -176,14 +176,6 @@ class CriterionState(rx.State):
     @rx.event
     async def update_override(self, index: int, criterion: str):
         """Update override for a specific row."""
-
-        try:
-            parse_criterion(criterion)
-        except Exception as e:
-            # put the error in the table
-            logger.info(f"error parsing criterion: index={index}, criterion={criterion}")
-            return rx.toast.error(f"Error parsing criterion: {str(e)}", duration=20_000, close_button=True)
-
         try:
             logger.info(f"update criterion: index={index}, criterion={criterion}")
             self._trial_df.loc[index, Columns.OVERRIDE_CODE.name] = criterion

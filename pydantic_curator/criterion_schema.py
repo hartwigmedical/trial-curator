@@ -1,7 +1,9 @@
 from typing import Literal, Optional
-from pydantic import BaseModel, SkipValidation, model_validator, Field
+from pydantic import BaseModel, SkipValidation, model_validator, Field, ConfigDict
+
 
 class TypedModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     type: str = Field(init=False)
 
     @model_validator(mode='before')

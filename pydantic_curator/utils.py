@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 from . import criterion_schema
-from .criterion_schema import BaseCriterion, AndCriterion, OrCriterion, IfCriterion, NotCriterion
+from .criterion_schema import BaseCriterion, AndCriterion, OrCriterion, IfCriterion, NotCriterion, TimingCriterion
 
 
 def extract_criterion_schema_classes(criterion_types: set[str] | list[str]) -> str:
@@ -49,7 +49,7 @@ def deep_remove_description(criterion: BaseCriterion):
     if isinstance(criterion, (AndCriterion, OrCriterion)):
         for subcriterion in criterion.criteria:
             deep_remove_description(subcriterion)
-    elif isinstance(criterion, NotCriterion):
+    elif isinstance(criterion, (NotCriterion, TimingCriterion)):
         deep_remove_description(criterion.criterion)
     elif isinstance(criterion, IfCriterion):
         deep_remove_description(criterion.condition)

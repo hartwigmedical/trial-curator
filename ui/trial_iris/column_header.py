@@ -182,18 +182,14 @@ def column_header(
     return rx.menu.root(
         rx.menu.trigger(
             rx.button(
-                rx.hstack(
-                    label,
+                label,
+                rx.cond(
+                    sorted_keys.contains(key),
                     rx.cond(
-                        sorted_keys.contains(key),
-                        rx.cond(
-                            sorted_keys[key],
-                            rx.icon("arrow-up", size=14),
-                            rx.icon("arrow-down", size=14)
-                        )
-                    ),
-                    align="center",
-                    spacing="1"
+                        sorted_keys[key],
+                        rx.icon("arrow-up", size=14),
+                        rx.icon("arrow-down", size=14)
+                    )
                 ),
                 width="100%",
                 variant="ghost",
@@ -201,7 +197,8 @@ def column_header(
                 color="black",
                 font_weight="bold",
                 height="auto",
-                _hover={"bg": "gray.50", "border_color": "transparent"}
+                paddingLeft="0px",
+                paddingRight="0px"
             ),
             width="100%"
         ),
