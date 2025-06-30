@@ -242,3 +242,37 @@ def format_actin_rule(rule_obj, indent=4):
 def indent_multiline(text, indent=4):
     pad = " " * indent
     return "\n".join(pad + line if line.strip() else line for line in text.splitlines())
+
+
+def output_formatting(actin_rule: dict, level: int = 0) -> str:
+    """
+    Removes empty []
+    Change "[{...}]" to (...)
+    """
+    indent = "    " * level
+    next_indent = "    " * (level + 1)
+
+    if isinstance(actin_rule, dict):
+
+        for key, val in actin_rule.items():
+
+            if key in ('AND', 'OR'):
+                val_list = []
+                for item in val:
+                    val_list.append(
+                        output_formatting(item, level + 1)
+                    )
+                val = f",\n{next_indent}".join(val_list)
+                return f"{key}\n{indent}(\n{next_indent}{val}\n{indent})"
+
+            elif key == 'NOT':
+                val = output_formatting(val, level + 1)
+                return f"{key}\n{indent}(\n{next_indent}{val}\n{indent})"
+
+            elif len(val) > 0:
+                return f"{key}{val}"
+
+            return f"{key}"
+
+    else:
+        raise TypeError("Unexpected type encountered")
