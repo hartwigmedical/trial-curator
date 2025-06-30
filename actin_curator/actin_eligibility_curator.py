@@ -3,10 +3,11 @@ from json import JSONDecodeError
 import pandas as pd
 import logging
 import argparse
-from typing import TypedDict, TypeVar
+from typing import TypedDict, Any
 from collections.abc import Callable
 
-from actin_curator.actin_curator_utils import parse_llm_category_output, parse_llm_mapping_output, find_new_actin_rules
+from actin_curator.actin_curator_utils import parse_llm_category_output, parse_llm_mapping_output, find_new_actin_rules, \
+    output_formatting
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
@@ -22,7 +23,7 @@ BATCH_MAX_WORDS = 30
 
 class ActinMapping(TypedDict, total=False):
     description: str
-    actin_rule: dict[str, list | dict]
+    actin_rule: dict[str, list | dict] | str
     new_rule: list[str]
     confidence_level: float
     confidence_explanation: str
@@ -34,10 +35,7 @@ def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
     return actin_df, actin_categories
 
 
-T = TypeVar("T")  # Generic return type
-
-
-def llm_json_repair(response: str, client: LlmClient, parser: Callable[[str], T]) -> T:
+def llm_json_repair(response: str, client: LlmClient, parser: Callable[[str], Any]) -> Any:
     try:
         return parser(response)
     except JSONDecodeError:
@@ -233,6 +231,12 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     return final_results
 
 
+def actin_reformat_output(actin_mappings: list[ActinMapping]) -> list[ActinMapping]:
+    for mapping in actin_mappings:
+        mapping['actin_rule'] = output_formatting(mapping['actin_rule'])
+    return actin_mappings
+
+
 def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> \
         list[ActinMapping]:
     actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
@@ -243,6 +247,7 @@ def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.Da
     actin_mapping = map_to_actin_by_category(sorted_cat_criteria, client, actin_df)
     actin_mapping = actin_mark_new_rules(actin_mapping, actin_rules)
     actin_mapping = actin_mark_confidence_score(actin_mapping, client)
+    actin_mapping = actin_reformat_output(actin_mapping)
 
     return actin_mapping
 
@@ -259,8 +264,20 @@ def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin
     return cohort_actin_outputs
 
 
+def human_readable_output(output, txt_path):
+    with open(txt_path, 'w', encoding='utf-8') as f:
+        for cohort_name, cohort_mappings in output.items():
+            f.write(f"COHORT: {cohort_name}\n\n")
+            for field in cohort_mappings:
+                f.write("Description:\n" + field["description"] + "\n")
+                f.write("ACTIN rule:\n" + field["actin_rule"] + "\n")
+                f.write("Confidence level:\n" + str(field["confidence_level"]) + "\n")
+                f.write("Explanation:\n" + field["confidence_explanation"] + "\n")
+                f.write("--" * 100 + "\n")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Clinical trial curator")
+    parser = argparse.ArgumentParser(description="ACTIN trial curator")
     parser.add_argument('--LLM_provider', help="Select OpenAI or Google", default="OpenAI")
     parser.add_argument('--trial_json', help='json file containing trial data', required=True)
     parser.add_argument('--out_trial_file', help='output file containing trial data', required=True)
@@ -281,6 +298,9 @@ def main():
 
     with open(args.out_trial_file, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
+
+    txt_path = args.out_trial_file.replace(".json", "_humanReadable.txt")
+    human_readable_output(actin_outputs, txt_path)
 
     logger.info(f"ACTIN results written to {args.out_trial_file}")
 
