@@ -59,6 +59,13 @@ class CriterionParser(Parser):
 
     def consume_criterion(self) -> Any:
         typename = self.consume_identifier()
+        criterion_cls = None
+        try:
+            # construct directly
+            criterion_cls = CRITERION_SCHEMA_CLS[typename + 'Criterion']
+        except KeyError:
+            self.raise_error(f"Unknown criterion type '{typename}'")
+
         self.consume_whitespace()
 
         # is there an arg list?
@@ -87,9 +94,6 @@ class CriterionParser(Parser):
                 args["else_"] = self.consume_braced_criterion()
 
         # construct directly
-        criterion_cls = CRITERION_SCHEMA_CLS[typename + 'Criterion']
-        if criterion_cls is None:
-            self.raise_error(f"Unknown type '{typename}'")
         return criterion_cls(**args)
 
     def consume_arg_list(self) -> dict[str, Any]:
@@ -112,12 +116,14 @@ class CriterionParser(Parser):
                     args[key] = val
                 except ValueError:
                     self.i = i  # back track
-                    # type and constructor call
+                    # if it is not a value, perhaps it is class type
                     typename = self.consume_identifier()
-                    type_cls = CRITERION_SCHEMA_CLS[typename]
-                    if type_cls is None:
+                    try:
+                        # construct directly
+                        type_cls = CRITERION_SCHEMA_CLS[typename]
+                        args[key] = type_cls(**self.consume_arg_list())
+                    except KeyError:
                         self.raise_error(f"Unknown type '{typename}'")
-                    args[key] = type_cls(**self.consume_arg_list())
             else:
                 self.raise_error(f"Expected '=' after key, got {self.peek()} instead.")
 

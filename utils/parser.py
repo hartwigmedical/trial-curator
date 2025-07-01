@@ -51,9 +51,9 @@ class Parser:
     def consume_whitespace(self) -> None:
         self.consume_while(str.isspace)
 
-    def consume_quoted_string(self) -> str:
+    def consume_quoted_string(self, quote_char='"') -> str:
         self.consume_whitespace()
-        if self.peek() != '"':
+        if self.peek() != quote_char:
             self.raise_error("Expected opening quote for string")
         self.i += 1  # skip opening quote
         s: str = ''
@@ -66,7 +66,7 @@ class Parser:
             elif c == '\\':
                 s += c
                 escape = True
-            elif c == '"':
+            elif c == quote_char:
                 self.i += 1  # skip closing quote
                 break
             else:
