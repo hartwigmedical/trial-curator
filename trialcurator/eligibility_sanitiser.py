@@ -185,7 +185,7 @@ Example:
     },
     {  
        "exclude": false,
-       "rule": "INCLUDE for female patients:
+       "rule": "For female patients:
           - Negative pregnancy test
           - Reliable contraceptive methods",
        "cohorts": ["Cohort C"]
@@ -205,15 +205,16 @@ Example:
     return response
 
 
-
-
-
-def llm_exclusion_logic_flipping(eligibility_text: dict[str, list[str]], client: LlmClient) -> dict[str, list[str]]:
+def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> str:
     system_prompt = 'You are a clinical trial curation assistant.'
 
-    user_prompt = '''GOAL: Convert EXCLUDE rules to logically equivalent INCLUDE rules only if the meaning is precisely preserved.
+    user_prompt = """
+## INSTRUCTIONS
+Convert EXCLUDE rules ("exclude": true) to logically equivalent INCLUDE rules **only if** the meaning is precisely preserved.
+Tag `exclusion_flipped` field accordingly.
+If the rule is an INCLUDE rule ("exclude": false), ignore this tagging.
 
-LOGIC CONVERSION RULES:
+## LOGIC CONVERSION RULES:
 - Flip EXCLUDE rules to INCLUDE only when the semantic meaning is unchanged, including:
   - Negated Inclusions (EXCLUDE + NOT)
     - EXCLUDE patients who do not have / demonstrate / show / meet X → INCLUDE patients who have / demonstrate / show / meet X
@@ -236,36 +237,42 @@ while preserving exclusion intent. Convert to: ‘EXCLUDE patient who have X’
   - Introduce assumptions not present in the original
   - Example where flipping is not allowed:
     - Incorrect: EXCLUDE "Surgery (< 6 months)" → INCLUDE "Surgery ≥ 6 months ago" (flipping changes the meaning — do not flip)
-  - When in doubt, leave as EXCLUDE.
-  
-DO NOT:
-- Change the medical meaning
-- Drop any important detail
+- **When in doubt, leave as EXCLUDE**.
+- Do NOT change the medical meaning.
+- Do NOT drop any important detail.
 
-OUTPUT FORMAT:
-- Each top-level bullet must be tagged as "INCLUDE" or "EXCLUDE", with any sub-bullets listed beneath it using hyphenation e.g.
+## OUTPUT STRUCTURE
+Return a valid JSON object. Do not include any extra text.
+
+Example:
+```json
+[
+    {  
+       "exclude": false,
+       "rule": "Life expectancy greater than one year",
+    },
+    {  
+       "exclude": true,
+       "rule": "Life expectancy > 3 months",
+       "exclusion_flipped": true
+    }
+]
 ```
-INCLUDE Age ≥ 18 years
-EXCLUDE HIV infection
-INCLUDE for female patients:
-  - Negative pregnancy test
-  - Reliable contraceptive methods
-```
-- Do not add blank lines. Do not add commentary or explanation.
-'''
-    user_prompt += f'''
-Below is the eligibility criteria for a clinical trial. Perform logic flipping as described above.
-{eligibility_text}
-'''
 
-    response = client.llm_ask(user_prompt, system_prompt)
-    return llm_json_repair(response, client, parse_llm_category_output)
+## INPUT TEXT
+"""
+    user_prompt += f"```\n{eligibility_criteria}\n```\n"
+
+    response = client.llm_ask(user_prompt, system_prompt=system_prompt)
+    return response
 
 
-# def llm_text_prep_workflow(eligibility_criteria, client) -> dict[str, list[str]]:
-#     eligibility_criteria = llm_sanitise_text(eligibility_criteria, client)
-#     eligibility_criteria = llm_cohort_tagging(eligibility_criteria, client)
-#     eligibility_criteria = llm_inclusion_exclusion_tagging(eligibility_criteria, client)
-#     eligibility_criteria = llm_simplify_text_logic(eligibility_criteria, client)
-#
-#     return eligibility_criteria
+def llm_rules_prep_workflow(eligibility_criteria: str, client) -> str:
+    eligibility_criteria = llm_sanitise_text(eligibility_criteria, client)
+    eligibility_criteria = llm_subpoint_promotion(eligibility_criteria, client)
+    eligibility_criteria = llm_tag_cohort_and_direction(eligibility_criteria, client)
+
+
+    eligibility_criteria = llm_exclusion_logic_flipping(eligibility_criteria, client)
+
+    return eligibility_criteria
