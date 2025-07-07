@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import extract_code_blocks
@@ -8,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
-    logger.info("START TEXT SANITISATION")
+    logger.info("\nSTART TEXT SANITISATION\n")
 
     system_prompt = "You are a clinical trial eligibility criteria sanitization assistant."
 
@@ -41,9 +42,11 @@ split each into its own bullet
 ## REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Only include criteria that explicitly define inclusion or exclusion rules.
 - Remove permissive statements that do not restrict eligibility (e.g., "X is allowed", "Y may be permitted", "X are eligible")
-- Remove any rule that consists solely of descriptive or contextual information and does not impose any inclusion or exclusion requirement.
-However, retain the rule if it contains even a single restrictive criterion, regardless of how much descriptive text it includes.
 - Remove any statement about informed consent (e.g., "Patient must be able to provide informed consent").
+- Remove any rule that consists solely of descriptive or contextual information and does not impose any inclusion or exclusion requirement.
+- However, note the following exceptions:
+    - Retain the rule if it contains even a single restrictive criterion, regardless of how much descriptive text it has.
+    - If a bullet contains conditions under which exclusion **does not apply**, preserve both the parent and its qualifying subpoints.
 
 ### LAB VALUES
 - When multiple lab values or thresholds are listed (e.g., hemoglobin < 5 mmol/L, platelets < 100, etc.), ensure the \
@@ -90,7 +93,7 @@ the gender descriptor. Example:
 
 def llm_tag_cohort_and_direction(eligibility_criteria: str, client: LlmClient) -> str:
     # Direction: whether a rule is an INCLUSION or an EXCLUSION criterion
-    logger.info("START COHORT AND DIRECTION TAGGING")
+    logger.info("\nSTART COHORT AND DIRECTION TAGGING\n")
 
     system_prompt = """You are a medical text processing assistant. Given the clinical trial eligibility criteria,
 1. Tag the inclusion or exclusion status of each rule.
@@ -176,7 +179,7 @@ Example:
 
 
 def llm_subpoint_promotion(eligibility_criteria: str, client: LlmClient) -> str:
-    logger.info("START SUBPOINT PROMOTION")
+    logger.info("\nSTART SUBPOINT PROMOTION\n")
 
     system_prompt = "You are a clinical trial curation assistant. Your job is to promote nested bullet points to top-level items, but **only** when it preserves the original clinical logic."
 
@@ -198,10 +201,20 @@ Default assumptions (unless the parent contradicts them):
 - Inclusion criteria sub-bullets are **conjunctive** (AND).
 - Exclusion criteria sub-bullets are **disjunctive** (OR).
 
-Important cavaets:
-- Do NOT promote if doing so changes the original clinical meaning or introduces assumptions.
+Important caveats:
 - Do NOT change the medical meaning.
 - Do NOT drop any important detail.
+- Do NOT promote if doing so changes the original clinical meaning or introduces assumptions.
+- Do **NOT** promote if the parent bullet contains conditional phrases such as:
+    - “if”
+    - “unless”
+    - “when”
+    - “only if”
+    - “must meet one of”
+    - “only under the following conditions”
+    - “any of the following”
+    - “all of the following must be met”
+- In such cases, **preserve the original structure exactly as-is**.
 
 ## EXAMPLES
 Input:
@@ -214,12 +227,16 @@ Output:
 - ALT < 3 × ULN
 
 Input:
-- Patients must meet **one** of the following:
-  - History of stroke
-  - History of TIA
+- Patients with condition XYZ are excluded unless they meet the following criteria:
+  - criterion 1
+  - criterion 2
+  - criterion 3
 
-Output:
-(Do not promote — preserve input structure)
+Output: (preserve input — do NOT promote)
+- Patients with condition XYZ are excluded unless they meet the following criteria:
+  - criterion 1
+  - criterion 2
+  - criterion 3
 
 ## OUTPUT STRUCTURE
 Return the promoted bullets as a plain string with one top-level bullet per line.
@@ -236,7 +253,7 @@ Return the promoted bullets as a plain string with one top-level bullet per line
 
 
 def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> str:
-    logger.info("\tSTART EXCLUSION LOGIC FLIPPING")
+    logger.info("\nSTART EXCLUSION LOGIC FLIPPING\n")
 
     system_prompt = 'You are a clinical trial curation assistant.'
 
@@ -289,15 +306,34 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
     rules_json_block = extract_code_blocks(rules_w_cohort, "json")
     rules_dict = json.loads(rules_json_block)
 
-    # for criterion in range(len(rules_dict)):
-    #     criterion_dict = rules_dict[criterion]
-    #
-    #     temp_promoted_rules = llm_subpoint_promotion(criterion_dict["rule"], client)
-    #
-    #     for rule in temp_promoted_rules:
+    updated_rules_dict = []
+    for criterion in rules_dict:
+        original_exclude = criterion["exclude"]
+        original_rule = criterion["rule"]
+        try:
+            original_cohort = criterion["cohorts"]
+        except:
+            original_cohort = None
 
+        if re.search(r"\n\s*-", original_rule):
+            promoted_rules = llm_subpoint_promotion(original_rule, client)
 
+            if re.findall(r"\b\w+\b", promoted_rules) != re.findall(r"\b\w+\b", original_rule):
+                promoted_rules_list = promoted_rules.splitlines()
 
+                for promoted_rule in promoted_rules_list:
+                    updated_criterion = {}
+
+                    updated_criterion["exclude"] = original_exclude
+                    updated_criterion["rule"] = promoted_rule
+
+                    if original_cohort is not None:
+                        updated_criterion["cohorts"] = original_cohort
+
+                    updated_rules_dict.append(updated_criterion)
+                continue
+
+        updated_rules_dict.append(criterion)
 
         # if rules_dict[criterion]["exclude"]:
         #     temp_exclusion_rule = llm_exclusion_logic_flipping(rules_dict[criterion]["rule"], client)

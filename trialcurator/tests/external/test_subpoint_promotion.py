@@ -129,7 +129,7 @@ def test_should_not_promote(client):
 '''
 
     expected_output = '''
-'Patients with brain metastases are excluded, unless all of the following criteria are met:
+- Patients with brain metastases are excluded, unless all of the following criteria are met:
   - CNS lesions are asymptomatic and previously treated
   - Patient does not require ongoing daily steroid treatment for replacement for adrenal insufficiency (except ≤ 10 mg prednisone [or equivalent]) for at least 14 days before the first dose of study drug
   - Imaging demonstrates stable disease 28 days after last treatment

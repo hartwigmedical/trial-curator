@@ -4,15 +4,18 @@ import pytest
 from trialcurator.eligibility_sanitiser import llm_sanitise_text
 from trialcurator.openai_client import OpenaiClient
 
+
 def remove_blank_lines_and_trailing_footstops(text: str) -> str:
     return (re.sub(r'^\s*\n|(\n\s*)+\Z', '', text, flags=re.MULTILINE)
             .strip('.\n\r')
             .replace('.\n', '\n'))
 
+
 @pytest.fixture
 def client():
     return OpenaiClient()
     # return GeminiClient()
+
 
 def test_criterion_retention_and_removal(client):
     input_text = '''
@@ -48,6 +51,7 @@ Key Inclusion Criteria:
     assert 'adequate organ and bone marrow function' in lines[3].lower()
     assert 'life expectancy of at least 3 months' in lines[4].lower()
 
+
 def test_criterion_splitting(client):
     input_text = '''
 Exclusion Criteria:
@@ -64,6 +68,7 @@ Exclusion Criteria:
     # remove preceding and trailing blank lines and trailing fullstops
     output_text = remove_blank_lines_and_trailing_footstops(output_text)
     assert output_text == expected_output_text
+
 
 def test_removal_redundant_sex(client):
     input_text = '''
@@ -96,6 +101,7 @@ Exclusion Criteria:
     output_text = remove_blank_lines_and_trailing_footstops(output_text)
     assert output_text == expected_output_text
 
+
 def test_removal_redundant_sex2(client):
     input_text = '''
 Inclusion Criteria:
@@ -121,3 +127,53 @@ Inclusion Criteria:
     output_text = remove_blank_lines_and_trailing_footstops(output_text)
     assert "male or female" not in output_text.lower()
     assert "female" not in output_text.lower()
+
+
+def test_correct_indentation(client):
+    input_text = '''
+Key Exclusion Criteria
+* Significant acute or chronic hepatitis B virus (HBV), hepatitis C virus (HCV) infection during the screening window, as well as historic positive for human immunodeficiency virus (HIV) or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator.
+* Patients with known HIV infection are excluded unless they meet the following criteria:
+  * Must have CD4+ T-cell (CD4+) counts ≥ 350 cells/μL at the time of screening, and
+  * Must have no history of AIDS-related opportunistic infections of HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease, and
+  * Patients on antiretroviral therapy (ART) must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ (below the limit of detection) using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study
+'''
+
+    expected_output = '''
+Exclusion Criteria:
+
+- Significant acute or chronic HBV, HCV infection during the screening window.
+- Historic positive for HIV or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator.
+- Patients with known HIV infection are excluded unless they meet the following criteria:
+  - Must have CD4+ counts ≥ 350 cells/μL at the time of screening.
+  - Must have no history of AIDS-related opportunistic infections or HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease.
+  - Patients on ART must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study.
+'''
+
+    actual_output = llm_sanitise_text(input_text, client)
+    assert actual_output == expected_output.strip()
+
+
+def test_incorrect_indentation(client):
+    input_text = '''
+Key Exclusion Criteria
+* Significant acute or chronic hepatitis B virus (HBV), hepatitis C virus (HCV) infection during the screening window, as well as historic positive for human immunodeficiency virus (HIV) or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator.
+  * Patients with known HIV infection are excluded unless they meet the following criteria:
+    * Must have CD4+ T-cell (CD4+) counts ≥ 350 cells/μL at the time of screening, and
+    * Must have no history of AIDS-related opportunistic infections of HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease, and
+    * Patients on antiretroviral therapy (ART) must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ (below the limit of detection) using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study
+'''
+
+    expected_output = '''
+Exclusion Criteria:
+
+- Significant acute or chronic HBV, HCV infection during the screening window.
+- Historic positive for HIV or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator.
+- Patients with known HIV infection are excluded unless they meet the following criteria:
+  - Must have CD4+ counts ≥ 350 cells/μL at the time of screening.
+  - Must have no history of AIDS-related opportunistic infections or HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease.
+  - Patients on ART must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study.
+'''
+
+    actual_output = llm_sanitise_text(input_text, client)
+    assert actual_output == expected_output.strip()
