@@ -1,7 +1,11 @@
 import json
+from json import JSONDecodeError
 import logging
 import re
+from collections.abc import Callable
+from typing import Any
 
+from trialcurator.llm_client import LlmClient
 from trialcurator.utils import extract_code_blocks
 
 logger = logging.getLogger(__name__)
@@ -276,3 +280,16 @@ def output_formatting(actin_rule: dict, level: int = 0) -> str:
 
     else:
         raise TypeError("Unexpected type encountered")
+
+
+def llm_json_repair(response: str, client: LlmClient, parser: Callable[[str], Any]) -> Any:
+    try:
+        return parser(response)
+    except JSONDecodeError:
+        logger.warning("LLM JSON output is invalid. Attempting to repair.")
+        repair_prompt = f"""
+Fix the following JSON so it parses correctly. Return only the corrected JSON object:
+{response}
+"""
+        repaired_result = client.llm_ask(repair_prompt)
+        return parser(repaired_result)

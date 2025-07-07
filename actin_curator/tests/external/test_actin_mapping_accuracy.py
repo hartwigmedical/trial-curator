@@ -1,10 +1,9 @@
-import re
 import pytest
 from pathlib import Path
 
-from actin_curator.actin_eligibility_curator import ActinMapping
 from trialcurator.openai_client import OpenaiClient
 import actin_curator.actin_eligibility_curator as actin
+from actin_curator.actin_curator_utils import output_formatting
 
 input_general_1 = '''
 INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.
@@ -84,6 +83,14 @@ INCLUDE Any abnormalities in magnesium are not > Grade 2
 input_washout_period_1 = '''
 EXCLUDE Has received recent anti-EGFR antibody therapy within the past 4 weeks
 '''
+
+
+def ignore_order_diff(rule: str) -> str:
+    if rule.startswith("AND(") and rule.endswith(")"):
+        inner = rule[4:-1]
+        parts = [p.strip() for p in inner.split(",")]
+        return f"AND({', '.join(sorted(parts))})"
+    return rule
 
 
 @pytest.fixture(scope="module")
@@ -186,38 +193,6 @@ def test_category_sorting(client_and_actin_data):
     assert actual_output == expected_output
 
 
-def simplify_actual_output(actual_output_list: list[ActinMapping]) -> list:
-    def flatten_actin_rule(rule) -> str:
-        def render(key: str, val: list) -> str:
-            # e.g. remove "[]" from "IS_PREGNANT[]"
-            key = re.sub(r"\[\s*\]$", "", key)
-
-            if isinstance(val, list) and any(p not in (None, "", [], {}) for p in val):
-                return f"{key}[{','.join(str(p) for p in val)}]"
-            else:
-                return key
-
-        if isinstance(rule, dict):
-            if "NOT" in rule:
-                return f"NOT({flatten_actin_rule(rule['NOT'])})"
-            elif "AND" in rule:
-                return f"AND({', '.join(flatten_actin_rule(r) for r in rule['AND'])})"
-            elif "OR" in rule:
-                return f"OR({', '.join(flatten_actin_rule(r) for r in rule['OR'])})"
-            elif len(rule) == 1:
-                key, val = next(iter(rule.items()))
-                return render(key, val)
-        return str(rule)
-
-    return [
-        {
-            "description": item["description"].strip(),
-            "actin_rule": flatten_actin_rule(item["actin_rule"])
-        }
-        for item in actual_output_list
-    ]
-
-
 def test_mapping_1(client_and_actin_data):
     client, actin_rules, actin_categories = client_and_actin_data
     input_text = input_general_1
@@ -237,7 +212,7 @@ def test_mapping_1(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_2(client_and_actin_data):
@@ -250,7 +225,7 @@ def test_mapping_2(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_3(client_and_actin_data):
@@ -273,7 +248,7 @@ def test_mapping_3(client_and_actin_data):
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
     print(actual_mapping)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_4(client_and_actin_data):
@@ -291,7 +266,7 @@ def test_mapping_4(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_5(client_and_actin_data):
@@ -313,7 +288,7 @@ def test_mapping_5(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_6(client_and_actin_data):
@@ -329,7 +304,7 @@ def test_mapping_6(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_7(client_and_actin_data):
@@ -347,7 +322,7 @@ def test_mapping_7(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_8(client_and_actin_data):
@@ -360,7 +335,7 @@ def test_mapping_8(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_9(client_and_actin_data):
@@ -373,7 +348,7 @@ def test_mapping_9(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_10(client_and_actin_data):
@@ -390,7 +365,7 @@ def test_mapping_10(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_11(client_and_actin_data):
@@ -403,7 +378,7 @@ def test_mapping_11(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_12(client_and_actin_data):
@@ -416,7 +391,7 @@ def test_mapping_12(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_13(client_and_actin_data):
@@ -431,15 +406,7 @@ def test_mapping_13(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
-
-
-def ignore_order_diff(rule: str) -> str:
-    if rule.startswith("AND(") and rule.endswith(")"):
-        inner = rule[4:-1]
-        parts = [p.strip() for p in inner.split(",")]
-        return f"AND({', '.join(sorted(parts))})"
-    return rule
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_14(client_and_actin_data):
@@ -458,7 +425,7 @@ def test_mapping_14(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert ignore_order_diff(simplify_actual_output(actual_mapping)[0]["actin_rule"]) == ignore_order_diff(
+    assert ignore_order_diff(output_formatting(actual_mapping)[0]["actin_rule"]) == ignore_order_diff(
         expected_mapping[0]["actin_rule"])
 
 
@@ -473,7 +440,7 @@ def test_mapping_15(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping
 
 
 def test_mapping_16(client_and_actin_data):
@@ -488,4 +455,4 @@ def test_mapping_16(client_and_actin_data):
         }
     ]
     actual_mapping = actin.actin_workflow(input_text, client, actin_rules, actin_categories)
-    assert simplify_actual_output(actual_mapping) == expected_mapping
+    assert output_formatting(actual_mapping) == expected_mapping

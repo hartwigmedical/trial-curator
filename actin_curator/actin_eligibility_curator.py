@@ -1,18 +1,16 @@
 import json
-from json import JSONDecodeError
 import pandas as pd
 import logging
 import argparse
-from typing import TypedDict, Any
-from collections.abc import Callable
+from typing import TypedDict
 
 from actin_curator.actin_curator_utils import parse_llm_category_output, parse_llm_mapping_output, find_new_actin_rules, \
-    output_formatting
+    output_formatting, llm_json_repair
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria_by_words
-from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
+from trialcurator.eligibility_sanitiser import llm_text_prep_workflow
 from actin_curator import actin_mapping_prompts
 
 logger = logging.getLogger(__name__)
@@ -23,6 +21,8 @@ BATCH_MAX_WORDS = 30
 
 class ActinMapping(TypedDict, total=False):
     description: str
+    cohort: list[str]
+    include_or_exclude: str
     actin_rule: dict[str, list | dict] | str
     new_rule: list[str]
     confidence_level: float
@@ -35,17 +35,7 @@ def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
     return actin_df, actin_categories
 
 
-def llm_json_repair(response: str, client: LlmClient, parser: Callable[[str], Any]) -> Any:
-    try:
-        return parser(response)
-    except JSONDecodeError:
-        logger.warning("LLM JSON output is invalid. Attempting to repair.")
-        repair_prompt = f"""
-Fix the following JSON so it parses correctly. Return only the corrected JSON object:
-{response}
-"""
-        repaired_result = client.llm_ask(repair_prompt)
-        return parser(repaired_result)
+
 
 
 def identify_actin_categories(eligibility_criteria: str, client: LlmClient, actin_categories: list[str]) -> dict:
@@ -252,18 +242,6 @@ def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.Da
     return actin_mapping
 
 
-def actin_workflow_by_cohort(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame,
-                             actin_categories: list[str]) -> dict[str, list[ActinMapping]]:
-    cohort_texts: dict[str, str] = llm_extract_cohort_tagged_text(eligibility_criteria, client)
-    logger.info(f"Processing cohorts: {list(cohort_texts.keys())}")
-
-    cohort_actin_outputs: dict[str, list[ActinMapping]] = {}
-    for cohort_name, tagged_text in cohort_texts.items():
-        cohort_actin_outputs[cohort_name] = actin_workflow(tagged_text, client, actin_df, actin_categories)
-
-    return cohort_actin_outputs
-
-
 def human_readable_output(output, txt_path):
     with open(txt_path, 'w', encoding='utf-8') as f:
         for cohort_name, cohort_mappings in output.items():
@@ -294,7 +272,9 @@ def main():
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
 
-    actin_outputs = actin_workflow_by_cohort(eligibility_criteria, client, actin_df, actin_categories)
+    sanitised_rules = llm_text_prep_workflow(eligibility_criteria, client)
+
+    actin_outputs = actin_workflow(sanitised_rules, client, actin_df, actin_categories)
 
     with open(args.out_trial_file, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
