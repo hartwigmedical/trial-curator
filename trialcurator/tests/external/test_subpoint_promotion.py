@@ -81,10 +81,9 @@ def test_nested_required_action_promotions(client):
     - Be willing not to donate sperm and if engaging in sexual intercourse with a female partner who could become pregnant, a willingness to use a condom in addition to having the female partner use a highly effective contraceptive method between signing consent, during the study, and at least 90 days after the last dose of the study drug.'''
 
     expected_output = [
-        "Female patients must be of nonchildbearing potential or;",
-        "If of childbearing potential, must have a negative serum pregnancy test at Screening and a negative urine pregnancy test before the first study drug administration and on Day 1 of each Cycle. They must agree not to attempt to become pregnant, must not donate ova, and must agree to use 2 forms of highly effective contraceptive method between signing consent, during the study, and at least 90 days after the last dose of study drug, OR use 1 form of highly effective contraceptive method, plus an additional barrier method of contraception between signing consent, during the study, and at least 90 days after the last dose of study drug.",
+        "Female patients must:\n  - Be of nonchildbearing potential or;\n  - If of childbearing potential, must have a negative serum pregnancy test at Screening and a negative urine pregnancy test before the first study drug administration and on Day 1 of each Cycle. They must agree not to attempt to become pregnant, must not donate ova, and must agree to use 2 forms of highly effective contraceptive method between signing consent, during the study, and at least 90 days after the last dose of study drug, OR use 1 form of highly effective contraceptive method, plus an additional barrier method of contraception between signing consent, during the study, and at least 90 days after the last dose of study drug.",
         "Women of childbearing potential with same sex partners (abstinence from penile vaginal intercourse) are eligible when this is their preferred and usual lifestyle.",
-        "Male patients must be willing not to donate sperm and if engaging in sexual intercourse with a female partner who could become pregnant, a willingness to use a condom in addition to having the female partner use a highly effective contraceptive method between signing consent, during the study, and at least 90 days after the last dose of the study drug."
+        "Male patients must:\n  - Be willing not to donate sperm and if engaging in sexual intercourse with a female partner who could become pregnant, a willingness to use a condom in addition to having the female partner use a highly effective contraceptive method between signing consent, during the study, and at least 90 days after the last dose of the study drug."
     ]
 
     actual_output = llm_subpoint_promotion(input_text, client)
@@ -92,16 +91,16 @@ def test_nested_required_action_promotions(client):
 
 
 def test_should_not_promote(client):
-    input_text = """- Patients with brain metastases are excluded, unless all of the following criteria are met:
-  - CNS lesions are asymptomatic and previously treated
-  - Patient does not require ongoing daily steroid treatment for replacement for adrenal insufficiency (except ≤ 10 mg prednisone [or equivalent]) for at least 14 days before the first dose of study drug
-  - Imaging demonstrates stable disease 28 days after last treatment"""
+    input_text = '''- Patients with brain metastases are excluded, unless all of the following criteria are met:
+      - CNS lesions are asymptomatic and previously treated
+      - Patient does not require ongoing daily steroid treatment for replacement for adrenal insufficiency (except ≤ 10 mg prednisone [or equivalent]) for at least 14 days before the first dose of study drug
+      - Imaging demonstrates stable disease 28 days after last treatment'''
 
     expected_output = [
         """Patients with brain metastases are excluded, unless all of the following criteria are met:
-  - CNS lesions are asymptomatic and previously treated
-  - Patient does not require ongoing daily steroid treatment for replacement for adrenal insufficiency (except ≤ 10 mg prednisone [or equivalent]) for at least 14 days before the first dose of study drug
-  - Imaging demonstrates stable disease 28 days after last treatment"""
+      - CNS lesions are asymptomatic and previously treated
+      - Patient does not require ongoing daily steroid treatment for replacement for adrenal insufficiency (except ≤ 10 mg prednisone [or equivalent]) for at least 14 days before the first dose of study drug
+      - Imaging demonstrates stable disease 28 days after last treatment"""
     ]
 
     actual_output = llm_subpoint_promotion(input_text, client)

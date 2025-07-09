@@ -195,25 +195,29 @@ Example:
 def llm_subpoint_promotion(eligibility_criteria: str, client: LlmClient) -> list[str]:
     logger.info("\nSTART CHILD BULLET PROMOTION\n")
 
-    system_prompt = "You are a clinical trial curation assistant."
+    system_prompt = "You are a clinical trial curation assistant. You are given clinical trial eligibility criteria that may include nested bullets."
 
     user_prompt = """
 ## INSTRUCTION
-You are given clinical trial eligibility criteria that may include nested bullets. Your task is to:
-- Remove parent level bullet and promote child bullet to parent level if ALL of the following are true:
-  1. The parent bullet is only a general heading that only serve to provide context to the sub-bullet points.
-  2. The parent bullet is not restricting sub-rules to subpopulation of patients (e.g. "for patients with X:").
+Your task is to:
+- Remove parent level bullet and promote child bullets to their parent level if ALL of the following are true:
+  1. The parent bullet is a general heading or umbrella term that only serves to provide context to the sub-bullet points.
+  2. The parent bullet is not only applicable to a subpopulation of patients (e.g. "for patients with X:").
   3. The parent bullet does not imply conditionality (e.g. “if”, “unless”, “when”, “only if”, “must meet one of”, “any of the following”).
   4. The sub-bullets are logically independent and can stand alone without altering the clinical interpretation.
-- Otherwise, keep the parent bullet and sub-bullet as they are with original formating.
+- Otherwise, keep the parent bullet and sub-bullet as they are with original formatting.
 
-Important:
+## IMPORTANT
+- Repeat recursively for deeper nesting.
+  - If sub-bullets are promoted, re-evaluate their former parent to determine if it too should now be promoted. Repeat recursively until no further promotions apply.
+  - If a parent bullet has all its sub-bullets promoted, and it now contains no clinical information of its own, it must also be removed.
 - Do NOT merge sibling bullet points.
 - Do NOT promote if doing so changes the original clinical meaning or introduces assumptions.
 - Do NOT partially promote sub-bullets from the same parent.
 
 ## OUTPUT STRUCTURE
 - Return a JSON **list of strings** only.
+- Bullets on the same level must be left aligned.
 - Do not wrap in additional fields or provide commentary.
 
 ## EXAMPLES
@@ -250,7 +254,7 @@ Important:
 **Output:**
 ```json
 [
-  "Patients with condition XYZ are excluded unless all of the following apply:- Must be stable\\n  - No prior treatments\\n  - No active disease"
+  "Patients with condition XYZ are excluded unless all of the following apply:\\n- Must be stable\\n  - No prior treatments\\n  - No active disease"
 ]
 ```
 
