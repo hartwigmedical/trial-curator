@@ -265,14 +265,16 @@ Your task is to:
     return llm_json_check_and_repair(response, client)
 
 
-def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> str:
+def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> list[dict[str, bool]]:
     logger.info("\nSTART EXCLUSION LOGIC FLIPPING\n")
 
-    system_prompt = 'You are a clinical trial curation assistant.'
+    system_prompt = 'You are a clinical trial curation assistant. You are given an eligibility exclusion rule (EXCLUDE).'
 
     user_prompt = """
 ## INSTRUCTIONS
-Convert the input **exclusion** rules (EXCLUDE) to logically equivalent **inclusion** rules (INCLUDE) *only if* the meaning is precisely preserved.
+For this EXCLUDE rule, determine if it can be rewritten as a logically equivalent inclusion rule (INCLUDE) without changing the original meaning.
+- If so, rewrite the rule and set `"flipped: true`.
+- If not, return the rule unchanged and set `"flipped: false`.
 
 ## LOGIC CONVERSION RULES:
 - Flip EXCLUDE rules to INCLUDE only when the semantic meaning is unchanged, including:
@@ -301,59 +303,112 @@ Convert the input **exclusion** rules (EXCLUDE) to logically equivalent **inclus
 - Do NOT drop any important detail.
 
 ## OUTPUT STRUCTURE
-Return a rules - modified or otherwise - in the same string format as the input rule.
+Return a JSON **list** of dictionaries, where each dictionary has:
+- `rule` (string): the unchanged input rule OR the flipped version of the input rule
+- `flipped` (boolean): true if the rule was flipped to inclusion, false otherwise
+
+## EXAMPLES
+
+### Example 1
+
+```json
+[
+    {
+        "rule": "Age ≥ 18 years",
+        "flipped": false
+    }
+]
+```
+
+### Example 2
+
+```json
+[
+    {
+        "rule": "Life expectancy is 3 months or more",
+        "flipped": true
+    }
+]
+```
 
 """
     user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt=system_prompt)
-    return response
+    return llm_json_check_and_repair(response, client)
 
 
-def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dict[str, str]]:
-    rules_sanitised = llm_sanitise_text(eligibility_criteria_input, client)
-    rules_dict = llm_tag_cohort_and_direction(rules_sanitised, client)
+def get_criterion_fields(criterion: dict) -> tuple[bool, str, str | None]:
+    return (
+        criterion.get("exclude"),
+        criterion.get("rule"),
+        criterion.get("cohorts")
+    )
 
-    promoted_rules_dict = []
-    for criterion in rules_dict:
-        original_exclude = criterion["exclude"]
-        original_rule = criterion["rule"]
-        try:
-            original_cohort = criterion["cohorts"]
-        except KeyError:
-            original_cohort = None
 
-        if re.search(r"\n\s*-", original_rule):  # to match "/n  -" pattern
-            rules_for_promotion = llm_subpoint_promotion(original_rule, client)
+def update_criterion_fields(exclude: bool, rule: str, cohort: str | None = None, flipped: bool | None = False) -> dict[str, Any]:
+    updated_criterion = {
+        "exclude": exclude,
+        "rule": rule
+    }
+    if cohort is not None:
+        updated_criterion["cohort"] = cohort
+    if flipped is not None and exclude:
+        updated_criterion["flipped"] = flipped
+
+    return updated_criterion
+
+
+def has_nested_bullets(rule: str) -> bool:
+    return bool(re.search(r"\n\s*-\s", rule))
+
+
+def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dict[str, Any]]:
+    rules_sanitised = llm_sanitise_text(eligibility_criteria_input, client)  # returns a text block
+    rules_w_cohort = llm_tag_cohort_and_direction(rules_sanitised, client)  # returns a list of dict
+
+    promoted_rules = []
+    for criterion in rules_w_cohort:
+        original_exclude, original_rule, original_cohort = get_criterion_fields(criterion)
+        if has_nested_bullets(original_rule):
+            rules_for_promotion = llm_subpoint_promotion(original_rule, client)  # returns a list of str
             if isinstance(rules_for_promotion, list):
                 for promoted_rule in rules_for_promotion:
-                    updated_criterion = {"exclude": original_exclude,
-                                         "rule": promoted_rule}
-                    if original_cohort is not None:
-                        updated_criterion["cohorts"] = original_cohort
-                    promoted_rules_dict.append(updated_criterion)
+                    promoted_rules.append(
+                        update_criterion_fields(
+                            original_exclude,
+                            promoted_rule,
+                            original_cohort
+                        )
+                    )
                 continue
-        promoted_rules_dict.append(criterion)
+            else:
+                raise TypeError("The rules being promoted are not a list of strings")
+        promoted_rules.append(criterion)
 
-    flipped_rules_dict = []
-    for criterion in promoted_rules_dict:
-        original_exclude = criterion["exclude"]
-        original_rule = criterion["rule"]
-        try:
-            original_cohort = criterion["cohorts"]
-        except KeyError:
-            original_cohort = None
-
+    flipped_rules = []
+    for criterion in promoted_rules:
+        original_exclude, original_rule, original_cohort = get_criterion_fields(criterion)
         if original_exclude:
-            flipped_exclusion_rule = llm_exclusion_logic_flipping(original_rule, client)
-            if isinstance(flipped_exclusion_rule, str):
-                updated_criterion = {"exclude": original_exclude,
-                                     "flipped": True,
-                                     "rule": flipped_exclusion_rule}
-                if original_cohort is not None:
-                    updated_criterion["cohorts"] = original_cohort
-                flipped_rules_dict.append(updated_criterion)
-            continue
-        flipped_rules_dict.append(criterion)
+            exclusion_flipping = llm_exclusion_logic_flipping(original_rule, client)  # returns a list of dict
+            if isinstance(exclusion_flipping, list):
+                for flipped_dict in exclusion_flipping:
+                    flipped_rule = flipped_dict.get("rule")
+                    if not isinstance(flipped_rule, str):
+                        raise TypeError("The flipped rule did not return a string")
+                    flipped_rules.append(
+                        update_criterion_fields(
+                            original_exclude,
+                            flipped_rule,
+                            original_cohort,
+                            flipped_dict.get("flipped")
+                        )
+                    )
+                continue
+            else:
+                raise TypeError("The flipped exclusion rule is not a list of dictionaries")
 
-    return flipped_rules_dict
+        flipped_rules.append(criterion)
+
+    return flipped_rules
+
