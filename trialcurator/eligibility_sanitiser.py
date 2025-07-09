@@ -1,11 +1,27 @@
 import logging
 import json
 import re
+from json import JSONDecodeError
+from typing import Any
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import extract_code_blocks
 
 logger = logging.getLogger(__name__)
+
+
+def llm_json_check_and_repair(response: str, client: LlmClient):
+    try:
+        extracted_response = extract_code_blocks(response, "json")
+        return json.loads(extracted_response)
+    except JSONDecodeError:
+        logger.warning("LLM JSON output is invalid. Starting repair.")
+        repair_prompt = f"""
+Fix the following JSON so it parses correctly. Return only the corrected JSON object:
+{response}
+"""
+        repaired_response = client.llm_ask(repair_prompt)
+        return json.loads(extract_code_blocks(repaired_response, "json"))
 
 
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
@@ -83,15 +99,14 @@ the gender descriptor. Example:
 ## OUTPUT STRUCTURE
 - Answer in one text block with no additional explanation.
 
-## INPUT TEXT
 """
-    user_prompt += f"\n{eligibility_criteria}\n"
+    user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt).replace("```", "")
     return response
 
 
-def llm_tag_cohort_and_direction(eligibility_criteria: str, client: LlmClient) -> str:
+def llm_tag_cohort_and_direction(eligibility_criteria: str, client: LlmClient) -> list[dict[str, Any]]:
     # Direction: whether a rule is an INCLUSION or an EXCLUSION criterion
     logger.info("\nSTART COHORT AND DIRECTION TAGGING\n")
 
@@ -170,86 +185,80 @@ Example:
 ]
 ```
 
-## INPUT TEXT
 """
-    user_prompt += f"```\n{eligibility_criteria}\n```\n"
+    user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt=system_prompt)
-    return response
+    return llm_json_check_and_repair(response, client)
 
 
-def llm_subpoint_promotion(eligibility_criteria: str, client: LlmClient) -> str:
-    logger.info("\nSTART SUBPOINT PROMOTION\n")
+def llm_subpoint_promotion(eligibility_criteria: str, client: LlmClient) -> list[str]:
+    logger.info("\nSTART CHILD BULLET PROMOTION\n")
 
-    system_prompt = "You are a clinical trial curation assistant. Your job is to promote nested bullet points to top-level items, but **only** when it preserves the original clinical logic."
+    system_prompt = "You are a clinical trial curation assistant."
 
     user_prompt = """
 ## INSTRUCTION
 You are given clinical trial eligibility criteria that may include nested bullets. Your task is to:
-- Promote all valid sub-bullets to top-level bullet points.
-- Ensure no clinical meaning, logical structure, or eligibility intent is changed.
-- If all subpoints of a parent bullet are successfully promoted, remove the parent bullet (unless it adds critical context).
-- Repeat recursively for deeper nesting (e.g., level 3 bullets).
+- Remove parent level bullet and promote child bullet to parent level if ALL of the following are true:
+  1. The parent bullet is only a general heading that only serve to provide context to the sub-bullet points.
+  2. The parent bullet is not restricting sub-rules to subpopulation of patients (e.g. "for patients with X:").
+  3. The parent bullet does not imply conditionality (e.g. “if”, “unless”, “when”, “only if”, “must meet one of”, “any of the following”).
+  4. The sub-bullets are logically independent and can stand alone without altering the clinical interpretation.
+- Otherwise, keep the parent bullet and sub-bullet as they are with original formating.
 
-## SUB-BULLET PROMOTION RULES
-Only promote sub-bullets if **all** of the following are true:
-- The parent bullet does **not** contain conditional language like “if”, “unless”, “when”, “only if”, or “must meet one of”.
-- The sub-bullets are logically independent and **can stand alone** without altering the clinical interpretation.
-- Promoting does **not** change conjunctive/disjunctive logic (e.g., “any of the following” vs “all of the following”).
-
-Default assumptions (unless the parent contradicts them):
-- Inclusion criteria sub-bullets are **conjunctive** (AND).
-- Exclusion criteria sub-bullets are **disjunctive** (OR).
-
-Important caveats:
-- Do NOT change the medical meaning.
-- Do NOT drop any important detail.
+Important:
+- Do NOT merge sibling bullet points.
 - Do NOT promote if doing so changes the original clinical meaning or introduces assumptions.
-- Do **NOT** promote if the parent bullet contains conditional phrases such as:
-    - “if”
-    - “unless”
-    - “when”
-    - “only if”
-    - “must meet one of”
-    - “only under the following conditions”
-    - “any of the following”
-    - “all of the following must be met”
-- In such cases, **preserve the original structure exactly as-is**.
+- Do NOT partially promote sub-bullets from the same parent.
+
+## OUTPUT STRUCTURE
+- Return a JSON **list of strings** only.
+- Do not wrap in additional fields or provide commentary.
 
 ## EXAMPLES
-Input:
+
+### Example 1
+
+**Input:**
+```
 - Hepatic function:
   - AST < 3 × ULN
   - ALT < 3 × ULN
+```
 
-Output:
-- AST < 3 × ULN
-- ALT < 3 × ULN
+**Output:**
+```json
+[
+  "AST < 3 × ULN",
+  "ALT < 3 × ULN"
+]
+```
 
-Input:
+---
+
+### Example 2 (Preserve input — do NOT promote)
+
+**Input:**
+```
 - Patients with condition XYZ are excluded unless they meet the following criteria:
-  - criterion 1
-  - criterion 2
-  - criterion 3
+  - Must be stable
+  - No prior treatments
+  - No active disease
+```
 
-Output: (preserve input — do NOT promote)
-- Patients with condition XYZ are excluded unless they meet the following criteria:
-  - criterion 1
-  - criterion 2
-  - criterion 3
+**Output:**
+```json
+[
+  "Patients with condition XYZ are excluded unless all of the following apply:- Must be stable\\n  - No prior treatments\\n  - No active disease"
+]
+```
 
-## OUTPUT STRUCTURE
-Return the promoted bullets as a plain string with one top-level bullet per line.
-- Use a hyphen `-` followed by a space at the start of each bullet.
-- Do not include empty lines or indentation.
-- Do not add any explanation or commentary — return only the cleaned text.
-
-## INPUT TEXT
 """
-    user_prompt += f"\n{eligibility_criteria}\n"
+    user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
-    response = client.llm_ask(user_prompt, system_prompt=system_prompt).replace("```", "")
-    return response
+    response = client.llm_ask(user_prompt, system_prompt=system_prompt)
+    return llm_json_check_and_repair(response, client)
 
 
 def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> str:
@@ -259,12 +268,12 @@ def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -
 
     user_prompt = """
 ## INSTRUCTIONS
-Convert the input EXCLUDE rules to logically equivalent INCLUDE rules **only if** the meaning is precisely preserved.
+Convert the input **exclusion** rules (EXCLUDE) to logically equivalent **inclusion** rules (INCLUDE) *only if* the meaning is precisely preserved.
 
 ## LOGIC CONVERSION RULES:
 - Flip EXCLUDE rules to INCLUDE only when the semantic meaning is unchanged, including:
   - Negated Inclusions (EXCLUDE + NOT)
-    - EXCLUDE patients who do not have / demonstrate / show / meet X → INCLUDE patients who have / demonstrate / show / meet X
+    - EXCLUDE patients who do NOT have / demonstrate / show / meet X → INCLUDE patients who have / demonstrate / show / meet X
     - flip even if X is vague concept like adequate organ function
   - Measurement comparisons:
     - EXCLUDE X < N → INCLUDE X ≥ N
@@ -276,8 +285,7 @@ Convert the input EXCLUDE rules to logically equivalent INCLUDE rules **only if*
     - Correct: EXCLUDE Life expectancy < 6 months → INCLUDE Life expectancy ≥ 6 months
     - Correct: EXCLUDE X ≥ 3 × ULN → INCLUDE X < 3 × ULN
   - Redundant exclusion:  
-    - When a criterion is phrased as ‘EXCLUDE participants must not have X’, rephrase to remove the redundant negation \
-while preserving exclusion intent. Convert to: ‘EXCLUDE patient who have X’
+    - When a criterion is phrased as ‘EXCLUDE participants must not have X’, rephrase to remove the redundant negation while preserving exclusion intent. Convert to: ‘EXCLUDE patient who have X’
 - Do not flip if it could:
   - Change the clinical, temporal, or semantic intent
   - Broaden or narrow the scope unintentionally
@@ -291,9 +299,8 @@ while preserving exclusion intent. Convert to: ‘EXCLUDE patient who have X’
 ## OUTPUT STRUCTURE
 Return a rules - modified or otherwise - in the same string format as the input rule.
 
-## INPUT TEXT
 """
-    user_prompt += f"```\n{eligibility_criteria}\n```\n"
+    user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt=system_prompt)
     return response
@@ -301,45 +308,48 @@ Return a rules - modified or otherwise - in the same string format as the input 
 
 def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dict[str, str]]:
     rules_sanitised = llm_sanitise_text(eligibility_criteria_input, client)
+    rules_dict = llm_tag_cohort_and_direction(rules_sanitised, client)
 
-    rules_w_cohort = llm_tag_cohort_and_direction(rules_sanitised, client)
-    rules_json_block = extract_code_blocks(rules_w_cohort, "json")
-    rules_dict = json.loads(rules_json_block)
-
-    updated_rules_dict = []
+    promoted_rules_dict = []
     for criterion in rules_dict:
         original_exclude = criterion["exclude"]
         original_rule = criterion["rule"]
         try:
             original_cohort = criterion["cohorts"]
-        except:
+        except KeyError:
             original_cohort = None
 
-        if re.search(r"\n\s*-", original_rule):
-            promoted_rules = llm_subpoint_promotion(original_rule, client)
-
-            if re.findall(r"\b\w+\b", promoted_rules) != re.findall(r"\b\w+\b", original_rule):
-                promoted_rules_list = promoted_rules.splitlines()
-
-                for promoted_rule in promoted_rules_list:
-                    updated_criterion = {}
-
-                    updated_criterion["exclude"] = original_exclude
-                    updated_criterion["rule"] = promoted_rule
-
+        if re.search(r"\n\s*-", original_rule):  # to match "/n  -" pattern
+            rules_for_promotion = llm_subpoint_promotion(original_rule, client)
+            if isinstance(rules_for_promotion, list):
+                for promoted_rule in rules_for_promotion:
+                    updated_criterion = {"exclude": original_exclude,
+                                         "rule": promoted_rule}
                     if original_cohort is not None:
                         updated_criterion["cohorts"] = original_cohort
-
-                    updated_rules_dict.append(updated_criterion)
+                    promoted_rules_dict.append(updated_criterion)
                 continue
+        promoted_rules_dict.append(criterion)
 
-        updated_rules_dict.append(criterion)
+    flipped_rules_dict = []
+    for criterion in promoted_rules_dict:
+        original_exclude = criterion["exclude"]
+        original_rule = criterion["rule"]
+        try:
+            original_cohort = criterion["cohorts"]
+        except KeyError:
+            original_cohort = None
 
-        # if rules_dict[criterion]["exclude"]:
-        #     temp_exclusion_rule = llm_exclusion_logic_flipping(rules_dict[criterion]["rule"], client)
-        #
-        #     if temp_exclusion_rule != rules_dict[criterion]["rule"]:
-        #         rules_dict[criterion]["exclusion_flipping"] = True
-        #     rules_dict[criterion]["rule"] = temp_exclusion_rule
+        if original_exclude:
+            flipped_exclusion_rule = llm_exclusion_logic_flipping(original_rule, client)
+            if isinstance(flipped_exclusion_rule, str):
+                updated_criterion = {"exclude": original_exclude,
+                                     "flipped": True,
+                                     "rule": flipped_exclusion_rule}
+                if original_cohort is not None:
+                    updated_criterion["cohorts"] = original_cohort
+                flipped_rules_dict.append(updated_criterion)
+            continue
+        flipped_rules_dict.append(criterion)
 
-    return rules_dict
+    return flipped_rules_dict
