@@ -1,5 +1,6 @@
 from trialcurator.utils import split_tagged_criteria, batch_tagged_criteria
 
+
 def test_split_tagged_criteria():
     criteria_text = '''
 INCLUDE Age ≥ 18 years
