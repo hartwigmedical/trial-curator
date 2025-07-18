@@ -255,10 +255,9 @@ Your task is to:
 - Do NOT partially promote sub-bullets from the same parent.
 
 ## OUTPUT STRUCTURE
-- Return a plain text block with each bullet point on its own line.
-- Each line must begin with `-` (standard bullet format).
-- Do not wrap the output in JSON, quotes, or any fields.
-- Do not add any commentary or explanation.
+- Return a JSON **list of strings** only.
+- Bullets on the same level must be left aligned.
+- Do not wrap in additional fields or provide commentary.
 
 ## EXAMPLES
 
@@ -272,9 +271,11 @@ Your task is to:
 ```
 
 **Output:**
-```
-- AST < 3 × ULN
-- ALT < 3 × ULN
+```json
+[
+  "AST < 3 × ULN",
+  "ALT < 3 × ULN"
+]
 ```
 
 ---
@@ -290,18 +291,17 @@ Your task is to:
 ```
 
 **Output:**
-```
-- Patients with condition XYZ are excluded unless they meet the following criteria:
-  - Must be stable
-  - No prior treatments
-  - No active disease
+```json
+[
+  "Patients with condition XYZ are excluded unless all of the following apply:\\n- Must be stable\\n  - No prior treatments\\n  - No active disease"
+]
 ```
 
 """
     user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
-    response = client.llm_ask(user_prompt, system_prompt=system_prompt).strip().replace("```", "")
-    return re.split(r"^-", response, flags=re.MULTILINE)
+    response = client.llm_ask(user_prompt, system_prompt=system_prompt)
+    return llm_json_check_and_repair(response, client)
 
 
 def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> list[dict[str, bool]]:

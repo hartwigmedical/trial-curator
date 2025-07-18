@@ -85,7 +85,7 @@ Exclusion Criteria:
             if key == "cohorts":
                 cohorts_list.extend(val)
 
-    assert sorted(list(set(list(map(lambda w: w.lower(), cohorts_list))))) == ["endometrial cancer cohorts", "ovarian cancer cohorts"]
+    assert sorted(list(set(list(map(lambda word: word.lower(), cohorts_list))))) == ["endometrial cancer cohorts", "ovarian cancer cohorts"]
 
 
 def test_extract_from_header_phrase(client):
