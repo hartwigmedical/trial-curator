@@ -48,8 +48,46 @@ ANC, AST, ALT, aPTT. Remove the un-abbreviated term. e.g. both "Eastern Cooperat
 Cooperative Oncology Group (ECOG)" should be replaced with "ECOG".
 
 ## FORMATTING & BULLETING
-- Normalize all bullet points to use '-' consistently.
+- Normalize all bullet points to use '-' consistently. This does **not** apply to 'Inclusion Criteria:' and 'Exclusion Criteria:'
 - Ensure each bullet starts on a new line.
+
+## INDENTATION
+
+- Use a single hyphen (`-`) for all bullet points.
+- Top-level bullets must not be indented.
+- Nested bullet points (child bullets) must be indented **with exactly two spaces**.
+
+### Examples
+
+**Correct:**
+
+- Parent point A  
+  - Child point 1  
+  - Child point 2  
+
+**Incorrect:**
+
+  - Parent point A  
+    - Child point 1
+
+### Correction of incorrect input:
+Convert the following:
+
+* Parent point A  
+  * Parent point B  
+    * child point 1  
+
+To:
+
+- Parent point A  
+- Parent point B  
+  - child point 1  
+
+### Special Rules for indentation:
+- A child bullet must only appear **immediately after a parent bullet that ends with a colon** (e.g., "... unless the following criteria are met:").
+- If a bullet does **not** end with a colon or similar clause (e.g., “must meet one of the following”), then all subsequent bullets are considered top-level.
+- Do **not** promote or demote bullet level based on visual indentation alone; rely on **semantic cues** (colon or conditional phrases).
+
 
 ## CRITERION SPLITTING
 - If a criterion lists multiple conditions joined together that are logically independent exclusion/inclusion rules, \
@@ -63,6 +101,7 @@ split each into its own bullet
 - However, note the following exceptions:
     - Retain the rule if it contains even a single restrictive criterion, regardless of how much descriptive text it has.
     - If a bullet contains conditions under which exclusion **does not apply**, preserve both the parent and its qualifying subpoints.
+    - Do **not** remove only a portion of the statement. The statement should be either removed entirely or kept as a whole.
 
 ### LAB VALUES
 - When multiple lab values or thresholds are listed (e.g., hemoglobin < 5 mmol/L, platelets < 100, etc.), ensure the \
@@ -216,9 +255,10 @@ Your task is to:
 - Do NOT partially promote sub-bullets from the same parent.
 
 ## OUTPUT STRUCTURE
-- Return a JSON **list of strings** only.
-- Bullets on the same level must be left aligned.
-- Do not wrap in additional fields or provide commentary.
+- Return a plain text block with each bullet point on its own line.
+- Each line must begin with `-` (standard bullet format).
+- Do not wrap the output in JSON, quotes, or any fields.
+- Do not add any commentary or explanation.
 
 ## EXAMPLES
 
@@ -232,11 +272,9 @@ Your task is to:
 ```
 
 **Output:**
-```json
-[
-  "AST < 3 × ULN",
-  "ALT < 3 × ULN"
-]
+```
+- AST < 3 × ULN
+- ALT < 3 × ULN
 ```
 
 ---
@@ -252,17 +290,18 @@ Your task is to:
 ```
 
 **Output:**
-```json
-[
-  "Patients with condition XYZ are excluded unless all of the following apply:\\n- Must be stable\\n  - No prior treatments\\n  - No active disease"
-]
+```
+- Patients with condition XYZ are excluded unless they meet the following criteria:
+  - Must be stable
+  - No prior treatments
+  - No active disease
 ```
 
 """
     user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
-    response = client.llm_ask(user_prompt, system_prompt=system_prompt)
-    return llm_json_check_and_repair(response, client)
+    response = client.llm_ask(user_prompt, system_prompt=system_prompt).strip().replace("```", "")
+    return re.split(r"^-", response, flags=re.MULTILINE)
 
 
 def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> list[dict[str, bool]]:

@@ -37,7 +37,7 @@ Key Inclusion Criteria:
     output_text = llm_sanitise_text(input_text, client)
 
     # remove preceding and trailing blank lines and trailing fullstops
-    output_text = output_text = remove_blank_lines_and_trailing_footstops(output_text)
+    output_text = remove_blank_lines_and_trailing_footstops(output_text)
 
     # check that each condition is the one we want. For some rules it seems to change
     # between runs so we look for the substring to check
@@ -141,16 +141,16 @@ Key Exclusion Criteria
 
     expected_output = '''
 Exclusion Criteria:
-
-- Significant acute or chronic HBV, HCV infection during the screening window.
-- Historic positive for HIV or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator.
+- Significant acute or chronic HBV, HCV infection during the screening window
+- Historic positive for HIV or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator
 - Patients with known HIV infection are excluded unless they meet the following criteria:
-  - Must have CD4+ counts ≥ 350 cells/μL at the time of screening.
-  - Must have no history of AIDS-related opportunistic infections or HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease.
-  - Patients on ART must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study.
+  - Must have CD4+ counts ≥ 350 cells/μL at the time of screening
+  - Must have no history of AIDS-related opportunistic infections or HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease
+  - Patients on ART must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study
 '''
 
     actual_output = llm_sanitise_text(input_text, client)
+    actual_output = remove_blank_lines_and_trailing_footstops(actual_output)
     assert actual_output == expected_output.strip()
 
 
@@ -166,14 +166,14 @@ Key Exclusion Criteria
 
     expected_output = '''
 Exclusion Criteria:
-
-- Significant acute or chronic HBV, HCV infection during the screening window.
-- Historic positive for HIV or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator.
+- Significant acute or chronic HBV, HCV infection during the screening window
+- Historic positive for HIV or clinically significant active infections that render the patient ineligible for study treatment as determined by the treating investigator
 - Patients with known HIV infection are excluded unless they meet the following criteria:
-  - Must have CD4+ counts ≥ 350 cells/μL at the time of screening.
-  - Must have no history of AIDS-related opportunistic infections or HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease.
-  - Patients on ART must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study.
+  - Must have CD4+ counts ≥ 350 cells/μL at the time of screening
+  - Must have no history of AIDS-related opportunistic infections or HIV-associated conditions such as Kaposi sarcoma or multicentric Castleman's disease
+  - Patients on ART must have achieved and maintained virologic suppression defined as confirmed HIV RNA level below 50 or the LLOQ using the locally available assay at the time of screening and for at least 12 weeks before screening and agree to continue ART throughout the study
 '''
 
     actual_output = llm_sanitise_text(input_text, client)
+    actual_output = remove_blank_lines_and_trailing_footstops(actual_output)
     assert actual_output == expected_output.strip()
