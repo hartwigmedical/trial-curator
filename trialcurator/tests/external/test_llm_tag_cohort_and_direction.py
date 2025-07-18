@@ -1,14 +1,16 @@
 import logging
 import pytest
 
-from trialcurator.eligibility_sanitiser import llm_extract_cohorts
+from trialcurator.eligibility_sanitiser import llm_tag_cohort_and_direction
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
 
+
 @pytest.fixture
 def client():
     return OpenaiClient()
+
 
 def test_extract_from_header(client):
     criteria = '''
@@ -35,10 +37,18 @@ Recurrent Exclusion Criteria:
 - More than 2 prior lines for chemotherapy administration.
 - Received any prior treatment with lomustine, agents part of any of the experimental arms, and bevacizumab or other VEGF or VEGF receptor-mediated targeted agent.
 - Any prior treatment with prolifeprospan 20 with carmustine wafer.
-        '''
+'''
 
-    cohorts = llm_extract_cohorts(criteria, client)
-    assert cohorts == ['Newly Diagnosed', 'Recurrent']
+    output = llm_tag_cohort_and_direction(criteria, client)
+
+    cohorts_list = []
+    for criterion in output:
+        for key, val in criterion.items():
+            if key == "cohorts":
+                cohorts_list.extend(val)
+
+    assert sorted(list(set(cohorts_list))) == ["Newly Diagnosed", "Recurrent"]
+
 
 def test_extract_from_inline_phrases(client):
     criteria = '''
@@ -66,8 +76,17 @@ Exclusion Criteria:
 - History and/or current cardiovascular disease, as defined in the protocol.
 - Severe and/or uncontrolled hypertension at screening.
 '''
-    cohorts = llm_extract_cohorts(criteria, client)
-    assert cohorts == ["Ovarian Cancer Cohorts", "Endometrial Cancer Cohorts"]
+
+    output = llm_tag_cohort_and_direction(criteria, client)
+
+    cohorts_list = []
+    for criterion in output:
+        for key, val in criterion.items():
+            if key == "cohorts":
+                cohorts_list.extend(val)
+
+    assert sorted(list(set(list(map(lambda w: w.lower(), cohorts_list))))) == ["endometrial cancer cohorts", "ovarian cancer cohorts"]
+
 
 def test_extract_from_header_phrase(client):
     criteria = '''
@@ -88,8 +107,16 @@ Exclusion Criteria part 2:
 - Patients <18 years of age.
 - Patients who do not agree to the proposed treatment or will receive (part of) the treatment in a non-participating centre.
 '''
-    cohorts = llm_extract_cohorts(criteria, client)
-    assert cohorts == ['part 1', 'part 2']
+    output = llm_tag_cohort_and_direction(criteria, client)
+
+    cohorts_list = []
+    for criterion in output:
+        for key, val in criterion.items():
+            if key == "cohorts":
+                cohorts_list.extend(val)
+
+    assert sorted(list(set(cohorts_list))) == ['part 1', 'part 2']
+
 
 def test_default_and_expansion_cohorts(client):
     criteria = '''
@@ -117,5 +144,12 @@ Exclusion Criteria:
 - Has encephalitis, meningitis, organic brain disease (e.g., Parkinson's disease) or uncontrolled seizures within 1 year prior to the first dose of study drug
 - Has any ongoing inflammatory skin disease as defined in the protocol    
 '''
-    cohorts = llm_extract_cohorts(criteria, client)
-    assert cohorts == ['default', 'Expansion Cohorts']
+    output = llm_tag_cohort_and_direction(criteria, client)
+
+    cohorts_list = []
+    for criterion in output:
+        for key, val in criterion.items():
+            if key == "cohorts":
+                cohorts_list.extend(val)
+
+    assert sorted(list(set(cohorts_list))) == ['Expansion Cohorts']
