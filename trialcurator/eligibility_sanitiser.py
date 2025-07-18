@@ -304,19 +304,19 @@ Your task is to:
     return llm_json_check_and_repair(response, client)
 
 
-def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> list[dict[str, bool]]:
+def llm_exclusion_logic_flipping(eligibility_criteria: str, client: LlmClient) -> list[dict[str, bool | str]]:
     logger.info("\nSTART EXCLUSION LOGIC FLIPPING\n")
 
-    system_prompt = 'You are a clinical trial curation assistant. You are given an eligibility exclusion rule (EXCLUDE).'
+    system_prompt = 'You are a clinical trial curation assistant. You are given an eligibility exclusion rule.'
 
     user_prompt = """
 ## INSTRUCTIONS
-For this EXCLUDE rule, determine if it can be rewritten as a logically equivalent inclusion rule (INCLUDE) without changing the original meaning.
-- If so, rewrite the rule and set `"flipped: true`.
-- If not, return the rule unchanged and set `"flipped: false`.
+For this exclusion rule, determine if it can be rewritten as a logically equivalent inclusion rule without changing the original meaning.
+- If so, rewrite the rule and set `flipped: true` and `exclude: false`
+- If not, return the rule unchanged and set `"flipped: false` and `exclude: true`
 
 ## LOGIC CONVERSION RULES:
-- Flip EXCLUDE rules to INCLUDE only when the semantic meaning is unchanged, including:
+- Flip exclusion rules to inclusion rules only when the semantic meaning is unchanged, including:
   - Negated Inclusions (EXCLUDE + NOT)
     - EXCLUDE patients who do NOT have / demonstrate / show / meet X → INCLUDE patients who have / demonstrate / show / meet X
     - flip even if X is vague concept like adequate organ function
@@ -331,6 +331,13 @@ For this EXCLUDE rule, determine if it can be rewritten as a logically equivalen
     - Correct: EXCLUDE X ≥ 3 × ULN → INCLUDE X < 3 × ULN
   - Redundant exclusion:  
     - When a criterion is phrased as ‘EXCLUDE participants must not have X’, rephrase to remove the redundant negation while preserving exclusion intent. Convert to: ‘EXCLUDE patient who have X’
+- If the input rule contains **multiple conditions joined by commas or 'or'**, treat each condition separately.
+  - For example: "reading A ≥ 50%, condition B or condition C"
+    → Split into:
+      1. "reading A ≥ 50%"
+      2. "condition B"
+      3. "condition C"
+  - Then apply the flipping logic to each component **individually**.
 - Do not flip if it could:
   - Change the clinical, temporal, or semantic intent
   - Broaden or narrow the scope unintentionally
@@ -345,6 +352,9 @@ For this EXCLUDE rule, determine if it can be rewritten as a logically equivalen
 Return a JSON **list** of dictionaries, where each dictionary has:
 - `rule` (string): the unchanged input rule OR the flipped version of the input rule
 - `flipped` (boolean): true if the rule was flipped to inclusion, false otherwise
+- `exclude` (boolean): continues to be true is input rule is unchanged OR changes to false if rule as flipped to inclusion
+
+- Do **not** prepend with the words EXCLUDE or INCLUDE.
 
 ## EXAMPLES
 
@@ -354,7 +364,8 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 [
     {
         "rule": "Age ≥ 18 years",
-        "flipped": false
+        "flipped": false,
+        "exclude": true
     }
 ]
 ```
@@ -365,7 +376,33 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 [
     {
         "rule": "Life expectancy is 3 months or more",
-        "flipped": true
+        "flipped": true,
+        "exclude": false
+    }
+]
+```
+
+### Example 3
+An exclusion rule of the form:
+Reading ≥ 50, or condition B, or condition C
+becomes
+
+```json
+[
+    {
+        "rule": "Reading < 50",
+        "flipped": true,
+        "exclude": false
+    },
+    {
+        "rule": "condition B",
+        "flipped": false,
+        "exclude": true
+    },
+    {
+        "rule": "condition C",
+        "flipped": false,
+        "exclude": true
     }
 ]
 ```
