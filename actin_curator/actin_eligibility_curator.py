@@ -2,7 +2,7 @@ import json
 import pandas as pd
 import logging
 import argparse
-from typing import TypedDict
+from typing import TypedDict, Any
 
 from actin_curator.actin_curator_utils import parse_llm_category_output, parse_llm_mapping_output, find_new_actin_rules, \
     output_formatting, llm_json_repair
@@ -10,7 +10,7 @@ from trialcurator.gemini_client import GeminiClient
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria_by_words
-from trialcurator.eligibility_sanitiser import llm_text_prep_workflow
+from trialcurator.eligibility_sanitiser import llm_rules_prep_workflow
 from actin_curator import actin_mapping_prompts
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,8 @@ BATCH_MAX_WORDS = 30
 class ActinMapping(TypedDict, total=False):
     description: str
     cohort: list[str]
-    include_or_exclude: str
+    exclude: bool
+    flipped: bool
     actin_rule: dict[str, list | dict] | str
     new_rule: list[str]
     confidence_level: float
@@ -35,10 +36,7 @@ def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
     return actin_df, actin_categories
 
 
-
-
-
-def identify_actin_categories(eligibility_criteria: str, client: LlmClient, actin_categories: list[str]) -> dict:
+def identify_actin_categories(eligibility_criteria: str, client: LlmClient, actin_categories: list[str]) -> dict[str: list[str]]:
     category_str = "\n".join(f"- {cat}" for cat in actin_categories)
     logger.info(f"Classifying {len(eligibility_criteria.splitlines())} criteria into ACTIN categories.")
 
@@ -64,9 +62,14 @@ The following categories are available:
 ## OUTPUT FORMAT
 Return a valid JSON object. Do not include any extra text.
 
-Example: {{ "INCLUDE Histologically or cytologically confirmed metastatic CRPC": [
-"Cancer_Type_and_Tumor_Site_Localization"], "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral 
-treatment": ["Infectious_Disease_History_and_Status"] }}"""
+Example:
+```json
+{
+    "Histologically or cytologically confirmed metastatic CRPC": ["Cancer_Type_and_Tumor_Site_Localization"],
+    "Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infectious_Disease_History_and_Status"]
+}
+```
+"""
 
     user_prompt = f"""
 Classify the following eligibility criteria:
@@ -227,11 +230,19 @@ def actin_reformat_output(actin_mappings: list[ActinMapping]) -> list[ActinMappi
     return actin_mappings
 
 
-def actin_workflow(eligibility_criteria: str, client: LlmClient, actin_df: pd.DataFrame, actin_categories: list[str]) -> \
-        list[ActinMapping]:
+def actin_workflow(eligibility_criteria_block: list[dict[str, Any]], client: LlmClient, actin_df: pd.DataFrame,
+                   actin_categories: list[str]) -> list[ActinMapping]:
     actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
 
-    cat_criteria = identify_actin_categories(eligibility_criteria, client, actin_categories)
+    rules_list = []
+    for criterion in eligibility_criteria_block:
+        for key, val in criterion.items():
+            if key == "rule":
+                rules_list.append(val)
+
+    for rule in rules_list:
+        cat_criteria = identify_actin_categories(rule, client, actin_categories)
+
     sorted_cat_criteria = sort_criteria_by_category(cat_criteria)
 
     actin_mapping = map_to_actin_by_category(sorted_cat_criteria, client, actin_df)
@@ -272,7 +283,8 @@ def main():
     trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
 
-    sanitised_rules = llm_text_prep_workflow(eligibility_criteria, client)
+    processed_eligibility_criteria = llm_rules_prep_workflow(eligibility_criteria,
+                                                             client)  # returns list[dict[str, Any]]
 
     actin_outputs = actin_workflow(sanitised_rules, client, actin_df, actin_categories)
 

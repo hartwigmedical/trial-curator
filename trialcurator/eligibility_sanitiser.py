@@ -487,4 +487,3 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
         flipped_rules.append(criterion)
 
     return flipped_rules
-
