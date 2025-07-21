@@ -17,17 +17,16 @@ from actin_curator import actin_mapping_prompts
 logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
-BATCH_MAX_WORDS = 30
 RULE_SIMILARITY_THRESHOLD = 95
 
 
 class ActinMapping(TypedDict, total=False):
-    description: str
-    cohort: list[str]
+    rule: str
     exclude: bool
     flipped: bool
-    actin_rule: dict[str, list | dict] | str
+    cohort: list[str]
     actin_category: list[str]
+    actin_rule: dict[str, list | dict] | str
     new_rule: list[str]
     confidence_level: float
     confidence_explanation: str
@@ -114,60 +113,47 @@ Input:
     return response
 
 
-def map_to_actin_by_category(sorted_cat_criteria: dict, client: LlmClient, actin_df: pd.DataFrame) -> list[
-    ActinMapping]:
-    mapped_results = []
-    logger.info(
-        f"Mapping {sum(len(c) for c in sorted_cat_criteria.values())} criteria across {len(sorted_cat_criteria)} category groups.")
+def map_to_actin_by_category(criteria_dict: dict, client: LlmClient, actin_df: pd.DataFrame) -> list[ActinMapping]:
+    logger.info("\nSTART ACTIN RULES MAPPING\n")
 
-    for cat, criteria_list in sorted_cat_criteria.items():
-        category_prompts = "\n".join(actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS[i] for i in cat)
-        sel_actin_rules = "\n".join(pd.Series(actin_df[list(cat)].to_numpy().flatten()).dropna().str.strip().tolist())
+    system_prompt = actin_mapping_prompts.COMMON_SYSTEM_PROMPTS
 
-        system_prompt = actin_mapping_prompts.COMMON_SYSTEM_PROMPTS
+    exclusion = criteria_dict.get("exclude")
+    rule = criteria_dict.get("rule")
+    if exclusion:
+        criterion = "EXCLUDE " + rule
+    else:
+        criterion = "INCLUDE " + rule
 
-        if len(cat) > 1:
-            for criterion in criteria_list:
-                user_prompt = f"""
-## ELIGIBILITY CRITERION
+    category = criteria_dict.get("actin_category")
+    if not isinstance(category, list):
+        raise ValueError(f"Expected a list of categories, instead got: {category}")
+
+    category_prompts = ""
+    sel_actin_rules = ""
+    user_prompt = ""
+
+    for cat in category:
+
+        temp_prompt = actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS.get(cat)
+        if temp_prompt is None:
+            raise ValueError(f"No category-specific prompts found for {cat}")
+        category_prompts += temp_prompt + "\n"
+
+        if cat not in actin_df.columns:
+            raise ValueError(f"Category '{cat}' is not found in actin_df columns")
+        temp_rules = actin_df[cat].dropna().astype(str).str.strip().tolist()
+        sel_actin_rules += "\n".join(temp_rules) + "\n"
+
+        user_prompt = f"""
+## ELIGIBILITY CRITERIA
 ```
 {criterion}
 ```
 
 ## CATEGORY ASSIGNMENT
-This criterion belongs to the following ACTIN categories:
-- {"\n- ".join(cat)}
-
-## RELEVANT ACTIN RULES
-The ACTIN rules associated with these categories are:
-```
-{sel_actin_rules}
-```
-
-## TASK
-Map the above eligibility criterion to one or more ACTIN rules from the list above. 
-Use the guidelines and formatting conventions provided.
-
-### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS
-{category_prompts}
-"""
-                response = client.llm_ask(user_prompt, system_prompt)
-                mapped_results.extend(llm_json_repair(response, client, parse_llm_mapping_output))
-
-        elif len(cat) == 1:
-            joined_criteria = "\n\n".join(criteria_list)
-            word_limit_batches = batch_tagged_criteria_by_words(joined_criteria, BATCH_MAX_WORDS)
-
-            for batch in word_limit_batches:
-                user_prompt = f"""
-## ELIGIBILITY CRITERIA
-```
-{batch}
-```
-
-## CATEGORY ASSIGNMENT
 These criteria belong to the ACTIN category:
-- {cat[0]}
+- {cat}
 
 ## RELEVANT ACTIN RULES
 The ACTIN rules associated with this category are:
@@ -182,9 +168,9 @@ Use the guidelines and formatting conventions provided.
 ### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS
 {category_prompts}
 """
-                response = client.llm_ask(user_prompt, system_prompt)
-                mapped_results.extend(llm_json_repair(response, client, parse_llm_mapping_output))
-    return mapped_results
+
+    response = client.llm_ask(user_prompt, system_prompt)
+    return llm_json_check_and_repair(response, client)
 
 
 def actin_mark_new_rules(actin_mappings: list[ActinMapping], actin_rules: list[str]) -> list[ActinMapping]:
