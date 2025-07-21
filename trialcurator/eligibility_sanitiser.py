@@ -72,7 +72,6 @@ To:
 - If a bullet does **not** end with a colon or similar clause (e.g., “must meet one of the following”), then all subsequent bullets are considered top-level.
 - Do **not** promote or demote bullet level based on visual indentation alone; rely on **semantic cues** (colon or conditional phrases).
 
-
 ## CRITERION SPLITTING
 - If a criterion lists multiple conditions joined together that are logically independent exclusion/inclusion rules, \
 split each into its own bullet
@@ -181,10 +180,18 @@ If there is only a single cohort in the trial or if a rule is not cohort-specifi
 - The cohort name should appear **only** in the "cohorts" list and not inside the "rule" field.
 
 ## RULE FORMATTING
-- The "rule" text must retain all the original formatting with respect to indentation and bullet points.
+- The "rule" text must retain all original formatting, including indentation.
+- If a line begins with a dash and it is a **top-level** bullet, remove the dash.
+- If it is a **subpoint**, retain the dash and original indentation.
+- Preserve any line breaks using `\n` within the JSON string.
 
 ## OUTPUT STRUCTURE
-Return a valid JSON object. Do not include any extra text.
+Return a valid JSON array. Each item should be an object with:
+- "exclude" (boolean)
+- "rule" (string, preserving formatting)
+- "cohorts" (optional list of strings, omit if not present)
+
+Do not include any extra text before or after the JSON output.
 
 Example:
 ```json
@@ -196,9 +203,7 @@ Example:
     },
     {  
        "exclude": false,
-       "rule": "For female patients:
-          - Negative pregnancy test
-          - Reliable contraceptive methods",
+       "rule": "For female patients:\n  - Negative pregnancy test\n  - Reliable contraceptive methods",
        "cohorts": ["Cohort C"]
     },
     {  
@@ -419,18 +424,23 @@ def update_criterion_fields(exclude: bool, rule: str, cohort: str | None = None,
     return updated_criterion
 
 
-def has_nested_bullets(rule: str) -> bool:
-    return bool(re.search(r"\n\s*-\s", rule))
+def not_a_oneline_rule(rule: str) -> bool:
+    lines = []
+    for line in rule.splitlines():
+        line = line.strip()
+        if line:
+            lines.append(line)
+    return len(lines) > 1
 
 
 def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dict[str, Any]]:
-    rules_sanitised = llm_sanitise_text(eligibility_criteria_input, client)  # returns a text block
+    rules_sanitised = llm_sanitise_text(eligibility_criteria_input, client)  # returns a block of string
     rules_w_cohort = llm_tag_cohort_and_direction(rules_sanitised, client)  # returns a list of dict
 
     promoted_rules = []
     for criterion in rules_w_cohort:
         original_exclude, original_rule, original_cohort = get_criterion_fields(criterion)
-        if has_nested_bullets(original_rule):
+        if not_a_oneline_rule(original_rule):
             rules_for_promotion = llm_subpoint_promotion(original_rule, client)  # returns a list of str
             if isinstance(rules_for_promotion, list):
                 for promoted_rule in rules_for_promotion:
@@ -467,7 +477,6 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
                 continue
             else:
                 raise TypeError("The flipped exclusion rule is not a list of dictionaries")
-
         flipped_rules.append(criterion)
 
     return flipped_rules
