@@ -187,8 +187,8 @@ If there is only a single cohort in the trial or if a rule is not cohort-specifi
 
 ## OUTPUT STRUCTURE
 Return a valid JSON array. Each item should be an object with:
-- "exclude" (boolean)
 - "rule" (string, preserving formatting)
+- "exclude" (boolean)
 - "cohorts" (optional list of strings, omit if not present)
 
 Do not include any extra text before or after the JSON output.
@@ -196,19 +196,19 @@ Do not include any extra text before or after the JSON output.
 Example:
 ```json
 [
-    {  
-       "exclude": false,
+    {
        "rule": "Age ≥ 18 years",
+       "exclude": false,
        "cohorts": ["Cohort A", "Cohort B"]
     },
-    {  
-       "exclude": false,
+    {
        "rule": "For female patients:\n  - Negative pregnancy test\n  - Reliable contraceptive methods",
+       "exclude": false,
        "cohorts": ["Cohort C"]
     },
-    {  
-       "exclude": true,
+    {
        "rule": "HIV infection",
+       "exclude": true,
     },
 ]
 ```
@@ -353,8 +353,8 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 [
     {
         "rule": "Age ≥ 18 years",
-        "flipped": false,
-        "exclude": true
+        "exclude": true,
+        "flipped": false
     }
 ]
 ```
@@ -365,8 +365,8 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 [
     {
         "rule": "Life expectancy is 3 months or more",
-        "flipped": true,
-        "exclude": false
+        "exclude": false,
+        "flipped": true
     }
 ]
 ```
@@ -380,18 +380,18 @@ becomes
 [
     {
         "rule": "Reading < 50",
-        "flipped": true,
-        "exclude": false
+        "exclude": false,
+        "flipped": true
     },
     {
         "rule": "condition B",
-        "flipped": false,
-        "exclude": true
+        "exclude": true,
+        "flipped": false
     },
     {
         "rule": "condition C",
-        "flipped": false,
-        "exclude": true
+        "exclude": true,
+        "flipped": false
     }
 ]
 ```
