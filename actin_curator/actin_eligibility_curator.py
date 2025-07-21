@@ -3,13 +3,14 @@ import pandas as pd
 import logging
 import argparse
 from typing import TypedDict, Any
+from rapidfuzz import fuzz
 
-from actin_curator.actin_curator_utils import parse_llm_category_output, parse_llm_mapping_output, find_new_actin_rules, \
-    output_formatting, llm_json_repair
+from actin_curator.actin_curator_utils import parse_llm_mapping_output, find_new_actin_rules, output_formatting
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
-from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria_by_words
+from trialcurator.utils import load_trial_data, load_eligibility_criteria, batch_tagged_criteria_by_words, \
+    llm_json_check_and_repair
 from trialcurator.eligibility_sanitiser import llm_rules_prep_workflow
 from actin_curator import actin_mapping_prompts
 
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
 BATCH_MAX_WORDS = 30
+RULE_SIMILARITY_THRESHOLD = 95
 
 
 class ActinMapping(TypedDict, total=False):
@@ -25,6 +27,7 @@ class ActinMapping(TypedDict, total=False):
     exclude: bool
     flipped: bool
     actin_rule: dict[str, list | dict] | str
+    actin_category: list[str]
     new_rule: list[str]
     confidence_level: float
     confidence_explanation: str
@@ -36,48 +39,79 @@ def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
     return actin_df, actin_categories
 
 
-def identify_actin_categories(eligibility_criteria: str, client: LlmClient, actin_categories: list[str]) -> dict[str: list[str]]:
-    category_str = "\n".join(f"- {cat}" for cat in actin_categories)
-    logger.info(f"Classifying {len(eligibility_criteria.splitlines())} criteria into ACTIN categories.")
+def identify_actin_categories(eligibility_criteria: str, client: LlmClient, actin_categories: list[str]) -> list[dict[str, list[str]]]:
+    logger.info("\nSTART ACTIN CATEGORISATION\n")
 
-    system_prompt = f"""
+    category_str = "\n".join(f"- {cat}" for cat in actin_categories)
+
+    logger.info(f"Classifying ```{eligibility_criteria}``` into ACTIN categories.")
+
+    intro_prompt = f"""
 ## ROLE
-You are a clinical trial curation assistant for a system called ACTIN, which determines available 
-treatment options for cancer patients.
+You are a clinical trial curation assistant for a system called ACTIN, which determines available treatment options for cancer patients.
 
 ## TASK
 Classify each eligibility criterion into one or more ACTIN categories.
 
 - Most criteria should be assigned to a single, most relevant category.
 - Assign multiple categories **only** when the criterion clearly describes **clinically distinct concepts** that each map to different categories.
+- If a criterion includes bullet points, newlines, or multiple clauses, treat it as a **single atomic unit**. Do not split or paraphrase it.
 - Do **not** assign a category based on a term appearing in the text unless the clinical meaning directly aligns with that category.
-
-Examples:
-- A criterion mentioning “untreated CNS metastases” should typically fall under **Medical_History_and_Comorbidities**, not **Cancer_Type_and_Tumor_Site_Localization**, unless tumor classification is explicitly discussed.
+  Example:
+  - A criterion mentioning “untreated CNS metastases” should typically fall under **Medical_History_and_Comorbidities**, not **Cancer_Type_and_Tumor_Site_Localization**, unless tumor classification is explicitly discussed.
 
 ## ACTIN CATEGORIES
 The following categories are available:
 {category_str}
 
-## OUTPUT FORMAT
-Return a valid JSON object. Do not include any extra text.
-
-Example:
-```json
-{
-    "Histologically or cytologically confirmed metastatic CRPC": ["Cancer_Type_and_Tumor_Site_Localization"],
-    "Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infectious_Disease_History_and_Status"]
-}
-```
 """
+    json_example = """
+## OUTPUT FORMAT
+- Return a valid JSON object. Do not include any extra text.
+- The input criterion must remain **unchanged**.
+
+### Example 1:
+```json
+[
+    { 
+        "Histologically or cytologically confirmed metastatic CRPC": ["Cancer_Type_and_Tumor_Site_Localization"]
+    }
+]
+```
+### Example 2:
+```json
+[
+    {
+        "Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infectious_Disease_History_and_Status"]
+    }
+]
+```
+
+"""
+    system_prompt = intro_prompt + json_example
 
     user_prompt = f"""
-Classify the following eligibility criteria:
+Classify the following eligibility criterion:
+- Do not split or paraphrase it, even if it contains line breaks or bullet points.
+- Return exactly one JSON object for each input string, using the **original string as-is** as the JSON key.
+
+Input:
+
 {eligibility_criteria}
 """
 
-    response = client.llm_ask(user_prompt, system_prompt)
-    return llm_json_repair(response, client, parse_llm_category_output)
+    response_init = client.llm_ask(user_prompt, system_prompt)
+    response = llm_json_check_and_repair(response_init, client)
+
+    if not isinstance(response, list) or len(response) > 1:
+        raise ValueError(
+            f"Should return a single JSON object for criterion. Instead returned {len(response)} rules:\n{response}")
+
+    cat_key = next(iter(response[0]))
+    if fuzz.ratio(cat_key, eligibility_criteria) < RULE_SIMILARITY_THRESHOLD:
+        raise ValueError(f"Input criterion has been incorrected changed.\nOriginal: {eligibility_criteria}\nReturned: {cat_key}")
+
+    return response
 
 
 def sort_criteria_by_category(cat_criteria: dict[str, list[str]]) -> dict[tuple[str, ...], list[str]]:
