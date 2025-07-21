@@ -1,6 +1,10 @@
 import json
 import re
-from typing import Any
+import logging
+from json import JSONDecodeError
+from trialcurator.llm_client import LlmClient
+
+logger = logging.getLogger(__name__)
 
 
 def load_trial_data(json_file: str) -> dict:
@@ -34,6 +38,7 @@ def extract_code_blocks(text: str, lang: str) -> str:
         return "".join(match)
     else:
         return text
+
 
 def split_tagged_criteria(text: str) -> list[str]:
     """
@@ -93,3 +98,17 @@ def load_eligibility_criteria(trial_data):
     protocol_section = trial_data['protocolSection']
     eligibility_module = protocol_section['eligibilityModule']
     return unescape_json_str(eligibility_module['eligibilityCriteria'])
+
+
+def llm_json_check_and_repair(response: str, client: LlmClient):
+    try:
+        extracted_response = extract_code_blocks(response, "json")
+        return json.loads(extracted_response)
+    except JSONDecodeError:
+        logger.warning("LLM JSON output is invalid. Starting repair.")
+        repair_prompt = f"""
+Fix the following JSON so it parses correctly. Return only the corrected JSON object:
+{response}
+"""
+        repaired_response = client.llm_ask(repair_prompt)
+        return json.loads(extract_code_blocks(repaired_response, "json"))
