@@ -114,20 +114,6 @@ Input:
     return response
 
 
-def sort_criteria_by_category(cat_criteria: dict[str, list[str]]) -> dict[tuple[str, ...], list[str]]:
-    sorted_cat_criteria = {}
-
-    for criterion, cat in cat_criteria.items():
-        cat = tuple(cat)
-
-        if cat not in sorted_cat_criteria:
-            sorted_cat_criteria[cat] = []
-
-        sorted_cat_criteria[cat].append(criterion)
-
-    return sorted_cat_criteria
-
-
 def map_to_actin_by_category(sorted_cat_criteria: dict, client: LlmClient, actin_df: pd.DataFrame) -> list[
     ActinMapping]:
     mapped_results = []
