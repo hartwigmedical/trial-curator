@@ -5,7 +5,7 @@ import argparse
 from typing import TypedDict, Any
 from rapidfuzz import fuzz
 
-from actin_curator.actin_curator_utils import parse_llm_mapping_output, find_new_actin_rules, output_formatting
+from actin_curator.actin_curator_utils import parse_llm_mapping_output, output_formatting
 from trialcurator.gemini_client import GeminiClient
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
@@ -17,7 +17,7 @@ from actin_curator import actin_mapping_prompts
 logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
-RULE_SIMILARITY_THRESHOLD = 95
+RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence of a full stop or otherwise.
 
 
 class ActinMapping(TypedDict, total=False):
@@ -103,7 +103,7 @@ Input:
     response = llm_json_check_and_repair(response_init, client)
 
     if not isinstance(response, list) or len(response) > 1:
-        raise ValueError(
+        raise TypeError(
             f"Should return a single JSON object for criterion. Instead returned {len(response)} rules:\n{response}")
 
     cat_key = next(iter(response[0]))
@@ -113,13 +113,19 @@ Input:
     return response
 
 
-def map_to_actin_by_category(criteria_dict: dict, client: LlmClient, actin_df: pd.DataFrame) -> list[ActinMapping]:
+def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.DataFrame) -> list[ActinMapping]:
     logger.info("\nSTART ACTIN RULES MAPPING\n")
 
     system_prompt = actin_mapping_prompts.COMMON_SYSTEM_PROMPTS
 
     exclusion = criteria_dict.get("exclude")
+    if not isinstance(exclusion, bool):
+        raise TypeError("Exclusion flag is not a boolean.")
+
     rule = criteria_dict.get("rule")
+    if not isinstance(rule, str):
+        raise TypeError("Eligibility rule is not a string.")
+
     if exclusion:
         criterion = "EXCLUDE " + rule
     else:
@@ -127,7 +133,7 @@ def map_to_actin_by_category(criteria_dict: dict, client: LlmClient, actin_df: p
 
     category = criteria_dict.get("actin_category")
     if not isinstance(category, list):
-        raise ValueError(f"Expected a list of categories, instead got: {category}")
+        raise ValueError("ACTIN category is not a list of strings.")
 
     category_prompts = ""
     sel_actin_rules = ""
@@ -135,13 +141,15 @@ def map_to_actin_by_category(criteria_dict: dict, client: LlmClient, actin_df: p
 
     for cat in category:
 
+        if cat not in actin_df.columns:
+            raise ValueError(f"Category '{cat}' is not found in actin_df columns")
+
         temp_prompt = actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS.get(cat)
         if temp_prompt is None:
             raise ValueError(f"No category-specific prompts found for {cat}")
+
         category_prompts += temp_prompt + "\n"
 
-        if cat not in actin_df.columns:
-            raise ValueError(f"Category '{cat}' is not found in actin_df columns")
         temp_rules = actin_df[cat].dropna().astype(str).str.strip().tolist()
         sel_actin_rules += "\n".join(temp_rules) + "\n"
 
@@ -173,11 +181,119 @@ Use the guidelines and formatting conventions provided.
     return llm_json_check_and_repair(response, client)
 
 
-def actin_mark_new_rules(actin_mappings: list[ActinMapping], actin_rules: list[str]) -> list[ActinMapping]:
-    actin_rules = set(actin_rules)
-    for mapping in actin_mappings:
-        mapping['new_rule'] = find_new_actin_rules(mapping['actin_rule'], actin_rules)
-    return actin_mappings
+def actin_rule_reformat(actin_rule: dict | list | str, level: int = 0) -> str:
+    """
+    Recursively format an ACTIN rule expression for readability:
+    - Converts {"RULE": []} → "RULE"
+    - Handles param lists like {"RULE": [1.5, 3.0]} → "RULE[1.5, 3.0]"
+    - Preserves logical operators AND/OR/NOT with parentheses and indentation
+    """
+
+    indent = "    " * level
+    next_indent = "    " * (level + 1)
+
+    # recursion base case
+    if isinstance(actin_rule, str):
+        return actin_rule.replace("[]", "")  # LLM is liable return results like `HAS_LEPTOMENINGEAL_DISEASE[]`
+
+    elif isinstance(actin_rule, list):
+        reformatted_container = []
+        for item in actin_rule:
+            item_str = repr(item)
+            reformatted_container.append(item_str)
+        joined_items = ", ".join(reformatted_container)
+        return "[" + joined_items + "]"
+
+    elif isinstance(actin_rule, dict):
+
+        for key, val in actin_rule.items():
+
+            if key in {"AND", "OR"}:
+                reformatted_container = []
+                for item in val:
+                    # recurse here
+                    reformatted_container.append(actin_rule_reformat(item, level + 1))
+                joined_items = f",\n{next_indent}".join(reformatted_container)
+                return f"{key}\n{indent}(\n{next_indent}" + joined_items + f"\n{indent})"
+
+            elif key == "NOT":
+                reformatted_rule = actin_rule_reformat(val, level+1)
+                return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+
+            else:
+                if isinstance(val, dict):
+                    # recurse here
+                    reformatted_rule = actin_rule_reformat(val, level+1)
+                    return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+
+                elif isinstance(val, list):
+
+                    has_nesting = False
+                    for item in val:
+                        if isinstance(item, (dict, list)):
+                            has_nesting = True
+                            break
+                    if has_nesting:  # recurse deeper due to nesting
+                        # recurse here
+                        reformatted_rule = actin_rule_reformat(val, level + 1)
+                        return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+
+                    elif len(val) > 0:  # in a flat list of parameters situation like [1.5, 2.3]
+                        reformatted_container = []
+                        for sub_val in val:
+                            sub_val_str = repr(sub_val)
+                            reformatted_container.append(sub_val_str)
+                        joined_items = ", ".join(reformatted_container)
+                        return f"{key}[{joined_items}]"
+
+                    else:
+                        return key
+
+        raise ValueError(f"Could not format ACTIN rule from dict: {actin_rule}")
+
+    else:
+        raise TypeError(f"Unexpected data type encountered for actin_rule: {type(actin_rule).__name__} for {actin_rule}")
+
+
+def _flatten_actin_rules(actin_df: pd.DataFrame) -> set[str]:
+    actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
+    return set(actin_rules)
+
+
+def _find_new_actin_rules(rule: dict | list | str, defined_rules: set[str]) -> list[str]:
+    new_rules: set[str] = set()
+
+    if isinstance(rule, str) and rule not in defined_rules:  # Recursion base case
+        new_rules.add(rule)
+
+    elif isinstance(rule, list):
+        for subrule in rule:
+            new_rules.update(_find_new_actin_rules(subrule, defined_rules))
+
+    elif isinstance(rule, dict):
+        for operator, params in rule.items():
+            if operator in {"AND", "OR"}:
+                for subrule in params:
+                    new_rules.update(_find_new_actin_rules(subrule, defined_rules))
+            elif operator == "NOT":
+                new_rules.update(_find_new_actin_rules(params, defined_rules))
+
+            else:
+                if operator not in defined_rules:  # operator becomes a potential rule name here
+                    new_rules.add(operator)  # This is of the form {'SOME_RULE_NAME': ['param_val']}
+
+                if isinstance(params, dict):
+                    new_rules.update(_find_new_actin_rules(params, defined_rules))
+                elif isinstance(params, list):
+                    if any(isinstance(v, (dict, list)) for v in params):  # To disregard forms such as ['val_1', 'val_2']
+                        new_rules.update(_find_new_actin_rules(params, defined_rules))
+
+    return sorted(new_rules)
+
+
+def actin_mark_new_rules(actin_mappings: dict, actin_df: pd.DataFrame) -> list[str]:
+    actin_rules = _flatten_actin_rules(actin_df)
+    return _find_new_actin_rules(actin_mappings, actin_rules)
 
 
 def actin_mark_confidence_score(actin_mappings: list[ActinMapping], client: LlmClient) -> list[ActinMapping]:
@@ -230,10 +346,7 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     return final_results
 
 
-def actin_reformat_output(actin_mappings: list[ActinMapping]) -> list[ActinMapping]:
-    for mapping in actin_mappings:
-        mapping['actin_rule'] = output_formatting(mapping['actin_rule'])
-    return actin_mappings
+
 
 
 def actin_workflow(eligibility_criteria_block: list[dict[str, Any]], client: LlmClient, actin_df: pd.DataFrame,
