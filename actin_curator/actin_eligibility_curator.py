@@ -263,8 +263,10 @@ def _flatten_actin_rules(actin_df: pd.DataFrame) -> set[str]:
 def _find_new_actin_rules(rule: dict | list | str, defined_rules: set[str]) -> list[str]:
     new_rules: set[str] = set()
 
-    if isinstance(rule, str) and rule not in defined_rules:  # Recursion base case
-        new_rules.add(rule)
+    if isinstance(rule, str):
+        extract_rule = rule.split("[")[0].strip()
+        if extract_rule not in defined_rules:  # Recursion base case
+            new_rules.add(extract_rule)
 
     elif isinstance(rule, list):
         for subrule in rule:
@@ -285,8 +287,10 @@ def _find_new_actin_rules(rule: dict | list | str, defined_rules: set[str]) -> l
                 if isinstance(params, dict):
                     new_rules.update(_find_new_actin_rules(params, defined_rules))
                 elif isinstance(params, list):
-                    if any(isinstance(v, (dict, list)) for v in params):  # To disregard forms such as ['val_1', 'val_2']
-                        new_rules.update(_find_new_actin_rules(params, defined_rules))
+                    for ele in params:
+                        if isinstance(ele, (dict, list)):
+                            new_rules.update(_find_new_actin_rules(ele, defined_rules))
+                        # Otherwise disregard forms such as ['val_1', 'val_2']
 
     return sorted(new_rules)
 
