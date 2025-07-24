@@ -1,42 +1,20 @@
-import json
-from json import JSONDecodeError
 import logging
-import re
 from collections.abc import Callable
 from typing import Any
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import extract_code_blocks
+from utils.parser import ParseError
+from utils.smart_json_parser import SmartJsonParser
 
 logger = logging.getLogger(__name__)
 
 
-def parse_llm_category_output(llm_output: str) -> dict[str, list[str]]:
-    json_code_block = extract_code_blocks(llm_output, "json")
-    json_code_block = fix_malformed_json(json_code_block)
-
-    try:
-        obj = json.loads(json_code_block)
-
-        if not isinstance(obj, dict):
-            raise ValueError("Expected a dictionary mapping criteria to category lists")
-        for key, value in obj.items():
-            if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
-                raise ValueError(f"Invalid category assignment for: {key}")
-        return obj
-
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse JSON\n{e}")
-        logger.warning(json_code_block)
-        raise e
-
-
 def parse_llm_mapping_output(llm_output: str) -> list[dict]:
     json_code_block = extract_code_blocks(llm_output, "json")
-    json_code_block = fix_malformed_json(json_code_block)
 
     try:
-        obj = json.loads(json_code_block)
+        obj = SmartJsonParser(json_code_block).consume_value()
         find_and_fix_actin_rule(obj)
         if isinstance(obj, list):
             return obj
@@ -45,7 +23,7 @@ def parse_llm_mapping_output(llm_output: str) -> list[dict]:
         else:
             raise ValueError("Unexpected JSON structure: must be dict or list of dicts")
 
-    except json.JSONDecodeError as e:
+    except ParseError as e:
         logger.warning(f"Failed to parse JSON\n{e}")
         logger.warning(json_code_block)
         raise e
@@ -104,85 +82,6 @@ def find_and_fix_actin_rule(data):
             find_and_fix_actin_rule(item)
 
     return data
-
-
-def fix_malformed_json(json_str: str) -> str:
-    """
-    Sometimes LLM outputs malformed json, it is much easier to fix with regex than
-    to overload the prompts with more instructions
-    """
-
-    # fix dictionary without value, e.g., { "IS_MALE" } -> "IS_MALE"
-    pattern = r'{\s*("\w+")\s*}'
-    json_str = re.sub(pattern, r'\1', json_str)
-
-    """
-    Fix malformed entries like:
-      "actin_rule": "RULE_NAME": [1]
-    to:
-      "actin_rule": { "RULE_NAME": [1] }
-    """
-    pattern = r'("\w+")\s*:\s*("\w+")\s*:\s*(\[[^\]]*\])'
-    replacement = r'\1: { \2: \3 }'
-    json_str = re.sub(pattern, replacement, json_str)
-
-    """
-    Fix malformed entries like:
-      "actin_rule": "NOT": "RULE_NAME"
-    to:
-      "actin_rule": { "NOT": "RULE_NAME" }
-    """
-    pattern = r'("\w+")\s*:\s*("\w+")\s*:\s*("\w+")'
-    replacement = r'\1: { \2: \3 }'
-    json_str = re.sub(pattern, replacement, json_str)
-
-    # fix up anything that has uncompleted numerical calculations
-    json_str = fix_json_math_expressions(json_str)
-
-    return json_str
-
-
-def fix_json_math_expressions(raw_json: str) -> str:
-    """
-    Fixes math expressions in JSON values, including inside lists.
-    Only evaluates unquoted expressions.
-    """
-
-    def is_math_expression(s: str) -> bool:
-        return bool(re.fullmatch(r'[\d.\s+\-*/()%]+\d', s.strip()))
-
-    def safe_eval(expr: str):
-        try:
-            return eval(expr, {"__builtins__": None}, {})
-        except Exception:
-            return expr
-
-    def replacer(match):
-        prefix = match.group(1)
-        expr = match.group(2)
-        suffix = match.group(3)
-
-        if is_math_expression(expr):
-            result = safe_eval(expr)
-            if isinstance(result, (int, float)):
-                return f"{prefix}{result}{suffix}"
-
-        return match.group(0)
-
-    # Pattern to match unquoted values in dicts or lists
-    # Match values after :, [ or , that are math expressions,
-    # but NOT quoted (no ")
-    pattern = re.compile(
-        r'([:\[,]\s*)'  # matches the prefix
-        r'([\d.\s+\-*/()%]+\d)'  # matches the math expression
-        r'(\s*)'  # spaces after the expression
-        r'(?=[,\]}])',  # lookahead: ensures that what follows the expression is ,] or }
-        re.MULTILINE
-    )
-    fixed = pattern.sub(replacer, raw_json)
-
-    return fixed
-
 
 def find_new_actin_rules(rule: dict, defined_rules: set[str]) -> list[str]:
     """
@@ -285,7 +184,7 @@ def output_formatting(actin_rule: dict, level: int = 0) -> str:
 def llm_json_repair(response: str, client: LlmClient, parser: Callable[[str], Any]) -> Any:
     try:
         return parser(response)
-    except JSONDecodeError:
+    except ParseError:
         logger.warning("LLM JSON output is invalid. Attempting to repair.")
         repair_prompt = f"""
 Fix the following JSON so it parses correctly. Return only the corrected JSON object:

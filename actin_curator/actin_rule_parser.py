@@ -31,7 +31,7 @@ class ActinRuleParser(Parser):
             try:
                 return float(v)
             except ValueError:
-                self.raise_error(f"Invalid expresison: {v}'")
+                self.raise_error(f"Invalid expression: {v}'")
 
     def consume_list(self) -> list:
         items = []
