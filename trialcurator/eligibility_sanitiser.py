@@ -136,7 +136,7 @@ def llm_tag_cohort_and_direction(eligibility_criteria: str, client: LlmClient) -
 1. Tag the inclusion or exclusion status of each rule.
 2. Tag the cohort(s) applicable to each rule."""
 
-    user_prompt = """\n
+    user_prompt = """
 ## TASK ONE INSTRUCTIONS FOR INCLUSION/EXCLUSION TAGGING
 Your task is to:
 - Tag each top-level bullet with true or false depending on whether the criterion is an **exclusion** rule or otherwise.
@@ -183,7 +183,7 @@ If there is only a single cohort in the trial or if a rule is not cohort-specifi
 - The "rule" text must retain all original formatting, including indentation.
 - If a line begins with a dash and it is a **top-level** bullet, remove the dash.
 - If it is a **subpoint**, retain the dash and original indentation.
-- Preserve any line breaks using `\n` within the JSON string.
+- Preserve any line breaks using `\\n` within the JSON string.
 
 ## OUTPUT STRUCTURE
 Return a valid JSON array. Each item should be an object with:
@@ -202,7 +202,7 @@ Example:
        "cohorts": ["Cohort A", "Cohort B"]
     },
     {
-       "rule": "For female patients:\n  - Negative pregnancy test\n  - Reliable contraceptive methods",
+       "rule": "For female patients:\\n  - Negative pregnancy test\\n  - Reliable contraceptive methods",
        "exclude": false,
        "cohorts": ["Cohort C"]
     },
@@ -217,6 +217,7 @@ Example:
     user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt=system_prompt)
+
     return llm_json_check_and_repair(response, client)
 
 
@@ -282,7 +283,7 @@ Your task is to:
 **Output:**
 ```json
 [
-  "Patients with condition XYZ are excluded unless all of the following apply:\\n- Must be stable\\n  - No prior treatments\\n  - No active disease"
+  "Patients with condition XYZ are excluded unless all of the following apply:\\n- Must be stable\\n- No prior treatments\\n- No active disease"
 ]
 ```
 
