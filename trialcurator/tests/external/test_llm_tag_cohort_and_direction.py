@@ -1,7 +1,7 @@
 import logging
 import pytest
 
-from trialcurator.eligibility_sanitiser import llm_tag_cohort_and_direction
+from trialcurator.eligibility_text_preparation import llm_tag_cohort_and_direction
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)

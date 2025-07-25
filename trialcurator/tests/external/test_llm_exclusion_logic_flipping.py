@@ -1,6 +1,6 @@
 import pytest
 
-from trialcurator.eligibility_sanitiser import llm_exclusion_logic_flipping
+from trialcurator.eligibility_text_preparation import llm_exclusion_logic_flipping
 from trialcurator.openai_client import OpenaiClient
 
 

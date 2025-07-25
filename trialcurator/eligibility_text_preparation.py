@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import Any
 
 from trialcurator.llm_client import LlmClient
@@ -187,7 +186,7 @@ If there is only a single cohort in the trial or if a rule is not cohort-specifi
 
 ## OUTPUT STRUCTURE
 Return a valid JSON array. Each item should be an object with:
-- "rule" (string, preserving formatting)
+- "input_rule" (string, preserving formatting)
 - "exclude" (boolean)
 - "cohorts" (optional list of strings, omit if not present)
 
@@ -197,17 +196,17 @@ Example:
 ```json
 [
     {
-       "rule": "Age ≥ 18 years",
+       "input_rule": "Age ≥ 18 years",
        "exclude": false,
        "cohorts": ["Cohort A", "Cohort B"]
     },
     {
-       "rule": "For female patients:\\n  - Negative pregnancy test\\n  - Reliable contraceptive methods",
+       "input_rule": "For female patients:\\n  - Negative pregnancy test\\n  - Reliable contraceptive methods",
        "exclude": false,
        "cohorts": ["Cohort C"]
     },
     {
-       "rule": "HIV infection",
+       "input_rule": "HIV infection",
        "exclude": true,
     },
 ]
@@ -217,7 +216,6 @@ Example:
     user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt=system_prompt)
-
     return llm_json_check_and_repair(response, client)
 
 
@@ -353,7 +351,7 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 ```json
 [
     {
-        "rule": "Age ≥ 18 years",
+        "input_rule": "Age ≥ 18 years",
         "exclude": true,
         "flipped": false
     }
@@ -365,7 +363,7 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 ```json
 [
     {
-        "rule": "Life expectancy is 3 months or more",
+        "input_rule": "Life expectancy is 3 months or more",
         "exclude": false,
         "flipped": true
     }
@@ -374,23 +372,23 @@ Return a JSON **list** of dictionaries, where each dictionary has:
 
 ### Example 3
 An exclusion rule of the form:
-Reading ≥ 50, or condition B, or condition C
+`Reading ≥ 50, or condition B, or condition C`  
 becomes
 
 ```json
 [
     {
-        "rule": "Reading < 50",
+        "input_rule": "Reading < 50",
         "exclude": false,
         "flipped": true
     },
     {
-        "rule": "condition B",
+        "input_rule": "condition B",
         "exclude": true,
         "flipped": false
     },
     {
-        "rule": "condition C",
+        "input_rule": "condition C",
         "exclude": true,
         "flipped": false
     }
@@ -407,15 +405,15 @@ becomes
 def get_criterion_fields(criterion: dict) -> tuple[bool, str, str | None]:
     return (
         criterion.get("exclude"),
-        criterion.get("rule"),
+        criterion.get("input_rule"),
         criterion.get("cohorts")
     )
 
 
-def update_criterion_fields(exclude: bool, rule: str, cohort: str | None = None, flipped: bool | None = False) -> dict[str, Any]:
+def update_criterion_fields(exclude: bool, input_rule: str, cohort: str | None = None, flipped: bool | None = False) -> dict[str, Any]:
     updated_criterion = {
         "exclude": exclude,
-        "rule": rule
+        "input_rule": input_rule
     }
     if cohort is not None:
         updated_criterion["cohort"] = cohort

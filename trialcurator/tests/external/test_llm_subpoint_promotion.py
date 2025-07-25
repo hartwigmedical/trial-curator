@@ -1,7 +1,7 @@
 import pytest
 import re
 
-from trialcurator.eligibility_sanitiser import llm_subpoint_promotion
+from trialcurator.eligibility_text_preparation import llm_subpoint_promotion
 from trialcurator.openai_client import OpenaiClient
 
 
