@@ -34,7 +34,7 @@ class ActinMapping(TypedDict, total=False):
     confidence_explanation: str
 
 
-def identify_actin_categories(input_rule: str, client: LlmClient, actin_categories: list[str]) -> dict[str, list[str]]:
+def identify_actin_categories(input_rule: str, client: LlmClient, actin_categories: list[str]) -> list[dict[str, Any]]:
     logger.info("\nSTART ACTIN CATEGORISATION\n")
 
     category_str = "\n".join(f"- {cat}" for cat in actin_categories)
@@ -329,56 +329,103 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     return response[0]
 
 
-def actin_workflow(eligibility_criteria_block: list[dict[str, Any]], client: LlmClient, actin_df: pd.DataFrame,
-                   actin_categories: list[str]) -> list[ActinMapping]:
-    actin_rules = (pd.Series(actin_df.to_numpy().flatten()).dropna().str.strip().tolist())
+def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str) -> list[ActinMapping]:
 
-    rules_list = []
-    for criterion in eligibility_criteria_block:
-        for key, val in criterion.items():
-            if key == "rule":
-                rules_list.append(val)
+    actin_df, actin_cat = load_actin_resource(actin_filepath)
 
-    for rule in rules_list:
-        cat_criteria = identify_actin_categories(rule, client, actin_categories)
+    # 1. Assign ACTIN category
+    rules_w_cat = []
+    for criterion in input_rules:
+        criterion_updated = criterion.copy()
 
-    sorted_cat_criteria = sort_criteria_by_category(cat_criteria)
+        input_rule = criterion.get("input_rule")
+        if input_rule is None:
+            raise TypeError(f"Eligibility rule missing in {criterion}")
 
-    actin_mapping = map_to_actin_by_category(sorted_cat_criteria, client, actin_df)
-    actin_mapping = actin_mark_new_rules(actin_mapping, actin_rules)
-    actin_mapping = actin_mark_confidence_score(actin_mapping, client)
-    actin_mapping = actin_reformat_output(actin_mapping)
+        matched_actin_cat_list = identify_actin_categories(input_rule, client, actin_cat)
+        matched_actin_cat_dict = matched_actin_cat_list[0]
+        criterion_updated["actin_category"] = next(iter(matched_actin_cat_dict.values()))
+        rules_w_cat.append(criterion_updated)
 
-    return actin_mapping
+    # 2. Map to ACTIN rules
+    rules_w_mapping = []
+    for criterion in rules_w_cat:
+        criterion_updated = criterion.copy()
+
+        mapped_rules = map_to_actin_rules(criterion, client, actin_df)
+
+        for rule in mapped_rules:
+            if isinstance(rule, dict):
+                criterion_updated["actin_rule"] = rule.get("actin_rule")
+            elif isinstance(rule, str):
+                criterion_updated["actin_rule"] = rule
+            else:
+                raise TypeError(f"Unexpected format in mapped_rules: {rule}")
+        rules_w_mapping.append(criterion_updated)
+
+    # 3. Reformat ACTIN rules
+    rules_reformat = []
+    for criterion in rules_w_mapping:
+        criterion_updated = criterion.copy()
+
+        actin_rule = criterion.get("actin_rule")
+        actin_rule_reformatted = actin_rule_reformat(actin_rule)
+        criterion_updated["actin_rule_reformat"] = actin_rule_reformatted
+        rules_reformat.append(criterion_updated)
+
+    # 4. Mark new rules
+    rules_w_new = []
+    for criterion in rules_reformat:
+        criterion_updated = criterion.copy()
+
+        actin_rule = criterion.get("actin_rule")
+        new_rules = actin_mark_new_rules(actin_rule, actin_df)
+
+        if len(new_rules) > 0:
+            criterion_updated["new_rule"] = new_rules
+        rules_w_new.append(criterion_updated)
+
+    # 5. Generate confidence score and explanation
+    rules_w_confidence = []
+    for criterion in rules_w_new:
+        criterion_updated = criterion.copy()
+
+        confidence_fields = actin_mark_confidence_score(criterion, client)
+        criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
+        criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
+        rules_w_confidence.append(criterion_updated)
+
+    actin_output = rules_w_confidence.copy()
+    return actin_output
 
 
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
-    parser.add_argument('--LLM_provider', help="Select OpenAI or Google", default="OpenAI")
-    parser.add_argument('--trial_json', help='json file containing trial data', required=True)
-    parser.add_argument('--out_trial_file', help='output file containing trial data', required=True)
-    parser.add_argument('--ACTIN_path', help='Full path to ACTIN rules CSV', required=True)
+    parser.add_argument('--llm_provider', help="Select OpenAI or Google. Defaults to OpenAI if unspecified.", default="OpenAI")
+    parser.add_argument('--input_file', help='json file containing trial data', required=True)
+    parser.add_argument('--output_file', help='output file from ACTIN curator', required=True)
+    parser.add_argument('--actin_filepath', help='Full path to ACTIN rules CSV', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
-    if args.LLM_provider == "OpenAI":
-        client = OpenaiClient(TEMPERATURE)
-    else:
+    logger.info("\n=== Starting ACTIN curator ===\n")
+
+    if args.llm_provider == "Google":
         client = GeminiClient(TEMPERATURE)
-    actin_df, actin_categories = load_actin_resource(args.ACTIN_path)
+    else:
+        client = OpenaiClient(TEMPERATURE)
 
-    trial_data = load_trial_data(args.trial_json)
-    eligibility_criteria = load_eligibility_criteria(trial_data)
+    input_file = load_trial_data(args.input_file)
+    eligibility_criteria = load_eligibility_criteria(input_file)
+    logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
 
-    processed_eligibility_criteria = llm_rules_prep_workflow(eligibility_criteria,
-                                                             client)  # returns list[dict[str, Any]]
+    processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
+    actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
 
-    actin_outputs = actin_workflow(sanitised_rules, client, actin_df, actin_categories)
-
-    with open(args.out_trial_file, "w", encoding="utf-8") as f:
+    with open(args.output_file, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
 
-    logger.info(f"ACTIN results written to {args.out_trial_file}")
+    logger.info(f"ACTIN results written to {args.output_file}")
 
 
 if __name__ == "__main__":
