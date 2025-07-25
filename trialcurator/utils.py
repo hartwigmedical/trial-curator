@@ -3,6 +3,7 @@ import re
 import logging
 from json import JSONDecodeError
 from trialcurator.llm_client import LlmClient
+from utils.smart_json_parser import SmartJsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def load_eligibility_criteria(trial_data):
 def llm_json_check_and_repair(response: str, client: LlmClient):
     try:
         extracted_response = extract_code_blocks(response, "json")
-        return json.loads(extracted_response)
+        return SmartJsonParser(extracted_response).consume_value()
     except JSONDecodeError:
         logger.warning("LLM JSON output is invalid. Starting repair.")
         repair_prompt = f"""
@@ -111,4 +112,5 @@ Fix the following JSON so it parses correctly. Return only the corrected JSON ob
 {response}
 """
         repaired_response = client.llm_ask(repair_prompt)
-        return json.loads(extract_code_blocks(repaired_response, "json"))
+        return SmartJsonParser(extract_code_blocks(repaired_response, "json")).consume_value()
+
