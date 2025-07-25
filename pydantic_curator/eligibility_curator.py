@@ -5,7 +5,7 @@ from json import JSONDecodeError
 
 from .utils import extract_criterion_schema_classes
 from .criterion_schema import BaseCriterion
-from trialcurator.eligibility_sanitiser import llm_extract_cohort_tagged_text
+from trialcurator.eligibility_text_preparation import llm_extract_cohort_tagged_text
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
 from trialcurator.openai_client import OpenaiClient
