@@ -216,7 +216,7 @@ def actin_rule_reformat(actin_rule: dict | list | str) -> str:
                 for item in val:
                     # recurse here
                     reformatted_container.append(actin_rule_reformat(item))
-                joined_items = "".join(reformatted_container)
+                joined_items = ", ".join(reformatted_container)
                 return f"{key}({joined_items})"
 
             elif key == "NOT":
@@ -400,7 +400,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
 
 def printable_summary(actin_output: list[ActinMapping], file):
-    print("\n====== ACTIN MAPPING SUMMARY ======\n", file=file)
+    print(f"====== ACTIN MAPPING SUMMARY ======\n", file=file)
 
     for index, rule in enumerate(actin_output, start=1):
         input_rule = rule.get("input_rule")
@@ -411,8 +411,7 @@ def printable_summary(actin_output: list[ActinMapping], file):
         if actin_rule_formatted is None:
             raise ValueError("Formatted ACTIN rule is missing")
 
-        print(f"--- Eligibility criterion {index} ---", file=file)
-        print(f"Input Rule:\n{input_rule}\n", file=file)
+        print(f"Input Rule:\n{input_rule}", file=file)
         print(f"Mapped ACTIN Rule:\n{actin_rule_formatted}\n", file=file)
         print("\n")
 
@@ -434,19 +433,20 @@ def main():
     else:
         client = OpenaiClient(TEMPERATURE)
 
-    input_file = load_trial_data(args.input_file)
-    eligibility_criteria = load_eligibility_criteria(input_file)
+    trial_data = load_trial_data(args.input_file)
+    eligibility_criteria = load_eligibility_criteria(trial_data)
     logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
 
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
+
     actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
 
     with open(args.output_file_whole, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
     logger.info(f"Complete ACTIN results written to {args.output_file_whole}")
 
-    # if not args.output_file_printable.endswith(".csv"):
-    #     args.output_file_printable += ".csv"
+    # if not args.output_file_printable.endswith(".txt"):
+    #     args.output_file_printable += ".txt"
     with open(args.output_file_printable, "w", encoding="utf-8") as f:
         printable_summary(actin_outputs, f)
     printable_summary(actin_outputs, sys.stdout)
