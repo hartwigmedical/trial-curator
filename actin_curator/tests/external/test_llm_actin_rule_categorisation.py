@@ -3,8 +3,7 @@ from pathlib import Path
 
 import actin_curator.actin_curator_utils
 from trialcurator.openai_client import OpenaiClient
-import actin_curator.actin_curator as actin
-from actin_curator.actin_curator_utils import output_formatting
+import actin_curator.actin_curator_run as actin
 
 input_general_1 = '''
 INCLUDE Participants must have a life expectancy of at least 3 months at the time of the first dose.

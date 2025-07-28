@@ -1,4 +1,6 @@
 import json
+import sys
+
 import pandas as pd
 import logging
 import argparse
@@ -177,10 +179,11 @@ Use the guidelines and formatting conventions provided.
     return llm_json_check_and_repair(response, client)
 
 
-def actin_rule_reformat(actin_rule: dict | list | str, level: int = 0) -> str:
+def actin_rule_reformat(actin_rule: dict | list | str) -> str:
     logger.info("\nSTART ACTIN RULE REFORMATTING\n")
     """
     Recursively format an ACTIN rule structure (dict/list/str) into a human-readable string.
+    Outputs a single line - no new line delimiters nor indentations
 
     Handles:
     - Rule with no parameters: {"RULE": []}         → "RULE"
@@ -188,9 +191,6 @@ def actin_rule_reformat(actin_rule: dict | list | str, level: int = 0) -> str:
     - Nested logic (AND/OR/NOT): adds indentation and parentheses
     - List values (leaf-level): returns '[val1, val2, ...]' using repr
     """
-
-    indent = "    " * level
-    next_indent = "    " * (level + 1)
 
     # recursion base case 1
     if isinstance(actin_rule, str):
@@ -215,20 +215,20 @@ def actin_rule_reformat(actin_rule: dict | list | str, level: int = 0) -> str:
                 reformatted_container = []
                 for item in val:
                     # recurse here
-                    reformatted_container.append(actin_rule_reformat(item, level + 1))
-                joined_items = f",\n{next_indent}".join(reformatted_container)
-                return f"{key}\n{indent}(\n{next_indent}" + joined_items + f"\n{indent})"
+                    reformatted_container.append(actin_rule_reformat(item))
+                joined_items = "".join(reformatted_container)
+                return f"{key}({joined_items})"
 
             elif key == "NOT":
                 # recurse here
-                reformatted_rule = actin_rule_reformat(val, level+1)
-                return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+                reformatted_rule = actin_rule_reformat(val)
+                return f"{key}({reformatted_rule})"
 
             else:
                 if isinstance(val, dict):
                     # recurse further into dict
-                    reformatted_rule = actin_rule_reformat(val, level+1)
-                    return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+                    reformatted_rule = actin_rule_reformat(val)
+                    return f"{key}({reformatted_rule})"
 
                 elif isinstance(val, list):
                     has_nesting = False
@@ -238,8 +238,8 @@ def actin_rule_reformat(actin_rule: dict | list | str, level: int = 0) -> str:
                             break
                     if has_nesting:  # recurse deeper due to nesting
                         # recurse here
-                        reformatted_rule = actin_rule_reformat(val, level + 1)
-                        return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+                        reformatted_rule = actin_rule_reformat(val)
+                        return f"{key}({reformatted_rule})"
 
                     elif len(val) > 0:  # in a flat list of parameters situation like [1.5, 2.3]. No more recursion.
                         reformatted_container = []
@@ -399,11 +399,30 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
     return actin_output
 
 
+def printable_summary(actin_output: list[ActinMapping], file):
+    print("\n====== ACTIN MAPPING SUMMARY ======\n", file=file)
+
+    for index, rule in enumerate(actin_output, start=1):
+        input_rule = rule.get("input_rule")
+        if input_rule is None:
+            raise ValueError("Input rule is missing")
+
+        actin_rule_formatted = rule.get("actin_rule_reformat")
+        if actin_rule_formatted is None:
+            raise ValueError("Formatted ACTIN rule is missing")
+
+        print(f"--- Eligibility criterion {index} ---", file=file)
+        print(f"Input Rule:\n{input_rule}\n", file=file)
+        print(f"Mapped ACTIN Rule:\n{actin_rule_formatted}\n", file=file)
+        print("\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
     parser.add_argument('--llm_provider', help="Select OpenAI or Google. Defaults to OpenAI if unspecified.", default="OpenAI")
     parser.add_argument('--input_file', help='json file containing trial data', required=True)
-    parser.add_argument('--output_file', help='output file from ACTIN curator', required=True)
+    parser.add_argument('--output_file_whole', help='complete output file from ACTIN curator', required=True)
+    parser.add_argument('--output_file_printable', help='human readable output summary file from ACTIN curator', required=False)
     parser.add_argument('--actin_filepath', help='Full path to ACTIN rules CSV', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
@@ -422,10 +441,16 @@ def main():
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
     actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
 
-    with open(args.output_file, "w", encoding="utf-8") as f:
+    with open(args.output_file_whole, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
+    logger.info(f"Complete ACTIN results written to {args.output_file_whole}")
 
-    logger.info(f"ACTIN results written to {args.output_file}")
+    # if not args.output_file_printable.endswith(".csv"):
+    #     args.output_file_printable += ".csv"
+    with open(args.output_file_printable, "w", encoding="utf-8") as f:
+        printable_summary(actin_outputs, f)
+    printable_summary(actin_outputs, sys.stdout)
+    logger.info(f"Human readable ACTIN summary results written to {args.output_file_printable}")
 
 
 if __name__ == "__main__":

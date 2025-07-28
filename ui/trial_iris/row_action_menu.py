@@ -4,7 +4,7 @@ from typing import Any
 
 import reflex as rx
 
-from pydantic_curator import eligibility_curator
+from pydantic_curator import pydantic_curator_run
 from pydantic_curator.criterion_formatter import format_criterion
 from pydantic_curator.eligibility_py_loader import exec_py_into_variable
 from trialcurator.openai_client import OpenaiClient
