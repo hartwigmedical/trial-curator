@@ -338,7 +338,7 @@ For this exclusion rule, determine if it can be rewritten as a logically equival
 
 ## OUTPUT STRUCTURE
 Return a JSON **list** of dictionaries, where each dictionary has:
-- `rule` (string): the unchanged input rule OR the flipped version of the input rule
+- `input_rule` (string): the unchanged input rule OR the flipped version of the input rule
 - `flipped` (boolean): true if the rule was flipped to inclusion, false otherwise
 - `exclude` (boolean): continues to be true is input rule is unchanged OR changes to false if rule as flipped to inclusion
 
@@ -402,23 +402,23 @@ becomes
     return llm_json_check_and_repair(response, client)
 
 
-def get_criterion_fields(criterion: dict) -> tuple[bool, str, str | None]:
+def get_criterion_fields(criterion: dict) -> tuple[str, bool, str | None]:
     return (
-        criterion.get("exclude"),
         criterion.get("input_rule"),
+        criterion.get("exclude"),
         criterion.get("cohorts")
     )
 
 
-def update_criterion_fields(exclude: bool, input_rule: str, cohort: str | None = None, flipped: bool | None = False) -> dict[str, Any]:
+def update_criterion_fields(input_rule: str, exclude: bool, flipped: bool | None = False, cohort: str | None = None) -> dict[str, Any]:
     updated_criterion = {
-        "exclude": exclude,
-        "input_rule": input_rule
+        "input_rule": input_rule,
+        "exclude": exclude
     }
-    if cohort is not None:
-        updated_criterion["cohort"] = cohort
     if flipped is not None and exclude:
         updated_criterion["flipped"] = flipped
+    if cohort is not None:
+        updated_criterion["cohort"] = cohort
 
     return updated_criterion
 
@@ -438,15 +438,15 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
 
     promoted_rules = []
     for criterion in rules_w_cohort:
-        original_exclude, original_rule, original_cohort = get_criterion_fields(criterion)
+        original_rule, original_exclude, original_cohort = get_criterion_fields(criterion)
         if not_a_oneline_rule(original_rule):
             rules_for_promotion = llm_subpoint_promotion(original_rule, client)  # returns a list of str
             if isinstance(rules_for_promotion, list):
                 for promoted_rule in rules_for_promotion:
                     promoted_rules.append(
                         update_criterion_fields(
-                            original_exclude,
                             promoted_rule,
+                            original_exclude,
                             original_cohort
                         )
                     )
@@ -457,20 +457,20 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
 
     flipped_rules = []
     for criterion in promoted_rules:
-        original_exclude, original_rule, original_cohort = get_criterion_fields(criterion)
+        original_rule, original_exclude, original_cohort = get_criterion_fields(criterion)
         if original_exclude:
             exclusion_flipping = llm_exclusion_logic_flipping(original_rule, client)  # returns a list of dict
             if isinstance(exclusion_flipping, list):
                 for flipped_dict in exclusion_flipping:
-                    flipped_rule = flipped_dict.get("rule")
+                    flipped_rule = flipped_dict.get("input_rule")
                     if not isinstance(flipped_rule, str):
                         raise TypeError("The flipped rule did not return a string")
                     flipped_rules.append(
                         update_criterion_fields(
-                            original_exclude,
                             flipped_rule,
-                            original_cohort,
-                            flipped_dict.get("flipped")
+                            original_exclude,
+                            flipped_dict.get("flipped"),
+                            original_cohort
                         )
                     )
                 continue

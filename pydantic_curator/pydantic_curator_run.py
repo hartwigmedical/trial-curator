@@ -6,14 +6,13 @@ from json import JSONDecodeError
 
 from .utils import extract_criterion_schema_classes
 from .criterion_schema import BaseCriterion
+
 from trialcurator.llm_client import LlmClient
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
-
-BATCH_MAX_WORDS = 60
 
 CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
 
@@ -79,39 +78,6 @@ modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in the
     '- Use `OtherCriterion` for criteria that do not fit any other types defined in the schema.'
     : ['Other']
 }
-
-
-def add_essential_types(criteria_types: set[str]):
-    criteria_types.update(['And', 'Or', 'Not', 'If'])
-
-
-def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient, additional_instructions: str = None) -> str:
-    # split into small batches and curate
-    criteria_batches = batch_tagged_criteria_by_words(eligibility_criteria, BATCH_MAX_WORDS)
-
-    # split into batches
-    curated_py_list = []
-    for criteria_text in criteria_batches:
-        while True:
-            criteria_to_types: dict[str, list[str]] = llm_categorise_criteria(criteria_text, client)
-
-            curated = llm_curate_from_text(criteria_to_types, client, additional_instructions)
-
-            # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
-            # we want to extract just the criteria in the list
-            m = re.search(r'inclusion_criteria.*(?::\s*List\[BaseCriterion])?= \[(.*)]', curated, flags=re.DOTALL)
-            if m:
-                result = m.group(1)
-                # remove blank lines
-                result = re.sub(r'^\s*\n|(\n\s*)+\Z', '', result, flags=re.MULTILINE)
-                curated_py_list.append(result)
-                logger.info(f'result = {result}')
-                break
-            else:
-                logger.warning('unable to parse curation output, retrying')
-
-    # join them back together
-    return '[\n' + ',\n'.join(curated_py_list) + '\n]'
 
 
 def llm_categorise_criteria(tagged_criteria: str, client: LlmClient) -> dict[str, list[str]]:
@@ -185,14 +151,16 @@ Return answer in a ```json code block```.
     return criteria_categories
 
 
+def add_essential_types(criteria_types: set[str]):
+    criteria_types.update(['And', 'Or', 'Not', 'If'])
+
+
 # Important lessons:
 # 1. Categorisation step is much better at choosing criterion type, giving it the type improves performance.
 # 2. We must tell LLM to choose criterion types from schema, otherwise it only use those ones with detailed
 #    instructions
-# 3.
-def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient,
-                         additional_instructions: str = None) -> str:
-    #logger.info(f'criteria_types: {criteria_types}')
+def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient, additional_instructions: str = None) -> str:
+    # logger.info(f'criteria_types: {criteria_types}')
 
     # collect all the criteria types
     criteria_types = set([t for type_list in criteria_to_types.values() for t in type_list])
@@ -221,10 +189,10 @@ top-level criterion, wrapping all relevant subconditions using AndCriterion, OrC
 - Answer should be given in a single python code block with no explanation. Use python classes instead of dict.
 
 # Description field
-- Top-level criteria: `description` field **must** capture the **full original text exactly as written**, including:
+- Top-level criteria: `input_description` field **must** capture the **full original text exactly as written**, including:
   - the `INCLUDE` or `EXCLUDE` tag at the beginning
   - sub-bullet points with original formatting.
-- Non–top-level criteria: the description should be complete and self-contained.
+- Non–top-level criteria: `sub_description' field should be complete and self-contained.
 
 # Composite Criterion
 - Use IfCriterion for any conditional logic, explicit or implied (e.g., “if X then Y”, “Y in males, Z in females”, \
@@ -260,20 +228,40 @@ following criteria along with their criteria types:
     return python_code
 
 
+def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additional_instructions: str = None) -> str:
 
-def llm_curate_cohorts(group_text: dict, llm_client: LlmClient) -> str:
-    group_eligibility_criteria = {}
+    rule: str = criterion_dict.get("input_rule")
+    exclude: bool = criterion_dict.get("exclude")
+    if exclude:
+        input_rule = "EXCLUDE " + rule
+    else:
+        input_rule = "INCLUDE " + rule
 
-    for cohort, eligibility_criteria in group_text.items():
-        logger.info(f'cohort: {cohort}')
-        clinical_trial_code = llm_curate_by_batch(eligibility_criteria, llm_client)
-        #clinical_trial_code = llm_refine_answer(clinical_trial_code, llm_client)
-        group_eligibility_criteria[cohort] = clinical_trial_code
+    flipped: bool = criterion_dict.get("flipped")
+    cohort: list[str] = criterion_dict.get("cohorts")
+
+    curated_py_list = []
+
+    rule_category: dict[str, list[str]] = llm_categorise_criteria(input_rule, client)
+    curated_rule = llm_curate_from_text(rule_category, client, additional_instructions)
+
+    # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
+    # we want to extract just the criteria in the list
+    m = re.search(r'inclusion_criteria.*(?::\s*List\[BaseCriterion])?= \[(.*)]', curated_rule, flags=re.DOTALL)
+    if m:
+        result = m.group(1)
+        # remove blank lines
+        result = re.sub(r'^\s*\n|(\n\s*)+\Z', '', result, flags=re.MULTILINE)
+        curated_py_list.append(result)
+        logger.info(f'result = {result}')
+    else:
+        raise ValueError('Unable to parse curation output.')
+
+    clinical_trial_code = '[\n' + ',\n'.join(curated_py_list) + '\n]'
 
     # now put them all together into a nicely printed python code
     eligibility_criteria_code = '{\n'
-    for g in group_eligibility_criteria.keys():
-        clinical_trial_code = group_eligibility_criteria[g]
+    for g in clinical_trial_code:
         # indent the code
         clinical_trial_code = clinical_trial_code.replace("\n", "\n    ")
         eligibility_criteria_code += f'    "{g}": {clinical_trial_code},\n'
@@ -286,48 +274,6 @@ def load_eligibility_criteria(trial_data):
     protocol_section = trial_data['protocolSection']
     eligibility_module = protocol_section['eligibilityModule']
     return unescape_json_str(eligibility_module['eligibilityCriteria'])
-
-
-#def remove_up_to(text: str, search: str) -> str:
-#    _, _, after = text.partition(search)
-#    return after
-
-def remove_up_to(text, pattern):
-    match = re.search(pattern, text)
-    if match:
-        # Return everything from the match onward
-        return text[match.end() - 1:]
-    else:
-        return ""
-
-
-# Prepend the schema if it is not added by the LLM. The reason is that
-# it is necessary for the next stage to know the class definitions
-def prepend_schema(trial_code: str, criterion_types: set[str]) -> str:
-    trial_code = f'{extract_criterion_schema_classes(criterion_types)}\n{trial_code}'
-    return trial_code
-
-
-def parse_actin_output_to_json(cohort: str, mapped_text: str) -> dict:
-    pattern = r"Input:\s*(INCLUDE|EXCLUDE)\s+(.*?)\nACTIN Output:\s*(.*?)\nNew rule:"
-    matches = re.findall(pattern, mapped_text, re.DOTALL)
-
-    result = {
-        "cohort": cohort,
-        "mappings": []
-    }
-
-    for tag, input_text, actin_text in matches:
-        cleaned_input = input_text.strip().replace('\n', ' ')
-        cleaned_actin = re.sub(r'\)\s*\n\s*(AND|OR)\s*\n\s*\(', r') \1 (', actin_text.strip(), flags=re.IGNORECASE)
-        cleaned_actin = re.sub(r'\s*\n\s*', ' ', cleaned_actin).strip()
-        result["mappings"].append({
-            "tag": tag,
-            "input_text": cleaned_input,
-            "ACTIN_rules": cleaned_actin
-        })
-
-    return result
 
 
 def main():
@@ -345,7 +291,9 @@ def main():
 
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
-    pydantic_trial_code = llm_curate_cohorts(processed_rules, client)
+    pydantic_trial_code = ""
+    for criterion in processed_rules:
+        pydantic_trial_code += pydantic_curator_workflow(criterion, client)
 
     # write it out to the python file
     with open(args.out_trial_py, 'w', encoding='utf-8') as f:
