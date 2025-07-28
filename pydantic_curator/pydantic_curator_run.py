@@ -1,12 +1,13 @@
 import json
 import logging
+import argparse
 import re
 from json import JSONDecodeError
 
 from .utils import extract_criterion_schema_classes
 from .criterion_schema import BaseCriterion
-from trialcurator.eligibility_text_preparation import llm_extract_cohort_tagged_text
 from trialcurator.llm_client import LlmClient
+from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
 from trialcurator.openai_client import OpenaiClient
 
@@ -79,10 +80,12 @@ modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in the
     : ['Other']
 }
 
+
 def add_essential_types(criteria_types: set[str]):
     criteria_types.update(['And', 'Or', 'Not', 'If'])
 
-def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient, additional_instructions: str=None) -> str:
+
+def llm_curate_by_batch(eligibility_criteria: str, client: LlmClient, additional_instructions: str = None) -> str:
     # split into small batches and curate
     criteria_batches = batch_tagged_criteria_by_words(eligibility_criteria, BATCH_MAX_WORDS)
 
@@ -181,13 +184,14 @@ Return answer in a ```json code block```.
 
     return criteria_categories
 
+
 # Important lessons:
 # 1. Categorisation step is much better at choosing criterion type, giving it the type improves performance.
 # 2. We must tell LLM to choose criterion types from schema, otherwise it only use those ones with detailed
 #    instructions
 # 3.
 def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient,
-                         additional_instructions: str=None) -> str:
+                         additional_instructions: str = None) -> str:
     #logger.info(f'criteria_types: {criteria_types}')
 
     # collect all the criteria types
@@ -255,38 +259,6 @@ following criteria along with their criteria types:
 
     return python_code
 
-
-def llm_refine_answer(clinical_trial_code: str, client: LlmClient) -> str:
-    system_prompt = '''
-You are a clinical trial curation validator and assistant. Your task is to review and improve Python objects representing \
-structured eligibility criteria based on a predefined schema (modeled using Pydantic).
-These objects are created from free-text eligibility criteria in oncology trials.'''
-
-    # make sure the schema is included
-    clinical_trial_code = prepend_schema(clinical_trial_code, [])
-    prompt = 'Given the following code:\n\n'
-    prompt += f"```python\n{clinical_trial_code}\n```\n"
-    prompt += '''
-Refactor the above code with the following rules:
-- Correct misuse of fields or criterion types (e.g., replacing OtherCriterion with a specific one if appropriate)
-- Use IfCriterion for conditional thresholds, pay attention to trailing ifs (e.g. A if X, B if Y) 
-- Wrap any criterion expressing negation (e.g., using "not", "no") in a `NotCriterion`, and populate the `description` \
-field accordingly.
-- Standardize field values (e.g., stage names, confirmation methods)
-- Preserve the original meaning exactly — do not infer or generalize beyond what is stated
-- For criteria that contain disjunctive logic (e.g., "X or Y"), split them into individual criteria and wrap them in an \
-`OrCriterion`.
-- For medication criteria that contain disjunctive medications (e.g., "X or Y"), split them into individual medication \
-criteria and wrap them in an `OrCriterion`.
-- Normalize lab value expressions to use `"x ULN"` for any upper limit of normal comparisons.
-- Adhere strictly to the pydantic schema defined in the code. Pay special care that mandatory fields are set.
-- Return a single code block with no explanation.
-'''
-
-    response = client.llm_ask(prompt, system_prompt)
-    python_code = extract_code_blocks(response, 'python')
-
-    return python_code
 
 
 def llm_curate_cohorts(group_text: dict, llm_client: LlmClient) -> str:
@@ -359,39 +331,26 @@ def parse_actin_output_to_json(cohort: str, mapped_text: str) -> dict:
 
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Clinical trial curator")
+    parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator")
     parser.add_argument('--trial_json', help='json file containing trial data', required=True)
     parser.add_argument('--out_trial_py', help='output python file containing trial data', required=True)
-    parser.add_argument('--out_actin', help='output text file containing ACTIN trial data', required=False)
-    parser.add_argument('--actin_rules', help='path to ACTIN rules CSV', required=False)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
-    trial_data = load_trial_data(args.trial_json)
-
     client = OpenaiClient()
 
+    trial_data = load_trial_data(args.trial_json)
     eligibility_criteria = load_eligibility_criteria(trial_data)
-    cohort_texts = llm_extract_cohort_tagged_text(eligibility_criteria, client)
-    clinical_trial_code = llm_curate_cohorts(cohort_texts, client)
+    logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
+
+    processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
+
+    pydantic_trial_code = llm_curate_cohorts(processed_rules, client)
 
     # write it out to the python file
     with open(args.out_trial_py, 'w', encoding='utf-8') as f:
-        f.write(clinical_trial_code)
+        f.write(pydantic_trial_code)
 
-    '''
-    # if we have ACTIN specified, curate it also
-    if args.out_actin:
-        actin_rules = load_actin_resource(args.actin_rules)
-        cohort_actin = {}
-        for cohort_name, tagged_text in cohort_texts.items():
-            actin_mapping = actin_map_by_batch(tagged_text, client, actin_rules, BATCH_SIZE)
-            cohort_actin[cohort_name] = actin_mapping
-        # write to file
-        with open(args.out_actin, "w") as f:
-            json.dump(cohort_actin, f, indent=2)
-    '''
 
 if __name__ == "__main__":
     main()
