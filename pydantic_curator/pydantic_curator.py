@@ -289,13 +289,16 @@ def main():
     eligibility_criteria = load_eligibility_criteria(trial_data)
     logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
 
+    # Text preparation workflow
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
+    # Pydantic curator workflow
     curated_rules = []
     for criterion in processed_rules:
         curated_result = pydantic_curator_workflow(criterion, client)
         curated_rules.append(curated_result)
 
+    # Output formatting
     tab_spaces = "    "
     with open(args.curated_output, 'w', encoding='utf-8') as f:
         f.write("rules = [\n")
@@ -303,8 +306,12 @@ def main():
             f.write(f"{tab_spaces}Rule(\n")
             f.write(f"{tab_spaces * 2}eligibilityRule={repr(rule.eligibilityRule)},\n")
             f.write(f"{tab_spaces * 2}exclude={rule.exclude},\n")
-            f.write(f"{tab_spaces * 2}flipped={rule.flipped},\n")
-            f.write(f"{tab_spaces * 2}cohorts={rule.cohorts},\n")
+
+            if rule.flipped is not None:
+                f.write(f"{tab_spaces * 2}flipped={rule.flipped},\n")
+
+            if rule.cohorts is not None:
+                f.write(f"{tab_spaces * 2}cohorts={repr(rule.cohorts)},\n")
 
             f.write(f"{tab_spaces * 2}curation=")
             curation_lines = rule.curation.strip().splitlines()
