@@ -1,7 +1,7 @@
 import pytest
 
 from pydantic_curator.criterion_schema import *
-from pydantic_curator.pydantic_curator_run import llm_curate_by_batch, llm_categorise_criteria
+from pydantic_curator.pydantic_curator import llm_curate_by_batch, llm_categorise_criteria
 from pydantic_curator.eligibility_py_loader import exec_py_into_variable
 from pydantic_curator.utils import criterion_equal_ignore_description, criteria_equal_ignore_description
 from trialcurator.openai_client import OpenaiClient

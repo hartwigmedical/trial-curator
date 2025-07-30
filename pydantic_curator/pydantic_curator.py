@@ -3,6 +3,7 @@ import logging
 import argparse
 import re
 from json import JSONDecodeError
+from collections import namedtuple
 
 from .utils import extract_criterion_schema_classes
 from .criterion_schema import BaseCriterion
@@ -157,10 +158,10 @@ def add_essential_types(criteria_types: set[str]):
 
 # Important lessons:
 # 1. Categorisation step is much better at choosing criterion type, giving it the type improves performance.
-# 2. We must tell LLM to choose criterion types from schema, otherwise it only use those ones with detailed
-#    instructions
-def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient, additional_instructions: str = None) -> str:
-    # logger.info(f'criteria_types: {criteria_types}')
+# 2. We must tell LLM to choose criterion types from schema, otherwise it only use those with detailed instructions
+def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient,
+                         additional_instructions: str = None) -> str:
+    # logger.info(f"criteria_types: {criteria_types}")
 
     # collect all the criteria types
     criteria_types = set([t for type_list in criteria_to_types.values() for t in type_list])
@@ -209,15 +210,15 @@ top-level criterion, wrapping all relevant subconditions using AndCriterion, OrC
 In general, choose appropriate criterion type from the schema. Following are more specific rules to help with ambiguity:  
 {criterion_mapping_rules}
 
-Create a python variable called inclusion_criteria of type `List[BaseCriterion]` to represent the \
-following criteria along with their criteria types:
+Create a python variable of the type `List[BaseCriterion]` to represent the following criterion along with their criteria types.
+Return only the python variable. Do not include any extra text.
 '''
     prompt += f'''
 ```json
 {json.dumps(criteria_to_types, indent=2)}
 ```
 '''
-    # use for gui recuration
+    # use for gui re-curation
     if additional_instructions:
         prompt += f'# Additional instructions:\n{additional_instructions}'
 
@@ -228,7 +229,68 @@ following criteria along with their criteria types:
     return python_code
 
 
-def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additional_instructions: str = None) -> str:
+def extract_actual_curation_content(raw_curation: str) -> str:
+    """
+    The LLM returns the raw curation output as the following example:
+
+    ```python
+    from typing import List, Optional
+
+    criteria: List[BaseCriterion] = [
+        NotCriterion(
+            description="EXCLUDE Any clinically significant concomitant disease or condition that could interfere with, or for which the treatment might interfere with, the conduct of the study or the absorption of oral medications.",
+            criterion=OrCriterion(
+                description="Any clinically significant [ concomitant disease or condition that could interfere with, or for which the treatment might interfere with, the conduct of the study or the absorption of oral medications.",
+                criteria=[
+                    ComorbidityCriterion(
+                        description="Any clinically significant concomitant disease or condition that could interfere with the conduct of the study.",
+                        comorbidity="clinically significant concomitant disease or condition"
+                    ),
+                    ClinicalJudgementCriterion(
+                        description="Any clinically significant concomitant disease or condition for which the treatment might interfere with the conduct of the study or the absorption of oral medications.",
+                        judgement="condition for which the treatment might interfere with the conduct of the study or the absorption of oral medications"
+                    )
+                ]
+            )
+        )
+    ]
+    ```
+
+    We need to remove the top section involving "import..." and "criteria: List[BaseCriterion] = ".
+    In other words, to extract the block inside the LAST [...]
+    """
+
+    lines = raw_curation.strip().splitlines()
+    full_text = "\n".join(lines)
+
+    end_idx = None
+    start_idx = None
+    level = 0
+
+    for idx in range(len(full_text) - 1, -1, -1):  # Start from the last char (should be a "]"). Stop AFTER the first char (i.e. include index 0)
+
+        if full_text[idx] == ']':
+            if level == 0:
+                end_idx = idx  # Flag the outermost ] has been found
+            level += 1  # If level > 0, it means we have traversed into the inner nested structure
+
+        elif full_text[idx] == '[':
+            level -= 1  # if there is an opening bracket, check whether it belongs on the outermost layer
+            if level == 0:
+                start_idx = idx
+                break
+
+    if start_idx is None or end_idx is None:
+        raise ValueError("No complete [...] block found in the input.")
+
+    return full_text[start_idx + 1 : end_idx].strip("\n")
+
+
+Rule = namedtuple("Rule", ["eligibilityRule", "exclude", "flipped", "cohorts", "curation"])
+
+
+def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additional_instructions: str = None) -> Rule:
+    logger.info("\n=== START PYDANTIC CURATION ====\n")
 
     rule: str = criterion_dict.get("input_rule")
     exclude: bool = criterion_dict.get("exclude")
@@ -236,38 +298,30 @@ def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additiona
         input_rule = "EXCLUDE " + rule
     else:
         input_rule = "INCLUDE " + rule
+    logger.info(f"Input rule:\n{input_rule}\n")
 
     flipped: bool = criterion_dict.get("flipped")
-    cohort: list[str] = criterion_dict.get("cohorts")
+    cohort: list[str] | None = criterion_dict.get("cohort")
 
-    curated_py_list = []
+    # Run Pydantic curator
+    curated_category: dict[str, list[str]] = llm_categorise_criteria(input_rule, client)
+    logger.info(f"Assigned to categories:\n{curated_category.values()}\n")
 
-    rule_category: dict[str, list[str]] = llm_categorise_criteria(input_rule, client)
-    curated_rule = llm_curate_from_text(rule_category, client, additional_instructions)
+    curated_rule = llm_curate_from_text(curated_category, client, additional_instructions)
+    logger.info(f"Raw curated output:\n{curated_rule}\n")
 
-    # this matches both "inclusion_criteria = [" and "inclusion_criteria: List[BaseCriterion] = ["
-    # we want to extract just the criteria in the list
-    m = re.search(r'inclusion_criteria.*(?::\s*List\[BaseCriterion])?= \[(.*)]', curated_rule, flags=re.DOTALL)
-    if m:
-        result = m.group(1)
-        # remove blank lines
-        result = re.sub(r'^\s*\n|(\n\s*)+\Z', '', result, flags=re.MULTILINE)
-        curated_py_list.append(result)
-        logger.info(f'result = {result}')
-    else:
-        raise ValueError('Unable to parse curation output.')
+    curated_rule_cleaned = extract_actual_curation_content(curated_rule)
+    logger.info(f"Cleaned curated output:\n{curated_rule_cleaned}\n")
 
-    clinical_trial_code = '[\n' + ',\n'.join(curated_py_list) + '\n]'
+    pydantic_output = Rule(
+        input_rule,
+        exclude,
+        flipped,
+        cohort,
+        curated_rule_cleaned
+    )
 
-    # now put them all together into a nicely printed python code
-    eligibility_criteria_code = '{\n'
-    for g in clinical_trial_code:
-        # indent the code
-        clinical_trial_code = clinical_trial_code.replace("\n", "\n    ")
-        eligibility_criteria_code += f'    "{g}": {clinical_trial_code},\n'
-    eligibility_criteria_code += '}'
-
-    return eligibility_criteria_code
+    return pydantic_output
 
 
 def load_eligibility_criteria(trial_data):
@@ -278,8 +332,9 @@ def load_eligibility_criteria(trial_data):
 
 def main():
     parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator")
-    parser.add_argument('--trial_json', help='json file containing trial data', required=True)
-    parser.add_argument('--out_trial_py', help='output python file containing trial data', required=True)
+    parser.add_argument('--trial_json', help='JSON file containing trial data', required=True)
+    parser.add_argument('--curated_output', help='Output file for curated trial data (expected file type: .py)',
+                        required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
@@ -291,13 +346,39 @@ def main():
 
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
-    pydantic_trial_code = ""
+    curated_rules = []
     for criterion in processed_rules:
-        pydantic_trial_code += pydantic_curator_workflow(criterion, client)
+        curated_result = pydantic_curator_workflow(criterion, client)
+        curated_rules.append(curated_result)
 
-    # write it out to the python file
-    with open(args.out_trial_py, 'w', encoding='utf-8') as f:
-        f.write(pydantic_trial_code)
+    tab_spaces = "    "
+    with open(args.curated_output, 'w', encoding='utf-8') as f:
+        f.write("rules = [\n")
+        for rule in curated_rules:
+            f.write(f"{tab_spaces}Rule(\n")
+            f.write(f"{tab_spaces * 2}eligibilityRule={repr(rule.eligibilityRule)},\n")
+            f.write(f"{tab_spaces * 2}exclude={rule.exclude},\n")
+            f.write(f"{tab_spaces * 2}flipped={rule.flipped},\n")
+            f.write(f"{tab_spaces * 2}cohorts={rule.cohorts},\n")
+
+            f.write(f"{tab_spaces * 2}curation=")
+            curation_lines = rule.curation.strip().splitlines()
+
+            temp_curation = []
+            counter = 0
+            for line in curation_lines:
+                if counter == 0:
+                    temp_curation.append(f"{tab_spaces * 0}{line}")
+                else:
+                    temp_curation.append(f"{tab_spaces * 3}{line}")
+                counter += 1
+            formatted_curation_lines = "\n".join(temp_curation)
+
+            f.write(formatted_curation_lines)
+            f.write(",\n")
+
+            f.write("),\n\n")
+        f.write("]\n")
 
 
 if __name__ == "__main__":
