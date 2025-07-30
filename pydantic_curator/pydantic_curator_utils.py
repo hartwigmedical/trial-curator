@@ -7,7 +7,6 @@ from .criterion_schema import BaseCriterion, AndCriterion, OrCriterion, IfCriter
 
 
 def extract_criterion_schema_classes(criterion_types: set[str] | list[str]) -> str:
-
     excluded_classes = ['TypedModel']
 
     criterion_schema_code = inspect.getsource(criterion_schema)
@@ -44,6 +43,7 @@ def extract_criterion_schema_classes(criterion_types: set[str] | list[str]) -> s
 
     return helper_class_code + '\n' + criterion_class_code
 
+
 def deep_remove_description(criterion: BaseCriterion):
     criterion.description = ""
     if isinstance(criterion, (AndCriterion, OrCriterion)):
@@ -57,9 +57,11 @@ def deep_remove_description(criterion: BaseCriterion):
         if criterion.else_:
             deep_remove_description(criterion.else_)
 
+
 def criterion_equal_ignore_description(c1: BaseCriterion, c2: BaseCriterion):
     return deep_remove_field(c1.model_dump(serialize_as_any=True, exclude_none=True), 'description') == \
         deep_remove_field(c2.model_dump(serialize_as_any=True, exclude_none=True), 'description')
+
 
 def criteria_equal_ignore_description(criteria1: list[BaseCriterion], criteria2: list[BaseCriterion]):
     if len(criteria1) != len(criteria2):
@@ -69,6 +71,7 @@ def criteria_equal_ignore_description(criteria1: list[BaseCriterion], criteria2:
         if not criterion_equal_ignore_description(c1, c2):
             return False
     return True
+
 
 # deeply remove any field with the given field name in a json type structure
 def deep_remove_field(data: Any, field_name) -> Any:
@@ -80,3 +83,12 @@ def deep_remove_field(data: Any, field_name) -> Any:
         return [deep_remove_field(item, field_name) for item in data]
     else:
         return data
+
+
+def clean_curated_output(curated: str) -> str:
+    curated = re.sub(r"^(from|import)\s.*$", "", curated, flags=re.MULTILINE)
+    curated = "\n".join(line for line in curated.splitlines() if line.strip())
+    curated = re.sub(
+        r"^\s*criteria\s*:\s*List\s*\[\s*BaseCriterion\s*\]\s*=\s*\[", "", curated, flags=re.MULTILINE)
+    curated = re.sub(r"\n\s*\]$", "", curated)
+    return curated

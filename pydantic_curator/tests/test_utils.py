@@ -1,6 +1,6 @@
 import pytest
 
-from pydantic_curator.utils import extract_criterion_schema_classes
+from pydantic_curator.pydantic_curator_utils import extract_criterion_schema_classes
 
 
 def test_extract_criterion_schema_classes():

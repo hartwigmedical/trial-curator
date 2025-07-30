@@ -5,12 +5,12 @@ import re
 from json import JSONDecodeError
 from collections import namedtuple
 
-from .utils import extract_criterion_schema_classes
+from .pydantic_curator_utils import extract_criterion_schema_classes, clean_curated_output
 from .criterion_schema import BaseCriterion
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
-from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks, batch_tagged_criteria_by_words
+from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
@@ -229,63 +229,6 @@ Return only the python variable. Do not include any extra text.
     return python_code
 
 
-def extract_actual_curation_content(raw_curation: str) -> str:
-    """
-    The LLM returns the raw curation output as the following example:
-
-    ```python
-    from typing import List, Optional
-
-    criteria: List[BaseCriterion] = [
-        NotCriterion(
-            description="EXCLUDE Any clinically significant concomitant disease or condition that could interfere with, or for which the treatment might interfere with, the conduct of the study or the absorption of oral medications.",
-            criterion=OrCriterion(
-                description="Any clinically significant [ concomitant disease or condition that could interfere with, or for which the treatment might interfere with, the conduct of the study or the absorption of oral medications.",
-                criteria=[
-                    ComorbidityCriterion(
-                        description="Any clinically significant concomitant disease or condition that could interfere with the conduct of the study.",
-                        comorbidity="clinically significant concomitant disease or condition"
-                    ),
-                    ClinicalJudgementCriterion(
-                        description="Any clinically significant concomitant disease or condition for which the treatment might interfere with the conduct of the study or the absorption of oral medications.",
-                        judgement="condition for which the treatment might interfere with the conduct of the study or the absorption of oral medications"
-                    )
-                ]
-            )
-        )
-    ]
-    ```
-
-    We need to remove the top section involving "import..." and "criteria: List[BaseCriterion] = ".
-    In other words, to extract the block inside the LAST [...]
-    """
-
-    lines = raw_curation.strip().splitlines()
-    full_text = "\n".join(lines)
-
-    end_idx = None
-    start_idx = None
-    level = 0
-
-    for idx in range(len(full_text) - 1, -1, -1):  # Start from the last char (should be a "]"). Stop AFTER the first char (i.e. include index 0)
-
-        if full_text[idx] == ']':
-            if level == 0:
-                end_idx = idx  # Flag the outermost ] has been found
-            level += 1  # If level > 0, it means we have traversed into the inner nested structure
-
-        elif full_text[idx] == '[':
-            level -= 1  # if there is an opening bracket, check whether it belongs on the outermost layer
-            if level == 0:
-                start_idx = idx
-                break
-
-    if start_idx is None or end_idx is None:
-        raise ValueError("No complete [...] block found in the input.")
-
-    return full_text[start_idx + 1 : end_idx].strip("\n")
-
-
 Rule = namedtuple("Rule", ["eligibilityRule", "exclude", "flipped", "cohorts", "curation"])
 
 
@@ -310,7 +253,10 @@ def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additiona
     curated_rule = llm_curate_from_text(curated_category, client, additional_instructions)
     logger.info(f"Raw curated output:\n{curated_rule}\n")
 
-    curated_rule_cleaned = extract_actual_curation_content(curated_rule)
+    # Clean curation output
+    curated_rule_cleaned = clean_curated_output(curated_rule)
+    if not curated_rule_cleaned.strip():
+        raise ValueError("Cleaned LLM output is empty")
     logger.info(f"Cleaned curated output:\n{curated_rule_cleaned}\n")
 
     pydantic_output = Rule(
@@ -333,8 +279,7 @@ def load_eligibility_criteria(trial_data):
 def main():
     parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator")
     parser.add_argument('--trial_json', help='JSON file containing trial data', required=True)
-    parser.add_argument('--curated_output', help='Output file for curated trial data (expected file type: .py)',
-                        required=True)
+    parser.add_argument('--curated_output', help='Output file for curated trial data (expected filetype: .py)', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
@@ -363,7 +308,6 @@ def main():
 
             f.write(f"{tab_spaces * 2}curation=")
             curation_lines = rule.curation.strip().splitlines()
-
             temp_curation = []
             counter = 0
             for line in curation_lines:
@@ -373,11 +317,10 @@ def main():
                     temp_curation.append(f"{tab_spaces * 3}{line}")
                 counter += 1
             formatted_curation_lines = "\n".join(temp_curation)
-
             f.write(formatted_curation_lines)
-            f.write(",\n")
+            f.write("\n")
 
-            f.write("),\n\n")
+            f.write(f"{tab_spaces * 2}),\n\n")
         f.write("]\n")
 
 
