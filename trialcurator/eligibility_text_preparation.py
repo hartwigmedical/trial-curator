@@ -338,9 +338,9 @@ For this exclusion rule, determine if it can be rewritten as a logically equival
 
 ## OUTPUT STRUCTURE
 Return a JSON **list** of dictionaries, where each dictionary has:
-- `input_rule` (string): the unchanged input rule OR the flipped version of the input rule
-- `flipped` (boolean): true if the rule was flipped to inclusion, false otherwise
-- `exclude` (boolean): continues to be true is input rule is unchanged OR changes to false if rule as flipped to inclusion
+- `"input_rule"`: the rule text (flipped or original)
+- `"flipped"`: `true` if flipped to inclusion; `false` otherwise
+- `"exclude"`: must be `false` if `flipped` is `true`, otherwise `true`
 
 - Do **not** prepend with the words EXCLUDE or INCLUDE.
 
@@ -399,7 +399,13 @@ becomes
     user_prompt += f"\n### INPUT TEXT\n{eligibility_criteria.strip()}\n"
 
     response = client.llm_ask(user_prompt, system_prompt=system_prompt)
-    return llm_json_check_and_repair(response, client)
+    response = llm_json_check_and_repair(response, client)
+
+    # In case LLM does not adjust `exclude` after exclusion logic flipping. It would lead to errors download when we append `INCLUDE` or `EXCLUDE` for the Pydantic or Actin curators
+    for item in response:
+        if item.get("flipped") is True:
+            item["exclude"] = False
+    return response
 
 
 def get_criterion_fields(criterion: dict) -> tuple[str, bool, str | None]:
