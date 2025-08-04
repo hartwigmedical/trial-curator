@@ -3,7 +3,7 @@ import logging
 import argparse
 import re
 from json import JSONDecodeError
-from collections import namedtuple
+from typing import NamedTuple
 
 from .pydantic_curator_utils import extract_criterion_schema_classes, clean_curated_output
 from .criterion_schema import BaseCriterion
@@ -14,6 +14,15 @@ from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_
 from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
+
+# NOTE this is not the same as the one used in loading the dataframe
+# the reason is that the curation is a BaseCriterion instead of str
+class RuleOutput(NamedTuple):
+    rule_text: str
+    exclude: bool
+    flipped: bool
+    cohorts: list[str] | None
+    curation: str
 
 CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
 
@@ -228,11 +237,7 @@ Return only the python variable. Do not include any extra text.
 
     return python_code
 
-
-Rule = namedtuple("Rule", ["eligibilityRule", "exclude", "flipped", "cohorts", "curation"])
-
-
-def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additional_instructions: str = None) -> Rule:
+def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additional_instructions: str = None) -> RuleOutput:
     logger.info("\n=== START PYDANTIC CURATION ====\n")
 
     rule: str = criterion_dict.get("input_rule")
@@ -259,12 +264,12 @@ def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additiona
         raise ValueError("Cleaned LLM output is empty")
     logger.info(f"Cleaned curated output:\n{curated_rule_cleaned}\n")
 
-    pydantic_output = Rule(
-        input_rule,
-        exclude,
-        flipped,
-        cohort,
-        curated_rule_cleaned
+    pydantic_output = RuleOutput(
+        rule_text=input_rule,
+        exclude=exclude,
+        flipped=flipped is True,
+        cohorts=cohort,
+        curation=curated_rule_cleaned
     )
 
     return pydantic_output
@@ -304,11 +309,10 @@ def main():
         f.write("rules = [\n")
         for rule in curated_rules:
             f.write(f"{tab_spaces}Rule(\n")
-            f.write(f"{tab_spaces * 2}eligibilityRule={repr(rule.eligibilityRule)},\n")
+            f.write(f"{tab_spaces * 2}rule_text={repr(rule.rule_text)},\n")
             f.write(f"{tab_spaces * 2}exclude={rule.exclude},\n")
 
-            if rule.flipped is not None:
-                f.write(f"{tab_spaces * 2}flipped={rule.flipped},\n")
+            f.write(f"{tab_spaces * 2}flipped={rule.flipped},\n")
 
             if rule.cohorts is not None:
                 f.write(f"{tab_spaces * 2}cohorts={repr(rule.cohorts)},\n")
