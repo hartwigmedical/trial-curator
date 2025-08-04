@@ -14,6 +14,8 @@ class OpenaiClient(LlmClient):
     """
     MODEL = "gpt-4o"
 
+    # TO DO: Lock the model version when put into production. See "snapshots" section in  https://platform.openai.com/docs/models/gpt-4o
+
     def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
         """
         Initialize the OpenaiClient class with specific model and tuning parameters.
