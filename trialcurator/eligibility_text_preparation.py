@@ -474,7 +474,7 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
                     flipped_rules.append(
                         update_criterion_fields(
                             flipped_rule,
-                            original_exclude,
+                            flipped_dict.get("exclude"),
                             flipped_dict.get("flipped"),
                             original_cohort
                         )

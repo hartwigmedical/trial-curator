@@ -120,6 +120,8 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
     if not isinstance(exclusion, bool):
         raise TypeError("Exclusion flag is not a boolean.")
 
+    flipped = criteria_dict.get("flipped")
+
     rule = criteria_dict.get("input_rule")
     if not isinstance(rule, str):
         raise TypeError("Eligibility rule is not a string.")
