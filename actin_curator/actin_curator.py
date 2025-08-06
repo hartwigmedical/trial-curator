@@ -20,7 +20,7 @@ from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin
 logger = logging.getLogger(__name__)
 
 TEMPERATURE = 0.0
-RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence of a full stop or otherwise.
+RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence or absence of a full stop.
 
 
 class ActinMapping(TypedDict, total=False):
@@ -353,6 +353,8 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
         criterion_updated = criterion.copy()
 
         mapped_rules = map_to_actin_rules(criterion, client, actin_df)
+        if isinstance(mapped_rules, list):
+            criterion_updated["input_rule"] = mapped_rules[0].get("input_rule")  # Update the input_rule to have the 'prefix' of INCLUDE or EXCLUDE
 
         for rule in mapped_rules:
             if isinstance(rule, dict):
