@@ -441,16 +441,14 @@ def main():
 
     actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
 
-    with open(args.output_file_whole, "w", encoding="utf-8") as f:
+    with open(args.output_file_complete, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
-    logger.info(f"Complete ACTIN results written to {args.output_file_whole}")
+    logger.info(f"Complete ACTIN results written to {args.output_file_complete}")
 
-    # if not args.output_file_printable.endswith(".txt"):
-    #     args.output_file_printable += ".txt"
-    with open(args.output_file_printable, "w", encoding="utf-8") as f:
-        printable_summary(actin_outputs, f)
-    printable_summary(actin_outputs, sys.stdout)
-    logger.info(f"Human readable ACTIN summary results written to {args.output_file_printable}")
+    with open(args.output_file_concise, "w", encoding="utf-8") as f:
+        printable_summary(actin_outputs, f)  # write to file
+    printable_summary(actin_outputs, sys.stdout)  # display on screen
+    logger.info(f"Human readable ACTIN summary results written to {args.output_file_concise}")
 
 
 if __name__ == "__main__":
