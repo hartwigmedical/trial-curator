@@ -441,8 +441,10 @@ def main():
     eligibility_criteria = load_eligibility_criteria(trial_data)
     logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
 
+    # Text preparation workflow
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
+    # ACTIN curator workflow
     actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
 
     with open(args.output_file_complete, "w", encoding="utf-8") as f:
