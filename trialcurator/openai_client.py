@@ -15,6 +15,8 @@ class OpenaiClient(LlmClient):
     MODEL = "gpt-4o-2024-08-06"
     # gpt-4o-2024-08-06 is the default gpt-4o. See https://platform.openai.com/docs/models/gpt-4o
 
+    # MODEL = "gpt-5-2025-08-07"  # Tested on 8 Aug 2025 - quite buggy. Not supporting TEMPERATURE = 0.0 yet. Sticking with gpt-4o for now.
+
     def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
         """
         Initialize the OpenaiClient class with specific model and tuning parameters.
