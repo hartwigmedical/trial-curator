@@ -15,6 +15,7 @@ from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
 
+
 # NOTE this is not the same as the one used in loading the dataframe
 # the reason is that the curation is a BaseCriterion instead of str
 class RuleOutput(NamedTuple):
@@ -23,6 +24,7 @@ class RuleOutput(NamedTuple):
     flipped: bool
     cohorts: list[str] | None
     curation: str
+
 
 CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
 
