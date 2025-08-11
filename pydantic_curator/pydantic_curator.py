@@ -2,18 +2,25 @@ import json
 import logging
 import argparse
 import re
-from json import JSONDecodeError
 from typing import NamedTuple
+
+from pydantic_curator.pydantic_type_prompts import INSTRUCTION_CRITERION_TYPES
+
+from trialcurator.llm_client import LlmClient
+from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
+
+from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
+from trialcurator.utils import load_trial_data, extract_code_blocks, llm_json_check_and_repair, load_eligibility_criteria
 
 from .pydantic_curator_utils import extract_criterion_schema_classes, clean_curated_output
 from .criterion_schema import BaseCriterion
 
-from trialcurator.llm_client import LlmClient
-from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
-from trialcurator.utils import load_trial_data, unescape_json_str, extract_code_blocks
-from trialcurator.openai_client import OpenaiClient
 
 logger = logging.getLogger(__name__)
+
+
+TEMPERATURE = 0.0
 
 
 # NOTE this is not the same as the one used in loading the dataframe
@@ -28,71 +35,10 @@ class RuleOutput(NamedTuple):
 
 CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
 
-# We give instructions only when a given criterion type is present
-INSTRUCTION_CRITERION_TYPES = {
-    '- Use `PrimaryTumorCriterion` for tumor types and / or locations under current study (e.g., melanoma, prostate).'
-    : ['PrimaryTumor'],
-
-    '- Use `MolecularBiomarkerCriterion` for expression-based biomarkers (e.g., PD-L1, HER2, IHC 3+).'
-    : ['MolecularBiomarker'],
-
-    '- Use `MolecularSignatureCriterion` for composite biomarkers or genomic signatures (e.g., MSI-H, TMB-H, HRD).'
-    : ['MolecularSignature'],
-
-    '- Use `GeneAlterationCriterion` for genomic alterations (e.g., EGFR mutation, ALK fusion). \
-When specifying protein variants, always use the HGVS protein notation format.'
-    : ['GeneAlteration'],
-
-    '- Use `LabValueCriterion` for lab-based requirements that have lab measurement, unit, value, and operator.'
-    : ['LabValue'],
-
-    '- Use PrimaryTumorCriterion AND MolecularSignatureCriterion for tumor type with biomarker (e.g., "PD-L1-positive \
-melanoma").'
-    : ['PrimaryTumor', 'MolecularSignature'],
-
-    '- Use HistologyCriterion only for named histologic subtypes (e.g., "adenocarcinoma", "squamous cell carcinoma", \
-"mucinous histology"). Use PrimaryTumorCriterion together with HistologyCriterion for tumor types + histologic type. \
-Multiple histology types must be seperated into multiple HistologyCriterion wrapped inside OrCriterion.'
-    : ['Histology', 'PrimaryTumor'],
-
-    '- DiagnosticFindingCriterion for statements like "histological confirmation of cancer", but use only PrimaryTumorCriterion \
-if specific tumor type or location is mentioned (e.g., "histological confirmation of melanoma").'
-    : ['DiagnosticFinding', ' PrimaryTumor', 'Histology'],
-
-    '- Use SymptomCriterion only for symptom related to the tumor. Use ComorbidityCriterion for conditions not related \
-to the tumor.'
-    : ['Symptom'],
-
-    '- Do not use PrimaryTumorCriterion for criteria involving other cancers or prior malignancies; instead, use \
-ComorbidityCriterion with a condition like "other active malignancy".'
-    : ['PrimaryTumorCriterion', 'Comorbidity'],
-
-    '- Use PriorTreatmentCriterion for past treatments. Multiple prior treatments must be separated into separate \
-PriorTreatmentCriterion objects enclosed in appropriate OrCriterion / AndCriterion.'
-    : ['PriorTreatment'],
-
-    '- Use CurrentTreatmentCriterion for current treatments. Multiple current treatments must be separated into separate \
-CurrentTreatmentCriterion objects enclosed in appropriate OrCriterion / AndCriterion.'
-    : ['CurrentTreatment'],
-
-    '- Use TreatmentOptionCriterion for requirements related to available, appropriate, or eligible treatments. In case of \
-not amenable to or not eligible for a specific treatment, model it as a NotCriterion wrapping a TreatmentOptionCriterion.'
-    : ['TreatmentOption'],
-
-    '''- Use `ClinicalJudgementCriterion` only for subjective clinical assessment that are not defined or followed by \
-objective measurements like lab values.
-- If a criterion includes subjective or qualitative language (e.g., "adequate", "sufficient", "acceptable") but \
-provides a concrete lab-based threshold (e.g., a named lab test with a value and unit), the *entire criterion* must be \
-modeled as a `LabValueCriterion`. Do NOT use `ClinicalJudgementCriterion` in these cases.**
-- comorbidity must be modelled using `ComorbidityCriterion` and not `ClinicalJudgementCriterion`'''
-    : ['ClinicalJudgement', 'LabValue'],
-
-    '- Use `OtherCriterion` for criteria that do not fit any other types defined in the schema.'
-    : ['Other']
-}
-
 
 def llm_categorise_criteria(tagged_criteria: str, client: LlmClient) -> dict[str, list[str]]:
+    logger.info("\nSTART ASSIGNING CATEGORIES TO CRITERION\n")
+
     categories = [c for c in CRITERION_TYPES if c not in ['Not', 'And', 'Or', 'If']]
 
     system_prompt = f"""
@@ -145,22 +91,8 @@ Classify the following eligibility criterion:
 {tagged_criteria}
 ```
 """
-    llm_output = client.llm_ask(user_prompt, system_prompt)
-    # print(f"Here are the categories {eligibility_criteria_w_category}")
-
-    try:
-        json_code_block = extract_code_blocks(llm_output, "json")
-        criteria_categories = json.loads(json_code_block)
-    except JSONDecodeError:
-        user_prompt = f"""Fix up the following JSON:
-{llm_output}
-Return answer in a ```json code block```.
-"""
-        llm_output = client.llm_ask(user_prompt)
-        json_code_block = extract_code_blocks(llm_output, "json")
-        criteria_categories = json.loads(json_code_block)
-
-    return criteria_categories
+    response = client.llm_ask(user_prompt, system_prompt)
+    return llm_json_check_and_repair(response, client)
 
 
 def add_essential_types(criteria_types: set[str]):
@@ -170,16 +102,29 @@ def add_essential_types(criteria_types: set[str]):
 # Important lessons:
 # 1. Categorisation step is much better at choosing criterion type, giving it the type improves performance.
 # 2. We must tell LLM to choose criterion types from schema, otherwise it only use those with detailed instructions
-def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient,
-                         additional_instructions: str = None) -> str:
-    # logger.info(f"criteria_types: {criteria_types}")
+def llm_curate_from_text(criteria_to_types: dict[str, list[str]], client: LlmClient, additional_instructions: str = None) -> str:
+    logger.info("\nSTART CURATING CRITERION\n")
 
     # collect all the criteria types
-    criteria_types = set([t for type_list in criteria_to_types.values() for t in type_list])
+    criteria_types = {t for type_list in criteria_to_types.values() for t in type_list}
+
+    # TO_DELETE: equivalent to
+
+    # criteria_types = set()
+    # for type_list in criteria_to_types.values():
+    #     for t in type_list:
+    #         criteria_types.add(t)
 
     add_essential_types(criteria_types)
-    criterion_mapping_rules = '\n'.join(
-        [k for k, v in INSTRUCTION_CRITERION_TYPES.items() if criteria_types.intersection(set(v))])
+    criterion_mapping_rules = '\n'.join([k for k, v in INSTRUCTION_CRITERION_TYPES.items() if criteria_types.intersection(set(v))])
+
+    # TO_DELETE: equivalent to
+
+    # criterion_mapping_rules = []
+    # for key, val in INSTRUCTION_CRITERION_TYPES.items():  # key is str, val is list
+    #     if criteria_types.intersection(set(val)):  # if these 2 sets share at least 1 element
+    #         criterion_mapping_rules.append(key)
+    # criterion_mapping_rules = "\n".join(criterion_mapping_rules)
 
     system_prompt = '''
 You are an expert clinical trial curator. Your role is to convert unstructured inclusion and exclusion criteria into a \
@@ -201,10 +146,10 @@ top-level criterion, wrapping all relevant subconditions using AndCriterion, OrC
 - Answer should be given in a single python code block with no explanation. Use python classes instead of dict.
 
 # Description field
-- Top-level criteria: `input_description` field **must** capture the **full original text exactly as written**, including:
+- Top-level criteria: `description` field **must** capture the **full original text exactly as written**, including:
   - the `INCLUDE` or `EXCLUDE` tag at the beginning
   - sub-bullet points with original formatting.
-- Non–top-level criteria: `sub_description' field should be complete and self-contained.
+- Non–top-level criteria: `description' field should be complete and self-contained.
 
 # Composite Criterion
 - Use IfCriterion for any conditional logic, explicit or implied (e.g., “if X then Y”, “Y in males, Z in females”, \
@@ -234,10 +179,11 @@ Return only the python variable. Do not include any extra text.
         prompt += f'# Additional instructions:\n{additional_instructions}'
 
     response = client.llm_ask(prompt, system_prompt=system_prompt)
-
     python_code = extract_code_blocks(response, 'python')
-
     return python_code
+
+
+# TDOO: Add confidence level estimation
 
 def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additional_instructions: str = None) -> RuleOutput:
     logger.info("\n=== START PYDANTIC CURATION ====\n")
@@ -277,22 +223,20 @@ def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additiona
     return pydantic_output
 
 
-def load_eligibility_criteria(trial_data):
-    protocol_section = trial_data['protocolSection']
-    eligibility_module = protocol_section['eligibilityModule']
-    return unescape_json_str(eligibility_module['eligibilityCriteria'])
-
-
 def main():
     parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator")
-    parser.add_argument('--trial_json', help='JSON file containing trial data', required=True)
-    parser.add_argument('--curated_output', help='Output file for curated trial data (expected filetype: .py)', required=True)
+    parser.add_argument('--llm_provider', help="Select OpenAI or another provider. Currently defaults to OpenAI", required=False)
+    parser.add_argument('--input_file', help='JSON file containing trial data', required=True)
+    parser.add_argument('--output_file', help='Output file for curated trial data (expected filetype: .py)', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
-    client = OpenaiClient()
+    if args.llm_provider == "Google":
+        client = GeminiClient(TEMPERATURE)
+    else:
+        client = OpenaiClient(TEMPERATURE)
 
-    trial_data = load_trial_data(args.trial_json)
+    trial_data = load_trial_data(args.input_file)
     eligibility_criteria = load_eligibility_criteria(trial_data)
     logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
 
@@ -307,7 +251,7 @@ def main():
 
     # Output formatting
     tab_spaces = "    "
-    with open(args.curated_output, 'w', encoding='utf-8') as f:
+    with open(args.output_file, 'w', encoding='utf-8') as f:
         f.write("rules = [\n")
         for rule in curated_rules:
             f.write(f"{tab_spaces}Rule(\n")
