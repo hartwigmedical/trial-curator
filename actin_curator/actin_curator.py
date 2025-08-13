@@ -15,7 +15,8 @@ from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_j
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 
 from actin_curator import actin_mapping_prompts
-from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules
+from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
+
 
 logger = logging.getLogger(__name__)
 
@@ -179,85 +180,6 @@ Use the guidelines and formatting conventions provided.
 
     response = client.llm_ask(user_prompt, system_prompt)
     return llm_json_check_and_repair(response, client)
-
-
-def actin_rule_reformat(actin_rule: dict | list | str) -> str:
-    logger.info("\nSTART ACTIN RULE REFORMATTING\n")
-    """
-    Recursively format an ACTIN rule structure (dict/list/str) into a human-readable string.
-    Outputs a single line - no new line delimiters nor indentations
-
-    Handles:
-    - Rule with no parameters: {"RULE": []}         → "RULE"
-    - Rule with parameters:    {"RULE": [1.5, 3.0]} → "RULE[1.5, 3.0]"
-    - Nested logic (AND/OR/NOT): adds indentation and parentheses
-    - List values (leaf-level): returns '[val1, val2, ...]' using repr
-    """
-
-    # recursion base case 1
-    if isinstance(actin_rule, str):
-        return actin_rule.replace("[]", "")  # LLM is liable return results like `HAS_LEPTOMENINGEAL_DISEASE[]`
-
-    # recursion base case 2
-    elif isinstance(actin_rule, list):
-        reformatted_container = []
-        for item in actin_rule:
-            item_str = repr(item)  # Do not recurse if it's a list. Only a minor str transformation
-            reformatted_container.append(item_str)
-        joined_items = ", ".join(reformatted_container)
-        return "[" + joined_items + "]"
-
-    elif isinstance(actin_rule, dict):
-        if len(actin_rule) != 1:
-            raise ValueError(f"Expected dict with 1 key. Instead have {len(actin_rule)}: {actin_rule}")
-
-        for key, val in actin_rule.items():
-
-            if key in {"AND", "OR"}:
-                reformatted_container = []
-                for item in val:
-                    # recurse here
-                    reformatted_container.append(actin_rule_reformat(item))
-                joined_items = ", ".join(reformatted_container)
-                return f"{key}({joined_items})"
-
-            elif key == "NOT":
-                # recurse here
-                reformatted_rule = actin_rule_reformat(val)
-                return f"{key}({reformatted_rule})"
-
-            else:
-                if isinstance(val, dict):
-                    # recurse further into dict
-                    reformatted_rule = actin_rule_reformat(val)
-                    return f"{key}({reformatted_rule})"
-
-                elif isinstance(val, list):
-                    has_nesting = False
-                    for item in val:
-                        if isinstance(item, (dict, list)):
-                            has_nesting = True
-                            break
-                    if has_nesting:  # recurse deeper due to nesting
-                        # recurse here
-                        reformatted_rule = actin_rule_reformat(val)
-                        return f"{key}({reformatted_rule})"
-
-                    elif len(val) > 0:  # in a flat list of parameters situation like [1.5, 2.3]. No more recursion.
-                        reformatted_container = []
-                        for sub_val in val:
-                            sub_val_str = repr(sub_val)
-                            reformatted_container.append(sub_val_str)
-                        joined_items = ", ".join(reformatted_container)
-                        return f"{key}[{joined_items}]"
-
-                    else:
-                        return key
-
-        raise ValueError(f"Could not format ACTIN rule from dict: {actin_rule}")
-
-    else:
-        raise TypeError(f"Unexpected data type encountered for actin_rule: {type(actin_rule).__name__} for {actin_rule}")
 
 
 def actin_mark_new_rules(actin_rule: dict | list | str, actin_df: pd.DataFrame) -> list[str]:

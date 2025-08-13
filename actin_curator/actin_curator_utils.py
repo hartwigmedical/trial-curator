@@ -1,12 +1,6 @@
 import logging
-from collections.abc import Callable
-from typing import Any
-
 import pandas as pd
 
-from trialcurator.utils import extract_code_blocks
-from utils.parser import ParseError
-from utils.smart_json_parser import SmartJsonParser
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +56,11 @@ def find_new_actin_rules(rule: dict | list | str, defined_rules: set[str]) -> li
     return sorted(new_rules)
 
 
-
-def actin_rule_reformat_w_newline_indentation(actin_rule: dict | list | str, level: int = 0) -> str:
+def actin_rule_reformat(actin_rule: dict | list | str) -> str:
     logger.info("\nSTART ACTIN RULE REFORMATTING\n")
     """
     Recursively format an ACTIN rule structure (dict/list/str) into a human-readable string.
+    Outputs a single line - no new line delimiters nor indentations
 
     Handles:
     - Rule with no parameters: {"RULE": []}         → "RULE"
@@ -74,9 +68,6 @@ def actin_rule_reformat_w_newline_indentation(actin_rule: dict | list | str, lev
     - Nested logic (AND/OR/NOT): adds indentation and parentheses
     - List values (leaf-level): returns '[val1, val2, ...]' using repr
     """
-
-    indent = "    " * level
-    next_indent = "    " * (level + 1)
 
     # recursion base case 1
     if isinstance(actin_rule, str):
@@ -101,20 +92,20 @@ def actin_rule_reformat_w_newline_indentation(actin_rule: dict | list | str, lev
                 reformatted_container = []
                 for item in val:
                     # recurse here
-                    reformatted_container.append(actin_rule_reformat_w_newline_indentation(item, level + 1))
-                joined_items = f",\n{next_indent}".join(reformatted_container)
-                return f"{key}\n{indent}(\n{next_indent}" + joined_items + f"\n{indent})"
+                    reformatted_container.append(actin_rule_reformat(item))
+                joined_items = ", ".join(reformatted_container)
+                return f"{key}({joined_items})"
 
             elif key == "NOT":
                 # recurse here
-                reformatted_rule = actin_rule_reformat_w_newline_indentation(val, level+1)
-                return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+                reformatted_rule = actin_rule_reformat(val)
+                return f"{key}({reformatted_rule})"
 
             else:
                 if isinstance(val, dict):
                     # recurse further into dict
-                    reformatted_rule = actin_rule_reformat_w_newline_indentation(val, level+1)
-                    return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+                    reformatted_rule = actin_rule_reformat(val)
+                    return f"{key}({reformatted_rule})"
 
                 elif isinstance(val, list):
                     has_nesting = False
@@ -124,8 +115,8 @@ def actin_rule_reformat_w_newline_indentation(actin_rule: dict | list | str, lev
                             break
                     if has_nesting:  # recurse deeper due to nesting
                         # recurse here
-                        reformatted_rule = actin_rule_reformat_w_newline_indentation(val, level + 1)
-                        return f"{key}\n{indent}(\n{next_indent}{reformatted_rule}\n{indent})"
+                        reformatted_rule = actin_rule_reformat(val)
+                        return f"{key}({reformatted_rule})"
 
                     elif len(val) > 0:  # in a flat list of parameters situation like [1.5, 2.3]. No more recursion.
                         reformatted_container = []
