@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient(LlmClient):
-    MODEL = "gemini-2.0-flash-001"
+    MODEL = "gemini-2.5-flash"
 
     def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
 

@@ -342,7 +342,7 @@ def printable_summary(actin_output: list[ActinMapping], file):
 
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
-    parser.add_argument('--llm_provider', help="Select OpenAI or Google. Defaults to OpenAI if unspecified.", default="OpenAI")
+    parser.add_argument('--llm_provider', help="Select LLM from OpenAI or Google. Defaults to Google's Gemini if unspecified.", default="Gemini")
     parser.add_argument('--input_file', help='json file containing trial data', required=True)
     parser.add_argument('--output_file_complete', help='complete output file from ACTIN curator', required=True)
     parser.add_argument('--output_file_concise', help='human readable output summary file from ACTIN curator (.tsv or .txt recommended)', required=False)
@@ -352,10 +352,10 @@ def main():
 
     logger.info("\n=== Starting ACTIN curator ===\n")
 
-    if args.llm_provider == "Google":
-        client = GeminiClient(TEMPERATURE)
-    else:
+    if args.llm_provider == "OpenAI":
         client = OpenaiClient(TEMPERATURE)
+    else:
+        client = GeminiClient(TEMPERATURE)
 
     trial_data = load_trial_data(args.input_file)
     eligibility_criteria = load_eligibility_criteria(trial_data)
