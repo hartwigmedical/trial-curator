@@ -2,12 +2,14 @@ import pytest
 from pathlib import Path
 
 from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
 from actin_curator import actin_curator, actin_curator_utils
 
 
 @pytest.fixture(scope="module")
 def client_and_actin_data():
-    client = OpenaiClient(0.0)
+    # client = OpenaiClient(0.0)
+    client = GeminiClient(0.0)
     actin_repo_root = Path(__file__).resolve().parents[2]
     actin_rules_path = actin_repo_root / "data/ACTIN_rules/ACTIN_rules_w_categories_13062025.csv"
     actin_rules, actin_categories = actin_curator_utils.load_actin_resource(str(actin_rules_path))
