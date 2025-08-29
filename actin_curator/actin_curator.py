@@ -343,7 +343,8 @@ def printable_summary(actin_output: list[ActinMapping], file):
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
     parser.add_argument('--llm_provider', help="Select LLM from OpenAI or Google. Defaults to Google's Gemini if unspecified.", default="Gemini")
-    parser.add_argument('--input_file', help='json file containing trial data', required=True)
+    parser.add_argument('--input_file', help='json file containing trial data', required=False)
+    parser.add_argument('--input_text_file', help='text file containing eligibility criteria', required=False)
     parser.add_argument('--output_file_complete', help='complete output file from ACTIN curator', required=True)
     parser.add_argument('--output_file_concise', help='human readable output summary file from ACTIN curator (.tsv or .txt recommended)', required=False)
     parser.add_argument('--actin_filepath', help='Full path to ACTIN rules CSV', required=True)
@@ -357,8 +358,16 @@ def main():
     else:
         client = GeminiClient(TEMPERATURE)
 
-    trial_data = load_trial_data(args.input_file)
-    eligibility_criteria = load_eligibility_criteria(trial_data)
+    if args.input_file:
+        if args.input_text_file:
+            raise ValueError("--input_file and --input_text_file cannot both be specified")
+        trial_data = load_trial_data(args.input_file)
+        eligibility_criteria = load_eligibility_criteria(trial_data)
+    elif args.input_text_file:
+        with open(args.input_text_file, 'r') as f:
+            eligibility_criteria = f.read()
+    else:
+        raise ValueError("Either --input_file or --input_text_file must be specified")
     logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
 
     # Text preparation workflow
@@ -371,10 +380,11 @@ def main():
         json.dump(actin_outputs, f, indent=2)
     logger.info(f"Complete ACTIN results written to {args.output_file_complete}")
 
-    with open(args.output_file_concise, "w", encoding="utf-8") as f:
-        printable_summary(actin_outputs, f)  # write to file
-    printable_summary(actin_outputs, sys.stdout)  # display on screen
-    logger.info(f"Human readable ACTIN summary results written to {args.output_file_concise}")
+    if args.output_file_concise:
+        with open(args.output_file_concise, "w", encoding="utf-8") as f:
+            printable_summary(actin_outputs, f)  # write to file
+        printable_summary(actin_outputs, sys.stdout)  # display on screen
+        logger.info(f"Human readable ACTIN summary results written to {args.output_file_concise}")
 
 
 if __name__ == "__main__":
