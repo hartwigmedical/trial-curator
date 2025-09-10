@@ -10,7 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient(LlmClient):
-    MODEL = "gemini-2.5-flash"
+    MODEL = "gemini-2.5-pro"
+
+    # Gemini models: https://ai.google.dev/gemini-api/docs/models
+    # As of June 2025, latest model is Gemini 2.5 with three stable releases:
+    # 1. gemini-2.5-flash-lite
+    # 2. gemini-2.5-flash
+    # 3. gemini-2.5-pro
+
 
     def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
 
