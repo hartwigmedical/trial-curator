@@ -101,16 +101,113 @@ def load_eligibility_criteria(trial_data):
     return unescape_json_str(eligibility_module['eligibilityCriteria'])
 
 
+def fix_json_math_expressions(raw_json: str) -> str:
+    """
+    Fixes math expressions in JSON values, including inside lists.
+    Only evaluates unquoted expressions.
+    """
+
+    def is_math_expression(s: str) -> bool:
+        return bool(re.fullmatch(r'[\d.\s+\-*/()%]+\d', s.strip()))
+
+    def safe_eval(expr: str):
+        try:
+            return eval(expr, {"__builtins__": None}, {})
+        except Exception:
+            return expr
+
+    def replacer(match):
+        prefix = match.group(1)
+        expr = match.group(2)
+        suffix = match.group(3)
+
+        if is_math_expression(expr):
+            result = safe_eval(expr)
+            if isinstance(result, (int, float)):
+                return f"{prefix}{result}{suffix}"
+
+        return match.group(0)
+
+    # Pattern to match unquoted values in dicts or lists
+    # Match values after :, [ or , that are math expressions,
+    # but NOT quoted (no ")
+    pattern = re.compile(
+        r'([:\[,]\s*)'  # matches the prefix
+        r'([\d.\s+\-*/()%]+\d)'  # matches the math expression
+        r'(\s*)'  # spaces after the expression
+        r'(?=[,\]}])',  # lookahead: ensures that what follows the expression is ,] or }
+        re.MULTILINE
+    )
+    fixed = pattern.sub(replacer, raw_json)
+
+    return fixed
+
+
+def fix_malformed_json(json_str: str) -> str:
+    """
+    Sometimes LLM outputs malformed json, it is much easier to fix with regex than
+    to overload the prompts with more instructions
+    """
+
+    """
+    Fix dictionary without value, e.g., { "IS_MALE" } -> "IS_MALE"
+    """
+    pattern = r'{\s*("\w+")\s*}'
+    json_str = re.sub(pattern, r'\1', json_str)
+
+    """
+    Fix malformed entries like:
+      "actin_rule": "IS_MALE[]"
+    to:
+      "actin_rule": { "IS_MALE": [] }
+    """
+    pattern = r'("\w+")\s*:\s*("\w+)\[\]"'
+    replacement = r'\1: { \2: [] }'
+    json_str = re.sub(pattern, replacement, json_str)
+
+    """
+    Fix malformed entries like:
+      "actin_rule": "RULE_NAME": [1]
+    to:
+      "actin_rule": { "RULE_NAME": [1] }
+    """
+    pattern = r'("\w+")\s*:\s*("\w+")\s*:\s*(\[[^\]]*\])'
+    replacement = r'\1: { \2: \3 }'
+    json_str = re.sub(pattern, replacement, json_str)
+
+    """
+    Fix malformed entries like:
+      "actin_rule": "NOT": "RULE_NAME"
+    to:
+      "actin_rule": { "NOT": "RULE_NAME" }
+    """
+    pattern = r'("\w+")\s*:\s*("\w+")\s*:\s*("\w+")'
+    replacement = r'\1: { \2: \3 }'
+    json_str = re.sub(pattern, replacement, json_str)
+
+    # fix up anything that has uncompleted numerical calculations
+    json_str = fix_json_math_expressions(json_str)
+
+    return json_str
+
+
 def llm_json_check_and_repair(response: str, client: LlmClient):
+
     try:
         extracted_response = extract_code_blocks(response, "json")
-        return SmartJsonParser(extracted_response).consume_value()
-    except JSONDecodeError:
-        logger.warning("LLM JSON output is invalid. Starting repair.")
+        first_fix = fix_malformed_json(extracted_response)
+        second_fix = SmartJsonParser(first_fix).consume_value()
+        return second_fix
+
+    except Exception as e:
+        logger.warning(f"An exception {e} of type {type(e)} occurred.")
+        logger.warning("Send to LLM for repair.")
         repair_prompt = f"""
 Fix the following JSON so it parses correctly. Return only the corrected JSON object:
 {response}
 """
         repaired_response = client.llm_ask(repair_prompt)
-        return SmartJsonParser(extract_code_blocks(repaired_response, "json")).consume_value()
-
+        extracted_response = extract_code_blocks(repaired_response, "json")
+        first_fix = fix_malformed_json(extracted_response)
+        second_fix = SmartJsonParser(first_fix).consume_value()
+        return second_fix
