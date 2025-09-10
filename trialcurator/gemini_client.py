@@ -18,7 +18,6 @@ class GeminiClient(LlmClient):
     # 2. gemini-2.5-flash
     # 3. gemini-2.5-pro
 
-
     def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
 
         project_id = os.getenv("GEMINI_PROJECT_ID")

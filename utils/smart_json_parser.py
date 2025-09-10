@@ -6,6 +6,7 @@ from utils.parser import Parser
 
 logger = logging.getLogger(__name__)
 
+
 class SmartJsonParser(Parser):
     """A robust JSON parser that handles malformed JSON-like strings with custom error handling.
 
@@ -39,7 +40,7 @@ class SmartJsonParser(Parser):
             try:
                 return eval(v, {"__builtins__": None}, {})
             except:
-                self.raise_error(f"Invalid math expresison: {v}")
+                self.raise_error(f"Invalid math expressions: {v}")
         else:
             self.raise_error(f"Invalid expresison: {v}")
 
@@ -81,6 +82,7 @@ class SmartJsonParser(Parser):
             return lone_value
 
         return dictionary
+
 
 def _is_math_expression(s: str) -> bool:
     return bool(re.fullmatch(r'[\d.\s+\-*/()%]+', s.strip()))
