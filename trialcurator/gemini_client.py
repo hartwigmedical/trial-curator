@@ -18,15 +18,16 @@ class GeminiClient(LlmClient):
     # 2. gemini-2.5-flash
     # 3. gemini-2.5-pro
 
-    def __init__(self, temperature=0.0, top_p=1.0, model=MODEL):
+    def __init__(self, temperature=0.0, top_p=1.0, top_k=1, model=MODEL):
 
         project_id = os.getenv("GEMINI_PROJECT_ID")
         location = os.getenv("GEMINI_LOCATION")
 
         self.wrapped_client = genai.Client(vertexai=True, project=project_id, location=location)
+        self.model = model
         self.temperature = temperature
         self.top_p = top_p
-        self.model = model
+        self.top_k = top_k
 
     def llm_ask(self, user_prompt: str, system_prompt: str = None) -> str:
 
@@ -35,13 +36,17 @@ class GeminiClient(LlmClient):
         if system_prompt:
             config = types.GenerateContentConfig(
                 system_instruction=system_prompt,
-                temperature=self.temperature
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k
             )
             for line in system_prompt.splitlines():
                 logging.info(f"system prompt: {line}")
         else:
             config = types.GenerateContentConfig(
-                temperature=self.temperature
+                temperature=self.temperature,
+                top_p=self.top_p,
+                top_k=self.top_k
             )
         for line in user_prompt.splitlines():
             logging.info(f"user prompt: {line}")

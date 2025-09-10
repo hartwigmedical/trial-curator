@@ -3,6 +3,7 @@ import pytest
 
 from trialcurator.eligibility_text_preparation import llm_sanitise_text
 from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
 
 
 def remove_blank_lines_and_trailing_footstops(text: str) -> str:
@@ -13,8 +14,8 @@ def remove_blank_lines_and_trailing_footstops(text: str) -> str:
 
 @pytest.fixture
 def client():
-    return OpenaiClient()
-    # return GeminiClient()
+    # return OpenaiClient()
+    return GeminiClient()
 
 
 def test_criterion_retention_and_removal(client):
@@ -125,6 +126,8 @@ Inclusion Criteria:
 
     # remove blank lines
     output_text = remove_blank_lines_and_trailing_footstops(output_text)
+    assert output_text == expected_output_text
+
     assert "male or female" not in output_text.lower()
     assert "female" not in output_text.lower()
 
