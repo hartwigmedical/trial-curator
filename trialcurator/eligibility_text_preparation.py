@@ -35,7 +35,6 @@ Cooperative Oncology Group (ECOG)" should be replaced with "ECOG".
 - Ensure each bullet starts on a new line.
 
 ## INDENTATION
-
 - Use a single hyphen (`-`) for all bullet points.
 - Top-level bullets must not be indented.
 - Nested bullet points (child bullets) must be indented **with exactly two spaces**.
@@ -72,8 +71,10 @@ To:
 - Do **not** promote or demote bullet level based on visual indentation alone; rely on **semantic cues** (colon or conditional phrases).
 
 ## CRITERION SPLITTING
-- If a criterion lists multiple conditions joined together that are logically independent exclusion/inclusion rules, \
-split each into its own bullet
+- If a criterion lists multiple conditions joined together that are logically independent exclusion/inclusion rules, split each into its own bullet **provided it results in a self-contained criterion**.
+    - E.g. "histologically-confirmed diagnosis of A or B cancer" → "- histologically-confirmed diagnosis of A cancer" and "- histologically-confirmed diagnosis of B cancer"
+    - E.g. "pregnant or breastfeeding" → "- Pregnant" and "- Breastfeeding"
+    - E.g. "Historic condition X or Y that render the patient ineligible" → "- Historic condition X that render the patient ineligible" and "- Historic condition Y that render the patient ineligible"
 
 ## REMOVE PERMISSIVE OR NON-RESTRICTIVE LINES
 - Only include criteria that explicitly define inclusion or exclusion rules.
@@ -408,7 +409,7 @@ becomes
     return response
 
 
-def get_criterion_fields(criterion: dict) -> tuple[str, bool, str | None]:
+def get_criterion_fields(criterion: dict) -> tuple[str, bool, list[str] | None]:
     return (
         criterion.get("input_rule"),
         criterion.get("exclude"),
@@ -416,15 +417,15 @@ def get_criterion_fields(criterion: dict) -> tuple[str, bool, str | None]:
     )
 
 
-def update_criterion_fields(input_rule: str, exclude: bool, flipped: bool | None = False, cohort: str | None = None) -> dict[str, Any]:
+def update_criterion_fields(input_rule: str, exclude: bool, flipped: bool | None = False, cohorts: list[str] | None = None) -> dict[str, Any]:
     updated_criterion = {
         "input_rule": input_rule,
         "exclude": exclude
     }
-    if flipped is not None and exclude:
+    if flipped is not None:
         updated_criterion["flipped"] = flipped
-    if cohort is not None:
-        updated_criterion["cohort"] = cohort
+    if cohorts is not None:
+        updated_criterion["cohorts"] = cohorts
 
     return updated_criterion
 
@@ -438,22 +439,22 @@ def not_a_oneline_rule(rule: str) -> bool:
     return len(lines) > 1
 
 
-def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dict[str, Any]]:
-    rules_sanitised = llm_sanitise_text(eligibility_criteria_input, client)  # returns a block of string
-    rules_w_cohort = llm_tag_cohort_and_direction(rules_sanitised, client)  # returns a list of dict
+def llm_rules_prep_workflow(eligibility_criteria_input: str, clients: dict[str, LlmClient]) -> list[dict[str, Any]]:
+    rules_sanitised = llm_sanitise_text(eligibility_criteria_input, clients["sanitise"])  # returns a block of string
+    rules_w_cohort = llm_tag_cohort_and_direction(rules_sanitised, clients["tag"])  # returns a list of dict
 
     promoted_rules = []
     for criterion in rules_w_cohort:
-        original_rule, original_exclude, original_cohort = get_criterion_fields(criterion)
+        original_rule, original_exclude, original_cohorts = get_criterion_fields(criterion)
         if not_a_oneline_rule(original_rule):
-            rules_for_promotion = llm_subpoint_promotion(original_rule, client)  # returns a list of str
+            rules_for_promotion = llm_subpoint_promotion(original_rule, clients["promote"])  # returns a list of str
             if isinstance(rules_for_promotion, list):
                 for promoted_rule in rules_for_promotion:
                     promoted_rules.append(
                         update_criterion_fields(
-                            promoted_rule,
-                            original_exclude,
-                            original_cohort
+                            input_rule=promoted_rule,
+                            exclude=original_exclude,
+                            cohorts=original_cohorts
                         )
                     )
                 continue
@@ -463,9 +464,9 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
 
     flipped_rules = []
     for criterion in promoted_rules:
-        original_rule, original_exclude, original_cohort = get_criterion_fields(criterion)
+        original_rule, original_exclude, original_cohorts = get_criterion_fields(criterion)
         if original_exclude:
-            exclusion_flipping = llm_exclusion_logic_flipping(original_rule, client)  # returns a list of dict
+            exclusion_flipping = llm_exclusion_logic_flipping(original_rule, clients["flip"])  # returns a list of dict
             if isinstance(exclusion_flipping, list):
                 for flipped_dict in exclusion_flipping:
                     flipped_rule = flipped_dict.get("input_rule")
@@ -473,10 +474,10 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
                         raise TypeError("The flipped rule did not return a string")
                     flipped_rules.append(
                         update_criterion_fields(
-                            flipped_rule,
-                            flipped_dict.get("exclude"),
-                            flipped_dict.get("flipped"),
-                            original_cohort
+                            input_rule = flipped_rule,
+                            exclude = bool(flipped_dict.get("exclude")),
+                            flipped = bool(flipped_dict.get("flipped")),
+                            cohorts = original_cohorts
                         )
                     )
                 continue

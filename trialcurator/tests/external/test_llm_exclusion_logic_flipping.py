@@ -2,12 +2,13 @@ import pytest
 
 from trialcurator.eligibility_text_preparation import llm_exclusion_logic_flipping
 from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
 
 
 @pytest.fixture
 def client():
-    return OpenaiClient()
-    # return GeminiClient()
+    # return OpenaiClient()
+    return GeminiClient(model="gemini-2.5-flash")
 
 
 def test_flip_lab_value_exclusion(client):
@@ -26,28 +27,28 @@ ALT ≥ 3 × ULN (if related to liver metastases > 5 × ULN)
     expected_output = [
         {"exclude": False,
          "flipped": True,
-         "rule": "QTcF interval ≤ 470 ms at screening"},
+         "input_rule": "QTcF interval ≤ 470 ms at screening"},
         {"exclude": False,
          "flipped": True,
-         "rule": "PR interval ≤ 230 ms at screening"},
+         "input_rule": "PR interval ≤ 230 ms at screening"},
         {"exclude": False,
          "flipped": True,
-         "rule": "QRS interval ≤ 120 ms at screening"},
+         "input_rule": "QRS interval ≤ 120 ms at screening"},
         {"exclude": False,
          "flipped": True,
-         "rule": "ANC ≥ 1,500/mm^3"},
+         "input_rule": "ANC ≥ 1,500/mm^3"},
         {"exclude": False,
          "flipped": True,
-         "rule": "Platelet count ≥ 100,000/mm^3"},
+         "input_rule": "Platelet count ≥ 100,000/mm^3"},
         {"exclude": False,
          "flipped": True,
-         "rule": "Bilirubin ≤ 1.5 mg/dL (≤ 26 μmol/L, SI unit equivalent)"},
+         "input_rule": "Bilirubin ≤ 1.5 mg/dL (≤ 26 μmol/L, SI unit equivalent)"},
         {"exclude": False,
          "flipped": True,
-         "rule": "AST < 3 × ULN (if related to liver metastases ≤ 5 × ULN)"},
+         "input_rule": "AST < 3 × ULN (if related to liver metastases ≤ 5 × ULN)"},
         {"exclude": False,
          "flipped": True,
-         "rule": "ALT < 3 × ULN (if related to liver metastases ≤ 5 × ULN)"}
+         "input_rule": "ALT < 3 × ULN (if related to liver metastases ≤ 5 × ULN)"}
     ]
 
     output = llm_exclusion_logic_flipping(input_text, client)
@@ -65,13 +66,13 @@ Transfusion of blood products or administration of colony stimulating factors wi
     expected_output = [
         {"exclude": False,
          "flipped": True,
-         "rule": "Demonstrates adequate organ function as defined by laboratory limits"},
+         "input_rule": "Demonstrates adequate organ function as defined by laboratory limits"},
         {"exclude": True,
          "flipped": False,
-         "rule": "Prior radiotherapy within 2 weeks of start of study intervention"},
+         "input_rule": "Prior radiotherapy within 2 weeks of start of study intervention"},
         {"exclude": True,
          "flipped": False,
-         "rule": "Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline"}
+         "input_rule": "Transfusion of blood products or administration of colony stimulating factors within 4 weeks prior to baseline"}
     ]
 
     output = llm_exclusion_logic_flipping(input_text, client)
@@ -88,20 +89,20 @@ Participants must not have EGFR mutation
     expected_output = [
         {"exclude": True,
          "flipped": False,
-         "rule": "Patients who have diabetes"},
+         "input_rule": "Patients who have diabetes"},
         {"exclude": True,
          "flipped": False,
-         "rule": "Patients who have EGFR mutation"}
+         "input_rule": "Patients who have EGFR mutation"}
     ]
 
     output = llm_exclusion_logic_flipping(input_text, client)
 
     # sometimes the output uses Participants instead of Patients, harmonise it
     for criterion in output:
-        rule = criterion.get("rule")
+        rule = criterion.get("input_rule")
         if isinstance(rule, str):
             harmonized = rule.replace("Participants", "patients").replace("patients", "Patients")
-            criterion["rule"] = harmonized
+            criterion["input_rule"] = harmonized
 
     assert output == expected_output
 
@@ -114,13 +115,13 @@ Haematocrit ≥ 50%, untreated severe obstructive sleep apnea or poorly controll
     expected_output = [
         {"exclude": False,
          "flipped": True,
-         "rule": "Haematocrit < 50%"},
+         "input_rule": "Haematocrit < 50%"},
         {"exclude": True,
          "flipped": False,
-         "rule": "untreated severe obstructive sleep apnea"},
+         "input_rule": "untreated severe obstructive sleep apnea"},
         {"exclude": True,
          "flipped": False,
-         "rule": "poorly controlled heart failure (NYHA > 1)"}
+         "input_rule": "poorly controlled heart failure (NYHA > 1)"}
     ]
 
     output = llm_exclusion_logic_flipping(input_text, client)

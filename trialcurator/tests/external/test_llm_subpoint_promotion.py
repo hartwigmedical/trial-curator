@@ -3,11 +3,13 @@ import re
 
 from trialcurator.eligibility_text_preparation import llm_subpoint_promotion
 from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
 
 
 @pytest.fixture
 def client():
-    return OpenaiClient()
+    # return OpenaiClient()
+    return GeminiClient(model="gemini-2.5-flash")
 
 
 def normalize_whitespace(text: str) -> str:

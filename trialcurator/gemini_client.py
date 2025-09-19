@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiClient(LlmClient):
-    MODEL = "gemini-2.5-pro"
+    MODEL = "gemini-2.5-pro"  # Use 2.5-pro as the default. But each function / unit test should have the model that it called specified.
 
     # Gemini models: https://ai.google.dev/gemini-api/docs/models
     # As of June 2025, latest model is Gemini 2.5 with three stable releases:
@@ -37,7 +37,7 @@ class GeminiClient(LlmClient):
             config = types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=self.temperature,
-                top_p=self.top_p,
+                top_p = self.top_p,
                 top_k=self.top_k
             )
             for line in system_prompt.splitlines():
@@ -45,7 +45,7 @@ class GeminiClient(LlmClient):
         else:
             config = types.GenerateContentConfig(
                 temperature=self.temperature,
-                top_p=self.top_p,
+                top_p = self.top_p,
                 top_k=self.top_k
             )
         for line in user_prompt.splitlines():

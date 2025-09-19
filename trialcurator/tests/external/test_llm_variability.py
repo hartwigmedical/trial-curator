@@ -7,11 +7,13 @@ from rapidfuzz import fuzz
 from trialcurator.eligibility_text_preparation import llm_sanitise_text
 from trialcurator.tests.external.test_llm_sanitise_text import remove_blank_lines_and_trailing_footstops
 from trialcurator.gemini_client import GeminiClient
+from trialcurator.openai_client import OpenaiClient
 
 
 @pytest.fixture
 def client():
     return GeminiClient()
+    # return OpenaiClient()
 
 
 NUM_TESTS = 10

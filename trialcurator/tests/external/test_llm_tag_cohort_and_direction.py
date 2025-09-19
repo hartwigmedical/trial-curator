@@ -3,13 +3,15 @@ import pytest
 
 from trialcurator.eligibility_text_preparation import llm_tag_cohort_and_direction
 from trialcurator.openai_client import OpenaiClient
+from trialcurator.gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.fixture
 def client():
-    return OpenaiClient()
+    # return OpenaiClient()
+    return GeminiClient(model="gemini-2.5-flash")
 
 
 def test_extract_from_header(client):
