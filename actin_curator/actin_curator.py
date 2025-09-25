@@ -4,7 +4,7 @@ import sys
 import pandas as pd
 import logging
 import argparse
-from typing import TypedDict, Any
+from typing import TypedDict, Any, Dict, List
 from rapidfuzz import fuzz
 
 from trialcurator.llm_client import LlmClient
@@ -15,8 +15,8 @@ from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_j
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 
 from actin_curator import actin_mapping_prompts
-from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
-
+from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, \
+    actin_rule_reformat, _normalize_rule_obj
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ Input:
     return response
 
 
-def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.DataFrame) -> dict[str, Any]:
+def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.DataFrame) -> List[Dict[str, Any]]:
     logger.info("\nSTART ACTIN RULES MAPPING\n")
 
     system_prompt = actin_mapping_prompts.COMMON_SYSTEM_PROMPTS
@@ -210,27 +210,29 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
     else:
         criterion = "INCLUDE " + rule
 
-    category = criteria_dict.get("actin_category")
-    if not isinstance(category, list):
+    categories = criteria_dict.get("actin_category")
+    if not isinstance(categories, list) or not all(isinstance(c, str) for c in categories):
         raise ValueError("ACTIN category is not a list of strings.")
+    if not categories:
+        raise ValueError("No ACTIN categories provided for mapping.")
 
-    category_prompts = ""
-    sel_actin_rules = ""
-    user_prompt = ""
+    merged: List[Dict[str, Any]] = []
 
-    for cat in category:
+    for cat in categories:
 
         if cat not in actin_df.columns:
             raise ValueError(f"Category '{cat}' is not found in actin_df columns")
 
-        temp_prompt = actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS.get(cat)
-        if temp_prompt is None:
+        cat_prompt = actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS.get(cat)
+        if not cat_prompt:
             raise ValueError(f"No category-specific prompts found for {cat}")
 
-        category_prompts += temp_prompt + "\n"
+        cat_rules = actin_df[cat].dropna().astype(str).str.strip().tolist()
+        if not cat_rules:
+            logger.warning(f"No ACTIN rules listed for category '{cat}'. Skipping.")
+            continue
 
-        temp_rules = actin_df[cat].dropna().astype(str).str.strip().tolist()
-        sel_actin_rules += "\n".join(temp_rules) + "\n"
+        sel_actin_rules = "\n".join(cat_rules)
 
         user_prompt = f"""
 ## ELIGIBILITY CRITERIA
@@ -239,7 +241,7 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
 ```
 
 ## CATEGORY ASSIGNMENT
-These criteria belong to the ACTIN category:
+This criterion belong to the ACTIN category:
 - {cat}
 
 ## RELEVANT ACTIN RULES
@@ -253,11 +255,45 @@ Map the above eligibility criterion to one or more ACTIN rules from the list abo
 Use the guidelines and formatting conventions provided.
 
 ### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS
-{category_prompts}
+{cat_prompt}
 """
 
-    response = client.llm_ask(user_prompt, system_prompt)
-    return llm_json_check_and_repair(response, client)
+        response = client.llm_ask(user_prompt, system_prompt)
+        parsed = llm_json_check_and_repair(response, client)
+
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            raise TypeError(f"Invalid LLM mapping output for category '{cat}': {parsed}")
+
+        normalized_items = []
+        for i, obj in enumerate(parsed, start=1):
+            if not isinstance(obj, dict):
+                raise TypeError(f"Item {i} in category '{cat}' is not an object: {obj!r}")
+            if "actin_rule" not in obj:
+                raise ValueError(f"Missing 'actin_rule' in item {i} for category '{cat}'.")
+
+            obj["actin_rule"] = _normalize_rule_obj(obj["actin_rule"])
+
+            obj["input_rule"] = criterion
+            obj["exclude"] = exclusion
+            obj["category"] = cat
+            normalized_items.append(obj)
+
+        merged.extend(normalized_items)
+
+    seen = set()
+    deduped: List[Dict[str, Any]] = []
+
+    for obj in merged:
+        ir = obj.get("input_rule")
+        ar = obj.get("actin_rule")
+        key = (ir, str(ar))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(obj)
+
+    return deduped
 
 
 def actin_mark_new_rules(actin_rule: dict | list | str, actin_df: pd.DataFrame) -> list[str]:
@@ -331,7 +367,7 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     return response[0]
 
 
-def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str) -> list[ActinMapping]:
+def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClient], actin_filepath: str) -> list[ActinMapping]:
 
     actin_df, actin_cat = load_actin_resource(actin_filepath)
 
@@ -344,7 +380,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
         if input_rule is None:
             raise TypeError(f"Eligibility rule missing in {criterion}")
 
-        matched_actin_cat_list = identify_actin_categories(input_rule, client, actin_cat)
+        matched_actin_cat_list = identify_actin_categories(input_rule, clients["category"], actin_cat)
         matched_actin_cat_dict = matched_actin_cat_list[0]
         criterion_updated["actin_category"] = next(iter(matched_actin_cat_dict.values()))
         rules_w_cat.append(criterion_updated)
@@ -354,7 +390,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
     for criterion in rules_w_cat:
         criterion_updated = criterion.copy()
 
-        mapped_rules = map_to_actin_rules(criterion, client, actin_df)
+        mapped_rules = map_to_actin_rules(criterion, clients["mapping"], actin_df)
         if isinstance(mapped_rules, list):
             criterion_updated["input_rule"] = mapped_rules[0].get("input_rule")  # Update the input_rule to have the 'prefix' of INCLUDE or EXCLUDE
 
@@ -394,7 +430,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
     for criterion in rules_w_new:
         criterion_updated = criterion.copy()
 
-        confidence_fields = actin_mark_confidence_score(criterion, client)
+        confidence_fields = actin_mark_confidence_score(criterion, clients["confidence"])
         criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
         criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
         rules_w_confidence.append(criterion_updated)
@@ -428,6 +464,9 @@ def main():
     parser.add_argument('--tag_cohort_and_direction_model', default="gemini-2.5-flash", help="Default model for text prep step 2", required=False)
     parser.add_argument('--subpoint_promotion_model', default="gemini-2.5-flash", help="Default model for text prep step 3", required=False)
     parser.add_argument('--exclusion_logic_flipping_model', default="gemini-2.5-flash", help="Default model for text prep step 4", required=False)
+    parser.add_argument('--actin_categorisation_model', default="gemini-2.5-flash", help="Model for ACTIN category identification", required=False)
+    parser.add_argument('--actin_mapping_model', default="gemini-2.5-flash", help="Model for ACTIN rule mapping", required=False)
+    parser.add_argument('--actin_confidence_model', default="gemini-2.5-pro", help="Model for ACTIN confidence scoring", required=False)
 
     # standard arguments
     parser.add_argument('--input_via_download', help='json file containing eligibility criteria from clinicialtrials.gov', required=False)
@@ -440,11 +479,17 @@ def main():
 
     logger.info("\n=== Starting ACTIN curator ===\n")
 
-    clients = {
+    prep_clients = {
         "sanitise": GeminiClient(model=args.sanitise_text_model),
         "tag": GeminiClient(model=args.tag_cohort_and_direction_model),
         "promote": GeminiClient(model=args.subpoint_promotion_model),
         "flip": GeminiClient(model=args.exclusion_logic_flipping_model),
+    }
+
+    actin_clients = {
+        "category": GeminiClient(model=args.actin_category_model),
+        "mapping": GeminiClient(model=args.actin_mapping_model),
+        "confidence": GeminiClient(model=args.actin_confidence_model),
     }
 
     if args.input_via_download:
@@ -461,17 +506,10 @@ def main():
     logger.info(f"Loaded {len(eligibility_criteria.splitlines())} eligibility criteria")
 
     # Text preparation workflow
-    processed_rules = llm_rules_prep_workflow(eligibility_criteria, clients)
-
-    ## up to here
-
-
-
-
-
+    processed_rules = llm_rules_prep_workflow(eligibility_criteria, prep_clients)
 
     # ACTIN curator workflow
-    actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
+    actin_outputs = actin_workflow(processed_rules, actin_clients, args.actin_filepath)
 
     with open(args.output_file_complete, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)

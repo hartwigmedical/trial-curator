@@ -31,6 +31,7 @@ ACTIN rules may contain zero or more parameters.
 - Accept clinically equivalent terminology (e.g., “fusion” = “rearrangement”).
 - Prefer general rules unless specificity is medically required.
 - Only create a new rule if no existing rule pattern is appropriate.
+- Choose ONLY from the ACTIN rules listed in the user prompt under the given category; do not invent new rule names.
 
 ## LOGICAL OPERATORS
 
@@ -73,125 +74,172 @@ Each `input_rule` must preserve the original text exactly, including the `INCLUD
 - Do not paraphrase or omit relevant details.
 """
 
+
 SPECIFIC_CATEGORY_PROMPTS = {
-    "Demographics_and_General_Eligibility": (
-        "Focus on age, sex, geographic/legal eligibility, consent capacity, "
-        "and behavioral restrictions (e.g., tobacco use, blood donation)."
-    ),
-
-    "Performance_Status_and_Prognosis": (
-        "Identify performance status scores (ECOG, Karnofsky, Lansky), "
-        "WHO classification, and life expectancy thresholds."
-    ),
-
-    "Vital_Signs_and_Body_Function_Metrics": (
-        "Extract structured physiological measurements such as blood pressure, heart rate, weight, BMI, and oxygen saturation.\n"
-        "- Use the appropriate `HAS_*_BETWEEN_X_AND_Y[...]` format for range-based metrics.\n"
-        "- Do not wrap these rules in `NOT(...)`, even if the original criterion is an exclusion — the range itself encodes the correct logic.\n"
-        "- Avoid inventing new rule templates."
-    ),
-
-    "Hematologic_Parameters": (
-        "Match blood count thresholds for hemoglobin, leukocytes, lymphocytes, neutrophils, and platelets.\n"
-        "- Use normalized clinical units:\n"
-        "  - Hemoglobin in g/dL\n"
-        "  - Neutrophils in 10⁹/L (e.g., 1500/mm³ = 1.5)\n"
-        "  - Platelets in 10⁹/L (e.g., 100,000/mm³ = 100)\n"
-        "- If multiple hematologic values are specified, combine using `AND`.\n"
-        "- Avoid unit mismatches — convert counts in /mm³ to SI units."
-    ),
-
-    "Liver_Function": (
-        "Match bilirubin, ALT, AST, ALP, and albumin thresholds, including Child-Pugh score and "
-        "liver metastasis modifiers.\n"
-        "- For bilirubin, prefer rules that handle both typical and Gilbert's syndrome values:\n"
-        "  - HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X_OR_DIRECT_BILIRUBIN_ULN_OF_AT_MOST_Y_IF_GILBERT_DISEASE\n"
-        "- For ALT/AST, use the combined rule if values are paired and modified by liver involvement.\n"
-        "- Avoid rules that split ALT and AST unless specified separately."
-    ),
-
-    "Renal_Function": (
-        "Identify creatinine, creatinine clearance (CrCl), and eGFR-based eligibility criteria, "
-        "including dialysis status.\n"
-        "- Prefer one renal function indicator unless both are explicitly required.\n"
-        "- For eGFR, use HAS_EGFR_MDRD_OF_AT_LEAST_X (units in mL/min/1.73 m²).\n"
-        "- For CrCl, use HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X.\n"
-        "- If both are mentioned in the same clause, combine using a **flat** AND list:\n"
-        "  AND(rule1, rule2)\n"
-        "- Do **not** nest renal function rules inside a second AND — all criteria should exist at the same top level."
-    ),
-
-    "Endocrine_and_Metabolic_Function": (
-        "Match glucose, hormone levels (e.g., cortisol, testosterone, thyroid function), "
-        "and metabolic status markers."
-    ),
-
     "Cardiac_Function_and_ECG_Criteria": (
-        "Identify QTc/QT/QRS intervals, LVEF values, ECG abnormalities, stress test "
-        "performance, and cardiac disease risk."
-    ),
-
-    "Medical_History_and_Comorbidities": (
-        "Match prior or current comorbidities, organ dysfunctions, surgical history, "
-        "contraindications, and complications."
-    ),
-
-    "Infectious_Disease_History_and_Status": (
-        "Identify active or past infections (e.g., HIV, hepatitis), tuberculosis, vaccine recency, and infection exclusion."
-        "- Use general ACTIN rules for known infections (e.g., HAS_KNOWN_HIV_INFECTION, HAS_KNOWN_HEPATITIS_C_INFECTION) when they fully capture the exclusion intent."
-        "- Only introduce treatment status (e.g., antiviral use, undetectable viral load) if the criterion **clearly makes it medically relevant**."
-        "- Avoid unnecessary nesting of AND/NOT structures when a simpler general rule accurately reflects the exclusion."
-    ),
-
-    "Prior_Cancer_Treatments_and_Modalities_and_Washout_Periods": (
-        "Match prior systemic, radiation, or surgical treatments, treatment lines, progression, and resistance events."
-        "- Use only the template: `HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[...]` to represent prior exposure."
-        "- If there is a time dimension, use: `HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS[...]`."
-        "- If the criterion indicates the patient must **not have received** a treatment (e.g., 'naïve', 'no prior', 'never treated'), wrap the rule in `NOT(...)`."
-        "- Never wrap a rule that is **already negative** (e.g., `IS_NOT_PARTICIPATING_IN_ANOTHER_TRIAL`) in `NOT(...)`. That inverts the logic incorrectly."
-        "- Recognize drug class mentions and map them to ACTIN **treatment types** and always include a valid category in the rule."
-        " E.g. `anti-PD-1/PD-L1` → `PD_1_PD_L1_ANTIBODY` under `Immunotherapy` leading to HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[Immunotherapy,PD_1_PD_L1_ANTIBODY]"
-        " E.g. `anti-EGFR antibody` → `EGFR_ANTIBODY` under `Targeted therapy` leadning to HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y[Targeted therapy,EGFR_ANTIBODY]"
-        "- Do **not** invent rule templates."
-    ),
-
-    "Surgical_History_and_Plans": (
-        "Identify recent surgeries, planned surgeries, resection types, and postoperative "
-        "response or recovery details."
+        "Identify LVEF, QT/JT intervals, BNP/NT-proBNP, ECG abnormalities, and hereditary syndromes.\n"
+        "- Examples: HAS_LVEF_OF_AT_LEAST_X, HAS_QTCF_OF_AT_MOST_X / HAS_QT_OF_AT_MOST_X,\n"
+        "  HAS_JTC_OF_AT_LEAST_X, HAS_BNP_ULN_OF_AT_MOST_X, HAS_ECG_ABERRATION.\n"
+        "- Family history/syndromes: HAS_LONG_QT_SYNDROME, HAS_FAMILY_HISTORY_OF_LONG_QT_SYNDROME,\n"
+        "  HAS_FAMILY_HISTORY_OF_IDIOPATHIC_SUDDEN_DEATH.\n"
+        "- Include method/version (e.g., Fridericia) only if encoded by the chosen rule."
     ),
 
     "Current_Medication_Use": (
-        "Detect ongoing or recent use of named drugs, drug classes, QT-prolonging agents, "
-        "and CYP/transporter interactions."
+        "Ongoing/prohibited/required concomitant meds including CYP/transporter interactions and herbal meds.\n"
+        "- Examples: CURRENTLY_GETS_MEDICATION_INHIBITING_CYP_X / INDUCING_CYP_X / INHIBITING_OR_INDUCING_CYP_X,\n"
+        "  CURRENTLY_GETS_MEDICATION_INHIBITING_TRANSPORTER_X, CURRENTLY_GETS_CATEGORY_X_MEDICATION,\n"
+        "  CURRENTLY_GETS_HERBAL_MEDICATION.\n"
+        "- Use class-based rules when named; otherwise use the general form."
     ),
 
-    "Drug_Intolerances_and_Toxicity_History_and_Electrolytes_and_Minerals": (
-        "Extract toxicities (e.g., CTCAE grades), drug intolerances, and electrolyte imbalances (e.g., calcium, magnesium, potassium)."
-        "- Use `HAS_TOXICITY_CTCAE_OF_AT_LEAST_GRADE_X_WITH_ANY_ICD_TITLE_Y[...]` for threshold-based toxicities."
-        "- If the criterion sets an **upper limit** (e.g., 'must not exceed Grade 2'), wrap the rule in `NOT(...)`."
-        "- Map symptom mentions to **valid ICD titles** "
-        "- e.g. 'magnesium abnormalities' → `Disorders of magnesium metabolism`."
-        "- Do **not** hardcode a grade number into the rule name (e.g., `GRADE_3` is invalid).\n"
-        "- Do **not** invent rule templates."
-        "Extract serum calcium, phosphate, potassium, magnesium levels and symptomatic electrolyte imbalances."
+    "Demographics_and_General_Eligibility": (
+        "Focus on age, sex, consent capacity, legal status, and behavioral restrictions.\n"
+        "- Age: use IS_AT_LEAST_X_YEARS_OLD / IS_AT_MOST_X_YEARS_OLD as written.\n"
+        "- Consent: CAN_GIVE_ADEQUATE_INFORMED_CONSENT.\n"
+        "- Behavioral: ADHERES_TO_BLOOD_DONATION_PRESCRIPTIONS, ADHERES_TO_SPERM_OR_EGG_DONATION_PRESCRIPTIONS.\n"
+        "- Sex/pregnancy/lactation: IS_FEMALE, IS_BREASTFEEDING (wrap in NOT(...) if exclusion).\n"
+        "- Do not invent templates."
     ),
 
-    "Cancer_Type_and_Tumor_Site_Localization": (
-        "Match tumor type, anatomical site, staging (e.g., TNM, BCLC), metastasis sites, and measurable disease status."
-        "- Always use `HAS_PRIMARY_TUMOR_LOCATION_BELONGING_TO_ANY_DOID_TERM_X[...]` when a specific cancer type/subtype is mentioned (e.g. CRPC → Prostate cancer; uveal melanoma)."
-        "- Use `HAS_HISTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE` and/or `HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE` and/or `HAS_PATHOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE` when diagnosis is confirmed by biopsy."
-        "- If the criterion says **“histopathological”** or **“histologically and pathologically confirmed”**, include both documentation rules — do not wrap them in a separate AND."
-        "- Combine documentation types using `OR(...)` if either is acceptable."
-        "- Combine all required conditions using `AND(...)`."
-        "- **Avoid** nesting `AND(...)` inside another `AND(...)` such as AND(AND(...))."
-        "- Represent alternatives using `OR(...)` and required combinations using `AND(...)`. Nest when necessary."
-        "  E.g., if 'locally advanced and unresectable or metastatic', map to `OR(AND(HAS_LOCALLY_ADVANCED_CANCER, HAS_UNRESECTABLE_CANCER), HAS_METASTATIC_CANCER)`"
-        "- Do **not** flatten nested logical structures."
-        "- Do **not** invent rule templates."
+    "Drug_Intolerances_and_Toxicity_History": (
+        "Prior toxicities/intolerances and CTCAE-grade thresholds when encoded by allowed rules.\n"
+        "- Use toxicity history templates exactly as provided in this column (e.g., HAS_TOXICITY_CTCAE_... if present).\n"
+        "- For upper-limit grade constraints in exclusions, use the rule’s negative or upper-bound form rather than wrapping with NOT(...),\n"
+        "  unless the only way to express negation is with NOT(...).\n"
+        "- Do not invent CTCAE-specific rule names beyond what is listed."
     ),
 
-    "Molecular_and_Genomic_Biomarkers": (
-        "Match gene mutations, amplifications, fusions, MSI/HRD/TMB signatures, "
-        "protein expression (e.g., IHC), and PD-L1 scoring."
-    )
+    "Electrolytes_and_Minerals": (
+        "Electrolyte thresholds and normality: calcium, magnesium, potassium, phosphate, ionized calcium, etc.\n"
+        "- Examples: HAS_CORRECTED_CALCIUM_WITHIN_INSTITUTIONAL_NORMAL_LIMITS, HAS_IONIZED_CALCIUM_MMOL_PER_L_OF_AT_MOST_X,\n"
+        "  HAS_CORRECTED_MAGNESIUM_WITHIN_INSTITUTIONAL_NORMAL_LIMITS, HAS_CORRECTED_POTASSIUM_WITHIN_INSTITUTIONAL_NORMAL_LIMITS,\n"
+        "  HAS_ABNORMAL_ELECTROLYTE_LEVELS.\n"
+        "- Keep units/normal-limit language as encoded by the chosen rule."
+    ),
+
+    "Endocrine_and_Metabolic_Function": (
+        "Map glucose and endocrine markers as stated.\n"
+        "- Examples: HAS_GLUCOSE_FASTING_PLASMA_MMOL_PER_L_OF_AT_MOST_X, HAS_CORTISOL_LLN_OF_AT_LEAST_X,\n"
+        "  HAS_FREE_THYROXINE_WITHIN_INSTITUTIONAL_NORMAL_LIMITS, HAS_SERUM_TESTOSTERONE_NG_PER_DL_OF_AT_MOST_X,\n"
+        "  HAS_AMYLASE_ULN_OF_AT_MOST_X, HAS_LIPASE_ULN_OF_AT_MOST_X.\n"
+        "- Use the specific thyroid/testosterone/free vs bound templates exactly as listed."
+    ),
+
+    "General_Comorbidities": (
+        "Match prior/current comorbidities, active infections, organ-specific conditions, and feasibility flags.\n"
+        "- Examples: HAS_ACTIVE_INFECTION, HAS_ACTIVE_SECOND_MALIGNANCY, HAS_DIABETES, HAS_ADEQUATE_VENOUS_ACCESS,\n"
+        "  HAS_GILBERT_DISEASE, HAS_ANY_COMPLICATION / HAS_COMPLICATION_WITH_ANY_ICD_TITLE_X.\n"
+        "- Use high-level infection rules here (category does not provide separate infection subcategory)."
+    ),
+
+    "Genomic_Alterations": (
+        "Map gene-level events: mutations, amplifications, fusions, exon skipping, copy number, specific codons.\n"
+        "- Examples: ACTIVATING_MUTATION_IN_ANY_GENES_X, ACTIVATING_MUTATION_IN_GENE_X_EXCLUDING_CODONS_Y,\n"
+        "  AMPLIFICATION_OF_GENE_X / _OF_AT_LEAST_Y_COPIES, EXON_SKIPPING_GENE_X_EXON_Y,\n"
+        "  DRIVER_EVENT_IN_ANY_GENES_X_WITH_APPROVED_THERAPY_AVAILABLE.\n"
+        "- Keep gene symbols/variants exactly as written; no synonym expansion."
+    ),
+
+    "Hematologic_Parameters": (
+        "Match hemoglobin, leukocytes, neutrophils, lymphocytes, platelets, coagulation (INR/aPTT) as specified.\n"
+        "- Examples: HAS_HEMOGLOBIN_G_PER_DL_OF_AT_LEAST_X, HAS_LEUKOCYTES_ABS_LLN_OF_AT_LEAST_X,\n"
+        "  HAS_INR_ULN_OF_AT_MOST_X, HAS_APTT_ULN_OF_AT_MOST_X.\n"
+        "- Transfusion timing where present: HAS_HAD_ERYTHROCYTE_TRANSFUSION_WITHIN_LAST_X_WEEKS,\n"
+        "  HAS_HAD_THROMBOCYTE_TRANSFUSION_WITHIN_LAST_X_WEEKS.\n"
+        "- Preserve stated units; do not convert unless the allowed rule uses that unit."
+    ),
+
+    "Liver_Function": (
+        "Map bilirubin, transaminases (ALT/AST), ALP, albumin, Child–Pugh, and liver involvement modifiers.\n"
+        "- Bilirubin: HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X; if Gilbert’s is specified use\n"
+        "  HAS_TOTAL_BILIRUBIN_ULN_OF_AT_MOST_X_OR_DIRECT_BILIRUBIN_ULN_OF_AT_MOST_Y_IF_GILBERT_DISEASE.\n"
+        "- Transaminases/ALP: use the corresponding HAS_ALT_/HAS_AST_/HAS_ALP_ templates when listed.\n"
+        "- Child–Pugh: HAS_CHILD_PUGH_SCORE_X.\n"
+        "- Keep xULN vs absolute units exactly as written."
+    ),
+
+    "Molecular_Biomarkers": (
+        "Non-genomic biomarkers: protein expression (IHC), serum markers, immune markers, cell counts.\n"
+        "- Examples: EXPRESSION_OF_PROTEIN_X_BY_IHC_OF_AT_LEAST_Y / AT_MOST_Y / EXACTLY_Y,\n"
+        "  HAS_AFP_ULN_OF_AT_LEAST_X, HAS_CA125_ULN_OF_AT_LEAST_X, HAS_CD4_POSITIVE_CELLS_MILLIONS_PER_LITER_OF_AT_LEAST_X.\n"
+        "- PD-L1/TMB/MSI/HRD belong here if the allowed rule list contains corresponding templates."
+    ),
+
+    "Performance_Status_and_Prognosis": (
+        "Identify ECOG/WHO/Lansky/Karnofsky and life-expectancy thresholds.\n"
+        "- Examples: HAS_WHO_STATUS_OF_AT_MOST_X, HAS_KARNOFSKY_SCORE_OF_AT_LEAST_X, HAS_LANSKY_SCORE_OF_AT_LEAST_X,\n"
+        "  HAS_LIFE_EXPECTANCY_OF_AT_LEAST_X_WEEKS / _MONTHS.\n"
+        "- Functional tests: MEETS_REQUIREMENTS_DURING_SIX_MINUTE_WALKING_TEST when stated.\n"
+        "- Keep operators (>=, <=, =) faithful to the text."
+    ),
+
+    "Primary_Tumor_Type": (
+        "Primary diagnosis, histology confirmation, receptor-defined subtypes, evaluable/measurable disease.\n"
+        "- Examples: HAS_CYTOLOGICAL_DOCUMENTATION_OF_TUMOR_TYPE (or HISTOLOGICAL/PATHOLOGICAL where listed),\n"
+        "  HAS_BREAST_CANCER_RECEPTOR_X_POSITIVE, HAS_CANCER_OF_UNKNOWN_PRIMARY_AND_TYPE_X,\n"
+        "  HAS_EVALUABLE_DISEASE.\n"
+        "- Use documentation rules explicitly if the text states cytology/histology/pathology."
+    ),
+
+    "Prior_Treatment_Exposure": (
+        "Any prior systemic/local therapies, resistance/progression, exposure qualifiers.\n"
+        "- Examples: HAS_HAD_ANY_CANCER_TREATMENT / _WITHIN_X_MONTHS, HAS_HAD_ANY_SYSTEMIC_CANCER_TREATMENT_WITHIN_X_MONTHS,\n"
+        "  HAS_HAD_ADJUVANT_CATEGORY_X_TREATMENT, HAS_ACQUIRED_RESISTANCE_TO_DRUG_X, HAS_EXHAUSTED_SOC_TREATMENTS.\n"
+        "- Use category/type-aware templates only if present in this category; otherwise keep to generic exposure forms."
+    ),
+
+    "Renal_Function": (
+        "Identify creatinine, creatinine clearance (CG/measured), and eGFR (MDRD/CKD-EPI).\n"
+        "- eGFR: HAS_EGFR_MDRD_OF_AT_LEAST_X / HAS_EGFR_CKD_EPI_OF_AT_LEAST_X (mL/min/1.73 m² implied by rule name).\n"
+        "- CrCl: HAS_CREATININE_CLEARANCE_CG_OF_AT_LEAST_X or HAS_MEASURED_CREATININE_CLEARANCE_OF_AT_LEAST_X.\n"
+        "- Serum creatinine: HAS_CREATININE_MG_PER_DL_OF_AT_MOST_X or HAS_CREATININE_ULN_OF_AT_MOST_X.\n"
+        "- Dialysis: IS_IN_DIALYSIS when applicable.\n"
+        "- If both eGFR and CrCl are explicitly required, output both (flat AND)."
+    ),
+
+    "Surgical_History_and_Plans": (
+        "Recent/planned surgeries, resection types, organ-specific procedures, and recovery constraints.\n"
+        "- Use surgery and resection templates in this column (e.g., IS_ELIGIBLE_FOR_SURGERY_TYPE_X if listed elsewhere belongs to Intent/Setting; here use explicit surgery-history rules present in this category).\n"
+        "- Include postoperative recovery/wound-healing constraints only if an allowed rule exists here."
+    ),
+
+    "Treatment_Eligibility_Intent_and_Setting": (
+        "Eligibility for concurrent/ongoing standard treatments, radiotherapy intent, surgery eligibility.\n"
+        "- Examples: CURRENTLY_GETS_CHEMORADIOTHERAPY_OF_TYPE_X_CHEMOTHERAPY_AND_AT_LEAST_Y_CYCLES,\n"
+        "  IS_ELIGIBLE_FOR_PALLIATIVE_RADIOTHERAPY / RADIOTHERAPY / SURGERY_TYPE_X,\n"
+        "  HAS_HAD_NON_INTERNAL_RADIOTHERAPY, HAS_HAD_RADIOTHERAPY_TO_BODY_LOCATION_X.\n"
+        "- Emit only what the text states; do not imply intent or line beyond the allowed rules."
+    ),
+
+    "Treatment_Lines_and_Sequencing": (
+        "Number of prior lines overall or within categories/types; upper/lower bounds.\n"
+        "- Examples: HAS_HAD_AT_LEAST_X_SYSTEMIC_TREATMENT_LINES / AT_MOST_X_SYSTEMIC_TREATMENT_LINES,\n"
+        "  HAS_HAD_CATEGORY_X_TREATMENT_AND_AT_LEAST_Y_LINES / AT_MOST_Y_LINES,\n"
+        "  HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_AND_AT_LEAST_Z_LINES / AT_MOST_Z_LINES.\n"
+        "- Use NOT(...) variants only where the template explicitly encodes negation (e.g., HAS_NOT_HAD_...)."
+    ),
+
+    "Tumor_Site_and_Extent": (
+        "Anatomical site and spread/stage: metastatic burden, CNS involvement, stage systems (e.g., BCLC), resectability.\n"
+        "- Examples: HAS_ANY_STAGE_X, HAS_BCLC_STAGE_X, HAS_AT_MOST_X_DISTANT_METASTASES,\n"
+        "  HAS_BONE_METASTASES / _ONLY, HAS_EVIDENCE_OF_CNS_HEMORRHAGE_BY_MRI, HAS_BIOPSY_AMENABLE_LESION.\n"
+        "- Use site/extent templates exactly; combine with AND/OR only if necessary from the text."
+    ),
+
+    "Vital_Signs_and_Body_Function_Metrics": (
+        "Extract BP/HR/SpO2/weight/BMI and similar physiological metrics.\n"
+        "- Use range/threshold forms exactly as listed, e.g., HAS_RESTING_HEART_RATE_BETWEEN_X_AND_Y,\n"
+        "  HAS_DBP_MMHG_OF_AT_LEAST_X / AT_MOST_X, HAS_PULSE_OXIMETRY_OF_AT_LEAST_X,\n"
+        "  HAS_BODY_WEIGHT_OF_AT_LEAST_X / AT_MOST_X, HAS_BMI_OF_AT_MOST_X.\n"
+        "- Do not wrap these rules in NOT(...); the threshold encodes direction."
+    ),
+
+    "Washout_Periods": (
+        "Time since last therapy or duration-based constraints for prior treatments and procedures.\n"
+        "- Examples: HAS_HAD_CATEGORY_X_TREATMENT_OF_TYPES_Y_WITHIN_Z_WEEKS (or _AT_LEAST_Y_WEEKS_AGO when listed),\n"
+        "  HAS_HAD_RADIOTHERAPY_TO_BODY_LOCATION_X_WITHIN_Y_WEEKS, HAS_HAD_LOCAL_HEPATIC_THERAPY_WITHIN_X_WEEKS,\n"
+        "  HAS_HAD_ADJUVANT_CATEGORY_X_TREATMENT_WITHIN_Y_WEEKS.\n"
+        "- Choose the closest matching template; keep unit (weeks) as in the rule."
+    ),
 }

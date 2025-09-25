@@ -1,6 +1,9 @@
 import logging
 import pandas as pd
 
+import json
+import re
+from typing import Any, Dict, List, Union
 
 logger = logging.getLogger(__name__)
 
@@ -132,4 +135,105 @@ def actin_rule_reformat(actin_rule: dict | list | str) -> str:
         raise ValueError(f"Could not format ACTIN rule from dict: {actin_rule}")
 
     else:
-        raise TypeError(f"Unexpected data type encountered for actin_rule: {type(actin_rule).__name__} for {actin_rule}")
+        raise TypeError(
+            f"Unexpected data type encountered for actin_rule: {type(actin_rule).__name__} for {actin_rule}")
+
+
+_RULE_TOKEN_RE = re.compile(r"^\s*([A-Z0-9_]+)\s*\[\s*(.*?)\s*\]\s*$")
+
+
+def _coerce_json_params(inner: str) -> List[Any]:
+    """
+    inner is the text inside the square brackets in RULE[inner].
+    Try JSON first; accept scalars or lists; otherwise fallback to CSV split.
+    Always trim strings and coerce numeric strings to numbers.
+    """
+    if inner in ("", None):
+        return []
+    # 1) Direct JSON (may be list or scalar)
+    try:
+        parsed = json.loads(inner)
+        if isinstance(parsed, list):
+            return [_clean_param(_maybe_number(p)) for p in parsed]
+        return [_clean_param(_maybe_number(parsed))]
+    except Exception:
+        pass
+    # 2) Try wrapping as list
+    try:
+        parsed = json.loads(f"[{inner}]")
+        if isinstance(parsed, list):
+            return [_clean_param(_maybe_number(p)) for p in parsed]
+    except Exception:
+        pass
+    # 3) Fallback CSV split
+    parts = [p.strip() for p in inner.split(",") if p.strip()]
+    return [_clean_param(_maybe_number(p)) for p in parts]
+
+
+def _maybe_number(x: Any) -> Any:
+    if not isinstance(x, str):
+        return x
+    try:
+        if "." in x:
+            return float(x)
+        return int(x)
+    except Exception:
+        return x
+
+
+def _clean_param(p: Any) -> Any:
+    # Trim stray whitespace for strings like ' uveal melanoma '
+    if isinstance(p, str):
+        return p.strip()
+    return p
+
+
+def _parse_rule_token(token: str) -> Dict[str, Any]:
+    """
+    Convert 'RULE[]' or 'RULE["foo", 2]' to {'RULE': [...]}
+    """
+    m = _RULE_TOKEN_RE.match(token)
+    if not m:
+        # Not a RULE[...] string; return as-is inside a canonical container
+        # (but the caller should avoid passing us non-rule tokens)
+        return {token.strip(): []}
+    name, inner = m.groups()
+    params = _coerce_json_params(inner)
+    return {name.strip(): params}
+
+
+def _normalize_rule_obj(obj: Any) -> Any:
+    """
+    Recursively normalize a rule object:
+    - Strings like 'RULE[... ]' -> {'RULE': [params]}
+    - Dicts with AND/OR/NOT -> normalize their contents
+    - Dicts with RULE -> keep, but clean params
+    """
+    # String case: "RULE[...]" or "RULE[]"
+    if isinstance(obj, str):
+        return _parse_rule_token(obj)
+
+    if isinstance(obj, dict):
+        if not obj:
+            return obj
+        (k, v), = obj.items()
+        k = k.strip()
+        if k in ("AND", "OR"):
+            if isinstance(v, list):
+                return {k: [_normalize_rule_obj(x) for x in v]}
+            # tolerate single-item non-list
+            return {k: [_normalize_rule_obj(v)]}
+        if k == "NOT":
+            return {"NOT": _normalize_rule_obj(v)}
+        # RULE dict: ensure params are cleaned
+        if isinstance(v, list):
+            return {k: [_clean_param(x) for x in v]}
+        # Single scalar param -> wrap list
+        return {k: [_clean_param(v)]}
+
+    # List case (rare at top level, but normalize elements)
+    if isinstance(obj, list):
+        return [_normalize_rule_obj(x) for x in obj]
+
+    # Fallback: return unchanged
+    return obj
