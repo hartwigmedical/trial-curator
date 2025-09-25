@@ -11,7 +11,7 @@ def client_and_actin_data():
     # client = OpenaiClient(0.0)
     client = GeminiClient(0.0)
     actin_repo_root = Path(__file__).resolve().parents[2]
-    actin_rules_path = actin_repo_root / "data/ACTIN_rules/ACTIN_rules_w_categories_13062025.csv"
+    actin_rules_path = actin_repo_root / "data/ACTIN_rules/ACTIN_rules_w_categories_25092025.csv"
     actin_rules, actin_categories = actin_curator_utils.load_actin_resource(str(actin_rules_path))
     return client, actin_rules, actin_categories
 
