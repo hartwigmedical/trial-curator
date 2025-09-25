@@ -20,7 +20,6 @@ from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin
 
 logger = logging.getLogger(__name__)
 
-TEMPERATURE = 0.0
 RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence or absence of a full stop.
 
 
@@ -56,7 +55,30 @@ Classify each eligibility criterion into one or more ACTIN categories.
 - If a criterion includes bullet points, newlines, or multiple clauses, treat it as a **single atomic unit**. Do not split or paraphrase it.
 - Do **not** assign a category based on a term appearing in the text unless the clinical meaning directly aligns with that category.
   Example:
-  - A criterion mentioning “untreated CNS metastases” should typically fall under **Medical_History_and_Comorbidities**, not **Cancer_Type_and_Tumor_Site_Localization**, unless tumor classification is explicitly discussed.
+  - A criterion mentioning “untreated CNS metastases” should typically fall under **Tumor_Site_and_Extent**, not **Primary_Tumor_Type**, unless tumor classification is explicitly discussed.
+
+### Distinguish closely related categories:
+
+- Infectious_Disease_Status vs General_Comorbidities:
+  - HIV/HBV/HCV/TB/EBV/CMV/COVID and antiviral/viral-load status → Infectious_Disease_Status
+  - Chronic non-infectious illnesses (cardiac, pulmonary, autoimmune, neurologic, etc.) → General_Comorbidities
+
+- Vital_Signs_and_Body_Function_Metrics vs Cardiac_Function_and_ECG_Criteria:
+  - Vital signs (heart rate, blood pressure, respiratory rate, temperature, weight/BMI) → Vital_Signs_and_Body_Function_Metrics
+  - Cardiac testing/conditions (ECG/QTc, ejection fraction, NYHA class, arrhythmia, troponin/BNP) → Cardiac_Function_and_ECG_Criteria
+
+- Primary_Tumor_Type vs Tumor_Site_and_Extent:
+  - If a criterion states both a tumor TYPE (histology/diagnosis) and EXTENT/SITE (metastatic, locally advanced, unresectable, Stage IV, CNS involvement, measurable lesions), assign BOTH ["Primary_Tumor_Type", "Tumor_Site_and_Extent"].
+
+- Prior therapy splits:
+  - “prior/received/treatment with …” (history of exposure) → Prior_Treatment_Exposure
+  - “at least/at most X lines or cycles; first-line/most-recent line” → Treatment_Lines_and_Sequencing
+  - “progression/PD/radiological progression; acquired resistance; objective clinical benefit” → Treatment_Response_and_Resistance
+  - “eligible/not eligible; palliative/curative; local/loco-regional; on-label; radiotherapy/surgery eligibility” → Treatment_Eligibility_Intent_and_Setting
+  - “currently/previously participating in a clinical trial” → Clinical_Trial_Participation
+  - “within X days/weeks before first dose; AEs must resolve to ≤ Grade 1” → Washout_Periods
+
+- If a criterion expresses TREATMENT ELIGIBILITY / INTENT (e.g., “eligible for”, “not eligible”, “palliative/curative”, “radiotherapy/surgery”) and merely mentions a site (e.g., “to bone metastases”), prefer **Treatment_Eligibility_Intent_and_Setting** ALONE unless the site/extent imposes an independent requirement (e.g., “must have measurable CNS lesions”).
 
 ## ACTIN CATEGORIES
 The following categories are available:
@@ -72,7 +94,7 @@ The following categories are available:
 ```json
 [
     { 
-        "Histologically or cytologically confirmed metastatic CRPC": ["Cancer_Type_and_Tumor_Site_Localization"]
+        "Histologically or cytologically confirmed metastatic CRPC": ["Primary_Tumor_Type"]
     }
 ]
 ```
@@ -80,11 +102,66 @@ The following categories are available:
 ```json
 [
     {
-        "Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infectious_Disease_History_and_Status"]
+        "Known HIV, active Hepatitis B without receiving antiviral treatment": ["Infectious_Disease_Status"]
     }
 ]
 ```
-
+### Example 3:
+```json
+[
+  {
+    "EXCLUDE Resting heart rate > 100 bpm": ["Vital_Signs_and_Body_Function_Metrics"]
+  }
+]
+```
+### Example 4:
+```json
+[
+  {
+    "INCLUDE Histologically or cytologically confirmed metastatic CRPC": ["Primary_Tumor_Type", "Tumor_Site_and_Extent"]
+  }
+]
+```
+### Example 5:
+```json
+[
+  {
+    "EXCLUDE Known HIV, active Hepatitis B without receiving antiviral treatment, or Hepatitis C": ["Infectious_Disease_Status"]
+  }
+]
+```
+### Example 6:
+```json
+[
+  {
+    "EXCLUDE Radiological disease progression following at least 1 line of platinum-based chemotherapy": ["Treatment_Response_and_Resistance"]
+  }
+]
+```
+### Example 7:
+```json
+[
+  {
+    "EXCLUDE Currently participating in another interventional clinical trial": ["Clinical_Trial_Participation"]
+  }
+]
+```
+### Example 8:
+```json
+[
+  {
+    "EXCLUDE Received systemic anticancer therapy within 14 days prior to first study dose; related toxicities must have resolved to ≤ Grade 1": ["Washout_Periods"]
+  }
+]
+```
+### Example 9:
+```json
+[
+  {
+    "INCLUDE Eligible for palliative radiotherapy to bone metastases": ["Treatment_Eligibility_Intent_and_Setting"]
+  }
+]
+```
 """
     system_prompt = intro_prompt + json_example
 
@@ -100,6 +177,9 @@ Input:
 
     response_init = client.llm_ask(user_prompt, system_prompt)
     response = llm_json_check_and_repair(response_init, client)
+
+    if isinstance(response, dict):
+        response = [response]
 
     if not isinstance(response, list) or len(response) > 1:
         raise TypeError(f"Should return a single JSON object for criterion. Instead returned {len(response)} rules:\n{response}")
@@ -342,9 +422,16 @@ def printable_summary(actin_output: list[ActinMapping], file):
 
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
-    parser.add_argument('--llm_provider', help="Defaults to Google's Gemini if unspecified. Otherwise enter 'OpenAI' to use its GPT models.", default="Gemini", required=False)
-    parser.add_argument('--input_file', help='json file containing trial data', required=False)
-    parser.add_argument('--input_text_file', help='text file containing eligibility criteria', required=False)
+
+    # Gemini model specifications for different parts of the workflow - no user input required
+    parser.add_argument('--sanitise_text_model', default="gemini-2.5-pro", help="Default model for text prep step 1", required=False)
+    parser.add_argument('--tag_cohort_and_direction_model', default="gemini-2.5-flash", help="Default model for text prep step 2", required=False)
+    parser.add_argument('--subpoint_promotion_model', default="gemini-2.5-flash", help="Default model for text prep step 3", required=False)
+    parser.add_argument('--exclusion_logic_flipping_model', default="gemini-2.5-flash", help="Default model for text prep step 4", required=False)
+
+    # standard arguments
+    parser.add_argument('--input_via_download', help='json file containing eligibility criteria from clinicialtrials.gov', required=False)
+    parser.add_argument('--input_via_protocol', help='text file containing eligibility criteria from protocol', required=False)
     parser.add_argument('--output_file_complete', help='complete output file from ACTIN curator', required=True)
     parser.add_argument('--output_file_concise', help='human readable output summary file from ACTIN curator (.tsv or .txt recommended)', required=False)
     parser.add_argument('--actin_filepath', help='Full path to ACTIN rules CSV', required=True)
@@ -353,28 +440,35 @@ def main():
 
     logger.info("\n=== Starting ACTIN curator ===\n")
 
-    if args.llm_provider == "OpenAI":
-        client = OpenaiClient(TEMPERATURE)
-    elif args.llm_provider == "Gemini":
-        client = GeminiClient(TEMPERATURE)
-        # May potentially consider other LLM providers such as Anthropic's Claude
-    else:
-        client = GeminiClient(TEMPERATURE)
+    clients = {
+        "sanitise": GeminiClient(model=args.sanitise_text_model),
+        "tag": GeminiClient(model=args.tag_cohort_and_direction_model),
+        "promote": GeminiClient(model=args.subpoint_promotion_model),
+        "flip": GeminiClient(model=args.exclusion_logic_flipping_model),
+    }
 
-    if args.input_file:
-        if args.input_text_file:
-            raise ValueError("--input_file and --input_text_file cannot both be specified")
-        trial_data = load_trial_data(args.input_file)
+    if args.input_via_download:
+        if args.input_via_protocol:
+            raise ValueError("--input_via_download and --input_via_protocol cannot both be specified")
+        trial_data = load_trial_data(args.input_via_download)
         eligibility_criteria = load_eligibility_criteria(trial_data)
-    elif args.input_text_file:
-        with open(args.input_text_file, 'r') as f:
+    elif args.input_via_protocol:
+        with open(args.input_via_protocol, "r", encoding="utf-8") as f:
             eligibility_criteria = f.read()
     else:
-        raise ValueError("Either --input_file or --input_text_file must be specified")
-    logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
+        raise ValueError("Either --input_via_download or --input_via_protocol must be specified")
+
+    logger.info(f"Loaded {len(eligibility_criteria.splitlines())} eligibility criteria")
 
     # Text preparation workflow
-    processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
+    processed_rules = llm_rules_prep_workflow(eligibility_criteria, clients)
+
+    ## up to here
+
+
+
+
+
 
     # ACTIN curator workflow
     actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
