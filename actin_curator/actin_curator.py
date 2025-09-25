@@ -440,14 +440,18 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
     rules_w_cat = []
     for criterion in input_rules:
         criterion_updated = criterion.copy()
+        try:
+            input_rule = criterion.get("input_rule")
+            if input_rule is None:
+                raise TypeError(f"Eligibility rule missing in {criterion}")
 
-        input_rule = criterion.get("input_rule")
-        if input_rule is None:
-            raise TypeError(f"Eligibility rule missing in {criterion}")
-
-        matched_actin_cat_list = identify_actin_categories(input_rule, clients["category"], actin_cat)
-        matched_actin_cat_dict = matched_actin_cat_list[0]
-        criterion_updated["actin_category"] = next(iter(matched_actin_cat_dict.values()))
+            matched_actin_cat_list = identify_actin_categories(input_rule, clients["category"], actin_cat)
+            matched_actin_cat_dict = matched_actin_cat_list[0]
+            criterion_updated["actin_category"] = next(iter(matched_actin_cat_dict.values()))
+        except Exception as e:
+            logger.exception(f"[category] {type(e).__name__}: {e}")
+            # Fallback so mapping can proceed (will trigger global fallback in mapper if needed)
+            criterion_updated["actin_category"] = ["GLOBAL_FALLBACK"]
         rules_w_cat.append(criterion_updated)
 
     # 2. Map to ACTIN rules
@@ -455,20 +459,44 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
     for criterion in rules_w_cat:
         criterion_updated = criterion.copy()
 
-        mapped_rules = map_to_actin_rules(criterion, clients["mapping"], actin_df)
-        if isinstance(mapped_rules, list):
-            criterion_updated["input_rule"] = mapped_rules[0].get("input_rule")  # Update the input_rule to have the 'prefix' of INCLUDE or EXCLUDE
+        try:
+            mapped_rules = map_to_actin_rules(criterion, clients["mapping"], actin_df)
+        except Exception as e:
+            logger.exception(f"[mapping] {type(e).__name__}: {e}")
+            mapped_rules = []
 
+        # If empty, mark as unmappable but continue
         if not mapped_rules:
-            raise ValueError("No ACTIN rules returned by mapper")
+            try:
+                prefixed = ("EXCLUDE " if criterion_updated.get("exclude") else "INCLUDE ") + (
+                            criterion_updated.get("input_rule") or "")
+                criterion_updated["input_rule"] = prefixed
+            except Exception:
+                pass
+            criterion_updated["actin_rule"] = None
+            rules_w_mapping.append(criterion_updated)
+            continue
 
         first = mapped_rules[0]
+
+        # Only set input_rule from the mapping if the first item is a dict
+        if isinstance(first, dict):
+            criterion_updated["input_rule"] = first.get("input_rule", criterion_updated.get("input_rule"))
+
         if isinstance(first, dict):
             criterion_updated["actin_rule"] = first.get("actin_rule")
         elif isinstance(first, str):
+            # Ensure the prefixed input_rule is present for downstream display
+            try:
+                prefixed = ("EXCLUDE " if criterion_updated.get("exclude") else "INCLUDE ") + (
+                            criterion_updated.get("input_rule") or "")
+                criterion_updated["input_rule"] = prefixed
+            except Exception:
+                pass
             criterion_updated["actin_rule"] = first
         else:
-            raise TypeError(f"Unexpected format in mapped_rules: {first}")
+            logger.warning(f"[mapping] Unexpected format in mapped_rules: {first!r}")
+            criterion_updated["actin_rule"] = None
 
         rules_w_mapping.append(criterion_updated)
 
@@ -477,9 +505,13 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
     for criterion in rules_w_mapping:
         criterion_updated = criterion.copy()
 
-        actin_rule = criterion.get("actin_rule")
-        actin_rule_reformatted = actin_rule_reformat(actin_rule)
-        criterion_updated["actin_rule_reformat"] = actin_rule_reformatted
+        try:
+            actin_rule = criterion.get("actin_rule")
+            actin_rule_reformatted = "UNMAPPABLE" if actin_rule is None else actin_rule_reformat(actin_rule)
+            criterion_updated["actin_rule_reformat"] = actin_rule_reformatted
+        except Exception as e:
+            logger.exception(f"[reformat] {type(e).__name__}: {e}")
+            criterion_updated["actin_rule_reformat"] = "UNMAPPABLE"
         rules_reformat.append(criterion_updated)
 
     # 4. Mark new rules
@@ -487,11 +519,13 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
     for criterion in rules_reformat:
         criterion_updated = criterion.copy()
 
-        actin_rule = criterion.get("actin_rule")
-        new_rules = actin_mark_new_rules(actin_rule, actin_df)
-
-        if len(new_rules) > 0:
-            criterion_updated["new_rule"] = new_rules
+        try:
+            actin_rule = criterion.get("actin_rule")
+            new_rules = [] if actin_rule is None else actin_mark_new_rules(actin_rule, actin_df)
+            if new_rules:
+                criterion_updated["new_rule"] = new_rules
+        except Exception as e:
+            logger.exception(f"[new_rules] {type(e).__name__}: {e}")
         rules_w_new.append(criterion_updated)
 
     # 5. Generate confidence score and explanation
@@ -499,9 +533,15 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
     for criterion in rules_w_new:
         criterion_updated = criterion.copy()
 
-        confidence_fields = actin_mark_confidence_score(criterion_updated, clients["confidence"])
-        criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
-        criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
+        try:
+            confidence_fields = actin_mark_confidence_score(criterion_updated, clients["confidence"])
+            criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
+            criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
+        except Exception as e:
+            logger.exception(f"[confidence] {type(e).__name__}: {e}")
+            # Safe defaults; lower confidence if unmappable
+            criterion_updated["confidence_level"] = 0.0 if criterion_updated.get("actin_rule") is None else 0.3
+            criterion_updated["confidence_explanation"] = "Confidence not computed due to an internal error."
         rules_w_confidence.append(criterion_updated)
 
     actin_output = rules_w_confidence.copy()
