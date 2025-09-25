@@ -206,10 +206,7 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
     if not isinstance(rule, str):
         raise TypeError("Eligibility rule is not a string.")
 
-    if exclusion:
-        criterion = "EXCLUDE " + rule
-    else:
-        criterion = "INCLUDE " + rule
+    criterion = ("EXCLUDE " if exclusion else "INCLUDE ") + rule
 
     categories = criteria_dict.get("actin_category")
     if not isinstance(categories, list) or not all(isinstance(c, str) for c in categories):
@@ -217,75 +214,99 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
     if not categories:
         raise ValueError("No ACTIN categories provided for mapping.")
 
-    # ===== New: detect unknown categories and prepare global fallback =====
+    # Detect unknown categories → trigger global fallback
     df_cols = set(map(str, actin_df.columns))
     missing_cats = [c for c in categories if c not in df_cols]
     use_global_fallback = len(missing_cats) > 0
     if use_global_fallback:
         logger.warning(f"Unknown ACTIN categories encountered {missing_cats}; falling back to ALL ACTIN rules.")
 
-    # New: helper to gather ALL rules from the CSV
+    # Gather ALL rules (union of all non-empty column cells)
     def _all_actin_rules_from_df(df: pd.DataFrame) -> list[str]:
         all_rules: list[str] = []
         for col in df.columns:
             col_rules = df[col].dropna().astype(str).str.strip().tolist()
             all_rules.extend(r for r in col_rules if r)
-        seen = set();
-        deduped = []
+        seen: set[str] = set()
+        deduped: list[str] = []
         for r in all_rules:
             if r not in seen:
-                seen.add(r);
+                seen.add(r)
                 deduped.append(r)
         return deduped
 
+    # Ask+parse helper with optional invention permission
+    def _ask_and_parse(sel_rules_block: str, category_note: str, allow_invention: bool) -> List[Dict[str, Any]]:
+        invention_clause = ""
+        if allow_invention:
+            invention_clause = """
+### IF NO LISTED RULE APPLIES — YOU MAY INVENT A NEW ACTIN RULE
+- You may invent a **single** new rule when none of the listed rules apply.
+- Naming: UPPERCASE snake_case with clear clinical meaning, e.g. HAS_PROTEINURIA_DIPSTICK_OF_AT_MOST_X, HAS_URINE_PROTEIN_24H_OF_AT_MOST_X, HAS_UPCR_OF_AT_MOST_X.
+- Follow ACTIN style: HAS_<MEASURE>_OF_AT_LEAST_X / HAS_<MEASURE>_OF_AT_MOST_X / IS_<STATUS>.
+- Put thresholds/qualifiers as list values (e.g., "HAS_PROTEINURIA_DIPSTICK_OF_AT_MOST_X": ["1+"] or "HAS_URINE_PROTEIN_24H_OF_AT_MOST_X": [0.5, "g/24h"]).
+- Be precise and minimal; do **not** paraphrase the criterion text.
+"""
+        user_prompt = f"""
+## ELIGIBILITY CRITERIA
+{criterion}
+
+## CATEGORY/SCOPING NOTE
+{category_note}
+
+## RELEVANT ACTIN RULES
+Select one or more ACTIN rules **only** from the list below:
+{sel_rules_block}
+
+## TASK
+Map the eligibility criterion to ACTIN rule(s) from the list above using the guidelines and formatting conventions.
+
+{invention_clause}
+### OUTPUT FORMAT (STRICT)
+Return **only** a JSON array (e.g., [] or [{{"actin_rule": ...}}]). No prose or code fences.
+"""
+        response = client.llm_ask(user_prompt, system_prompt)
+        parsed = llm_json_check_and_repair(response, client)
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            raise TypeError(f"Invalid LLM mapping output: {parsed}")
+        return parsed
+
     merged: List[Dict[str, Any]] = []
 
+    # GLOBAL FALLBACK path
     if use_global_fallback:
         all_rules_list = _all_actin_rules_from_df(actin_df)
         if not all_rules_list:
             logger.error("Global fallback: ACTIN rule list is empty. Returning no mappings.")
             return []
-
         sel_actin_rules = "\n".join(all_rules_list)
 
-        user_prompt = f"""
-## ELIGIBILITY CRITERIA
-{criterion}
-
-## CATEGORY ASSIGNMENT
-Requested categories are not recognised in the current ACTIN table. Ignore category scoping.
-
-## RELEVANT ACTIN RULES (GLOBAL)
-Select one or more ACTIN rules ONLY from the list below:
-{sel_actin_rules}
-
-## TASK
-Map the above eligibility criterion to one or more ACTIN rules from the list above.
-Use the guidelines and formatting conventions provided.
-"""
-        response = client.llm_ask(user_prompt, system_prompt)
-        parsed = llm_json_check_and_repair(response, client)
-
-        if isinstance(parsed, dict):
-            parsed = [parsed]
-        if not isinstance(parsed, list):
-            raise TypeError(f"Invalid LLM mapping output under global fallback: {parsed}")
+        # Pass 1: strict (no invention)
+        parsed = _ask_and_parse(sel_rules_block=sel_actin_rules,
+                                category_note="Requested categories not recognised. Ignoring category scoping (GLOBAL).",
+                                allow_invention=False)
+        # Pass 2: allow invention if empty
+        if len(parsed) == 0:
+            parsed = _ask_and_parse(sel_rules_block=sel_actin_rules,
+                                    category_note="Requested categories not recognised. Ignoring category scoping (GLOBAL).",
+                                    allow_invention=True)
 
         normalized_items = []
         for i, obj in enumerate(parsed, start=1):
             if not isinstance(obj, dict):
-                raise TypeError(f"Item {i} in global fallback is not an object: {obj!r}")
+                raise TypeError(f"Item {i} in global mapping is not an object: {obj!r}")
             if "actin_rule" not in obj:
-                raise ValueError(f"Missing 'actin_rule' in item {i} under global fallback.")
-
+                continue
             obj["actin_rule"] = _normalize_rule_obj(obj["actin_rule"])
             obj["input_rule"] = criterion
             obj["exclude"] = exclusion
             obj["category"] = "GLOBAL_FALLBACK"
             normalized_items.append(obj)
-
         return normalized_items
 
+    # Per-category path
     for cat in categories:
         cat_prompt = actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS.get(cat)
         if not cat_prompt:
@@ -293,54 +314,32 @@ Use the guidelines and formatting conventions provided.
 
         cat_rules = actin_df[cat].dropna().astype(str).str.strip().tolist()
         cat_rules = [r for r in cat_rules if r]
-
         if not cat_rules:
             logger.warning(f"No ACTIN rules listed for category '{cat}'. Skipping.")
             continue
 
         sel_actin_rules = "\n".join(cat_rules)
 
-        user_prompt = f"""
-## ELIGIBILITY CRITERIA
-```
-{criterion}
-```
+        # Include category-specific instructions in the rules block for context
+        rules_block = sel_actin_rules + "\n\n### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS\n" + str(cat_prompt)
 
-## CATEGORY ASSIGNMENT
-This criterion belongs to the ACTIN category:
-- {cat}
-
-## RELEVANT ACTIN RULES
-The ACTIN rules associated with this category are:
-```
-{sel_actin_rules}
-```
-
-## TASK
-Map the above eligibility criterion to one or more ACTIN rules from the list above. 
-Use the guidelines and formatting conventions provided.
-
-### CATEGORY-SPECIFIC MAPPING INSTRUCTIONS
-{cat_prompt}
-"""
-
-        response = client.llm_ask(user_prompt, system_prompt)
-        parsed = llm_json_check_and_repair(response, client)
-
-        if isinstance(parsed, dict):
-            parsed = [parsed]
-        if not isinstance(parsed, list):
-            raise TypeError(f"Invalid LLM mapping output for category '{cat}': {parsed}")
+        # Pass 1: strict (no invention)
+        parsed = _ask_and_parse(sel_rules_block=rules_block,
+                                category_note=f"This criterion belongs to ACTIN category: {cat}",
+                                allow_invention=False)
+        # Pass 2: allow invention if empty
+        if len(parsed) == 0:
+            parsed = _ask_and_parse(sel_rules_block=rules_block,
+                                    category_note=f"This criterion belongs to ACTIN category: {cat}",
+                                    allow_invention=True)
 
         normalized_items = []
         for i, obj in enumerate(parsed, start=1):
             if not isinstance(obj, dict):
                 raise TypeError(f"Item {i} in category '{cat}' is not an object: {obj!r}")
             if "actin_rule" not in obj:
-                raise ValueError(f"Missing 'actin_rule' in item {i} for category '{cat}'.")
-
+                continue
             obj["actin_rule"] = _normalize_rule_obj(obj["actin_rule"])
-
             obj["input_rule"] = criterion
             obj["exclude"] = exclusion
             obj["category"] = cat
@@ -348,9 +347,9 @@ Use the guidelines and formatting conventions provided.
 
         merged.extend(normalized_items)
 
-    seen = set()
+    # Deduplicate merged results
+    seen: set[tuple[str, str]] = set()
     deduped: List[Dict[str, Any]] = []
-
     for obj in merged:
         ir = obj.get("input_rule")
         ar = obj.get("actin_rule")
