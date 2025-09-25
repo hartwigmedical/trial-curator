@@ -217,13 +217,76 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
     if not categories:
         raise ValueError("No ACTIN categories provided for mapping.")
 
+    # ===== New: detect unknown categories and prepare global fallback =====
+    df_cols = set(map(str, actin_df.columns))
+    missing_cats = [c for c in categories if c not in df_cols]
+    use_global_fallback = len(missing_cats) > 0
+    if use_global_fallback:
+        logger.warning(f"Unknown ACTIN categories encountered {missing_cats}; falling back to ALL ACTIN rules.")
+
+    # New: helper to gather ALL rules from the CSV
+    def _all_actin_rules_from_df(df: pd.DataFrame) -> list[str]:
+        all_rules: list[str] = []
+        for col in df.columns:
+            col_rules = df[col].dropna().astype(str).str.strip().tolist()
+            all_rules.extend(r for r in col_rules if r)
+        seen = set();
+        deduped = []
+        for r in all_rules:
+            if r not in seen:
+                seen.add(r);
+                deduped.append(r)
+        return deduped
+
     merged: List[Dict[str, Any]] = []
 
+    if use_global_fallback:
+        all_rules_list = _all_actin_rules_from_df(actin_df)
+        if not all_rules_list:
+            logger.error("Global fallback: ACTIN rule list is empty. Returning no mappings.")
+            return []
+
+        sel_actin_rules = "\n".join(all_rules_list)
+
+        user_prompt = f"""
+## ELIGIBILITY CRITERIA
+{criterion}
+
+## CATEGORY ASSIGNMENT
+Requested categories are not recognised in the current ACTIN table. Ignore category scoping.
+
+## RELEVANT ACTIN RULES (GLOBAL)
+Select one or more ACTIN rules ONLY from the list below:
+{sel_actin_rules}
+
+## TASK
+Map the above eligibility criterion to one or more ACTIN rules from the list above.
+Use the guidelines and formatting conventions provided.
+"""
+        response = client.llm_ask(user_prompt, system_prompt)
+        parsed = llm_json_check_and_repair(response, client)
+
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            raise TypeError(f"Invalid LLM mapping output under global fallback: {parsed}")
+
+        normalized_items = []
+        for i, obj in enumerate(parsed, start=1):
+            if not isinstance(obj, dict):
+                raise TypeError(f"Item {i} in global fallback is not an object: {obj!r}")
+            if "actin_rule" not in obj:
+                raise ValueError(f"Missing 'actin_rule' in item {i} under global fallback.")
+
+            obj["actin_rule"] = _normalize_rule_obj(obj["actin_rule"])
+            obj["input_rule"] = criterion
+            obj["exclude"] = exclusion
+            obj["category"] = "GLOBAL_FALLBACK"
+            normalized_items.append(obj)
+
+        return normalized_items
+
     for cat in categories:
-
-        if cat not in actin_df.columns:
-            raise ValueError(f"Category '{cat}' is not found in actin_df columns")
-
         cat_prompt = actin_mapping_prompts.SPECIFIC_CATEGORY_PROMPTS.get(cat)
         if not cat_prompt:
             raise ValueError(f"No category-specific prompts found for {cat}")
