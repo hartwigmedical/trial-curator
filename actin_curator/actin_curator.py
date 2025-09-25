@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 import pandas as pd
 import logging
@@ -243,7 +244,7 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
 ```
 
 ## CATEGORY ASSIGNMENT
-This criterion belong to the ACTIN category:
+This criterion belongs to the ACTIN category:
 - {cat}
 
 ## RELEVANT ACTIN RULES
@@ -463,6 +464,9 @@ def printable_summary(actin_output: list[ActinMapping], file):
 
 
 def main():
+    ACTIN_RULES_FILENAME = "ACTIN_rules_w_categories_25092025.csv"
+    DEFAULT_ACTIN_PATH = (Path(__file__).resolve().parent / "data" / "ACTIN_rules" / ACTIN_RULES_FILENAME)
+
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
 
     # Gemini model specifications for different parts of the workflow - no user input required
@@ -479,9 +483,17 @@ def main():
     parser.add_argument('--input_via_protocol', help='text file containing eligibility criteria from protocol', required=False)
     parser.add_argument('--output_file_complete', help='complete output file from ACTIN curator', required=True)
     parser.add_argument('--output_file_concise', help='human readable output summary file from ACTIN curator (.tsv or .txt recommended)', required=False)
-    parser.add_argument('--actin_filepath', help='Full path to ACTIN rules CSV', required=True)
+    parser.add_argument('--actin_filepath', default=str(DEFAULT_ACTIN_PATH), help='Full path to ACTIN rules CSV', required=False)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
+
+    actin_path = Path(args.actin_filepath)
+    if not actin_path.is_file():
+        raise FileNotFoundError(
+            f"ACTIN rules CSV not found at: {actin_path}\n"
+            f"Override with --actin_filepath <path> if needed."
+        )
+    logger.info(f"Using ACTIN rules CSV at: {actin_path}")
 
     logger.info("\n=== Starting ACTIN curator ===\n")
 
@@ -515,7 +527,7 @@ def main():
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, prep_clients)
 
     # ACTIN curator workflow
-    actin_outputs = actin_workflow(processed_rules, actin_clients, args.actin_filepath)
+    actin_outputs = actin_workflow(processed_rules, actin_clients, str(actin_path))
 
     with open(args.output_file_complete, "w", encoding="utf-8") as f:
         json.dump(actin_outputs, f, indent=2)
