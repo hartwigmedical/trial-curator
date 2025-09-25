@@ -187,7 +187,7 @@ Input:
     # Check the LLM has not erroneously altered the eligibility rule text
     cat_key = next(iter(response[0]))  # The category key is the rule itself
     if fuzz.ratio(cat_key, input_rule) < RULE_SIMILARITY_THRESHOLD:
-        raise ValueError(f"Input criterion has been incorrected changed.\nOriginal: {input_rule}\nReturned: {cat_key}")
+        raise ValueError(f"Input criterion has been incorrectly changed.\nOriginal: {input_rule}\nReturned: {cat_key}")
 
     return response
 
@@ -228,6 +228,8 @@ def map_to_actin_rules(criteria_dict: dict, client: LlmClient, actin_df: pd.Data
             raise ValueError(f"No category-specific prompts found for {cat}")
 
         cat_rules = actin_df[cat].dropna().astype(str).str.strip().tolist()
+        cat_rules = [r for r in cat_rules if r]
+
         if not cat_rules:
             logger.warning(f"No ACTIN rules listed for category '{cat}'. Skipping.")
             continue
@@ -288,7 +290,7 @@ Use the guidelines and formatting conventions provided.
     for obj in merged:
         ir = obj.get("input_rule")
         ar = obj.get("actin_rule")
-        key = (ir, str(ar))
+        key = (ir, json.dumps(ar, sort_keys=True, separators=(",", ":")))
         if key not in seen:
             seen.add(key)
             deduped.append(obj)
@@ -362,7 +364,7 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     response = llm_json_check_and_repair(response_init, client)
 
     if not isinstance(response, list) or len(response) != 1:
-        raise ValueError(f"Expect a list of two dicts. Instead got: {response}")
+        raise ValueError(f"Expect a list of one dict. Instead got: {response}")
 
     return response[0]
 
@@ -394,13 +396,17 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
         if isinstance(mapped_rules, list):
             criterion_updated["input_rule"] = mapped_rules[0].get("input_rule")  # Update the input_rule to have the 'prefix' of INCLUDE or EXCLUDE
 
-        for rule in mapped_rules:
-            if isinstance(rule, dict):
-                criterion_updated["actin_rule"] = rule.get("actin_rule")
-            elif isinstance(rule, str):
-                criterion_updated["actin_rule"] = rule
-            else:
-                raise TypeError(f"Unexpected format in mapped_rules: {rule}")
+        if not mapped_rules:
+            raise ValueError("No ACTIN rules returned by mapper")
+
+        first = mapped_rules[0]
+        if isinstance(first, dict):
+            criterion_updated["actin_rule"] = first.get("actin_rule")
+        elif isinstance(first, str):
+            criterion_updated["actin_rule"] = first
+        else:
+            raise TypeError(f"Unexpected format in mapped_rules: {first}")
+
         rules_w_mapping.append(criterion_updated)
 
     # 3. Reformat ACTIN rules
@@ -430,7 +436,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], clients: dict[str, LlmClie
     for criterion in rules_w_new:
         criterion_updated = criterion.copy()
 
-        confidence_fields = actin_mark_confidence_score(criterion, clients["confidence"])
+        confidence_fields = actin_mark_confidence_score(criterion_updated, clients["confidence"])
         criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
         criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
         rules_w_confidence.append(criterion_updated)
@@ -487,7 +493,7 @@ def main():
     }
 
     actin_clients = {
-        "category": GeminiClient(model=args.actin_category_model),
+        "category": GeminiClient(model=args.actin_categorisation_model),
         "mapping": GeminiClient(model=args.actin_mapping_model),
         "confidence": GeminiClient(model=args.actin_confidence_model),
     }
