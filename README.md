@@ -26,6 +26,14 @@ and look at the third column. Then:
 * Recall your `actin_curator.sh` command line and run it again, this time it should run for a couple of minutes and then write
   output from the LLM in `/tmp/actin_data/output`.
 
+## Using Without Docker
+
+This is unsupported but should function though it will be some extra work. Some hints:
+
+* It is probably preferred to use a Python virtual environment.
+* Reading the `Dockerfile` will probably be helpful.
+* The `requirements.txt` referenced by the `Dockerfile` should be up-to-date as it is used to build the Docker container.
+
 ### Troubleshooting
 
 * Auth-related issues could be related to not having application-default credentials. Try issuing `gcloud auth application-default
