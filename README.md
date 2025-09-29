@@ -4,17 +4,24 @@ AI magic for curating trial protocols automatically!
 
 ## Using Under Docker
 
-The ACTIN project has added a `Dockerfile` and wrapper script for easily running the ACTIN curation module against Vertex either
-in GCP somewhere or on a user's machine:
+The ACTIN project has added a `Dockerfile` and wrapper script for easily creating an image to run the ACTIN curation module
+in a container. For this approach the image can either be built locally:
 
-* To obtain a Docker image either:
   * Issue `docker build .` in the root directory of the project and run `docker images`, noting the "hash" of the `docker` image
     just built.
-  * OR run `docker pull europe-west4-docker.pkg.dev/actin-build/build-registry-docker/actin-trial-curator:x` where `x` is the tag
-    of the version for an existing container you want.
+
+OR pulled from the registry:
+
+  * Run `docker pull europe-west4-docker.pkg.dev/actin-build/build-registry-docker/actin-trial-curator:x` where `x` is the tag
+    of the version for an existing container you want. If you don't know which version, browse the available images via the
+    (console)[https://console.cloud.google.com/artifacts/docker/actin-build/europe-west4/build-registry-docker/actin-trial-curator?project=actin-build].
+
+Once you have the image you can run using the script provided. You need to pass the image hash, to get that run `docker images`
+and look at the third column. Then:
+
 * Run `actin_curator.sh` once with the image hash or tag and any directory you would like to use for input/output to/from the
-  container.  Let's use `/tmp/actin_data` for the rest of the steps. The needed directories under `/tmp/actin_data` will be
-  created.
+  container.  Let's use `/tmp/actin_data` for the rest of the steps. The needed directory structure under `/tmp/actin_data` will
+  be created.
 * Copy your inclusion criteria that should be interpreted into `/tmp/actin_data/input/criteria.txt`.
 * Recall your `actin_curator.sh` command line and run it again, this time it should run for a couple of minutes and then write
   output from the LLM in `/tmp/actin_data/output`.
