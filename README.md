@@ -26,6 +26,12 @@ and look at the third column. Then:
 * Recall your `actin_curator.sh` command line and run it again, this time it should run for a couple of minutes and then write
   output from the LLM in `/tmp/actin_data/output`.
 
+To push your local image so others can use it:
+
+* Determine the new version, `x.y.z` according to [Semantic Versioning](https://semver.org/)
+* `docker tag (image id) europe-west4-docker.pkg.dev/actin-build/build-registry-docker/actin-trial-curator:x.y.z`
+* `docker push europe-west4-docker.pkg.dev/actin-build/build-registry-docker/actin-trial-curator:x.y.z`
+
 ## Using Without Docker
 
 This is unsupported but should function though it will be some extra work. Some hints:
@@ -34,7 +40,7 @@ This is unsupported but should function though it will be some extra work. Some 
 * Reading the `Dockerfile` will probably be helpful.
 * The `requirements.txt` referenced by the `Dockerfile` should be up-to-date as it is used to build the Docker container.
 
-### Troubleshooting
+## Troubleshooting
 
 * Auth-related issues could be related to not having application-default credentials. Try issuing `gcloud auth application-default
   login` then re-running the wrapper script.
