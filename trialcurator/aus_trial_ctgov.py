@@ -11,7 +11,6 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-
 API_QUERY_BASE = "https://clinicaltrials.gov/api/v2/studies"
 
 API_QUERY_PARAMS = """
@@ -102,8 +101,8 @@ def download_one_page_from_ctgov(session: requests.Session, page_token: Optional
 
     try:
         req = session.get(url=API_QUERY_BASE,
-                           params=request_params,
-                           timeout=TIMEOUT)
+                          params=request_params,
+                          timeout=TIMEOUT)
         req.raise_for_status()
         return req.json()
 
@@ -120,8 +119,8 @@ def download_one_page_from_ctgov(session: requests.Session, page_token: Optional
 
 
 def main():
-
-    parser = argparse.ArgumentParser(description="Download ALL Australian cancer trials from ClinicalTrials.gov OR Download the UPDATED trials only")
+    parser = argparse.ArgumentParser(
+        description="Download ALL Australian cancer trials from ClinicalTrials.gov OR Download the UPDATED trials only")
 
     download_type = parser.add_mutually_exclusive_group(required=True)
     download_type.add_argument("--all", help="Download all trials", action="store_true")
@@ -129,7 +128,8 @@ def main():
     # Placeholder: Downloading only the updated trials has not been implemented
 
     parser.add_argument("--output_dir", help="Directory to store the trial JSON files", required=True)
-    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        help="Logging level")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -156,11 +156,12 @@ def main():
             page_trials = data.get("studies", [])
             all_trials.extend(page_trials)
 
-            # raw per-page json outputs
+            # per-page json outputs
             with open(os.path.join(args.output_dir, f"page_num_{on_page}.json"), "w") as f:
                 json.dump(obj=data, fp=f, indent=2)
 
-            logger.info("Downloaded page: %d | Trials on page: %d | Running total: %d | total trials from server: %s", on_page, len(page_trials), len(all_trials), num_trials)
+            logger.info("Downloaded page: %d | Trials on page: %d | Running total: %d | total trials from server: %s",
+                        on_page, len(page_trials), len(all_trials), num_trials)
 
             page_token = data.get("nextPageToken")
             if not page_token:
@@ -170,11 +171,13 @@ def main():
 
             time.sleep(PAUSE_BETWEEN_PAGES)
 
+        # aggregate json outputs
         all_trials_json = os.path.join(args.output_dir, "all_trials_ctgov.json")
         with open(all_trials_json, "w") as f:
             json.dump(obj=all_trials, fp=f, indent=2)
 
-        logger.info("Completed | Trials downloaded=%d | Trials from server=%s", len(all_trials), num_trials)
+        logger.info("Completed | Trials downloaded=%d | Trials from server=%s",
+                    len(all_trials), num_trials)
 
 
 if __name__ == "__main__":
