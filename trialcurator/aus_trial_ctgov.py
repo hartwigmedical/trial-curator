@@ -16,42 +16,147 @@ API_QUERY_BASE = "https://clinicaltrials.gov/api/v2/studies"
 API_QUERY_PARAMS = """
 (
     AREA[ConditionMeshTerm]Neoplasms
+    OR
+    (
+    -- Broad solid-tumor basket phrasing
+    AREA[Condition]"advanced cancer"
+    OR AREA[Condition]"advanced malignancy"
+    OR AREA[Condition]"advanced malignancies"
+    OR AREA[Condition]"advanced solid tumor"
+    OR AREA[Condition]"advanced solid tumors"
+    OR AREA[Condition]"solid tumor"
+    OR AREA[Condition]"solid tumors"
+    OR AREA[Condition]"solid tumour"
+    OR AREA[Condition]"solid tumours"
+    OR AREA[Condition]"solid malignancy"
+    OR AREA[Condition]"solid malignancies"
+    OR AREA[Condition]"advanced carcinoma"
+
+    -- Common histologic or site descriptors
+    OR AREA[Condition]"endometrial cancer"
+    OR AREA[Condition]"endometrial carcinoma"
+    OR AREA[Condition]"ovarian cancer"
+    OR AREA[Condition]"ovarian carcinoma"
+    OR AREA[Condition]"cervical cancer"
+    OR AREA[Condition]"cervical carcinoma"
+    OR AREA[Condition]"vulvar cancer"
+    OR AREA[Condition]"vulvar carcinoma"
+    OR AREA[Condition]"bile duct cancer"
+    OR AREA[Condition]"cholangiocarcinoma"
+    OR AREA[Condition]"gallbladder cancer"
+    OR AREA[Condition]"biliary cancer"
+    OR AREA[Condition]"biliary tract cancer"
+    OR AREA[Condition]"salivary gland cancer"
+    OR AREA[Condition]"salivary gland carcinoma"
+    OR AREA[Condition]"parotid gland cancer"
+    OR AREA[Condition]"thyroid cancer"
+    OR AREA[Condition]"thyroid carcinoma"
+    OR AREA[Condition]"mesothelioma"
+    OR AREA[Condition]"neuroendocrine tumor"
+    OR AREA[Condition]"neuroendocrine tumors"
+    OR AREA[Condition]"carcinoid tumor"
+    OR AREA[Condition]"merkel cell carcinoma"
+    OR AREA[Condition]"glioblastoma"
+    OR AREA[Condition]"glioblastoma multiforme"
+    OR AREA[Condition]"glioma"
+    OR AREA[Condition]"astrocytoma"
+    OR AREA[Condition]"rhabdomyosarcoma"
+    OR AREA[Condition]"osteosarcoma"
+    OR AREA[Condition]"chondrosarcoma"
+    OR AREA[Condition]"retinoblastoma"
+
+    -- Lung and thoracic subtypes
+    OR AREA[Condition]"non small cell lung cancer"
+    OR AREA[Condition]"non-small cell lung cancer"
+    OR AREA[Condition]"nsclc"
+    OR AREA[Condition]"small cell lung cancer"
+    OR AREA[Condition]"sclc"
+    OR AREA[Condition]"lung cancer"
+    OR AREA[Condition]"lung carcinoma"
+
+    -- Prostate and genitourinary
+    OR AREA[Condition]"prostate cancer"
+    OR AREA[Condition]"prostate carcinoma"
+    OR AREA[Condition]"castration-resistant prostate cancer"
+    OR AREA[Condition]"metastatic castration-resistant prostate cancer"
+    OR AREA[Condition]"mcrpc"
+    OR AREA[Condition]"renal cell carcinoma"
+    OR AREA[Condition]"kidney cancer"
+    OR AREA[Condition]"urothelial carcinoma"
+    OR AREA[Condition]"bladder cancer"
+
+    -- Breast and gynecologic
+    OR AREA[Condition]"breast cancer"
+    OR AREA[Condition]"breast carcinoma"
+    OR AREA[Condition]"triple negative breast cancer"
+
+    -- Gastrointestinal
+    OR AREA[Condition]"colorectal cancer"
+    OR AREA[Condition]"colon cancer"
+    OR AREA[Condition]"rectal cancer"
+    OR AREA[Condition]"pancreatic cancer"
+    OR AREA[Condition]"pancreatic ductal adenocarcinoma"
+    OR AREA[Condition]"gastric cancer"
+    OR AREA[Condition]"stomach cancer"
+    OR AREA[Condition]"gastroesophageal junction cancer"
+    OR AREA[Condition]"esophageal cancer"
+    OR AREA[Condition]"esophageal carcinoma"
+    OR AREA[Condition]"hepatocellular carcinoma"
+    OR AREA[Condition]"liver cancer"
+
+    -- Head and neck
+    OR AREA[Condition]"head and neck cancer"
+    OR AREA[Condition]"head and neck squamous cell carcinoma"
+    OR AREA[Condition]"nasopharyngeal carcinoma"
+
+    -- Hematologic / marrow
+    OR AREA[Condition]"leukemia"
+    OR AREA[Condition]"acute myeloid leukemia"
+    OR AREA[Condition]"aml"
+    OR AREA[Condition]"myelodysplastic syndrome"
+    OR AREA[Condition]"myelodysplastic syndromes"
+    OR AREA[Condition]"myelodysplastic neoplasm"
+    OR AREA[Condition]"myelofibrosis"
+    OR AREA[Condition]"lymphoma"
+    OR AREA[Condition]"b-cell malignancy"
+    OR AREA[Condition]"multiple myeloma"
+
+    -- Melanoma and skin
+    OR AREA[Condition]"melanoma"
+    OR AREA[Condition]"uveal melanoma"
+    OR AREA[Condition]"cutaneous squamous cell carcinoma"
+
+    -- Miscellaneous basket descriptors
+    OR AREA[Condition]"advanced malignancies"
+    OR AREA[Condition]"advanced tumors"
+    OR AREA[Condition]"advanced or metastatic solid tumors"
+    )
 )
 AND 
 (
     AREA[LocationCountry]Australia
-    OR
-    AREA[LocationCountry]"New Zealand"
+    OR AREA[LocationCountry]"New Zealand"
 )
 AND
 (
     AREA[OverallStatus]RECRUITING
-    OR
-    AREA[OverallStatus]NOT_YET_RECRUITING
-    OR
-    AREA[OverallStatus]ACTIVE_NOT_RECRUITING
-    OR
-    AREA[OverallStatus]ENROLLING_BY_INVITATION
+    OR AREA[OverallStatus]NOT_YET_RECRUITING
+    OR AREA[OverallStatus]ACTIVE_NOT_RECRUITING
+    OR AREA[OverallStatus]ENROLLING_BY_INVITATION
 )
 AND
 (
     AREA[InterventionType]DRUG
-    OR
-    AREA[InterventionType]BIOLOGICAL
-    OR
-    AREA[InterventionType]DIAGNOSTIC_TEST
-    OR
-    AREA[InterventionType]RADIATION
-    OR
-    AREA[InterventionType]DEVICE
-    OR
-    AREA[InterventionType]COMBINATION_PRODUCT
-    OR
-    AREA[InterventionType]OTHER
+    OR AREA[InterventionType]BIOLOGICAL
+    OR AREA[InterventionType]DIAGNOSTIC_TEST
+    OR AREA[InterventionType]RADIATION
+    OR AREA[InterventionType]DEVICE
+    OR AREA[InterventionType]COMBINATION_PRODUCT
+    OR AREA[InterventionType]OTHER
 )
 """.strip()
 
-PAGE_SIZE = 1000
+PAGE_SIZE = 1000  # Max allowed on CT.gov
 TIMEOUT = 30  # unit is seconds
 PAUSE_BETWEEN_PAGES = 0.5  # unit is seconds
 
@@ -119,8 +224,7 @@ def download_one_page_from_ctgov(session: requests.Session, page_token: Optional
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Download ALL Australian cancer trials from ClinicalTrials.gov OR Download the UPDATED trials only")
+    parser = argparse.ArgumentParser(description="Download ALL Australian cancer trials from ClinicalTrials.gov OR Download the UPDATED trials only")
 
     download_type = parser.add_mutually_exclusive_group(required=True)
     download_type.add_argument("--all", help="Download all trials", action="store_true")
@@ -128,8 +232,7 @@ def main():
     # Placeholder: Downloading only the updated trials has not been implemented
 
     parser.add_argument("--output_dir", help="Directory to store the trial JSON files", required=True)
-    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-                        help="Logging level")
+    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     args = parser.parse_args()
 
     logging.basicConfig(
