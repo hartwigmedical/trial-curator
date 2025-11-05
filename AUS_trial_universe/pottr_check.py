@@ -21,7 +21,6 @@ def in_pottr_but_missing(pottr_df: pd.DataFrame, download_df: pd.DataFrame, down
 
 
 def main():
-
     parser = argparse.ArgumentParser(description="Check downloaded ANZCTR and CT.gov trials against POTTR's trials selection for potential coverage issue")
     parser.add_argument("--pottr_filepath", help="Filepath to latest trial_registry.AU.tsv file from POTTR", required=True)
     parser.add_argument("--ctgov_filepath", help="Filepath to the aggregate CT.gov json file", required=True)

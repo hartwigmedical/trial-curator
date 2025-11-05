@@ -30,7 +30,6 @@ def extract_basic_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
         "briefTitle": briefTitle,
         "leadSponsor": leadSponsorName,
     }
-
     return basic_tbl
 
 
@@ -64,7 +63,6 @@ def extract_intervention_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
         "interventionName": iName,
         "interventionOtherNames": iOtherNames
     }
-
     return inter_tbl
 
 
@@ -83,14 +81,15 @@ def extract_location_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
         if country not in {"Australia", "New Zealand"}:
             continue
 
-        facility = loc.get("facility", "").strip()
-        locFacility.append(facility)
+        facility = (loc.get("facility") or "").strip()  # accommodate when facility is `None`
+        if facility:
+            locFacility.append(facility)
 
         city = loc.get("city", "").strip()
         state = loc.get("state", "").strip()
         postcode = loc.get("zip", "").strip()
-        address_components = [x for x in [city, state, country, postcode] if x]
-        address = ", ".join(address_components) if address_components else country or ""
+        add_components = [x for x in [city, state, postcode, country] if x]
+        address = ", ".join(add_components) if add_components else country or ""
         locAddress.append(address)
 
     locFacility = _dedup_records(locFacility)
@@ -101,7 +100,6 @@ def extract_location_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
         "facility": locFacility,
         "address": locAddress,
     }
-
     return loc_tbl
 
 
