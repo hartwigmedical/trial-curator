@@ -1,4 +1,6 @@
 import json
+import pandas as pd
+from pathlib import Path
 import logging
 import argparse
 import re
@@ -8,7 +10,6 @@ from pydantic_curator.pydantic_type_prompts import INSTRUCTION_CRITERION_TYPES
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
-from trialcurator.gemini_client import GeminiClient
 
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 from trialcurator.utils import load_trial_data, extract_code_blocks, llm_json_check_and_repair, load_eligibility_criteria
@@ -18,9 +19,6 @@ from .criterion_schema import BaseCriterion
 
 
 logger = logging.getLogger(__name__)
-
-
-TEMPERATURE = 0.0
 
 
 # NOTE this is not the same as the one used in loading the dataframe
@@ -33,7 +31,7 @@ class RuleOutput(NamedTuple):
     curation: str
 
 
-CRITERION_TYPES = [re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()]
+CRITERION_TYPES = sorted([re.search(r'.*\.(\w+)Criterion', str(c)).group(1) for c in BaseCriterion.__subclasses__()])
 
 
 def llm_categorise_criteria(tagged_criteria: str, client: LlmClient) -> dict[str, list[str]]:
@@ -223,62 +221,86 @@ def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additiona
     return pydantic_output
 
 
+def _render_output_py(curated_rules: list[RuleOutput]) -> str:
+    tab = "    "
+    out = ["rules = ["]
+
+    for rule in curated_rules:
+        out.append(f"{tab}Rule(")
+        out.append(f"{tab*2}rule_text={repr(rule.rule_text)},")
+        out.append(f"{tab*2}exclude={rule.exclude},")
+        out.append(f"{tab*2}flipped={rule.flipped},")
+        if rule.cohorts is not None:
+            out.append(f"{tab*2}cohorts={repr(rule.cohorts)},")
+        out.append(f"{tab*2}curation=")
+
+        curation_lines = rule.curation.strip().splitlines()
+        for i, line in enumerate(curation_lines):
+            indent = "" if i == 0 else tab*3
+            out.append(f"{indent}{line}")
+
+        out.append(f"{tab}),")
+        out.append("")
+    out.append("]")
+    return "\n".join(out)
+
+
+def _write_output_py(output_file: str | Path, curated_rules: list[RuleOutput]) -> None:
+    output_file = Path(output_file)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(_render_output_py(curated_rules))
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator")
-    parser.add_argument('--llm_provider', help="Select OpenAI or another provider. Currently defaults to OpenAI", required=False)
-    parser.add_argument('--input_file', help='JSON file containing trial data', required=True)
+    parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator (for single trial)")
+
+    input_src = parser.add_mutually_exclusive_group(required=True)
+    input_src.add_argument('--json_input', help='JSON file containing a single trial (from ClinicalTrials.gov)')
+    input_src.add_argument('--csv_input', help='CSV file containing a single trial (from ANZCTR)')
+
     parser.add_argument('--output_file', help='Output file for curated trial data (expected filetype: .py)', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
-    if args.llm_provider == "Google":
-        client = GeminiClient(TEMPERATURE)
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
+
+    client = OpenaiClient()
+
+    # ---- Load eligibility criteria ----
+    if args.json_input:
+        trial_data = load_trial_data(args.json_input)
+        eligibility_criteria = load_eligibility_criteria(trial_data)
+        logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria from JSON.")
+
+    elif args.csv_input:
+        trial_data = pd.read_csv(args.csv_input)
+        # Assume upstream made this a single-trial CSV
+        trial_id = trial_data.iloc[0]["trialId"]  # Not completed
+        eligibility_criteria = trial_data.iloc[0]["eligibilityCriteria"]
+        logger.info(f"Loaded eligibility criteria from CSV.")
+
     else:
-        client = OpenaiClient(TEMPERATURE)
+        raise ValueError("Must specify either --json_input or --csv_input.")
 
-    trial_data = load_trial_data(args.input_file)
-    eligibility_criteria = load_eligibility_criteria(trial_data)
-    logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
-
-    # Text preparation workflow
+    # ---- Prepare text ----
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
+    if not processed_rules:
+        raise ValueError("No rules produced by llm_rules_prep_workflow; check input eligibility text.")
 
-    # Pydantic curator workflow
-    curated_rules = []
+    # ---- Curate with Pydantic ----
+    curated_rules: list[RuleOutput] = []
+
     for criterion in processed_rules:
         curated_result = pydantic_curator_workflow(criterion, client)
         curated_rules.append(curated_result)
 
-    # Output formatting
-    tab_spaces = "    "
-    with open(args.output_file, 'w', encoding='utf-8') as f:
-        f.write("rules = [\n")
-        for rule in curated_rules:
-            f.write(f"{tab_spaces}Rule(\n")
-            f.write(f"{tab_spaces * 2}rule_text={repr(rule.rule_text)},\n")
-            f.write(f"{tab_spaces * 2}exclude={rule.exclude},\n")
-
-            f.write(f"{tab_spaces * 2}flipped={rule.flipped},\n")
-
-            if rule.cohorts is not None:
-                f.write(f"{tab_spaces * 2}cohorts={repr(rule.cohorts)},\n")
-
-            f.write(f"{tab_spaces * 2}curation=")
-            curation_lines = rule.curation.strip().splitlines()
-            temp_curation = []
-            counter = 0
-            for line in curation_lines:
-                if counter == 0:
-                    temp_curation.append(f"{tab_spaces * 0}{line}")
-                else:
-                    temp_curation.append(f"{tab_spaces * 3}{line}")
-                counter += 1
-            formatted_curation_lines = "\n".join(temp_curation)
-            f.write(formatted_curation_lines)
-            f.write("\n")
-
-            f.write(f"{tab_spaces * 2}),\n\n")
-        f.write("]\n")
+    # ---- Write output ----
+    _write_output_py(args.output_file, curated_rules)
 
 
 if __name__ == "__main__":
