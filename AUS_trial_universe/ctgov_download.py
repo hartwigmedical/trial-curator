@@ -250,7 +250,6 @@ def main():
         on_page = 1
 
         while True:
-
             data = download_one_page_from_ctgov(session, page_token=page_token)
 
             if num_trials is None:

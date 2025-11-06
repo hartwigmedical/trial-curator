@@ -357,7 +357,6 @@ def main():
         client = OpenaiClient(TEMPERATURE)
     elif args.llm_provider == "Gemini":
         client = GeminiClient(TEMPERATURE)
-        # May potentially consider other LLM providers such as Anthropic's Claude
     else:
         client = GeminiClient(TEMPERATURE)
 
