@@ -43,12 +43,13 @@ def criterion_extraction_dfs(starting_criterion: object, searching_criterion: st
     if starting_criterion is None:
         return []
 
-    matched_criterion_list = [starting_criterion] if type(starting_criterion).__name__ == searching_criterion else []
+    matched_criterion_list = [starting_criterion] if type(starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
 
     for attr_name in ("criteria", "criterion"):
         children_criterion = getattr(starting_criterion, attr_name, ())
+
         if not isinstance(children_criterion, (List, tuple)):
-            children_criterion = (children_criterion,) if children_criterion is not None else ()
+            children_criterion = (children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
 
         for child_criterion in children_criterion:
             matched_criterion_list.extend(
@@ -62,7 +63,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
     curated_rules = load_curated_rules(py_filepath)
     if not curated_rules:
         logger.error(f"No curated rules found in {py_filepath}.")
-        return pd.DataFrame(columns=["trialId", "direction", "criterion_class"]).astype({"trialId": str})
+        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
 
     trialId = py_filepath.stem
     rows: List[Dict[str, Any]] = []
@@ -73,11 +74,11 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
         else:
             direction = "INCL"
 
-        curations = getattr(rule, "curation", None)
-        for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):
+        curations = getattr(rule, "curation", None)  # start from the root criterion
+        for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):  # apply DFS
             row = {
                 "trialId": trialId,
-                "direction": direction,
+                "Incl/Excl": direction,
                 "criterion_class": type(crit).__name__,
             }
 
@@ -85,50 +86,50 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
 
-                row[key] = "; ".join(map(str, val)) if isinstance(val, (List, tuple, set)) else str(val)
+                row[key] = "; ".join(map(str, val)) if isinstance(val, (List, tuple, set)) else str(val)  # All the fields on the matched criterion object become their own columns
 
             rows.append(row)
 
     return (
-        pd.DataFrame(rows)
+        pd.DataFrame(rows)  # If the same criterion has different fields / no. of fields, when these rows are combined in a single DataFrame, pandas takes the union of these columns.
         if rows
-        else pd.DataFrame(columns=["trialId", "direction", "criterion_class"]).astype({"trialId": str})
+        else pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
     )
 
 
 def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str) -> pd.DataFrame:
-    rows: List[pd.DataFrame] = []
+    trials: List[pd.DataFrame] = []
 
     for filepath in sorted(py_dir.glob("NCT*.py")):
         try:
-            rows.append(
+            trials.append(
                 tabularise_criterion_instances_per_file(filepath,searching_criterion)
             )
         except Exception as e:
             logger.exception(f"Failed on {filepath}: {e}")
 
-    if not rows:
-        return pd.DataFrame(columns=["trialId", "direction", "criterion_class"]).astype({"trialId": str})
+    if not trials:
+        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
 
-    combined = pd.concat(rows, ignore_index=True)
-    if combined.empty:
-        return combined.astype({"trialId": str})
-    return combined.sort_values(["trialId", "direction"]).reset_index(drop=True)
+    concat_trials = pd.concat(trials, ignore_index=True)
+    if concat_trials.empty:
+        return concat_trials.astype({"trialId": str})
+    return concat_trials.sort_values(["trialId", "Incl/Excl"]).reset_index(drop=True)
 
 
 def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_criterion: str, joiner: str = "; ") -> pd.DataFrame | None:
     if instances_df is None or instances_df.empty:
         return pd.DataFrame(columns=["trialId"]).astype({"trialId": str})
 
-    id_cols = {"trialId", "direction", "criterion_class"}
+    id_cols = {"trialId", "Incl/Excl", "criterion_class"}
     attr_cols = [c for c in instances_df.columns if c not in id_cols]
 
     if not attr_cols:
         return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})
 
-    for col in ("trialId", "direction"):
+    for col in ("trialId", "Incl/Excl"):
         if col not in instances_df.columns:
-            instances_df[col] = "" if col == "direction" else instances_df.get(col, "")
+            instances_df[col] = "" if col == "Incl/Excl" else instances_df.get(col, "")
 
     def _agg_unique(series: pd.Series) -> str:
         vals = [str(x).strip() for x in series.dropna().tolist() if str(x).strip()]
@@ -136,7 +137,7 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
 
     collapsed_by_dir = []
     for direction in ("INCL", "EXCL"):
-        sub = instances_df[instances_df["direction"] == direction]
+        sub = instances_df[instances_df["Incl/Excl"] == direction]
         if sub.empty:
             continue
 
