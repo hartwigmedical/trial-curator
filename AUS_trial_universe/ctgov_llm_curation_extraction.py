@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Dict
 import pandas as pd
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -12,22 +13,52 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
 
     def _make_shim(class_name: str):
         def __init__(self, *_, **kwargs):
-            self.__dict__.update(kwargs)  # stores any fields; avoids Pydantic validation
+            self.__dict__.update(kwargs)  # stores any fields. No Pydantic validation
+
         return type(class_name, (), {"__init__": __init__})
 
     module_globs: dict[str, Any] = {"__builtins__": __builtins__}
+
+    module_globs["BaseModel"] = type("BaseModel", (), {})
+    module_globs["TypedModel"] = type("TypedModel", (), {})
+
+    _known_noncriterion_models = {
+        "Chemotherapy", "TargetedTherapy", "Immunotherapy", "HormonalTherapy",
+        "RadiationTherapy", "Surgery", "Regimen", "Medication", "Drug",
+        "IntRange", "FloatRange", "DateRange", "Range", "Dose", "Schedule"
+    }
+
     for name in dir(cs):
         obj = getattr(cs, name)
-        module_globs[name] = _make_shim(name) if isinstance(obj, type) and name.endswith("Criterion") else obj
+        if not isinstance(obj, type):
+            module_globs[name] = obj
+            continue
+
+        is_pydanticish = getattr(obj, "__pydantic_validator__", None) is not None
+        name_looks_like_schema = (
+                name.endswith("Criterion") or
+                name.endswith("Range") or
+                name in _known_noncriterion_models
+        )
+
+        if is_pydanticish or name_looks_like_schema:
+            module_globs[name] = _make_shim(name)
+        else:
+            module_globs[name] = obj
 
     class Rule:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
+
     module_globs["Rule"] = Rule
 
     try:
         code = py_filepath.read_text(encoding="utf-8")
-        exec(compile(code, str(py_filepath), "exec"), module_globs)
+        compiled = compile(code, str(py_filepath), "exec")
+        exec(compiled, module_globs)
+    except SyntaxError as e:
+        logger.error(f"SyntaxError in {py_filepath}:{e.lineno}\n{e.msg}")
+        return None
     except Exception as e:
         logger.exception(f"While executing {py_filepath}: {e}")
         return None
@@ -43,13 +74,15 @@ def criterion_extraction_dfs(starting_criterion: object, searching_criterion: st
     if starting_criterion is None:
         return []
 
-    matched_criterion_list = [starting_criterion] if type(starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
+    matched_criterion_list = [starting_criterion] if type(
+        starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
 
     for attr_name in ("criteria", "criterion"):
         children_criterion = getattr(starting_criterion, attr_name, ())
 
         if not isinstance(children_criterion, (list, tuple)):
-            children_criterion = (children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
+            children_criterion = (
+                children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
 
         for child_criterion in children_criterion:
             matched_criterion_list.extend(
@@ -63,13 +96,14 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
     curated_rules = load_curated_rules(py_filepath)
     if not curated_rules:
         logger.error(f"No curated rules found in {py_filepath}.")
-        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
+        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype(
+            {"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
 
     trialId = py_filepath.stem
     rows: List[Dict[str, Any]] = []
 
     for rule in curated_rules:
-        if getattr(rule, "exclude"):
+        if bool(getattr(rule, "exclude", False)):  # If `rule` doesn’t have the attribute `exclude`, return False (i.e. assume it's an inclusive rule)
             direction = "EXCL"
         else:
             direction = "INCL"
@@ -86,7 +120,13 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
 
-                row[key] = "; ".join(map(str, val)) if isinstance(val, (list, tuple, set)) else str(val)  # All the fields on the matched criterion object become their own columns
+                # All the fields on the matched criterion object become their own columns
+                if isinstance(val, (list, tuple)):
+                    row[key] = "; ".join(map(str, val))
+                elif isinstance(val, set):
+                    row[key] = "; ".join(map(str, sorted(val)))  # enforce ordering for set
+                else:
+                    row[key] = str(val)
 
             rows.append(row)
 
@@ -103,7 +143,7 @@ def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str
     for filepath in sorted(py_dir.glob("NCT*.py")):
         try:
             trials.append(
-                tabularise_criterion_instances_per_file(filepath,searching_criterion)
+                tabularise_criterion_instances_per_file(filepath, searching_criterion)
             )
         except Exception as e:
             logger.exception(f"Failed on {filepath}: {e}")
@@ -125,48 +165,55 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
     other_cols = [c for c in instances_df.columns if c not in core_cols]
 
     if not other_cols:
-        return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})
+        return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})  # since there is no useful column to display, just return a table of unique trialIds
 
     instances_df = instances_df.copy()
 
-    for col in ("trialId", "Incl/Excl"):
-        if col not in instances_df.columns:
-            instances_df[col] = "" if col == "Incl/Excl" else instances_df.get(col, "")
+    instances_df["_number_rows"] = np.arange(len(instances_df))  # Number the rows. Used to preserve elements sequence between adjacent cols later when grouping by trialId
 
-    def _agg_unique(series: pd.Series) -> str:
-        seen, out = set(), []
-        for x in series.dropna().map(str).map(str.strip):  # Drop NaN, stringify, strip whitespace.
-            if x and x not in seen:
-                seen.add(x)  # Deduplicate via set()
-                out.append(x)
-        return joining_delimiter.join(out)
+    def _agg_preserve_sequence(series: pd.Series) -> str:
+        vals = []
+        for ele in series:
+            if pd.notna(ele):
+                ele = str(ele).strip()
+                if ele:  # only consider non-empty elements
+                    vals.append(ele)
 
-    group_by_trialid = []
+        return joining_delimiter.join(vals)
+
+    grouped_list = []
     for direction in ("INCL", "EXCL"):
-        sub = instances_df[instances_df["Incl/Excl"] == direction]  # rows in one direction only
-        if sub.empty:
+        direction_df = instances_df.loc[instances_df["Incl/Excl"] == direction, :]
+        direction_df = direction_df.sort_values(by=["trialId", "_number_rows"], kind="stable")  # to use pandas' stable sorting algorithm - across values with the same trialId, keep the original row order
+        if direction_df.empty:
             continue
 
-        grouped = sub.groupby("trialId", as_index=False)[other_cols].agg(_agg_unique)  # transform from long to wide format
-        grouped = grouped.rename(columns={col: f"{direction}:{searching_criterion}-{col}" for col in other_cols})
-        group_by_trialid.append(grouped)
+        grouped_df = direction_df.groupby("trialId", as_index=False, sort=False) \
+            [other_cols] \
+            .agg(_agg_preserve_sequence)
+        grouped_df = grouped_df.rename(columns={col: f"{direction}:{searching_criterion}-{col}" for col in other_cols})
+        grouped_list.append(grouped_df)
 
-    if not group_by_trialid:
+    if not grouped_list:
         return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})
 
-    wide_tbl = group_by_trialid[0]  # headers
-    for i in group_by_trialid[1:]:
+    wide_tbl = grouped_list[0]  # headers
+    for i in grouped_list[1:]:
         wide_tbl = wide_tbl.merge(i, on="trialId", how="outer")
 
     return wide_tbl.fillna("").astype({"trialId": str})
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract specified criterion attributes from curated eligibility rules.")
+    parser = argparse.ArgumentParser(
+        description="Extract specified criterion attributes from curated eligibility rules.")
     parser.add_argument("--curated_dir", type=Path, help="Directory containing curated NCT*.py files.", required=True)
-    parser.add_argument("--searching_criterion", help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion or PrimaryTumorCriterion).", required=True)
+    parser.add_argument("--searching_criterion",
+                        help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion or PrimaryTumorCriterion).",
+                        required=True)
     parser.add_argument("--output_dir", type=Path, help="Output directory to save the summary CSVs.", required=True)
-    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        help="Logging level")
     args = parser.parse_args()
 
     logging.basicConfig(
