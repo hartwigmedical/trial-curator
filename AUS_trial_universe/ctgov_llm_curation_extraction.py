@@ -48,7 +48,7 @@ def criterion_extraction_dfs(starting_criterion: object, searching_criterion: st
     for attr_name in ("criteria", "criterion"):
         children_criterion = getattr(starting_criterion, attr_name, ())
 
-        if not isinstance(children_criterion, (List, tuple)):
+        if not isinstance(children_criterion, (list, tuple)):
             children_criterion = (children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
 
         for child_criterion in children_criterion:
@@ -86,7 +86,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
 
-                row[key] = "; ".join(map(str, val)) if isinstance(val, (List, tuple, set)) else str(val)  # All the fields on the matched criterion object become their own columns
+                row[key] = "; ".join(map(str, val)) if isinstance(val, (list, tuple, set)) else str(val)  # All the fields on the matched criterion object become their own columns
 
             rows.append(row)
 
@@ -164,7 +164,7 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
 def main():
     parser = argparse.ArgumentParser(description="Extract specified criterion attributes from curated eligibility rules.")
     parser.add_argument("--curated_dir", type=Path, help="Directory containing curated NCT*.py files.", required=True)
-    parser.add_argument("--searching_criterion", help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion).", required=True)
+    parser.add_argument("--searching_criterion", help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion or PrimaryTumorCriterion).", required=True)
     parser.add_argument("--output_dir", type=Path, help="Output directory to save the summary CSVs.", required=True)
     parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     args = parser.parse_args()
@@ -174,7 +174,7 @@ def main():
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
 
-    args.output_dir.parent.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
 
     instances_csv = args.output_dir / f"{args.searching_criterion}_instances.csv"
     aggregate_csv = args.output_dir / f"{args.searching_criterion}_aggregate.csv"
