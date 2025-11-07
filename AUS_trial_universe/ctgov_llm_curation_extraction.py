@@ -117,53 +117,55 @@ def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str
     return concat_trials.sort_values(["trialId", "Incl/Excl"]).reset_index(drop=True)
 
 
-def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_criterion: str, joiner: str = "; ") -> pd.DataFrame | None:
+def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_criterion: str, joining_delimiter: str = "; ") -> pd.DataFrame:
     if instances_df is None or instances_df.empty:
         return pd.DataFrame(columns=["trialId"]).astype({"trialId": str})
 
-    id_cols = {"trialId", "Incl/Excl", "criterion_class"}
-    attr_cols = [c for c in instances_df.columns if c not in id_cols]
+    core_cols = {"trialId", "Incl/Excl", "criterion_class"}
+    other_cols = [c for c in instances_df.columns if c not in core_cols]
 
-    if not attr_cols:
+    if not other_cols:
         return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})
+
+    instances_df = instances_df.copy()
 
     for col in ("trialId", "Incl/Excl"):
         if col not in instances_df.columns:
             instances_df[col] = "" if col == "Incl/Excl" else instances_df.get(col, "")
 
     def _agg_unique(series: pd.Series) -> str:
-        vals = [str(x).strip() for x in series.dropna().tolist() if str(x).strip()]
-        return joiner.join(sorted(set(vals))) if vals else ""
+        seen, out = set(), []
+        for x in series.dropna().map(str).map(str.strip):  # Drop NaN, stringify, strip whitespace.
+            if x and x not in seen:
+                seen.add(x)  # Deduplicate via set()
+                out.append(x)
+        return joining_delimiter.join(out)
 
-    collapsed_by_dir = []
+    group_by_trialid = []
     for direction in ("INCL", "EXCL"):
-        sub = instances_df[instances_df["Incl/Excl"] == direction]
+        sub = instances_df[instances_df["Incl/Excl"] == direction]  # rows in one direction only
         if sub.empty:
             continue
 
-        present_attrs = [c for c in attr_cols if c in sub.columns]
-        if not present_attrs:
-            continue
+        grouped = sub.groupby("trialId", as_index=False)[other_cols].agg(_agg_unique)  # transform from long to wide format
+        grouped = grouped.rename(columns={col: f"{direction}:{searching_criterion}-{col}" for col in other_cols})
+        group_by_trialid.append(grouped)
 
-        grouped = sub.groupby("trialId", as_index=False)[present_attrs].agg(_agg_unique)
-        grouped = grouped.rename(columns={col: f"{direction}:{searching_criterion}-{col}" for col in present_attrs})
-        collapsed_by_dir.append(grouped)
-
-    if not collapsed_by_dir:
+    if not group_by_trialid:
         return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})
 
-    wide = collapsed_by_dir[0]
-    for extra in collapsed_by_dir[1:]:
-        wide = wide.merge(extra, on="trialId", how="outer")
+    wide_tbl = group_by_trialid[0]  # headers
+    for i in group_by_trialid[1:]:
+        wide_tbl = wide_tbl.merge(i, on="trialId", how="outer")
 
-    return wide.fillna("").astype({"trialId": str})
+    return wide_tbl.fillna("").astype({"trialId": str})
 
 
 def main():
     parser = argparse.ArgumentParser(description="Extract specified criterion attributes from curated eligibility rules.")
     parser.add_argument("--curated_dir", type=Path, help="Directory containing curated NCT*.py files.", required=True)
     parser.add_argument("--searching_criterion", help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion).", required=True)
-    parser.add_argument("--output_csv_path", type=Path, help="CSV file path to save the summary table.", required=True)
+    parser.add_argument("--output_dir", type=Path, help="Output directory to save the summary CSVs.", required=True)
     parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     args = parser.parse_args()
 
@@ -172,17 +174,18 @@ def main():
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
 
-    args.output_csv_path.parent.mkdir(parents=True, exist_ok=True)
+    args.output_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    instances_csv = args.output_dir / f"{args.searching_criterion}_instances.csv"
+    aggregate_csv = args.output_dir / f"{args.searching_criterion}_aggregate.csv"
 
     instances_tbl = tabularise_criterion_instances_in_dir(args.curated_dir, args.searching_criterion)
-
-    instances_csv = args.output_csv_path.with_name(args.output_csv_path.stem + "_instances.csv")
     instances_tbl.to_csv(instances_csv, index=False)
     logger.info(f"Saved instance-level table to {instances_csv}")
 
     summary_tbl = restructure_to_one_trial_per_row(instances_tbl, args.searching_criterion)
-    summary_tbl.to_csv(args.output_csv_path, index=False)
-    logger.info(f"Saved collapsed summary table to {args.output_csv_path}")
+    summary_tbl.to_csv(aggregate_csv, index=False)
+    logger.info(f"Saved aggregate summary table to {aggregate_csv}")
 
 
 if __name__ == "__main__":
