@@ -15,7 +15,7 @@ die() {
 
 trap exit_handler EXIT
 
-[[ $# -eq 2 || $# -eq 3 ]] || die "USAGE: $0 [Docker image id] [local directory to contain input/output] [OPTIONAL OpenAI key]"
+[[ $# -eq 2 ]] || die "USAGE: $0 [Docker image id] [local directory to contain input/output]"
 in_dir="$2/input"
 for dir in "$in_dir" "$2/output"; do
   mkdir -p $dir || die "Could not create/verify [$dir]"
@@ -25,16 +25,7 @@ input="$in_dir/criteria.txt"
 
 BASE_CMD="docker run --mount type=bind,src=${2},dst=/actin_data"
 
-#gc_home="${CLOUDSDK_CONFIG:-$(gcloud info --format='value(config.paths.global_config_dir)')}"
-#[[ -n $gc_home ]] || die "Could not determine gcloud config directory! Export CLOUDSDK_CONFIG maybe."
-#echo "Using gcloud configured in [$gc_home]"
-#
-#echo "Running using Vertex"
-#$BASE_CMD --mount "type=bind,src=${gc_home},dst=/root/.config/gcloud,ro" $1
-
-if [[ $# -eq 3 ]]; then
-  echo "Running using OpenAI"
-  $BASE_CMD -e LLM_PROVIDER=OpenAI -e OPENAI_API_KEY="$3" $1
-else
-  echo "Not running with OpenAI as no API key was provided"
-fi
+echo "Running using OpenAI"
+key="$(gcloud secrets versions access latest --secret=actin-trial-curator-key --project=actin-research)"
+[[ $? -ne 0 ]] && echo "Could not access OpenAI secret key" && exit 1
+$BASE_CMD -e LLM_PROVIDER=OpenAI -e OPENAI_API_KEY="$key" $1
