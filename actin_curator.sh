@@ -56,6 +56,13 @@ else
   die "Docker container run did not succeed. Exiting."
 fi
 
-info "Reformat trial-curator output for inspection and ACTIN use"
-jq -r '.[] | [.input_rule, .actin_rule_reformat] | @tsv' ${out_dir}/trial_curator_complete.out.OpenAI > ${out_dir}/trial_curator_complete.reformatted.tsv
+info "Reformat output for inspection and ACTIN use"
+title=$(awk -F'Trial Title:' '/Trial Title:/ {gsub(/^[ \t]+/, "", $2); print $2}' $input_file)
+trial_id=$(awk -F'Trial ID:' '/Trial ID:/ {gsub(/^[ \t]+/, "", $2); print $2}' $input_file)
+
+reformatted_out_file="${out_dir}/trial_curator_complete.reformatted.tsv"
+echo -e "trial_id\t${trial_id}" > $reformatted_out_file
+echo -e "title\t${title}" >> $reformatted_out_file
+jq -r '.[] | ["criterion", .input_rule, .actin_rule_reformat] | @tsv' ${out_dir}/trial_curator_complete.out.OpenAI >> $reformatted_out_file
+
 info "Everything done!"
