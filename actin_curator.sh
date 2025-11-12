@@ -41,14 +41,12 @@ else
   die "Cannot find input file: [$trial_input_file] or [$input_file] both do not exist."
 fi
 
-openai_key_file="$HOME/hmf/hartwig_openai_key/key.txt"
-info "Extracting OpenAi key from [$openai_key_file]. Be sure to use an ACTIN ORGANIZATIONAL OpenAi key!"
-[[ -f $openai_key_file ]] || die "Cannot find openai key [$openai_key_file]. Be sure to add an ACTIN ORGANIZATIONAL OpenAi key!"
-openai_key=$(cat $openai_key_file)
+key="$(gcloud secrets versions access latest --secret=actin-trial-curator-key --project=actin-research)"
+[[ $? -ne 0 ]] && die "Could not access OpenAI secret key. Exiting."
 
 BASE_CMD="docker run --mount type=bind,src=${local_trial_curator_dir},dst=/actin_data"
 info "Running trial-curator for ACTIN using OpenAI"
-$BASE_CMD -e LLM_PROVIDER=OpenAI -e OPENAI_API_KEY=$openai_key $docker_image_id
+$BASE_CMD -e LLM_PROVIDER=OpenAI -e OPENAI_API_KEY=$key $docker_image_id
 
 if [ $? -eq 0 ]; then
   info "Successfully ran Docker container!"
