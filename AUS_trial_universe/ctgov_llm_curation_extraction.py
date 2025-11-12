@@ -94,8 +94,7 @@ def criterion_extraction_dfs(starting_criterion: object, searching_criterion: st
 
 def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criterion: str) -> pd.DataFrame:
     curated_rules = load_curated_rules(py_filepath)
-    if not curated_rules:
-        logger.error(f"No curated rules found in {py_filepath}.")
+    if not curated_rules:  # Not logging an error again because errors would have been logged by the loader function
         return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype(
             {"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
 
@@ -120,7 +119,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
 
-                # All the fields on the matched criterion object become their own columns
+                # All the fields on the matched criterion object become their own columns. Dynamically expanding.
                 if isinstance(val, (list, tuple)):
                     row[key] = "; ".join(map(str, val))
                 elif isinstance(val, set):
@@ -131,20 +130,25 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
             rows.append(row)
 
     return (
-        pd.DataFrame(rows)  # If the same criterion has different fields / no. of fields, when these rows are combined in a single DataFrame, pandas takes the union of these columns.
-        if rows
-        else pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+        # If the same criterion has different fields / no. of fields, when these rows are combined in a single DataFrame, pandas takes the union of these columns.
+        # Drop row if every column is identical
+        pd.DataFrame(rows).drop_duplicates()
+            if rows
+            else pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
     )
 
 
 def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str) -> pd.DataFrame:
     trials: List[pd.DataFrame] = []
 
+    trials_counter = 0
     for filepath in sorted(py_dir.glob("NCT*.py")):
         try:
             trials.append(
                 tabularise_criterion_instances_per_file(filepath, searching_criterion)
             )
+
+            trials_counter += 1
         except Exception as e:
             logger.exception(f"Failed on {filepath}: {e}")
 
@@ -154,6 +158,8 @@ def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str
     concat_trials = pd.concat(trials, ignore_index=True)
     if concat_trials.empty:
         return concat_trials.astype({"trialId": str})
+
+    logger.info(f"For criterion {searching_criterion}, processed {trials_counter} trials.")
     return concat_trials.sort_values(["trialId", "Incl/Excl"]).reset_index(drop=True)
 
 
@@ -205,15 +211,11 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Extract specified criterion attributes from curated eligibility rules.")
+    parser = argparse.ArgumentParser(description="Extract specified criterion attributes from curated eligibility rules.")
     parser.add_argument("--curated_dir", type=Path, help="Directory containing curated NCT*.py files.", required=True)
-    parser.add_argument("--searching_criterion",
-                        help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion or PrimaryTumorCriterion).",
-                        required=True)
+    parser.add_argument("--searching_criterion", help="Criterion class name to extract (e.g., MolecularBiomarkerCriterion or PrimaryTumorCriterion).", required=True)
     parser.add_argument("--output_dir", type=Path, help="Output directory to save the summary CSVs.", required=True)
-    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-                        help="Logging level")
+    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -237,3 +239,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# Things to do:
+# 1. To include a row for EVERY trial, even if there is no associated criterion data
+# 2. Include `InfectionCriterion`
+# 3. Under "description", extract the parent-level or input_text field
+# 4. Count the no. criteria inside the corresponding rule()
