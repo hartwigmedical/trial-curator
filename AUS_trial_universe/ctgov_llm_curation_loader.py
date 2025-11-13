@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pydantic_curator.criterion_schema as cs
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,33 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
-    module_globs: dict[str, Any] = {  # to create a global namespace to give to exec() later.
-        "__builtins__": __builtins__,  # to enable access to Python's built-in functions
-        **{name: getattr(cs, name) for name in dir(cs)},  # dumps all the Pydantic models and base classes into this namespace
-        "Rule": Rule,
-    }
+    def _make_shim(class_name: str):  # create shim to bypass validation errors
+        def __init__(self, *_, **kwargs):
+            self.__dict__.update(kwargs)
+        return type(class_name, (), {"__init__": __init__})
+
+    module_globs: dict[str, Any] = {"__builtins__": __builtins__}
+
+    for name in dir(cs):
+        obj = getattr(cs, name)
+
+        if isinstance(obj, type):
+            use_shim = False
+
+            try:
+                if issubclass(obj, BaseModel):  # Bypass validation & just extract the criteria if it is a subclass of Baseclass (i.e. all the criteria)
+                    use_shim = True
+            except TypeError:
+                pass
+
+            if name.endswith("Criterion"):
+                use_shim = True
+
+            module_globs[name] = _make_shim(name) if use_shim else obj
+        else:
+            module_globs[name] = obj
+
+    module_globs["Rule"] = Rule
 
     try:
         curations = py_filepath.read_text(encoding="utf-8")
