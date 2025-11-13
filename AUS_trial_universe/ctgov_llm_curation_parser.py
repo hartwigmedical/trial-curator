@@ -1,88 +1,43 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 import pandas as pd
 import numpy as np
+
+from .ctgov_llm_curation_loader import load_curated_rules
 
 logger = logging.getLogger(__name__)
 
 
-def load_curated_rules(py_filepath: Path) -> list[Any] | None:
-    import pydantic_curator.criterion_schema as cs
-
-    def _make_shim(class_name: str):
-        def __init__(self, *_, **kwargs):
-            self.__dict__.update(kwargs)  # stores any fields. No Pydantic validation
-
-        return type(class_name, (), {"__init__": __init__})
-
-    module_globs: dict[str, Any] = {"__builtins__": __builtins__}
-
-    module_globs["BaseModel"] = type("BaseModel", (), {})
-    module_globs["TypedModel"] = type("TypedModel", (), {})
-
-    _known_noncriterion_models = {
-        "Chemotherapy", "TargetedTherapy", "Immunotherapy", "HormonalTherapy",
-        "RadiationTherapy", "Surgery", "Regimen", "Medication", "Drug",
-        "IntRange", "FloatRange", "DateRange", "Range", "Dose", "Schedule"
-    }
-
-    for name in dir(cs):
-        obj = getattr(cs, name)
-        if not isinstance(obj, type):
-            module_globs[name] = obj
-            continue
-
-        is_pydanticish = getattr(obj, "__pydantic_validator__", None) is not None
-        name_looks_like_schema = (
-                name.endswith("Criterion") or
-                name.endswith("Range") or
-                name in _known_noncriterion_models
-        )
-
-        if is_pydanticish or name_looks_like_schema:
-            module_globs[name] = _make_shim(name)
-        else:
-            module_globs[name] = obj
-
-    class Rule:
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
-
-    module_globs["Rule"] = Rule
-
-    try:
-        code = py_filepath.read_text(encoding="utf-8")
-        compiled = compile(code, str(py_filepath), "exec")
-        exec(compiled, module_globs)
-    except SyntaxError as e:
-        logger.error(f"SyntaxError in {py_filepath}:{e.lineno}\n{e.msg}")
-        return None
-    except Exception as e:
-        logger.exception(f"While executing {py_filepath}: {e}")
+def input_text_extraction(rule_obj: Any) -> Optional[str]:
+    if rule_obj is None:
+        logger.error("input_text_extraction: Entire rule object is missing")
         return None
 
-    rules = module_globs.get("rules")
-    if rules is None:
-        logger.error(f"{py_filepath} has no `rules` variable")
+    if not hasattr(rule_obj, "rule_text"):
+        logger.error("input_text_extraction: Input text field is missing")
         return None
-    return rules
+
+    input_text = getattr(rule_obj, "rule_text", None)
+    if input_text is None:
+        logger.error("input_text_extraction: Input text field is None")
+        return None
+
+    return input_text.strip()
 
 
 def criterion_extraction_dfs(starting_criterion: object, searching_criterion: str) -> List[object]:
     if starting_criterion is None:
         return []
 
-    matched_criterion_list = [starting_criterion] if type(
-        starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
+    matched_criterion_list = [starting_criterion] if type(starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
 
     for attr_name in ("criteria", "criterion"):
         children_criterion = getattr(starting_criterion, attr_name, ())
 
         if not isinstance(children_criterion, (list, tuple)):
-            children_criterion = (
-                children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
+            children_criterion = (children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
 
         for child_criterion in children_criterion:
             matched_criterion_list.extend(
@@ -94,6 +49,7 @@ def criterion_extraction_dfs(starting_criterion: object, searching_criterion: st
 
 def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criterion: str) -> pd.DataFrame:
     curated_rules = load_curated_rules(py_filepath)
+
     if not curated_rules:  # Not logging an error again because errors would have been logged by the loader function
         return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype(
             {"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
@@ -225,14 +181,21 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    instances_csv = args.output_dir / f"{args.searching_criterion}_instances.csv"
-    aggregate_csv = args.output_dir / f"{args.searching_criterion}_aggregate.csv"
+    # Obtain complete list of trialIds
+    all_trials = sorted([p.stem for p in args.curated_dir.glob("NCT*.py")])
+    all_trials_df = pd.DataFrame({"trialId": all_trials}).astype({"trialId": str})
 
+    # Extract each instance of a matched searching_criterion
+    logger.info(f"Extracting {args.searching_criterion} from {len(all_trials)} curated trials...")
     instances_tbl = tabularise_criterion_instances_in_dir(args.curated_dir, args.searching_criterion)
-    instances_tbl.to_csv(instances_csv, index=False)
-    logger.info(f"Saved instance-level table to {instances_csv}")
 
+    # Group by trialId
     summary_tbl = restructure_to_one_trial_per_row(instances_tbl, args.searching_criterion)
+    # Ensure one row per trial even if that trial has no matches
+    summary_tbl = all_trials_df.merge(summary_tbl, on="trialId", how="left").fillna("").astype({"trialId": str})
+
+    # Save final aggregate CSV
+    aggregate_csv = args.output_dir / f"{args.searching_criterion}_aggregate.csv"
     summary_tbl.to_csv(aggregate_csv, index=False)
     logger.info(f"Saved aggregate summary table to {aggregate_csv}")
 
@@ -245,4 +208,4 @@ if __name__ == "__main__":
 # 1. To include a row for EVERY trial, even if there is no associated criterion data
 # 2. Include `InfectionCriterion`
 # 3. Under "description", extract the parent-level or input_text field
-# 4. Count the no. criteria inside the corresponding rule()
+# 4. Count the no. criteria inside the corresponding Rule()
