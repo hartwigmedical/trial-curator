@@ -1,88 +1,82 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Tuple, Optional
 import pandas as pd
 import numpy as np
+
+from .ctgov_llm_curation_loader import load_curated_rules
 
 logger = logging.getLogger(__name__)
 
 
-def load_curated_rules(py_filepath: Path) -> list[Any] | None:
-    import pydantic_curator.criterion_schema as cs
+def input_text_extraction(rule_obj: Any) -> Optional[str]:
+    if rule_obj is None:
+        logger.error("input_text_extraction: Entire rule object is missing")
+        return None
 
-    def _make_shim(class_name: str):
-        def __init__(self, *_, **kwargs):
-            self.__dict__.update(kwargs)  # stores any fields. No Pydantic validation
+    if not hasattr(rule_obj, "rule_text"):
+        logger.error("input_text_extraction: Input text field is missing")
+        return None
 
-        return type(class_name, (), {"__init__": __init__})
+    input_text = getattr(rule_obj, "rule_text", None)
+    if input_text is None:
+        logger.error("input_text_extraction: Input text field is None")
+        return None
 
-    module_globs: dict[str, Any] = {"__builtins__": __builtins__}
+    return input_text.strip()
 
-    module_globs["BaseModel"] = type("BaseModel", (), {})
-    module_globs["TypedModel"] = type("TypedModel", (), {})
 
-    _known_noncriterion_models = {
-        "Chemotherapy", "TargetedTherapy", "Immunotherapy", "HormonalTherapy",
-        "RadiationTherapy", "Surgery", "Regimen", "Medication", "Drug",
-        "IntRange", "FloatRange", "DateRange", "Range", "Dose", "Schedule"
-    }
+def _iter_children(crit_obj: object) -> List[object]:
+    children_nodes: List[object] = []
 
-    for name in dir(cs):
-        obj = getattr(cs, name)
-        if not isinstance(obj, type):
-            module_globs[name] = obj
+    for attr_name in ("criteria", "criterion"):
+        child = getattr(crit_obj, attr_name, None)
+        if child is None:
             continue
 
-        is_pydanticish = getattr(obj, "__pydantic_validator__", None) is not None
-        name_looks_like_schema = (
-                name.endswith("Criterion") or
-                name.endswith("Range") or
-                name in _known_noncriterion_models
-        )
-
-        if is_pydanticish or name_looks_like_schema:
-            module_globs[name] = _make_shim(name)
+        if isinstance(child, (list, tuple)):
+            children_nodes.extend(child)
         else:
-            module_globs[name] = obj
+            children_nodes.append(child)
 
-    class Rule:
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
+    return children_nodes
 
-    module_globs["Rule"] = Rule
 
-    try:
-        code = py_filepath.read_text(encoding="utf-8")
-        compiled = compile(code, str(py_filepath), "exec")
-        exec(compiled, module_globs)
-    except SyntaxError as e:
-        logger.error(f"SyntaxError in {py_filepath}:{e.lineno}\n{e.msg}")
-        return None
-    except Exception as e:
-        logger.exception(f"While executing {py_filepath}: {e}")
-        return None
+def criterion_extraction_parent_counts(starting_criterion: object, searching_criterion: str) -> List[Tuple[object, int]]:
+    out: List[Tuple[object, int]] = []
+    if starting_criterion is None:
+        return out
 
-    rules = module_globs.get("rules")
-    if rules is None:
-        logger.error(f"{py_filepath} has no `rules` variable")
-        return None
-    return rules
+    def _walk(node: object, parent: Optional[object]) -> None:
+        if type(node).__name__ == searching_criterion:
+            size = 1 if parent is None else (1 + len(_iter_children(parent)))
+            out.append((node, size))
+
+        for child in _iter_children(node):
+            _walk(child, node)
+
+    if isinstance(starting_criterion, (list, tuple)):
+        for item in starting_criterion:
+            if item is not None:
+                _walk(item, None)
+    else:
+        _walk(starting_criterion, None)
+
+    return out
 
 
 def criterion_extraction_dfs(starting_criterion: object, searching_criterion: str) -> List[object]:
     if starting_criterion is None:
         return []
 
-    matched_criterion_list = [starting_criterion] if type(
-        starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
+    matched_criterion_list = [starting_criterion] if type(starting_criterion).__name__ == searching_criterion else []  # Cannot directly compare because `starting_criterion` is an object instance & `searching_criterion` is a string
 
     for attr_name in ("criteria", "criterion"):
         children_criterion = getattr(starting_criterion, attr_name, ())
 
         if not isinstance(children_criterion, (list, tuple)):
-            children_criterion = (
-                children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
+            children_criterion = (children_criterion,) if children_criterion is not None else ()  # to ensure `children_criterion` is normalised into a tuple, empty or otherwise. Because we need to iterate through a tuple afterwards
 
         for child_criterion in children_criterion:
             matched_criterion_list.extend(
@@ -94,31 +88,36 @@ def criterion_extraction_dfs(starting_criterion: object, searching_criterion: st
 
 def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criterion: str) -> pd.DataFrame:
     curated_rules = load_curated_rules(py_filepath)
+
     if not curated_rules:  # Not logging an error again because errors would have been logged by the loader function
-        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype(
+        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class", "rule_obj_criterion_count"]).astype(
             {"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
 
     trialId = py_filepath.stem
     rows: List[Dict[str, Any]] = []
 
     for rule in curated_rules:
+        input_text = input_text_extraction(rule) or "(Missing)"
+
         if bool(getattr(rule, "exclude", False)):  # If `rule` doesn’t have the attribute `exclude`, return False (i.e. assume it's an inclusive rule)
             direction = "EXCL"
         else:
             direction = "INCL"
 
         curations = getattr(rule, "curation", None)  # start from the root criterion
-        for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):  # apply DFS
+        # for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):  # apply DFS
+        for crit, parent_group_size in criterion_extraction_parent_counts(curations, searching_criterion):
             row = {
                 "trialId": trialId,
+                "input_text": input_text,
                 "Incl/Excl": direction,
                 "criterion_class": type(crit).__name__,
+                "rule_obj_criterion_count": parent_group_size,
             }
 
             for key, val in vars(crit).items():
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
-
                 # All the fields on the matched criterion object become their own columns. Dynamically expanding.
                 if isinstance(val, (list, tuple)):
                     row[key] = "; ".join(map(str, val))
@@ -134,7 +133,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
         # Drop row if every column is identical
         pd.DataFrame(rows).drop_duplicates()
             if rows
-            else pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+            else pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class", "rule_obj_criterion_count"]).astype({"trialId": str})
     )
 
 
@@ -153,7 +152,7 @@ def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str
             logger.exception(f"Failed on {filepath}: {e}")
 
     if not trials:
-        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class", "rule_obj_criterion_count"]).astype({"trialId": str})
 
     concat_trials = pd.concat(trials, ignore_index=True)
     if concat_trials.empty:
@@ -169,13 +168,18 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
 
     core_cols = {"trialId", "Incl/Excl", "criterion_class"}
     other_cols = [c for c in instances_df.columns if c not in core_cols]
-
     if not other_cols:
         return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})  # since there is no useful column to display, just return a table of unique trialIds
 
     instances_df = instances_df.copy()
-
     instances_df["_number_rows"] = np.arange(len(instances_df))  # Number the rows. Used to preserve elements sequence between adjacent cols later when grouping by trialId
+
+    reordered_cols = []
+    if "input_text" in other_cols:
+        reordered_cols.append("input_text")
+    if "rule_obj_criterion_count" in other_cols:
+        reordered_cols.append("rule_obj_criterion_count")
+    other_cols = reordered_cols + [c for c in other_cols if c not in reordered_cols]
 
     def _agg_preserve_sequence(series: pd.Series) -> str:
         vals = []
@@ -197,7 +201,14 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
         grouped_df = direction_df.groupby("trialId", as_index=False, sort=False) \
             [other_cols] \
             .agg(_agg_preserve_sequence)
-        grouped_df = grouped_df.rename(columns={col: f"{direction}:{searching_criterion}-{col}" for col in other_cols})
+
+        rename_map = {}
+        for col in other_cols:
+            if col == "input_text":
+                rename_map[col] = f"{direction}:input_text"
+            else:
+                rename_map[col] = f"{direction}:{searching_criterion}-{col}"
+        grouped_df = grouped_df.rename(columns=rename_map)
         grouped_list.append(grouped_df)
 
     if not grouped_list:
@@ -225,14 +236,21 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    instances_csv = args.output_dir / f"{args.searching_criterion}_instances.csv"
-    aggregate_csv = args.output_dir / f"{args.searching_criterion}_aggregate.csv"
+    # Obtain complete list of trialIds
+    all_trials = sorted([p.stem for p in args.curated_dir.glob("NCT*.py")])
+    all_trials_df = pd.DataFrame({"trialId": all_trials}).astype({"trialId": str})
 
+    # Extract each instance of a matched searching_criterion
+    logger.info(f"Extracting {args.searching_criterion} from {len(all_trials)} curated trials...")
     instances_tbl = tabularise_criterion_instances_in_dir(args.curated_dir, args.searching_criterion)
-    instances_tbl.to_csv(instances_csv, index=False)
-    logger.info(f"Saved instance-level table to {instances_csv}")
 
+    # Group by trialId
     summary_tbl = restructure_to_one_trial_per_row(instances_tbl, args.searching_criterion)
+    # Ensure one row per trial even if that trial has no matches
+    summary_tbl = all_trials_df.merge(summary_tbl, on="trialId", how="left").fillna("").astype({"trialId": str})
+
+    # Save final aggregate CSV
+    aggregate_csv = args.output_dir / f"{args.searching_criterion}_aggregate.csv"
     summary_tbl.to_csv(aggregate_csv, index=False)
     logger.info(f"Saved aggregate summary table to {aggregate_csv}")
 
@@ -240,9 +258,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-# Things to do:
-# 1. To include a row for EVERY trial, even if there is no associated criterion data
-# 2. Include `InfectionCriterion`
-# 3. Under "description", extract the parent-level or input_text field
-# 4. Count the no. criteria inside the corresponding rule()
