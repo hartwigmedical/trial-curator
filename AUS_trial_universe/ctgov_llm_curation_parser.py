@@ -1,7 +1,7 @@
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Tuple, Optional
 import pandas as pd
 import numpy as np
 
@@ -25,6 +25,45 @@ def input_text_extraction(rule_obj: Any) -> Optional[str]:
         return None
 
     return input_text.strip()
+
+
+def _iter_children(crit_obj: object) -> List[object]:
+    children_nodes: List[object] = []
+
+    for attr_name in ("criteria", "criterion"):
+        child = getattr(crit_obj, attr_name, None)
+        if child is None:
+            continue
+
+        if isinstance(child, (list, tuple)):
+            children_nodes.extend(child)
+        else:
+            children_nodes.append(child)
+
+    return children_nodes
+
+
+def criterion_extraction_parent_counts(starting_criterion: object, searching_criterion: str) -> List[Tuple[object, int]]:
+    out: List[Tuple[object, int]] = []
+    if starting_criterion is None:
+        return out
+
+    def _walk(node: object, parent: Optional[object]) -> None:
+        if type(node).__name__ == searching_criterion:
+            size = 1 if parent is None else (1 + len(_iter_children(parent)))
+            out.append((node, size))
+
+        for child in _iter_children(node):
+            _walk(child, node)
+
+    if isinstance(starting_criterion, (list, tuple)):
+        for item in starting_criterion:
+            if item is not None:
+                _walk(item, None)
+    else:
+        _walk(starting_criterion, None)
+
+    return out
 
 
 def criterion_extraction_dfs(starting_criterion: object, searching_criterion: str) -> List[object]:
@@ -51,7 +90,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
     curated_rules = load_curated_rules(py_filepath)
 
     if not curated_rules:  # Not logging an error again because errors would have been logged by the loader function
-        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class"]).astype(
+        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class", "rule_obj_criterion_count"]).astype(
             {"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
 
     trialId = py_filepath.stem
@@ -66,12 +105,14 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
             direction = "INCL"
 
         curations = getattr(rule, "curation", None)  # start from the root criterion
-        for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):  # apply DFS
+        # for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):  # apply DFS
+        for crit, parent_group_size in criterion_extraction_parent_counts(curations, searching_criterion):
             row = {
                 "trialId": trialId,
                 "input_text": input_text,
                 "Incl/Excl": direction,
                 "criterion_class": type(crit).__name__,
+                "rule_obj_criterion_count": parent_group_size,
             }
 
             for key, val in vars(crit).items():
@@ -92,7 +133,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
         # Drop row if every column is identical
         pd.DataFrame(rows).drop_duplicates()
             if rows
-            else pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+            else pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class", "rule_obj_criterion_count"]).astype({"trialId": str})
     )
 
 
@@ -111,7 +152,7 @@ def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str
             logger.exception(f"Failed on {filepath}: {e}")
 
     if not trials:
-        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class", "rule_obj_criterion_count"]).astype({"trialId": str})
 
     concat_trials = pd.concat(trials, ignore_index=True)
     if concat_trials.empty:
@@ -133,8 +174,12 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
     instances_df = instances_df.copy()
     instances_df["_number_rows"] = np.arange(len(instances_df))  # Number the rows. Used to preserve elements sequence between adjacent cols later when grouping by trialId
 
+    reordered_cols = []
     if "input_text" in other_cols:
-        other_cols = ["input_text"] + [c for c in other_cols if c != "input_text"]
+        reordered_cols.append("input_text")
+    if "rule_obj_criterion_count" in other_cols:
+        reordered_cols.append("rule_obj_criterion_count")
+    other_cols = reordered_cols + [c for c in other_cols if c not in reordered_cols]
 
     def _agg_preserve_sequence(series: pd.Series) -> str:
         vals = []
@@ -213,9 +258,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-# Things to do:
-# 1. To include a row for EVERY trial, even if there is no associated criterion data
-# 2. Include `InfectionCriterion`
-# 3. Under "description", extract the parent-level or input_text field
-# 4. Count the no. criteria inside the corresponding Rule()
