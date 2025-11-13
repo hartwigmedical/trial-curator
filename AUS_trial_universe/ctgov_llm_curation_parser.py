@@ -118,6 +118,9 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
             for key, val in vars(crit).items():
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
+                if key == "description":  # ignore node-level description since we are extracting the input_text
+                        continue
+
                 # All the fields on the matched criterion object become their own columns. Dynamically expanding.
                 if isinstance(val, (list, tuple)):
                     row[key] = "; ".join(map(str, val))
@@ -191,6 +194,19 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
 
         return joining_delimiter.join(vals)
 
+    def _agg_single_count(series: pd.Series) -> str:
+        ints = []
+        for ele in series.dropna():
+            if isinstance(ele, (int, np.integer)):
+                ints.append(int(ele))
+            else:
+                s = str(ele).strip()
+                if s.isdigit():
+                    ints.append(int(s))
+        if not ints:
+            return ""
+        return str(max(set(ints)))  # one number per trial/direction: choose max of unique values
+
     grouped_list = []
     for direction in ("INCL", "EXCL"):
         direction_df = instances_df.loc[instances_df["Incl/Excl"] == direction, :]
@@ -198,17 +214,29 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
         if direction_df.empty:
             continue
 
+        reordered_cols = []
+        if "input_text" in other_cols:
+            reordered_cols.append("input_text")
+        if "rule_obj_criterion_count" in other_cols:
+            reordered_cols.append("rule_obj_criterion_count")
+        cols = reordered_cols + [c for c in other_cols if c not in reordered_cols]
+
+        agg_map = {c: _agg_preserve_sequence for c in cols}
+        if "rule_obj_criterion_count" in agg_map:
+            agg_map["rule_obj_criterion_count"] = _agg_single_count
+
         grouped_df = direction_df.groupby("trialId", as_index=False, sort=False) \
             [other_cols] \
-            .agg(_agg_preserve_sequence)
+            .agg(agg_map)
 
         rename_map = {}
-        for col in other_cols:
+        for col in cols:
             if col == "input_text":
                 rename_map[col] = f"{direction}:input_text"
             else:
                 rename_map[col] = f"{direction}:{searching_criterion}-{col}"
         grouped_df = grouped_df.rename(columns=rename_map)
+
         grouped_list.append(grouped_df)
 
     if not grouped_list:
