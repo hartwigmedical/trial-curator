@@ -51,13 +51,15 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
     curated_rules = load_curated_rules(py_filepath)
 
     if not curated_rules:  # Not logging an error again because errors would have been logged by the loader function
-        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype(
+        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class"]).astype(
             {"trialId": str})  # to avoid data type inconsistency because `trialId` is used as the matching key later
 
     trialId = py_filepath.stem
     rows: List[Dict[str, Any]] = []
 
     for rule in curated_rules:
+        input_text = input_text_extraction(rule) or "(Missing)"
+
         if bool(getattr(rule, "exclude", False)):  # If `rule` doesn’t have the attribute `exclude`, return False (i.e. assume it's an inclusive rule)
             direction = "EXCL"
         else:
@@ -67,6 +69,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
         for crit in criterion_extraction_dfs(starting_criterion=curations, searching_criterion=searching_criterion):  # apply DFS
             row = {
                 "trialId": trialId,
+                "input_text": input_text,
                 "Incl/Excl": direction,
                 "criterion_class": type(crit).__name__,
             }
@@ -74,7 +77,6 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
             for key, val in vars(crit).items():
                 if key.startswith("_") or callable(val) or val is None:  # ignore empty/internal data
                     continue
-
                 # All the fields on the matched criterion object become their own columns. Dynamically expanding.
                 if isinstance(val, (list, tuple)):
                     row[key] = "; ".join(map(str, val))
@@ -90,7 +92,7 @@ def tabularise_criterion_instances_per_file(py_filepath: Path, searching_criteri
         # Drop row if every column is identical
         pd.DataFrame(rows).drop_duplicates()
             if rows
-            else pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+            else pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
     )
 
 
@@ -109,7 +111,7 @@ def tabularise_criterion_instances_in_dir(py_dir: Path, searching_criterion: str
             logger.exception(f"Failed on {filepath}: {e}")
 
     if not trials:
-        return pd.DataFrame(columns=["trialId", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
+        return pd.DataFrame(columns=["trialId", "input_text", "Incl/Excl", "criterion_class"]).astype({"trialId": str})
 
     concat_trials = pd.concat(trials, ignore_index=True)
     if concat_trials.empty:
@@ -125,13 +127,14 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
 
     core_cols = {"trialId", "Incl/Excl", "criterion_class"}
     other_cols = [c for c in instances_df.columns if c not in core_cols]
-
     if not other_cols:
         return pd.DataFrame({"trialId": sorted(instances_df["trialId"].astype(str).unique())})  # since there is no useful column to display, just return a table of unique trialIds
 
     instances_df = instances_df.copy()
-
     instances_df["_number_rows"] = np.arange(len(instances_df))  # Number the rows. Used to preserve elements sequence between adjacent cols later when grouping by trialId
+
+    if "input_text" in other_cols:
+        other_cols = ["input_text"] + [c for c in other_cols if c != "input_text"]
 
     def _agg_preserve_sequence(series: pd.Series) -> str:
         vals = []
@@ -153,7 +156,14 @@ def restructure_to_one_trial_per_row(instances_df: pd.DataFrame, searching_crite
         grouped_df = direction_df.groupby("trialId", as_index=False, sort=False) \
             [other_cols] \
             .agg(_agg_preserve_sequence)
-        grouped_df = grouped_df.rename(columns={col: f"{direction}:{searching_criterion}-{col}" for col in other_cols})
+
+        rename_map = {}
+        for col in other_cols:
+            if col == "input_text":
+                rename_map[col] = f"{direction}:input_text"
+            else:
+                rename_map[col] = f"{direction}:{searching_criterion}-{col}"
+        grouped_df = grouped_df.rename(columns=rename_map)
         grouped_list.append(grouped_df)
 
     if not grouped_list:
