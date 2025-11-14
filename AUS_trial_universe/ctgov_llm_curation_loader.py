@@ -14,8 +14,7 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
         def __init__(self, **kwargs):
             self.__dict__.update(kwargs)
 
-    # create shim to bypass validation errors
-    def _make_shim(class_name: str):
+    def _make_shim(class_name: str):  # create shim to bypass validation errors
         def __init__(self, *_, **kwargs):
             self.__dict__.update(kwargs)
         return type(class_name, (), {"__init__": __init__})
@@ -29,7 +28,7 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
             use_shim = False
 
             try:
-                if issubclass(obj, BaseModel):
+                if issubclass(obj, BaseModel):  # Bypass validation & just extract the criteria if it is a subclass of Baseclass (i.e. all the criteria)
                     use_shim = True
             except TypeError:
                 pass
