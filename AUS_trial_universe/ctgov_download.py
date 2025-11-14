@@ -11,294 +11,238 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
+
 API_QUERY_BASE = "https://clinicaltrials.gov/api/v2/studies"
 
-API_QUERY_PARAMS_CORE = """
+API_LOCATION_QUERY = """
+(
+    AREA[LocationCountry]Australia
+    OR AREA[LocationCountry]"New Zealand"
+)
+"""
+
+API_STATUS_QUERY = """
+(
+    AREA[OverallStatus]RECRUITING
+    OR AREA[OverallStatus]NOT_YET_RECRUITING
+    OR AREA[OverallStatus]ACTIVE_NOT_RECRUITING
+    OR AREA[OverallStatus]ENROLLING_BY_INVITATION
+)
+"""
+
+API_INTERVENTION_QUERY_CORE = """
+(
+    AREA[InterventionType]DRUG
+)
+"""
+
+API_INTERVENTION_QUERY_POTTR = """
+(
+    AREA[InterventionType]BIOLOGICAL
+    OR AREA[InterventionType]DIAGNOSTIC_TEST
+    OR AREA[InterventionType]RADIATION
+    OR AREA[InterventionType]DEVICE
+    OR AREA[InterventionType]COMBINATION_PRODUCT
+    OR AREA[InterventionType]OTHER
+)
+"""
+
+API_CONDITION_QUERY_CORE = """
 (
     AREA[ConditionMeshTerm]Neoplasms
 )
-AND 
-(
-    AREA[LocationCountry]Australia
-    OR AREA[LocationCountry]"New Zealand"
-)
-AND
-(
-    AREA[OverallStatus]RECRUITING
-    OR AREA[OverallStatus]NOT_YET_RECRUITING
-    OR AREA[OverallStatus]ACTIVE_NOT_RECRUITING
-    OR AREA[OverallStatus]ENROLLING_BY_INVITATION
-)
-AND
-(
-    AREA[InterventionType]DRUG
-)
-""".strip()
+"""
 
-API_QUERY_PARAMS_POTTR_APPEND_1 = """
-(
-    AREA[Condition]"acute myeloid leukemia"
-    OR AREA[Condition]"advanced cancer"
-    OR AREA[Condition]"advanced carcinoma"
-    OR AREA[Condition]"advanced malignancies"
-    OR AREA[Condition]"advanced malignant tumors"
-    OR AREA[Condition]"advanced or metastatic nsclc"
-    OR AREA[Condition]"advanced or metastatic solid tumors"
-    OR AREA[Condition]"advanced solid tumor"
-    OR AREA[Condition]"advanced solid tumors"
-    OR AREA[Condition]"advanced tumors"
-
-    OR AREA[Condition]"alk-positive non-small cell lung cancer"
-    OR AREA[Condition]"aml"
-    OR AREA[Condition]"anal cancer"
-    OR AREA[Condition]"anal carcinoma"
-    OR AREA[Condition]"astrocytoma"
-
-    OR AREA[Condition]"b-cell malignancies"
-    OR AREA[Condition]"b-cell malignancy"
-    OR AREA[Condition]"biliary cancer"
-    OR AREA[Condition]"biliary tract cancer"
-    OR AREA[Condition]"bile duct cancer"
-    OR AREA[Condition]"bilateral retinoblastoma"
-    OR AREA[Condition]"bladder cancer"
-    OR AREA[Condition]"breast cancer"
-    OR AREA[Condition]"breast carcinoma"
-
-    OR AREA[Condition]"carcinoid tumor"
-    OR AREA[Condition]"carcinoma, non-small cell lung"
-    OR AREA[Condition]"carcinoma, non-small-cell lung"
-    OR AREA[Condition]"castration-resistant prostate cancer"
-    OR AREA[Condition]"cervical cancer"
-    OR AREA[Condition]"cervical carcinoma"
-    OR AREA[Condition]"chondrosarcoma"
-    OR AREA[Condition]"cholangiocarcinoma"
-    OR AREA[Condition]"cutaneous squamous cell carcinoma"
-
-    OR AREA[Condition]"endometrial adenocarcinoma"
-    OR AREA[Condition]"endometrial cancer"
-    OR AREA[Condition]"endometrial carcinoma"
-    OR AREA[Condition]"endometrial clear cell adenocarcinoma"
-    OR AREA[Condition]"endometrial endometrioid adenocarcinoma"
-    OR AREA[Condition]"endometrial serous adenocarcinoma"
-
-    OR AREA[Condition]"esophageal cancer"
-    OR AREA[Condition]"esophageal carcinoma"
-    OR AREA[Condition]"extrahepatic cholangiocarcinoma"
-
-    OR AREA[Condition]"fallopian tube cancer"
-)
-AND 
-(
-    AREA[LocationCountry]Australia
-    OR AREA[LocationCountry]"New Zealand"
-)
-AND
-(
-    AREA[OverallStatus]RECRUITING
-    OR AREA[OverallStatus]NOT_YET_RECRUITING
-    OR AREA[OverallStatus]ACTIVE_NOT_RECRUITING
-    OR AREA[OverallStatus]ENROLLING_BY_INVITATION
-)
-AND
-(
-    AREA[InterventionType]DRUG
-    OR AREA[InterventionType]BIOLOGICAL
-    OR AREA[InterventionType]DIAGNOSTIC_TEST
-    OR AREA[InterventionType]RADIATION
-    OR AREA[InterventionType]DEVICE
-    OR AREA[InterventionType]COMBINATION_PRODUCT
-    OR AREA[InterventionType]OTHER
-)
-""".strip()
-
-API_QUERY_PARAMS_POTTR_APPEND_2 = """
-(
-    AREA[Condition]"gall bladder cancer"
-    OR AREA[Condition]"gall bladder carcinoma"
-    OR AREA[Condition]"gallbladder cancer"
-    OR AREA[Condition]"gallbladder carcinoma"
-    OR AREA[Condition]"gastric cancer"
-    OR AREA[Condition]"gastroesophageal junction cancer"
-    OR AREA[Condition]"gastrointestinal malignancy"
-    OR AREA[Condition]"gene alteration"
-    OR AREA[Condition]"glioblastoma"
-    OR AREA[Condition]"glioblastoma multiforme"
-    OR AREA[Condition]"glioma"
-    OR AREA[Condition]"group d retinoblastoma"
-
-    OR AREA[Condition]"head and neck cancer"
-    OR AREA[Condition]"head and neck squamous cell carcinoma"
-    OR AREA[Condition]"hematological malignancy"
-    OR AREA[Condition]"hepatocellular carcinoma"
-    OR AREA[Condition]"her2-positive breast cancer"
-    OR AREA[Condition]"high-risk neuroblastoma"
-
-    OR AREA[Condition]"intrahepatic cholangiocarcinoma"
-
-    OR AREA[Condition]"kidney cancer"
-    OR AREA[Condition]"kras p.g12c"
-
-    OR AREA[Condition]"leukemia"
-    OR AREA[Condition]"liver cancer"
-    OR AREA[Condition]"locally advanced or metastatic her2-expressing cancers"
-    OR AREA[Condition]"lung adenocarcinoma"
-    OR AREA[Condition]"lung cancer"
-    OR AREA[Condition]"lung cancers"
-    OR AREA[Condition]"lung carcinoma"
-    OR AREA[Condition]"lymphoma"
-
-    OR AREA[Condition]"malignant pleural mesothelioma"
-    OR AREA[Condition]"medullary thyroid cancer"
-    OR AREA[Condition]"melanoma"
-    OR AREA[Condition]"merkel cell carcinoma"
-    OR AREA[Condition]"mesothelioma"
-    OR AREA[Condition]"metastatic non small cell lung cancer"
-    OR AREA[Condition]"metastatic non-small cell lung cancer"
-    OR AREA[Condition]"metastatic; her2-positive breast cancer"
-    OR AREA[Condition]"metastatic nasopharyngeal carcinoma"
-    OR AREA[Condition]"metastatic castration-resistant prostate cancer"
-    OR AREA[Condition]"mcrpc"
-    OR AREA[Condition]"multiple myeloma"
-    OR AREA[Condition]"myelodysplastic neoplasm"
-    OR AREA[Condition]"myelodysplastic syndrome"
-    OR AREA[Condition]"myelodysplastic syndromes"
-    OR AREA[Condition]"myelofibrosis"
-)
-AND 
-(
-    AREA[LocationCountry]Australia
-    OR AREA[LocationCountry]"New Zealand"
-)
-AND
-(
-    AREA[OverallStatus]RECRUITING
-    OR AREA[OverallStatus]NOT_YET_RECRUITING
-    OR AREA[OverallStatus]ACTIVE_NOT_RECRUITING
-    OR AREA[OverallStatus]ENROLLING_BY_INVITATION
-)
-AND
-(
-    AREA[InterventionType]DRUG
-    OR AREA[InterventionType]BIOLOGICAL
-    OR AREA[InterventionType]DIAGNOSTIC_TEST
-    OR AREA[InterventionType]RADIATION
-    OR AREA[InterventionType]DEVICE
-    OR AREA[InterventionType]COMBINATION_PRODUCT
-    OR AREA[InterventionType]OTHER
-)
-""".strip()
-
-API_QUERY_PARAMS_POTTR_APPEND_3 = """
-(
-    AREA[Condition]"nasopharyngeal carcinoma"
-    OR AREA[Condition]"neoplastic disease"
-    OR AREA[Condition]"neoplasms"
-    OR AREA[Condition]"neuroblastoma"
-    OR AREA[Condition]"neuroendocrine tumor"
-    OR AREA[Condition]"non small cell lung cancer"
-    OR AREA[Condition]"non-small cell lung cancer"
-    OR AREA[Condition]"nsclc"
-
-    OR AREA[Condition]"other solid tumors"
-    OR AREA[Condition]"ovarian cancer"
-    OR AREA[Condition]"ovarian carcinoma"
-    OR AREA[Condition]"ovarian clear cell adenocarcinoma"
-    OR AREA[Condition]"ovarian clear cell carcinoma"
-    OR AREA[Condition]"ovarian epithelial cancer"
-    OR AREA[Condition]"ovarian endometrioid adenocarcinoma"
-    OR AREA[Condition]"ovarian mucinous adenocarcinoma"
-    OR AREA[Condition]"ovarian carcinosarcoma"
-    OR AREA[Condition]"ovarian cancer"
-    OR AREA[Condition]"ovarian epithelial cancer"
-    OR AREA[Condition]"ovarian endometrioid adenocarcinoma"
-    OR AREA[Condition]"ovarian mucinous adenocarcinoma"
-
-    OR AREA[Condition]"pancreas cancer"
-    OR AREA[Condition]"pancreatic cancer"
-    OR AREA[Condition]"pancreatic ductal adenocarcinoma"
-    OR AREA[Condition]"papillary thyroid cancer"
-    OR AREA[Condition]"parotid gland cancer"
-    OR AREA[Condition]"patient with insufficient response chemoimmunotherapy"
-    OR AREA[Condition]"platinum resistant ovarian cancer"
-    OR AREA[Condition]"platinum-resistant ovarian cancer"
-    OR AREA[Condition]"primary peritoneal carcinoma"
-    OR AREA[Condition]"prostate cancer"
-    OR AREA[Condition]"prostate cancers"
-    OR AREA[Condition]"prostate carcinoma"
-    OR AREA[Condition]"ptcl"
-
-    OR AREA[Condition]"rectal cancer"
-    OR AREA[Condition]"relapsed or refractory multiple myeloma"
-    OR AREA[Condition]"renal cell carcinoma"
-    OR AREA[Condition]"retinoblastoma"
-    OR AREA[Condition]"rhabdomyosarcoma"
-    OR AREA[Condition]"ros1-positive non-small cell lung cancer"
-
-    OR AREA[Condition]"salivary cancer"
-    OR AREA[Condition]"salivary gland cancer"
-    OR AREA[Condition]"salivary gland carcinoma"
-    OR AREA[Condition]"sclc"
-    OR AREA[Condition]"skin cancer"
-    OR AREA[Condition]"small cell lung cancer"
-    OR AREA[Condition]"small cell lung carcinoma"
-    OR AREA[Condition]"solid cancer"
-    OR AREA[Condition]"solid malignancies"
-    OR AREA[Condition]"solid tumor"
-    OR AREA[Condition]"solid tumors"
-    OR AREA[Condition]"solid tumour"
-    OR AREA[Condition]"solid tumours"
-    OR AREA[Condition]"stage i retinoblastoma"
-    OR AREA[Condition]"stage ii nasopharyngeal carcinoma"
-    OR AREA[Condition]"stage iii nasopharyngeal carcinoma"
-    OR AREA[Condition]"stage iv nasopharyngeal carcinoma"
-    OR AREA[Condition]"stomach cancer"
-
-    OR AREA[Condition]"thyroid cancer"
-    OR AREA[Condition]"thyroid carcinoma"
-    OR AREA[Condition]"triple negative breast cancer"
-
-    OR AREA[Condition]"unilateral retinoblastoma"
-    OR AREA[Condition]"unresectable solid tumors"
-
-    OR AREA[Condition]"urothelial carcinoma"
-
-    OR AREA[Condition]"uveal melanoma"
-
-    OR AREA[Condition]"vulvar cancer"
-    OR AREA[Condition]"vulvar carcinoma"
-)
-AND 
-(
-    AREA[LocationCountry]Australia
-    OR AREA[LocationCountry]"New Zealand"
-)
-AND
-(
-    AREA[OverallStatus]RECRUITING
-    OR AREA[OverallStatus]NOT_YET_RECRUITING
-    OR AREA[OverallStatus]ACTIVE_NOT_RECRUITING
-    OR AREA[OverallStatus]ENROLLING_BY_INVITATION
-)
-AND
-(
-    AREA[InterventionType]DRUG
-    OR AREA[InterventionType]BIOLOGICAL
-    OR AREA[InterventionType]DIAGNOSTIC_TEST
-    OR AREA[InterventionType]RADIATION
-    OR AREA[InterventionType]DEVICE
-    OR AREA[InterventionType]COMBINATION_PRODUCT
-    OR AREA[InterventionType]OTHER
-)
-""".strip()
-
-API_QUERY_TERMS = [
-    API_QUERY_PARAMS_CORE,
-    API_QUERY_PARAMS_POTTR_APPEND_1, API_QUERY_PARAMS_POTTR_APPEND_2, API_QUERY_PARAMS_POTTR_APPEND_3
+API_CONDITIONS_POTTR = [
+    'acute myeloid leukemia',
+    'advanced cancer',
+    'advanced carcinoma',
+    'advanced malignancies',
+    'advanced malignant tumors',
+    'advanced or metastatic nsclc',
+    'advanced or metastatic solid tumors',
+    'advanced solid tumor',
+    'advanced solid tumors',
+    'advanced tumors',
+    'alk-positive non-small cell lung cancer',
+    'aml',
+    'anal cancer',
+    'anal carcinoma',
+    'astrocytoma',
+    'b-cell malignancies',
+    'b-cell malignancy',
+    'biliary cancer',
+    'biliary tract cancer',
+    'bile duct cancer',
+    'bilateral retinoblastoma',
+    'bladder cancer',
+    'breast cancer',
+    'breast carcinoma',
+    'carcinoid tumor',
+    'carcinoma, non-small cell lung',
+    'carcinoma, non-small-cell lung',
+    'castration-resistant prostate cancer',
+    'cervical cancer',
+    'cervical carcinoma',
+    'chondrosarcoma',
+    'cholangiocarcinoma',
+    'cutaneous squamous cell carcinoma',
+    'endometrial adenocarcinoma',
+    'endometrial cancer',
+    'endometrial carcinoma',
+    'endometrial clear cell adenocarcinoma',
+    'endometrial endometrioid adenocarcinoma',
+    'endometrial serous adenocarcinoma',
+    'esophageal cancer',
+    'esophageal carcinoma',
+    'extrahepatic cholangiocarcinoma',
+    'fallopian tube cancer',
+    'gall bladder cancer',
+    'gall bladder carcinoma',
+    'gallbladder cancer',
+    'gallbladder carcinoma',
+    'gastric cancer',
+    'gastroesophageal junction cancer',
+    'gastrointestinal malignancy',
+    'gene alteration',
+    'glioblastoma',
+    'glioblastoma multiforme',
+    'glioma',
+    'group d retinoblastoma',
+    'head and neck cancer',
+    'head and neck squamous cell carcinoma',
+    'hematological malignancy',
+    'hepatocellular carcinoma',
+    'her2-positive breast cancer',
+    'high-risk neuroblastoma',
+    'intrahepatic cholangiocarcinoma',
+    'kidney cancer',
+    'kras p.g12c',
+    'leukemia',
+    'liver cancer',
+    'locally advanced or metastatic her2-expressing cancers',
+    'lung adenocarcinoma',
+    'lung cancer',
+    'lung cancers',
+    'lung carcinoma',
+    'lymphoma',
+    'malignant pleural mesothelioma',
+    'medullary thyroid cancer',
+    'melanoma',
+    'merkel cell carcinoma',
+    'mesothelioma',
+    'metastatic non small cell lung cancer',
+    'metastatic non-small cell lung cancer',
+    'metastatic; her2-positive breast cancer',
+    'metastatic nasopharyngeal carcinoma',
+    'metastatic castration-resistant prostate cancer',
+    'mcrpc',
+    'multiple myeloma',
+    'myelodysplastic neoplasm',
+    'myelodysplastic syndrome',
+    'myelodysplastic syndromes',
+    'myelofibrosis',
+    'nasopharyngeal carcinoma',
+    'neoplastic disease',
+    'neoplasms',
+    'neuroblastoma',
+    'neuroendocrine tumor',
+    'non small cell lung cancer',
+    'non-small cell lung cancer',
+    'nsclc',
+    'other solid tumors',
+    'ovarian cancer',
+    'ovarian carcinoma',
+    'ovarian clear cell adenocarcinoma',
+    'ovarian clear cell carcinoma',
+    'ovarian epithelial cancer',
+    'ovarian endometrioid adenocarcinoma',
+    'ovarian mucinous adenocarcinoma',
+    'ovarian carcinosarcoma',
+    'ovarian cancer',
+    'ovarian epithelial cancer',
+    'ovarian endometrioid adenocarcinoma',
+    'ovarian mucinous adenocarcinoma',
+    'pancreas cancer',
+    'pancreatic cancer',
+    'pancreatic ductal adenocarcinoma',
+    'papillary thyroid cancer',
+    'parotid gland cancer',
+    'patient with insufficient response chemoimmunotherapy',
+    'platinum resistant ovarian cancer',
+    'platinum-resistant ovarian cancer',
+    'primary peritoneal carcinoma',
+    'prostate cancer',
+    'prostate cancers',
+    'prostate carcinoma',
+    'ptcl',
+    'rectal cancer',
+    'relapsed or refractory multiple myeloma',
+    'renal cell carcinoma',
+    'retinoblastoma',
+    'rhabdomyosarcoma',
+    'ros1-positive non-small cell lung cancer',
+    'salivary cancer',
+    'salivary gland cancer',
+    'salivary gland carcinoma',
+    'sclc',
+    'skin cancer',
+    'small cell lung cancer',
+    'small cell lung carcinoma',
+    'solid cancer',
+    'solid malignancies',
+    'solid tumor',
+    'solid tumors',
+    'solid tumour',
+    'solid tumours',
+    'stage i retinoblastoma',
+    'stage ii nasopharyngeal carcinoma',
+    'stage iii nasopharyngeal carcinoma',
+    'stage iv nasopharyngeal carcinoma',
+    'stomach cancer',
+    'thyroid cancer',
+    'thyroid carcinoma',
+    'triple negative breast cancer',
+    'unilateral retinoblastoma',
+    'unresectable solid tumors',
+    'urothelial carcinoma',
+    'uveal melanoma',
+    'vulvar cancer',
+    'vulvar carcinoma',
 ]
 
+QUERY_CHUNK_SIZE = 20
 PAGE_SIZE = 1000  # Max allowed on CT.gov
 TIMEOUT = 30  # unit is seconds
 PAUSE_BETWEEN_PAGES = 0.5  # unit is seconds
+
+
+def _build_essie_condition_query(query_list: list[str]) -> str:
+    conditions: list[str] = []
+
+    first = query_list[0]
+    conditions.append(f'AREA[Condition]"{first}"')
+
+    for term in query_list[1:]:
+        conditions.append(f'OR AREA[Condition]"{term}"')
+
+    conditions_block = "(\n    " + "\n    ".join(conditions) + "\n)\n"
+
+    query = f"""
+{conditions_block}
+AND
+{API_LOCATION_QUERY}
+AND
+{API_STATUS_QUERY}
+AND
+(
+    {API_INTERVENTION_QUERY_CORE}
+    OR
+    {API_INTERVENTION_QUERY_POTTR}
+)
+""".strip()
+
+    return query
 
 
 def create_session() -> requests.Session:
@@ -326,8 +270,7 @@ def create_session() -> requests.Session:
     return ses
 
 
-def download_one_page_from_ctgov(session: requests.Session, query_term: str, page_token: Optional[str] = None) -> dict[
-    str, Any]:
+def download_one_page_from_ctgov(session: requests.Session, query_term: str, page_token: Optional[str] = None) -> dict[str, Any]:
     """
     This function downloads ONE PAGE of the Australian cancer trials from ClinicalTrials.gov
     according to a given Essie search query using ClinicalTrials' REST API
@@ -385,9 +328,35 @@ def _dedup_trials(trials: list[dict[str, Any]]) -> list[dict[str, Any]]:  # Beca
     return list(unique_trials.values())
 
 
+def generate_query_terms(chunk_size: int = QUERY_CHUNK_SIZE) -> list[tuple[str, str]]:
+    query_terms: list[tuple[str, str]] = []
+
+    CORE_QUERY = f"""
+{API_CONDITION_QUERY_CORE}
+AND
+{API_LOCATION_QUERY}
+AND
+{API_STATUS_QUERY}
+AND
+{API_INTERVENTION_QUERY_CORE}
+""".strip()
+
+    query_terms.append(
+        ("CORE_QUERY", CORE_QUERY)
+    )
+
+    for i in range(0, len(API_CONDITIONS_POTTR), chunk_size):
+        chunk = API_CONDITIONS_POTTR[i : i + chunk_size]
+        pottr_query = _build_essie_condition_query(chunk)
+
+        label = f"POTTR_APPEND_{i // chunk_size + 1}"
+        query_terms.append((label, pottr_query))
+
+    return query_terms
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="Download ALL Australian cancer trials from ClinicalTrials.gov OR Download the UPDATED trials only")
+    parser = argparse.ArgumentParser(description="Download ALL Australian cancer trials from ClinicalTrials.gov OR Download the UPDATED trials only")
 
     download_type = parser.add_mutually_exclusive_group(required=True)
     download_type.add_argument("--all", help="Download all trials", action="store_true")
@@ -407,14 +376,13 @@ def main():
     session = create_session()
 
     if args.all:
+        query_terms = generate_query_terms()
         all_trials_raw: list[dict[str, Any]] = []
-        download_stage = 0
 
-        for query_term in API_QUERY_TERMS:
-            download_stage += 1
-            logger.info("Starting query stage %d / %d", download_stage, len(API_QUERY_TERMS))
+        for stage_idx, (label, query_term) in enumerate(query_terms, start=1):
+            logger.info("Starting query stage %d / %d (%s)", stage_idx, len(query_terms), label)
 
-            num_trials_for_stage = None
+            num_trials_for_stage: Optional[int] = None
             page_token: Optional[str] = None
             on_page = 1
 
@@ -430,9 +398,8 @@ def main():
                 all_trials_raw.extend(page_trials)
 
                 logger.info(
-                    "Stage %d | Page %d | Trials on page: %d | Stage reported total: %s | Raw accumulated (with duplicates): %d",
-                    download_stage, on_page,
-                    len(page_trials), num_trials_for_stage, len(all_trials_raw)
+                    "Stage %d (%s) | Page %d | Trials on page: %d | Raw accumulated (with duplicates): %d | Server reported total for stage: %s",
+                    stage_idx, label, on_page, len(page_trials), len(all_trials_raw), num_trials_for_stage,
                 )
 
                 page_token = data.get("nextPageToken")
@@ -441,6 +408,11 @@ def main():
 
                 on_page += 1
                 time.sleep(PAUSE_BETWEEN_PAGES)
+
+            logger.info(
+                "Finished query stage %d / %d (%s)",
+                stage_idx, len(query_terms), label,
+            )
 
         logger.info("Finished all query stages. Raw trial count (with duplicates) = %d", len(all_trials_raw))
 
