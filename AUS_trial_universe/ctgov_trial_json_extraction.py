@@ -1,4 +1,5 @@
 import argparse
+import os
 import logging
 import json
 from typing import List, Any, Dict
@@ -8,7 +9,10 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _dedup_records(ele_list: List[str]) -> List[str]:
+def _dedup_records(ele_list: List[str] | None) -> List[str]:
+    if not ele_list:
+        return []
+
     already_there = set()
     dedup_output = []
 
@@ -21,16 +25,32 @@ def _dedup_records(ele_list: List[str]) -> List[str]:
 
 
 def extract_basic_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
-    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
-    briefTitle = trial.get("protocolSection").get("identificationModule").get("briefTitle")
-    leadSponsorName = trial.get("protocolSection").get("sponsorCollaboratorsModule").get("leadSponsor").get("name")
+    nctId: str = trial.get("protocolSection").get("identificationModule").get("nctId")
+    briefTitle: str = trial.get("protocolSection").get("identificationModule").get("briefTitle")
+    status: str = trial.get("protocolSection").get("statusModule").get("overallStatus")
+    leadSponsorName: str = trial.get("protocolSection").get("sponsorCollaboratorsModule").get("leadSponsor").get("name")
+    phases: list[str] = trial.get("protocolSection").get("designModule").get("phases")
 
     basic_tbl = {
         "nctId": nctId,
         "briefTitle": briefTitle,
+        "status": status,
+        "phases": phases,
         "leadSponsor": leadSponsorName,
     }
     return basic_tbl
+
+
+def extract_conditions(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    conditions: list[str] = trial.get("protocolSection").get("conditionsModule").get("conditions")
+
+    conditions_tbl = {
+        "nctId": nctId,
+        "conditions": conditions
+    }
+
+    return conditions_tbl
 
 
 def extract_intervention_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
@@ -106,7 +126,7 @@ def extract_location_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
 def main():
     parser = argparse.ArgumentParser(description="Extract relevant data fields from JSON file with all CT.gov trials")
     parser.add_argument("--ctgov_filepath", help="Filepath to the aggregate CT.gov json file", required=True)
-    parser.add_argument("--output_file", help="Output summary table", required=True)
+    parser.add_argument("--output_dir", help="Directory to store the output csv", required=True)
     parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     args = parser.parse_args()
 
@@ -122,10 +142,11 @@ def main():
     count = 0
     for trial in trials:
         basic_tbl = extract_basic_fields(trial)
+        conditions_tbl = extract_conditions(trial)
         inter_tbl = extract_intervention_fields(trial)
         loc_tbl = extract_location_fields(trial)
 
-        combined_tbl: Dict[str, Any] = basic_tbl | inter_tbl | loc_tbl
+        combined_tbl: Dict[str, Any] = basic_tbl | conditions_tbl | inter_tbl | loc_tbl
         rows.append(combined_tbl)
         count += 1
 
@@ -140,7 +161,7 @@ def main():
     logger.info(f"Processed {len(combined_df)} trials for data fields extraction")
     logger.info(f"Filtered to {len(final_df)} trials with at least one drug intervention")
 
-    final_df.to_csv(args.output_file, index=False)
+    final_df.to_csv(os.path.join(args.output_dir, "ctgov_field_extractions.csv"), index=False)
 
 
 if __name__ == "__main__":
