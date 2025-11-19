@@ -9,7 +9,6 @@ from rapidfuzz import fuzz
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
-from trialcurator.gemini_client import GeminiClient
 
 from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_json_check_and_repair
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
@@ -20,7 +19,6 @@ from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin
 
 logger = logging.getLogger(__name__)
 
-TEMPERATURE = 0.0
 RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence or absence of a full stop.
 
 
@@ -342,7 +340,6 @@ def printable_summary(actin_output: list[ActinMapping], file):
 
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
-    parser.add_argument('--llm_provider', help="Defaults to Google's Gemini if unspecified. Otherwise enter 'OpenAI' to use its GPT models.", default="Gemini", required=False)
     parser.add_argument('--input_file', help='json file containing trial data', required=False)
     parser.add_argument('--input_text_file', help='text file containing eligibility criteria', required=False)
     parser.add_argument('--output_file_complete', help='complete output file from ACTIN curator', required=True)
@@ -353,13 +350,7 @@ def main():
 
     logger.info("\n=== Starting ACTIN curator ===\n")
 
-    if args.llm_provider == "OpenAI":
-        client = OpenaiClient(TEMPERATURE)
-    elif args.llm_provider == "Gemini":
-        client = GeminiClient(TEMPERATURE)
-        # May potentially consider other LLM providers such as Anthropic's Claude
-    else:
-        client = GeminiClient(TEMPERATURE)
+    client = OpenaiClient()
 
     if args.input_file:
         if args.input_text_file:
