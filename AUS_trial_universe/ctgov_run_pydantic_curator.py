@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser(description="Process multiple CT.gov trials via the Pydantic curator.")
     parser.add_argument("--input_json", help="JSON file with multiple CT.gov trials", required=True)
+    parser.add_argument("--trial_id", help="Optional: NCT ID (e.g. NCT01234567) to curate only a specified trial", required=False)
     parser.add_argument("--output_dir", help="Directory to write per-trial curated .py files", required=True)
     parser.add_argument("--limit", help="Optional: no. trials to process", default=None, type=int, required=False)
     parser.add_argument("--overwrite_existing", help="Re-curate even if output file exists", action="store_true", required=False)
@@ -32,7 +33,23 @@ def main():
     if not isinstance(trials, list):
         raise ValueError("Expected input JSON to be a list of trials.")
 
-    if args.limit is not None:
+    if args.trial_id:
+        target_id = args.trial_id
+        filtered: list[dict] = []
+
+        for t in trials:
+            nct_id = (t.get("protocolSection", {}).get("identificationModule", {}).get("nctId"))
+            if nct_id == target_id:
+                filtered.append(t)
+
+        if not filtered:
+            logger.error("Trial %s not found in %s", target_id, args.input_json)
+            return
+
+        trials = filtered
+        logger.info("Restricting to single trial %s", target_id)
+
+    elif args.limit is not None:
         trials = trials[: args.limit]
 
     completed = skipped = failed = 0
