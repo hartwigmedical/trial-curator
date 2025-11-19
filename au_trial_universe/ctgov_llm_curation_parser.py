@@ -5,7 +5,7 @@ from typing import Any, List, Dict, Tuple, Optional
 import pandas as pd
 import numpy as np
 
-from AUS_trial_universe.ctgov_llm_curation_loader import load_curated_rules
+from au_trial_universe.ctgov_llm_curation_loader import load_curated_rules
 
 logger = logging.getLogger(__name__)
 
