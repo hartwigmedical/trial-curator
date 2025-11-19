@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 import pandas as pd
 import logging
@@ -13,8 +14,8 @@ from trialcurator.openai_client import OpenaiClient
 from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_json_check_and_repair
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 
-from actin_curator import actin_mapping_prompts
-from actin_curator.actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
+from . import actin_mapping_prompts
+from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
 
 
 logger = logging.getLogger(__name__)
@@ -249,8 +250,7 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     return response[0]
 
 
-def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str) -> list[ActinMapping]:
-
+def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
     actin_df, actin_cat = load_actin_resource(actin_filepath)
 
     # 1. Assign ACTIN category
@@ -307,17 +307,21 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
             criterion_updated["new_rule"] = new_rules
         rules_w_new.append(criterion_updated)
 
-    # 5. Generate confidence score and explanation
-    rules_w_confidence = []
-    for criterion in rules_w_new:
-        criterion_updated = criterion.copy()
+    # 5. Generate confidence score and explanation - optional
+    if confidence_estimate:
+        rules_w_confidence = []
+        for criterion in rules_w_new:
+            criterion_updated = criterion.copy()
 
-        confidence_fields = actin_mark_confidence_score(criterion, client)
-        criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
-        criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
-        rules_w_confidence.append(criterion_updated)
+            confidence_fields = actin_mark_confidence_score(criterion, client)
+            criterion_updated["confidence_level"] = confidence_fields.get("confidence_level")
+            criterion_updated["confidence_explanation"] = confidence_fields.get("confidence_explanation")
+            rules_w_confidence.append(criterion_updated)
 
-    actin_output = rules_w_confidence.copy()
+        actin_output = rules_w_confidence.copy()
+    else:
+        actin_output = rules_w_new.copy()
+
     return actin_output
 
 
@@ -340,45 +344,48 @@ def printable_summary(actin_output: list[ActinMapping], file):
 
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
-    parser.add_argument('--input_file', help='json file containing trial data', required=False)
-    parser.add_argument('--input_text_file', help='text file containing eligibility criteria', required=False)
-    parser.add_argument('--output_file_complete', help='complete output file from ACTIN curator', required=True)
-    parser.add_argument('--output_file_concise', help='human readable output summary file from ACTIN curator (.tsv or .txt recommended)', required=False)
-    parser.add_argument('--actin_filepath', help='Full path to ACTIN rules CSV', required=True)
-    parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
+
+    input_file = parser.add_mutually_exclusive_group(required=True)
+    input_file.add_argument("--input_json", type=Path, help="Downloaded json file from ClinicalTrial.gov")
+    input_file.add_argument("--input_txt", type=Path, help="Text file of trial protocol")
+
+    parser.add_argument("--output_complete", help="Complete output file from ACTIN curator", required=False)
+    parser.add_argument("--output_concise", help="Human readable output summary file from ACTIN curator (.tsv or .txt recommended)", required=False)
+
+    parser.add_argument("--confidence_estimate", help="Flag to specify whether confidence level estimation of curation is required", action="store_true", required=False)
+    parser.add_argument("--actin_filepath", help='Full path to ACTIN rules CSV', required=True)
+    parser.add_argument("--log_level", help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
     logger.info("\n=== Starting ACTIN curator ===\n")
 
     client = OpenaiClient()
 
-    if args.input_file:
-        if args.input_text_file:
-            raise ValueError("--input_file and --input_text_file cannot both be specified")
-        trial_data = load_trial_data(args.input_file)
+    if args.input_json is not None:
+        trial_data = load_trial_data(args.input_json)
         eligibility_criteria = load_eligibility_criteria(trial_data)
-    elif args.input_text_file:
-        with open(args.input_text_file, 'r') as f:
+    elif args.input_txt is not None:
+        with open(args.input_txt, 'r', encoding="utf-8") as f:
             eligibility_criteria = f.read()
     else:
-        raise ValueError("Either --input_file or --input_text_file must be specified")
-    logger.info(f"Loaded {len(eligibility_criteria)} eligibility criteria")
+        raise ValueError("Either --input_json or --input_txt must be specified")
+    logger.info("Loading eligibility criteria")
 
     # Text preparation workflow
     processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
     # ACTIN curator workflow
-    actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath)
+    actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath, confidence_estimate=args.confidence_estimate)
 
-    with open(args.output_file_complete, "w", encoding="utf-8") as f:
-        json.dump(actin_outputs, f, indent=2)
-    logger.info(f"Complete ACTIN results written to {args.output_file_complete}")
-
-    if args.output_file_concise:
-        with open(args.output_file_concise, "w", encoding="utf-8") as f:
+    if args.output_complete:
+        with open(args.output_complete, "w", encoding="utf-8") as f:
+            json.dump(actin_outputs, f, indent=2)
+        logger.info(f"Complete ACTIN results written to {args.output_complete}")
+    if args.output_concise:
+        with open(args.output_concise, "w", encoding="utf-8") as f:
             printable_summary(actin_outputs, f)  # write to file
         printable_summary(actin_outputs, sys.stdout)  # display on screen
-        logger.info(f"Human readable ACTIN summary results written to {args.output_file_concise}")
+        logger.info(f"Human readable ACTIN summary results written to {args.output_concise}")
 
 
 if __name__ == "__main__":
