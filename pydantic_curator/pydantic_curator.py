@@ -129,6 +129,7 @@ You are an expert clinical trial curator. Your role is to convert unstructured i
 structured format using a predefined Python schema.'''
 
     # print the clinical trial schema
+    # TODO: The criterion extraction & its unit tests are not quite correct
     prompt = f'{extract_criterion_schema_classes(criteria_types)}\n'
     prompt += '''
 INSTRUCTIONS:
