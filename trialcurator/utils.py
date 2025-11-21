@@ -191,28 +191,6 @@ def fix_malformed_json(json_str: str) -> str:
     return json_str
 
 
-# def llm_json_check_and_repair(response: str, client: LlmClient):
-#
-#     try:
-#         extracted_response = extract_code_blocks(response, "json")
-#         first_fix = fix_malformed_json(extracted_response)
-#         second_fix = SmartJsonParser(first_fix).consume_value()
-#         return second_fix
-#
-#     except Exception as e:
-#         logger.warning(f"An exception {e} of type {type(e)} occurred.")
-#         logger.warning("Send to LLM for repair.")
-#         repair_prompt = f"""
-# Fix the following JSON so it parses correctly. Return only the corrected JSON object:
-# {response}
-# """
-#         repaired_response = client.llm_ask(repair_prompt)
-#         extracted_response = extract_code_blocks(repaired_response, "json")
-#         first_fix = fix_malformed_json(extracted_response)
-#         second_fix = SmartJsonParser(first_fix).consume_value()
-#         return second_fix
-
-
 def llm_json_check_and_repair(response: str, client: LlmClient):
     # STEP 1 — Extract JSON from ```json blocks
     extracted = extract_code_blocks(response, "json").strip()
