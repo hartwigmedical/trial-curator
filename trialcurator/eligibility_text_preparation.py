@@ -1,16 +1,108 @@
+import re
+from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, List
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.utils import llm_json_check_and_repair
 
 logger = logging.getLogger(__name__)
 
-#
-# def llm_parse_
+
+@dataclass
+class ParentStatement:
+    original_input_rule: str
+    section: str  # Under "INCLUSION" or "EXCLUSION"
+    rule_number: int
 
 
+INCL_HEADER = re.compile(r"^\s*inclusion criteria", re.IGNORECASE)
+EXCL_HEADER = re.compile(r"^\s*exclusion criteria", re.IGNORECASE)
+TOP_LEVEL_NUM = re.compile(r"^(\d+)[\.\)]\s+")
+# To match
+# 1) statement
+# 1. statement
+# But nothing else
 
+
+def build_original_input_rule_id(section: str, rule_number: int) -> str:
+    sec = section.upper()
+
+    if sec.startswith("INCL"):
+        prefix = "I"
+    elif sec.startswith("EXCL"):
+        prefix = "E"
+    else:
+        prefix = "I"  # To check: If protocols ever have missing INCLUSION/EXCLUSION headings. If so, correct to assume all should be Inclusive criteria
+    return f"{prefix}-{rule_number:02d}"
+
+
+def extract_parent_level_statements(text: str) -> List[ParentStatement]:
+    buffer: list[str] = []
+
+    lines = text.splitlines()  # Splits all lines - parent & child points. Use regex to detect child points via their leading spaces
+    section: str | None = None   # When regex matches "Inclusion Criterion", set section = "INCLUSION". Same for "Exclusion Criterion"
+    curr_number: int | None = None
+    parents: list[ParentStatement] = []
+
+    # Internal function to flush the accumulated parent statement lines until a logical boundary is reached
+    def flush_buffer() -> None:
+        nonlocal buffer, curr_number
+
+        if not buffer or section is None or curr_number is None:
+            buffer = []
+            curr_number = None
+            return
+
+        raw = "\n".join(buffer).strip()
+        if raw:
+            parents.append(
+                ParentStatement(
+                    original_input_rule=raw,
+                    section=section,
+                    rule_number=curr_number,
+                )
+            )
+
+        buffer = []
+        curr_number = None
+
+    # Start processing
+    for raw_line in lines:
+        stripped_line = raw_line.rstrip("\n")  # Important to preserve indentation to distinguish between parent & child points
+        logical_line = stripped_line.strip()
+
+        if not logical_line and not buffer:
+            continue
+
+        # Section headers
+        if INCL_HEADER.match(logical_line):
+            flush_buffer()
+            section = "INCLUSION"
+            continue
+        if EXCL_HEADER.match(logical_line):
+            flush_buffer()
+            section = "EXCLUSION"
+            continue
+
+        if section is None:
+            continue  # Ignore material before the first section header
+
+        # Potential new parent-level statement (if numbering starts at column 0)
+        m = TOP_LEVEL_NUM.match(stripped_line)
+        if m:
+            # flush previous parent-level statement
+            flush_buffer()
+            curr_number = int(m.group(1))
+            buffer.append(stripped_line)
+            continue
+
+        if buffer:
+            # this is a child point
+            buffer.append(stripped_line)
+
+    flush_buffer()
+    return parents
 
 
 def llm_sanitise_text(eligibility_criteria: str, client: LlmClient) -> str:
@@ -491,3 +583,27 @@ def llm_rules_prep_workflow(eligibility_criteria_input: str, client) -> list[dic
         flipped_rules.append(criterion)
 
     return flipped_rules
+
+
+def llm_rules_prep_workflow_grouped_w_original_statements(eligibility_criteria_input: str, client: LlmClient) -> list[dict[str, Any]]:
+    parents = extract_parent_level_statements(eligibility_criteria_input)
+    grouped: list[dict[str, Any]] = []
+
+    if not parents:
+        logger.warning("No parent-level statements detected; returning empty grouped result.")
+        return grouped
+
+    for parent in parents:
+        # Run the existing workflow on this parent block
+        curations = llm_rules_prep_workflow(parent.original_input_rule, client)
+
+        grouped.append(
+            {
+                "original_input_rule": parent.original_input_rule,
+                "original_input_rule_id": build_original_input_rule_id(parent.section, parent.rule_number),
+                "section": parent.section,
+                "curations": curations,  # may be [] for permissive rules
+            }
+        )
+
+    return grouped

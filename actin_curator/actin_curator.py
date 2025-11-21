@@ -12,7 +12,7 @@ from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
 
 from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_json_check_and_repair
-from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
+from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow, llm_rules_prep_workflow_grouped_w_original_statements
 
 from . import actin_mapping_prompts
 from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
@@ -250,6 +250,14 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     return response[0]
 
 
+def flatten_grouped_rules(grouped: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    flat = []
+    for parent in grouped:
+        for c in parent.get("curations", []):
+            flat.append(c)
+    return flat
+
+
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
     actin_df, actin_cat = load_actin_resource(actin_filepath)
 
@@ -349,11 +357,14 @@ def main():
     input_file.add_argument("--input_json", type=Path, help="Downloaded json file from ClinicalTrial.gov")
     input_file.add_argument("--input_txt", type=Path, help="Text file of trial protocol")
 
+    parser.add_argument("--actin_filepath", help='Full path to ACTIN rules CSV', required=True)
+
     parser.add_argument("--output_complete", help="Complete output file from ACTIN curator", required=False)
     parser.add_argument("--output_concise", help="Human readable output summary file from ACTIN curator (.tsv or .txt recommended)", required=False)
 
+    parser.add_argument("--group_by_original_statement", help="Group curated rules under their original parent-level statements", action="store_true", required=False)
     parser.add_argument("--confidence_estimate", help="Flag to specify whether confidence level estimation of curation is required", action="store_true", required=False)
-    parser.add_argument("--actin_filepath", help='Full path to ACTIN rules CSV', required=True)
+
     parser.add_argument("--log_level", help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
@@ -372,7 +383,13 @@ def main():
     logger.info("Loading eligibility criteria")
 
     # Text preparation workflow
-    processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
+    if args.group_by_original_statement:
+        logger.info("Using grouped text preparation workflow with original parent-level statements")
+        grouped = llm_rules_prep_workflow_grouped_w_original_statements(eligibility_criteria, client)
+        processed_rules = flatten_grouped_rules(grouped)
+    else:
+        logger.info("Using standard text preparation workflow")
+        processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
     # ACTIN curator workflow
     actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath, confidence_estimate=args.confidence_estimate)
