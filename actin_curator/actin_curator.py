@@ -34,6 +34,10 @@ class ActinMapping(TypedDict, total=False):
     new_rule: list[str]
     confidence_level: float
     confidence_explanation: str
+    # Parent-level metadata from grouped workflow
+    original_input_rule: str
+    original_input_rule_id: str
+    section: str
 
 
 def identify_actin_categories(input_rule: str, client: LlmClient, actin_categories: list[str]) -> list[dict[str, Any]]:
@@ -106,7 +110,10 @@ Input:
     # Check the LLM has not erroneously altered the eligibility rule text
     cat_key = next(iter(response[0]))  # The category key is the rule itself
     if fuzz.ratio(cat_key, input_rule) < RULE_SIMILARITY_THRESHOLD:
-        raise ValueError(f"Input criterion has been incorrected changed.\nOriginal: {input_rule}\nReturned: {cat_key}")
+        raise ValueError(
+            f"Input criterion has been incorrectly changed.\n"
+            f"Original: {input_rule}\nReturned: {cat_key}"
+        )
 
     return response
 
@@ -245,17 +252,50 @@ Return only a valid JSON object with the added `confidence_level` and `confidenc
     response = llm_json_check_and_repair(response_init, client)
 
     if not isinstance(response, list) or len(response) != 1:
-        raise ValueError(f"Expect a list of two dicts. Instead got: {response}")
+        raise ValueError(f"Expect a list of dicts. Instead got: {response}")
 
     return response[0]
 
 
 def flatten_grouped_rules(grouped: list[dict[str, Any]]) -> list[dict[str, Any]]:
     flat = []
+
     for parent in grouped:
         for c in parent.get("curations", []):
-            flat.append(c)
+            c_copy = c.copy()
+
+            # Propagate all parent-level attributes
+            c_copy["original_input_rule"] = parent["original_input_rule"]
+            c_copy["original_input_rule_id"] = parent["original_input_rule_id"]
+            c_copy["section"] = parent["section"]
+
+            flat.append(c_copy)
     return flat
+
+
+def group_actin_by_parent(parents: list[dict[str, Any]], flat_actin: list[ActinMapping]) -> list[dict[str, Any]]:
+    children_by_id: dict[str, list[ActinMapping]] = {}
+
+    for child in flat_actin:
+        pid = child.get("original_input_rule_id")
+        if pid is None:
+            continue
+        children_by_id.setdefault(pid, []).append(child)
+
+    grouped_output: list[dict[str, Any]] = []
+
+    for parent in parents:
+        pid = parent["original_input_rule_id"]
+        grouped_output.append(
+            {
+                "original_input_rule": parent["original_input_rule"],
+                "original_input_rule_id": pid,
+                "section": parent["section"],
+                "curations": children_by_id.get(pid, []), # May be empty list – this preserves permissive / dropped parent-level statements
+            }
+        )
+
+    return grouped_output
 
 
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
@@ -333,8 +373,8 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
     return actin_output
 
 
-def printable_summary(actin_output: list[ActinMapping], file):
-    print(f"====== ACTIN MAPPING SUMMARY ======\n", file=file)
+def printable_summary_flat(actin_output: list[ActinMapping], file):
+    print(f"====== ACTIN MAPPING SUMMARY (flat) ======\n", file=file)
 
     for index, rule in enumerate(actin_output, start=1):
         input_rule = rule.get("input_rule")
@@ -345,9 +385,63 @@ def printable_summary(actin_output: list[ActinMapping], file):
         if actin_rule_formatted is None:
             raise ValueError("Formatted ACTIN rule is missing")
 
-        print(f"Input Rule:\n{input_rule}", file=file)
-        print(f"Mapped ACTIN Rule:\n{actin_rule_formatted}\n", file=file)
-        print("\n")
+        parent_id = rule.get("original_input_rule_id")
+        section = rule.get("section")
+        original_parent = rule.get("original_input_rule")
+
+        if parent_id or original_parent:
+            print(f"--- Parent [{parent_id}] ---", file=file)
+            if section is not None:
+                print(f"Section: {section}", file=file)
+            if original_parent:
+                print("Original parent-level text:", file=file)
+                print(original_parent, file=file)
+            print("", file=file)
+
+        print(f"Input Rule:", file=file)
+        print(input_rule, file=file)
+        print(f"Mapped ACTIN Rule:", file=file)
+        print(f"{actin_rule_formatted}\n", file=file)
+        print("\n", file=file)
+
+
+def printable_summary_grouped(grouped_output: list[dict[str, Any]], file):
+    print(f"====== ACTIN MAPPING SUMMARY (grouped by parent statement) ======\n", file=file)
+
+    for parent in grouped_output:
+        original_parent = parent.get("original_input_rule")
+        parent_id = parent.get("original_input_rule_id")
+        section = parent.get("section")
+        curations = parent.get("curations", []) or []
+
+        print(f"=== Parent Statement [{parent_id}] ===", file=file)
+        if section is not None:
+            print(f"Section: {section}", file=file)
+        if original_parent:
+            print("\nOriginal parent-level text:", file=file)
+            print(original_parent, file=file)
+        print("", file=file)
+
+        if not curations:
+            print("  (No curated ACTIN rules for this statement.)\n", file=file)
+            continue
+
+        for idx, rule in enumerate(curations, start=1):
+            input_rule = rule.get("input_rule")
+            actin_rule_formatted = rule.get("actin_rule_reformat")
+
+            if input_rule is None:
+                raise ValueError(f"Input rule is missing for child #{idx} under parent {parent_id}")
+            if actin_rule_formatted is None:
+                raise ValueError(f"Formatted ACTIN rule is missing for child #{idx} under parent {parent_id}")
+
+            print(f"  --- Child rule #{idx} ---", file=file)
+            print(f"  Input Rule:", file=file)
+            print(f"  {input_rule}", file=file)
+            print(f"  Mapped ACTIN Rule:", file=file)
+            print(f"  {actin_rule_formatted}\n", file=file)
+
+        print("\n", file=file)
 
 
 def main():
@@ -383,25 +477,46 @@ def main():
     logger.info("Loading eligibility criteria")
 
     # Text preparation workflow
+    grouped_parents: list[dict[str, Any]] | None = None
+
     if args.group_by_original_statement:
         logger.info("Using grouped text preparation workflow with original parent-level statements")
-        grouped = llm_rules_prep_workflow_grouped_w_original_statements(eligibility_criteria, client)
-        processed_rules = flatten_grouped_rules(grouped)
+        grouped_parents = llm_rules_prep_workflow_grouped_w_original_statements(eligibility_criteria, client)
+        processed_rules = flatten_grouped_rules(grouped_parents)
     else:
         logger.info("Using standard text preparation workflow")
         processed_rules = llm_rules_prep_workflow(eligibility_criteria, client)
 
     # ACTIN curator workflow
-    actin_outputs = actin_workflow(processed_rules, client, args.actin_filepath, confidence_estimate=args.confidence_estimate)
+    actin_outputs_flat = actin_workflow(processed_rules, client, args.actin_filepath, confidence_estimate=args.confidence_estimate)
 
+    # If grouped mode, rebuild grouped output structure
+    grouped_output: list[dict[str, Any]] | None = None
+    if args.group_by_original_statement and grouped_parents is not None:
+        grouped_output = group_actin_by_parent(grouped_parents, actin_outputs_flat)
+
+    # Write outputs
     if args.output_complete:
         with open(args.output_complete, "w", encoding="utf-8") as f:
-            json.dump(actin_outputs, f, indent=2)
+            if grouped_output is not None:
+                json.dump(grouped_output, f, indent=2)
+            else:
+                json.dump(actin_outputs_flat, f, indent=2)
         logger.info(f"Complete ACTIN results written to {args.output_complete}")
+
     if args.output_concise:
         with open(args.output_concise, "w", encoding="utf-8") as f:
-            printable_summary(actin_outputs, f)  # write to file
-        printable_summary(actin_outputs, sys.stdout)  # display on screen
+            if grouped_output is not None:
+                printable_summary_grouped(grouped_output, f)
+            else:
+                printable_summary_flat(actin_outputs_flat, f)
+
+        # Also print to stdout
+        if grouped_output is not None:
+            printable_summary_grouped(grouped_output, sys.stdout)
+        else:
+            printable_summary_flat(actin_outputs_flat, sys.stdout)
+
         logger.info(f"Human readable ACTIN summary results written to {args.output_concise}")
 
 
