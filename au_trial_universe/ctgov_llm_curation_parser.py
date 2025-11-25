@@ -264,18 +264,18 @@ def main():
         logger.info(f"Extracting fields for criterion: {crit}")
 
         instances_tbl = tabularise_criterion_instances_in_dir(args.curated_dir, crit)  # Info in long form: One row per matched criterion
-        summary_tbl = restructure_to_one_trial_per_row(instances_tbl, crit)  # Group by trialId to convert to wide form
+        instance_csv = args.output_dir / f"{crit}_instances.csv"
+        instances_tbl.to_csv(instance_csv, index=False)
 
-        # Ensure one row per trial even if that trial has no matches
+        summary_tbl = restructure_to_one_trial_per_row(instances_tbl, crit)  # Group by trialId to convert to wide form
         summary_tbl = (
-            all_trials_df.merge(summary_tbl, on="trialId", how="left")
+            all_trials_df.merge(summary_tbl, on="trialId", how="left")   # Ensure one row per trial even if that trial has no matches
             .fillna("")
             .astype({"trialId": str})
         )
-
-        # Save final aggregate CSV
         aggregate_csv = args.output_dir / f"{crit}_extractions.csv"
         summary_tbl.to_csv(aggregate_csv, index=False)
+
         logger.info(f"Saved to {aggregate_csv}")
 
 
