@@ -85,10 +85,8 @@ def main():
             logger.info("No selected trial is missing in POTTR.")
         else:
             logger.info("No. trials selected from ctgov NOT in POTTR: %d", len(not_pottr))
-            not_pottr.to_csv(os.path.join(args.discrepancy_dir, "ctgov_not_pottr.csv"), index=False)  # TODO: right now this is just a list of NCTIds. Can append this to the json_extraction output to display more info
+            not_pottr.to_csv(os.path.join(args.discrepancy_dir, "ctgov_not_pottr.csv"), index=False)
             logger.info("Wrote to %s", args.discrepancy_dir)
-
-            # TODO: can also mark trials that are in POTTR as an additional annotation
 
     if args.anzctr:
         # TBD
