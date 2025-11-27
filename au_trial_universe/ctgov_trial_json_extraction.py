@@ -86,6 +86,19 @@ def extract_intervention_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
     return inter_tbl
 
 
+def extract_age_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    minage = trial.get("protocolSection").get("eligibilityModule").get("minimumAge", "")
+    maxage = trial.get("protocolSection").get("eligibilityModule").get("maximumAge", "")
+
+    age_tbl = {
+        "nctId": nctId,
+        "minAge": minage,
+        "maxAge": maxage,
+    }
+    return age_tbl
+
+
 def extract_location_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
     nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
     locations = trial.get("protocolSection").get("contactsLocationsModule", {}).get("locations", [])
@@ -143,10 +156,11 @@ def main():
     for trial in trials:
         basic_tbl = extract_basic_fields(trial)
         conditions_tbl = extract_conditions(trial)
+        ages_tbl = extract_age_fields(trial)
         inter_tbl = extract_intervention_fields(trial)
         loc_tbl = extract_location_fields(trial)
 
-        combined_tbl: Dict[str, Any] = basic_tbl | conditions_tbl | inter_tbl | loc_tbl
+        combined_tbl: Dict[str, Any] = basic_tbl | conditions_tbl | ages_tbl | inter_tbl | loc_tbl
         rows.append(combined_tbl)
         count += 1
 
