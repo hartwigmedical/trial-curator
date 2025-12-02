@@ -444,6 +444,20 @@ def printable_summary_grouped(grouped_output: list[dict[str, Any]], file):
         print("\n", file=file)
 
 
+REDUNDANT_ATTRIBUTES = ("original_input_rule", "original_input_rule_id")
+
+
+def strip_redundant_curation_fields(grouped_output: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for parent in grouped_output:
+        curations = parent.get("curations", [])
+
+        for cur in curations:
+            for key in REDUNDANT_ATTRIBUTES:
+                cur.pop(key, None)
+
+    return grouped_output
+
+
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
 
@@ -499,7 +513,8 @@ def main():
     if args.output_complete:
         with open(args.output_complete, "w", encoding="utf-8") as f:
             if grouped_output is not None:
-                json.dump(grouped_output, f, indent=2)
+                cleaned = strip_redundant_curation_fields(grouped_output)
+                json.dump(cleaned, f, indent=2)
             else:
                 json.dump(actin_outputs_flat, f, indent=2)
         logger.info(f"Complete ACTIN results written to {args.output_complete}")
