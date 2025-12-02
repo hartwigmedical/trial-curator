@@ -8,7 +8,6 @@ from pydantic_curator.pydantic_type_prompts import INSTRUCTION_CRITERION_TYPES
 
 from trialcurator.llm_client import LlmClient
 from trialcurator.openai_client import OpenaiClient
-from trialcurator.gemini_client import GeminiClient
 
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow
 from trialcurator.utils import load_trial_data, extract_code_blocks, llm_json_check_and_repair, load_eligibility_criteria
@@ -18,9 +17,6 @@ from .criterion_schema import BaseCriterion
 
 
 logger = logging.getLogger(__name__)
-
-
-TEMPERATURE = 0.0
 
 
 # NOTE this is not the same as the one used in loading the dataframe
@@ -225,16 +221,12 @@ def pydantic_curator_workflow(criterion_dict: dict, client: LlmClient, additiona
 
 def main():
     parser = argparse.ArgumentParser(description="Pydantic Clinical trial curator")
-    parser.add_argument('--llm_provider', help="Select OpenAI or another provider. Currently defaults to OpenAI", required=False)
     parser.add_argument('--input_file', help='JSON file containing trial data', required=True)
     parser.add_argument('--output_file', help='Output file for curated trial data (expected filetype: .py)', required=True)
     parser.add_argument('--log_level', help="Set the log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)", default="INFO")
     args = parser.parse_args()
 
-    if args.llm_provider == "Google":
-        client = GeminiClient(TEMPERATURE)
-    else:
-        client = OpenaiClient(TEMPERATURE)
+    client = OpenaiClient()
 
     trial_data = load_trial_data(args.input_file)
     eligibility_criteria = load_eligibility_criteria(trial_data)
