@@ -1,11 +1,12 @@
+import argparse
+import logging
 import json
 import sys
+import re
+from typing import TypedDict, Any
 from pathlib import Path
 
 import pandas as pd
-import logging
-import argparse
-from typing import TypedDict, Any
 from rapidfuzz import fuzz
 
 from trialcurator.llm_client import LlmClient
@@ -21,6 +22,8 @@ from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_
 logger = logging.getLogger(__name__)
 
 RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence or absence of a full stop.
+
+TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$",re.IGNORECASE | re.MULTILINE)
 
 
 class ActinMapping(TypedDict, total=False):
@@ -458,6 +461,43 @@ def strip_redundant_curation_fields(grouped_output: list[dict[str, Any]]) -> lis
     return grouped_output
 
 
+def extract_trial_id_from_text(text: str) -> str | None:
+    """
+    Expected format (case-insensitive), e.g.:
+        Trial ID: M24RSV
+        Trial ID: ABC 123
+    Spaces in the ID are replaced with underscores.
+    """
+    m = TRIAL_ID_PATTERN.search(text)
+    if not m:
+        logger.warning("No Trial ID line found in input text.")
+        return None
+
+    raw_id = m.group(1).strip()
+    if not raw_id:
+        logger.warning("Trial ID line found but ID is empty.")
+        return None
+
+    safe_id = re.sub(r"\s+", "_", raw_id)
+    logger.info("Extracted trial ID from text input: %s", safe_id)
+    return safe_id
+
+
+def prefix_output_path_with_trialid(path_str: str, trial_id: str | None) -> str:
+    if not trial_id:
+        return path_str
+
+    path = Path(path_str)
+    if path.name.startswith(f"{trial_id}"):
+        return str(path)
+
+    new_name = f"{trial_id}_{path.name}"
+    new_path = path.with_name(new_name)
+    logger.info("Output path %s rewritten to %s", path, new_path)
+
+    return str(new_path)
+
+
 def main():
     parser = argparse.ArgumentParser(description="ACTIN trial curator")
 
@@ -480,12 +520,16 @@ def main():
 
     client = OpenaiClient()
 
+    trial_id: str | None = None
+
     if args.input_json is not None:
         trial_data = load_trial_data(args.input_json)
         eligibility_criteria = load_eligibility_criteria(trial_data)
     elif args.input_txt is not None:
         with open(args.input_txt, 'r', encoding="utf-8") as f:
             eligibility_criteria = f.read()
+
+        trial_id = extract_trial_id_from_text(eligibility_criteria)
     else:
         raise ValueError("Either --input_json or --input_txt must be specified")
     logger.info("Loading eligibility criteria")
@@ -509,30 +553,35 @@ def main():
     if args.group_by_original_statement and grouped_parents is not None:
         grouped_output = group_actin_by_parent(grouped_parents, actin_outputs_flat)
 
+    # Prepare output paths with trial ID if available
+    output_complete_path = prefix_output_path_with_trialid(args.output_complete, trial_id) if args.output_complete else None
+    output_concise_path = prefix_output_path_with_trialid(args.output_concise, trial_id) if args.output_concise else None
+
     # Write outputs
-    if args.output_complete:
-        with open(args.output_complete, "w", encoding="utf-8") as f:
+    if output_complete_path:
+        with open(output_complete_path, "w", encoding="utf-8") as f:
             if grouped_output is not None:
                 cleaned = strip_redundant_curation_fields(grouped_output)
                 json.dump(cleaned, f, indent=2)
             else:
                 json.dump(actin_outputs_flat, f, indent=2)
-        logger.info(f"Complete ACTIN results written to {args.output_complete}")
 
-    if args.output_concise:
-        with open(args.output_concise, "w", encoding="utf-8") as f:
+        logger.info(f"Complete ACTIN results written to {output_complete_path}")
+
+    if output_concise_path:
+        with open(output_concise_path, "w", encoding="utf-8") as f:
             if grouped_output is not None:
                 printable_summary_grouped(grouped_output, f)
             else:
                 printable_summary_flat(actin_outputs_flat, f)
 
-        # Also print to stdout
+        # Also print to STDOUT
         if grouped_output is not None:
             printable_summary_grouped(grouped_output, sys.stdout)
         else:
             printable_summary_flat(actin_outputs_flat, sys.stdout)
 
-        logger.info(f"Human readable ACTIN summary results written to {args.output_concise}")
+        logger.info(f"Human readable ACTIN summary results written to {output_concise_path}")
 
 
 if __name__ == "__main__":
