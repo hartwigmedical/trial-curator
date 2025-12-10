@@ -58,7 +58,7 @@ info "Reformat output for inspection and ACTIN use"
 title=$(awk -F'Trial Title:' '/Trial Title:/ {gsub(/^[ \t]+/, "", $2); print $2}' $input_file)
 trial_id=$(awk -F'Trial ID:' '/Trial ID:/ {gsub(/\r/,""); gsub(/^[ \t]+/, "", $2); print $2}' $input_file)
 
-complete_out_file="${out_dir}/${trial_id}_complete.txt"
+complete_out_file="${out_dir}/${trial_id}_complete.json"
 reformatted_out_file="${out_dir}/${trial_id}_complete.reformatted.tsv"
 echo -e "trial_id\t${trial_id}" > ${reformatted_out_file}
 echo -e "title\t${title}" >> ${reformatted_out_file}
