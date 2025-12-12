@@ -319,15 +319,33 @@ def _drop_non_lookup_fields(node_dict: dict, relevant_fields: set[str], extra_ke
 
 # Common mojibake sequences in CSV to correct
 MOJIBAKE_REPLACEMENTS: Dict[str, str] = {
-    "‚â•": "≥",   # badly encoded ≥
+    # comparisons
+    "‚â•": "≥",
     "â‰¥": "≥",
     "â‰¤": "≤",
+
+    # bullets / dots
+    "â€¢": "•",
+    "â—": "•",
+
+    # dashes
     "â€“": "-",
     "â€”": "-",
+
+    # quotes
     "â€˜": "'",
     "â€™": "'",
     "â€œ": '"',
     "â€�": '"',
+
+    # misc symbols
+    "Ã—": "×",
+    "Ã·": "÷",
+    "Â±": "±",
+    "Â°": "°",
+
+    # stray non-breaking-space marker
+    "Â ": " ",
 }
 
 
@@ -745,7 +763,6 @@ def _apply_move_to_for_node(rule: Any, node: Any, parent: Optional[Any],
     if not move_to:
         return
 
-    # Optional: still compute the full composite key for logging context
     full_key = _build_lookup_key(node_dict, source_lookup_fields)
     lookup_snapshot = {field: node_dict.get(field) for field in source_lookup_fields}
     logger.info(
@@ -793,7 +810,6 @@ def _apply_move_to_for_node(rule: Any, node: Any, parent: Optional[Any],
 
     # Replace original node with the new one
     _replace_node_in_parent(rule, parent, node, new_node)
-
 
 
 def apply_move_to_for_trial(rules: List[Any], resources_by_prefix: Dict[str, Dict[str, Any]]) -> None:
