@@ -23,7 +23,21 @@ logger = logging.getLogger(__name__)
 
 RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence or absence of a full stop.
 
-TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$",re.IGNORECASE | re.MULTILINE)
+TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+# Replace NOT() with WARN_IF(). Based on ACTIN_rules_w_categories_13062025.csv
+WARN_IF_RULE_CATEGORIES: set[str] = {
+    "Infectious_Disease_History_and_Status",
+    "Surgical_History_and_Plans",
+    "Prior_Cancer_Treatments_and_Modalities_and_Washout_Periods",
+    "Current_Medication_Use",
+    "Medical_History_and_Comorbidities",
+}
+
+BLOOD_TRANSFUSION_CATEGORY = "Hematologic_Parameters"
+BLOOD_TRANSFUSION_TOKEN_SUBSTRING = "TRANSFUSION"
+
+SECOND_MALIGNANCY_EXCEPTION_RULE = "HAS_ACTIVE_SECOND_MALIGNANCY"
 
 
 class ActinMapping(TypedDict, total=False):
@@ -41,6 +55,29 @@ class ActinMapping(TypedDict, total=False):
     original_input_rule: str
     original_input_rule_id: str
     section: str
+
+
+def _build_rule_to_category_map(actin_df: pd.DataFrame) -> dict[str, str]:
+    """
+    Build a mapping {ACTIN_RULE_NAME -> ACTIN_CATEGORY_COLUMN_NAME} from ACTIN resource dataframe (columns are categories, cells are rule names).
+    """
+    rule_to_category: dict[str, str] = {}
+
+    for category in actin_df.columns:
+        series = actin_df[category].dropna()
+
+        for raw_rule in series.tolist():
+            rule = str(raw_rule).strip()
+            if not rule:
+                continue
+
+            if rule not in rule_to_category:  # For dealing with accidental duplicate rules across difference categories - Use the first occurence & ignore the rest
+                rule_to_category[rule] = str(category).strip()
+
+    return rule_to_category
+
+
+
 
 
 def identify_actin_categories(input_rule: str, client: LlmClient, actin_categories: list[str]) -> list[dict[str, Any]]:
@@ -196,6 +233,62 @@ def actin_mark_new_rules(actin_rule: dict | list | str, actin_df: pd.DataFrame) 
     return find_new_actin_rules(actin_rule, actin_rules)
 
 
+def rewrite_not_to_warn_if(expr: str, rule_to_category: dict[str, str]) -> str | None:
+
+    def _should_replace_not_with_warn_if(_rule_token: str, _rule_to_category: dict[str, str]) -> bool:
+        if _rule_token == SECOND_MALIGNANCY_EXCEPTION_RULE:
+            return False
+
+        category = _rule_to_category.get(_rule_token)
+        if category is None:
+            return False
+
+        if category in WARN_IF_RULE_CATEGORIES:
+            return True
+        if category == BLOOD_TRANSFUSION_CATEGORY and BLOOD_TRANSFUSION_TOKEN_SUBSTRING in _rule_token:
+            return True
+
+        return False
+
+    def _extract_rule_token_after_parentheses(_expr: str, _open_paren_idx: int) -> str | None:
+        # Given the index of '(' (the opening parenthesis after NOT/WARN_IF), parse the immediate ACTIN rule token following it
+        i = _open_paren_idx + 1
+        n = len(_expr)
+
+        while i < n and _expr[i].isspace():
+            i += 1
+
+        start = i
+        while i < n and (_expr[i].isupper() or _expr[i].isdigit() or _expr[i] == "_"):
+            i += 1
+
+        token = _expr[start:i]
+        return token or None
+
+    # Deterministically rewrite only eligible 'NOT(...)' occurrences to 'WARN_IF(...)'
+    if "NOT" not in expr:
+        return expr
+
+    pattern = re.compile(r"\bNOT(\s*)\(")
+    matches = list(pattern.finditer(expr))
+    if not matches:
+        return expr
+
+    out = expr
+    for m in reversed(matches):
+        not_start = m.start()
+        open_paren_idx = m.end() - 1
+
+        rule_token = _extract_rule_token_after_parentheses(out, open_paren_idx)
+        if rule_token is None:
+            continue
+
+        if _should_replace_not_with_warn_if(rule_token, rule_to_category):
+            out = out[:not_start] + "WARN_IF" + out[not_start + 3:]
+
+    return out
+
+
 def actin_mark_confidence_score(criteria_dict: ActinMapping, client: LlmClient) -> dict[str, Any]:
     logger.info("\nSTART GENERATING ACTIN MAPPING CONFIDENCE SCORE\n")
 
@@ -303,6 +396,7 @@ def group_actin_by_parent(parents: list[dict[str, Any]], flat_actin: list[ActinM
 
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
     actin_df, actin_cat = load_actin_resource(actin_filepath)
+    rule_to_category = _build_rule_to_category_map(actin_df)
 
     # 1. Assign ACTIN category
     rules_w_cat = []
@@ -358,10 +452,30 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
             criterion_updated["new_rule"] = new_rules
         rules_w_new.append(criterion_updated)
 
-    # 5. Generate confidence score and explanation - optional
+    # 5. Deterministically replace NOT() with WARN_IF() for specific rule categories
+    rules_w_warnif = []
+    for criterion in rules_w_new:
+        criterion_updated = criterion.copy()
+
+        new_rules = criterion.get("new_rule", [])
+        if new_rules:
+            rules_w_warnif.append(criterion_updated)
+            continue
+
+        expr = criterion.get("actin_rule_reformat")
+        if isinstance(expr, str):
+            new_expr = rewrite_not_to_warn_if(expr, rule_to_category)
+
+            if new_expr.replace("WARN_IF(", "NOT(") != expr:
+                raise AssertionError("Unexpected rewrite change beyond NOT() -> WARN_IF()")
+            criterion_updated["actin_rule_reformat"] = new_expr
+
+        rules_w_warnif.append(criterion_updated)
+
+    # 6. Generate confidence score and explanation - optional
     if confidence_estimate:
         rules_w_confidence = []
-        for criterion in rules_w_new:
+        for criterion in rules_w_warnif:
             criterion_updated = criterion.copy()
 
             confidence_fields = actin_mark_confidence_score(criterion, client)
@@ -371,7 +485,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
         actin_output = rules_w_confidence.copy()
     else:
-        actin_output = rules_w_new.copy()
+        actin_output = rules_w_warnif.copy()
 
     return actin_output
 
@@ -447,10 +561,9 @@ def printable_summary_grouped(grouped_output: list[dict[str, Any]], file):
         print("\n", file=file)
 
 
-REDUNDANT_ATTRIBUTES = ("original_input_rule", "original_input_rule_id")
-
-
 def strip_redundant_curation_fields(grouped_output: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    REDUNDANT_ATTRIBUTES = ("original_input_rule", "original_input_rule_id")
+
     for parent in grouped_output:
         curations = parent.get("curations", [])
 
