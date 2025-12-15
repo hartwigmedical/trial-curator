@@ -12,7 +12,7 @@ from au_trial_universe.ctgov_llm_curation_loader import load_curated_rules
 logger = logging.getLogger(__name__)
 
 SEARCHING_CRITERIA = [
-    "PrimaryTumorCriterion",
+    "PrimaryTumorCriterion", "HistologyCriterion",
     "MolecularBiomarkerCriterion",
     "MolecularSignatureCriterion",
     "GeneAlterationCriterion",
