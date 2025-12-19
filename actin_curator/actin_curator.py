@@ -25,20 +25,6 @@ RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - mo
 
 TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 
-# Replace NOT() with WARN_IF(). Based on ACTIN_rules_w_categories_13062025.csv
-WARN_IF_RULE_CATEGORIES: set[str] = {
-    "Infectious_Disease_History_and_Status",
-    "Surgical_History_and_Plans",
-    "Prior_Cancer_Treatments_and_Modalities_and_Washout_Periods",
-    "Current_Medication_Use",
-    "Medical_History_and_Comorbidities",
-}
-
-BLOOD_TRANSFUSION_CATEGORY = "Hematologic_Parameters"
-BLOOD_TRANSFUSION_TOKEN_SUBSTRING = "TRANSFUSION"
-
-SECOND_MALIGNANCY_EXCEPTION_RULE = "HAS_ACTIVE_SECOND_MALIGNANCY"
-
 
 class ActinMapping(TypedDict, total=False):
     input_rule: str
@@ -55,29 +41,6 @@ class ActinMapping(TypedDict, total=False):
     original_input_rule: str
     original_input_rule_id: str
     section: str
-
-
-def _build_rule_to_category_map(actin_df: pd.DataFrame) -> dict[str, str]:
-    """
-    Build a mapping {ACTIN_RULE_NAME -> ACTIN_CATEGORY_COLUMN_NAME} from ACTIN resource dataframe (columns are categories, cells are rule names).
-    """
-    rule_to_category: dict[str, str] = {}
-
-    for category in actin_df.columns:
-        series = actin_df[category].dropna()
-
-        for raw_rule in series.tolist():
-            rule = str(raw_rule).strip()
-            if not rule:
-                continue
-
-            if rule not in rule_to_category:  # For dealing with accidental duplicate rules across difference categories - Use the first occurence & ignore the rest
-                rule_to_category[rule] = str(category).strip()
-
-    return rule_to_category
-
-
-
 
 
 def identify_actin_categories(input_rule: str, client: LlmClient, actin_categories: list[str]) -> list[dict[str, Any]]:
@@ -233,25 +196,16 @@ def actin_mark_new_rules(actin_rule: dict | list | str, actin_df: pd.DataFrame) 
     return find_new_actin_rules(actin_rule, actin_rules)
 
 
-def rewrite_not_to_warn_if(expr: str, rule_to_category: dict[str, str]) -> str | None:
+def rewrite_not_to_warnif(expr: str, rule_to_warnif: dict[str, bool]) -> str:
 
-    def _should_replace_not_with_warn_if(_rule_token: str, _rule_to_category: dict[str, str]) -> bool:
-        if _rule_token == SECOND_MALIGNANCY_EXCEPTION_RULE:
-            return False
+    def _should_replace_not_with_warnif(_rule_token: str, _rule_to_warnif: dict[str, bool]) -> bool:
+        return bool(_rule_to_warnif.get(_rule_token, False))
 
-        category = _rule_to_category.get(_rule_token)
-        if category is None:
-            return False
-
-        if category in WARN_IF_RULE_CATEGORIES:
-            return True
-        if category == BLOOD_TRANSFUSION_CATEGORY and BLOOD_TRANSFUSION_TOKEN_SUBSTRING in _rule_token:
-            return True
-
-        return False
-
-    def _extract_rule_token_after_parentheses(_expr: str, _open_paren_idx: int) -> str | None:
-        # Given the index of '(' (the opening parenthesis after NOT/WARN_IF), parse the immediate ACTIN rule token following it
+    def _extract_atomic_rule_token_after_parentheses(_expr: str, _open_paren_idx: int) -> str | None:
+        """
+        Extract an *atomic* ACTIN rule token from NOT(<RULETOKEN>): after the RULETOKEN (and optional whitespace), the next non-space character must be ')'.
+        Otherwise it is considered to be a composite expression
+        """
         i = _open_paren_idx + 1
         n = len(_expr)
 
@@ -263,9 +217,18 @@ def rewrite_not_to_warn_if(expr: str, rule_to_category: dict[str, str]) -> str |
             i += 1
 
         token = _expr[start:i]
-        return token or None
+        if not token:
+            return None
 
-    # Deterministically rewrite only eligible 'NOT(...)' occurrences to 'WARN_IF(...)'
+        # Enforce atomicity
+        j = i
+        while j < n and _expr[j].isspace():
+            j += 1
+        if j >= n or _expr[j] != ")":
+            return None
+
+        return token
+
     if "NOT" not in expr:
         return expr
 
@@ -279,11 +242,11 @@ def rewrite_not_to_warn_if(expr: str, rule_to_category: dict[str, str]) -> str |
         not_start = m.start()
         open_paren_idx = m.end() - 1
 
-        rule_token = _extract_rule_token_after_parentheses(out, open_paren_idx)
+        rule_token = _extract_atomic_rule_token_after_parentheses(out, open_paren_idx)
         if rule_token is None:
             continue
 
-        if _should_replace_not_with_warn_if(rule_token, rule_to_category):
+        if _should_replace_not_with_warnif(rule_token, rule_to_warnif):
             out = out[:not_start] + "WARN_IF" + out[not_start + 3:]
 
     return out
@@ -395,8 +358,7 @@ def group_actin_by_parent(parents: list[dict[str, Any]], flat_actin: list[ActinM
 
 
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
-    actin_df, actin_cat = load_actin_resource(actin_filepath)
-    rule_to_category = _build_rule_to_category_map(actin_df)
+    actin_df, actin_cat, rule_to_warnif = load_actin_resource(actin_filepath)
 
     # 1. Assign ACTIN category
     rules_w_cat = []
@@ -452,22 +414,23 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
             criterion_updated["new_rule"] = new_rules
         rules_w_new.append(criterion_updated)
 
-    # 5. Deterministically replace NOT() with WARN_IF() for specific rule categories
-    rules_w_warnif = []
+    # 5. Deterministically replace NOT() with WARN_IF() for specific rules
+    rules_w_warnif: list[ActinMapping] = []
     for criterion in rules_w_new:
         criterion_updated = criterion.copy()
 
-        new_rules = criterion.get("new_rule", [])
-        if new_rules:
+        if criterion.get("new_rule", []):  # Do not rewrite expressions containing newly invented rules
             rules_w_warnif.append(criterion_updated)
             continue
 
         expr = criterion.get("actin_rule_reformat")
         if isinstance(expr, str):
-            new_expr = rewrite_not_to_warn_if(expr, rule_to_category)
+            new_expr = rewrite_not_to_warnif(expr, rule_to_warnif)
 
+            # Only change NOT( -> WARN_IF( and nothing else
             if new_expr.replace("WARN_IF(", "NOT(") != expr:
                 raise AssertionError("Unexpected rewrite change beyond NOT() -> WARN_IF()")
+
             criterion_updated["actin_rule_reformat"] = new_expr
 
         rules_w_warnif.append(criterion_updated)
@@ -618,7 +581,7 @@ def main():
     input_file.add_argument("--input_json", type=Path, help="Downloaded json file from ClinicalTrial.gov")
     input_file.add_argument("--input_txt", type=Path, help="Text file of trial protocol")
 
-    parser.add_argument("--actin_filepath", help='Full path to ACTIN rules CSV', required=True)
+    parser.add_argument("--actin_filepath", help='Full path to ACTIN resource file CSV', required=True)
 
     parser.add_argument("--output_complete", help="Complete output file from ACTIN curator", required=False)
     parser.add_argument("--output_concise", help="Human readable output summary file from ACTIN curator (.tsv or .txt recommended)", required=False)

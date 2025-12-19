@@ -5,10 +5,71 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str]]:
-    actin_df = pd.read_csv(filepath, header=0)
-    actin_categories = actin_df.columns.str.strip().tolist()
-    return actin_df, actin_categories
+def _split_actin_rule_and_warnif_columns(actin_df: pd.DataFrame) -> tuple[list[str], list[str]]:
+    """
+    The ACTIN resource contains paired columns <CATEGORY>, <WARN_IF> for each category.
+    """
+    cols = [str(c).strip() for c in actin_df.columns.tolist()]
+
+    if len(cols) % 2 != 0:
+        raise ValueError(f"Expected an even number of columns (rule/warnif pairs). Got {len(cols)} columns.")
+
+    category_cols: list[str] = []
+    warnif_cols: list[str] = []
+
+    for i in range(0, len(cols), 2):
+        rule_col = cols[i]
+        warn_col = cols[i + 1]
+
+        category_cols.append(rule_col)
+        warnif_cols.append(warn_col)
+
+    return category_cols, warnif_cols
+
+
+def _build_rule_to_warnif_map_from_pairs(actin_df_raw: pd.DataFrame, category_cols: list[str], warnif_cols: list[str]) -> dict[str, bool]:
+    rule_to_warnif: dict[str, bool] = {}
+
+    for cat_col, warn_col in zip(category_cols, warnif_cols):
+        for raw_rule, raw_warn in zip(actin_df_raw[cat_col].tolist(), actin_df_raw[warn_col].tolist()):
+            if raw_rule is None:
+                continue
+
+            rule = str(raw_rule).strip()
+            if not rule or rule.lower() == "nan":
+                continue
+
+            if rule in rule_to_warnif:
+                continue  # first occurrence used if there are accidental rule duplicates
+
+            warn = False  # default WARN_IF to False
+            if raw_warn is not None:
+                if isinstance(raw_warn, bool):
+                    warn = raw_warn
+                elif isinstance(raw_warn, (int, float)):
+                    if isinstance(raw_warn, float) and raw_warn != raw_warn:
+                        warn = False
+                    else:
+                        warn = int(raw_warn) == 1
+                else:
+                    s = str(raw_warn).strip().lower()
+                    warn = s in {"true", "t", "1", "yes", "y"}
+
+            rule_to_warnif[rule] = warn
+
+    return rule_to_warnif
+
+
+def load_actin_resource(filepath: str) -> tuple[pd.DataFrame, list[str], dict[str, bool]]:
+    actin_df_raw = pd.read_csv(filepath, header=0)
+
+    category_cols, warnif_cols = _split_actin_rule_and_warnif_columns(actin_df_raw)
+    rule_to_warnif = _build_rule_to_warnif_map_from_pairs(actin_df_raw, category_cols, warnif_cols)
+
+    actin_rules_df = actin_df_raw[category_cols].copy()
+    actin_categories = category_cols
+
+    return actin_rules_df, actin_categories, rule_to_warnif
 
 
 def flatten_actin_rules(actin_df: pd.DataFrame) -> set[str]:
