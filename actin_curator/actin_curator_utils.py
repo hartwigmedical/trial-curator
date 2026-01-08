@@ -5,6 +5,56 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def actin_rule_is_empty(actin_rule: dict | list | str | None) -> bool:
+    """
+    Return True if actin_rule contains ONLY logical operators (AND/OR/NOT)
+    """
+
+    if actin_rule is None:
+        return True
+
+    if isinstance(actin_rule, str):
+        return actin_rule.strip() == ""
+
+    if isinstance(actin_rule, list):
+        if not actin_rule:
+            return True
+
+        return all(actin_rule_is_empty(x) for x in actin_rule)
+
+    if isinstance(actin_rule, dict):
+        if not actin_rule:
+            return True
+
+        if len(actin_rule) != 1:
+            return False
+
+        key, val = next(iter(actin_rule.items()))
+
+        if key in {"AND", "OR"}:
+            if not isinstance(val, list) or len(val) == 0:
+                return True
+
+            return all(actin_rule_is_empty(x) for x in val)
+
+        if key == "NOT":
+            return actin_rule_is_empty(val)
+
+        return False
+
+    return False
+
+
+def blank_shell_only_actin_rule_fields(criteria: dict) -> dict:
+    out = criteria.copy()
+
+    if actin_rule_is_empty(out.get("actin_rule")):
+        out["actin_rule"] = ""
+        out["actin_rule_reformat"] = ""
+
+    return out
+
+
 def _split_actin_rule_and_warnif_columns(actin_df: pd.DataFrame) -> tuple[list[str], list[str]]:
     """
     The ACTIN resource contains paired columns <CATEGORY>, <WARN_IF> for each category.

@@ -16,7 +16,7 @@ from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_j
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow, llm_rules_prep_workflow_grouped_w_original_statements
 
 from . import actin_mapping_prompts
-from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
+from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat, blank_shell_only_actin_rule_fields
 
 
 logger = logging.getLogger(__name__)
@@ -392,14 +392,23 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
                 raise TypeError(f"Unexpected format in mapped_rules: {rule}")
         rules_w_mapping.append(criterion_updated)
 
+    # 2b. Blank out shell-only logical outputs (e.g., NOT(AND()))
+    rules_w_mapping_cleaned = []
+    for criterion in rules_w_mapping:
+        rules_w_mapping_cleaned.append(blank_shell_only_actin_rule_fields(criterion))
+
     # 3. Reformat ACTIN rules
     rules_reformat = []
-    for criterion in rules_w_mapping:
+    for criterion in rules_w_mapping_cleaned:
         criterion_updated = criterion.copy()
 
         actin_rule = criterion.get("actin_rule")
-        actin_rule_reformatted = actin_rule_reformat(actin_rule)
-        criterion_updated["actin_rule_reformat"] = actin_rule_reformatted
+
+        if actin_rule == "" or actin_rule is None:
+            criterion_updated["actin_rule_reformat"] = ""
+        else:
+            criterion_updated["actin_rule_reformat"] = actin_rule_reformat(actin_rule)
+
         rules_reformat.append(criterion_updated)
 
     # 4. Mark new rules
@@ -408,10 +417,13 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
         criterion_updated = criterion.copy()
 
         actin_rule = criterion.get("actin_rule")
-        new_rules = actin_mark_new_rules(actin_rule, actin_df)
 
-        if len(new_rules) > 0:
+        if actin_rule == "" or actin_rule is None:
+            criterion_updated["new_rule"] = []
+        else:
+            new_rules = actin_mark_new_rules(actin_rule, actin_df)
             criterion_updated["new_rule"] = new_rules
+
         rules_w_new.append(criterion_updated)
 
     # 5. Deterministically replace NOT() with WARN_IF() for specific rules
@@ -424,6 +436,10 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
             continue
 
         expr = criterion.get("actin_rule_reformat")
+        if not isinstance(expr, str) or expr.strip() == "":
+            rules_w_warnif.append(criterion_updated)
+            continue
+
         if isinstance(expr, str):
             new_expr = rewrite_not_to_warnif(expr, rule_to_warnif)
 
