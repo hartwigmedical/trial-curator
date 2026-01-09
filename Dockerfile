@@ -17,4 +17,3 @@ ENTRYPOINT /usr/local/bin/python -m actin_curator.actin_curator \
   --output_concise /actin_data/output/concise.txt \
   --input_txt /actin_data/input/criteria.txt \
   --group_by_original_statement \
-  --confidence_estimate \
