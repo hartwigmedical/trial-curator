@@ -220,10 +220,22 @@ def rewrite_not_to_warnif(expr: str, rule_to_warnif: dict[str, bool]) -> str:
         if not token:
             return None
 
-        # Enforce atomicity
+        # Enforce atomicity: allow optional [params] then must close ')'
         j = i
         while j < n and _expr[j].isspace():
             j += 1
+
+        # deal with parameter block: RULE[...]
+        if j < n and _expr[j] == "[":
+            j += 1
+            while j < n and _expr[j] != "]":
+                j += 1
+            if j >= n:
+                return None
+            j += 1  # consume ']'
+            while j < n and _expr[j].isspace():
+                j += 1
+
         if j >= n or _expr[j] != ")":
             return None
 
