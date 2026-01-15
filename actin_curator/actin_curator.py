@@ -404,12 +404,12 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
                 raise TypeError(f"Unexpected format in mapped_rules: {rule}")
         rules_w_mapping.append(criterion_updated)
 
-    # 2b. Blank out shell-only logical outputs (e.g., NOT(AND()))
+    # 3. Blank out shell-only logical outputs (e.g., NOT(AND()))
     rules_w_mapping_cleaned = []
     for criterion in rules_w_mapping:
         rules_w_mapping_cleaned.append(blank_shell_only_actin_rule_fields(criterion))
 
-    # 3. Reformat ACTIN rules
+    # 4. Reformat ACTIN rules
     rules_reformat = []
     for criterion in rules_w_mapping_cleaned:
         criterion_updated = criterion.copy()
@@ -423,7 +423,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
         rules_reformat.append(criterion_updated)
 
-    # 4. Mark new rules
+    # 5. Mark new rules
     rules_w_new = []
     for criterion in rules_reformat:
         criterion_updated = criterion.copy()
@@ -438,7 +438,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
         rules_w_new.append(criterion_updated)
 
-    # 5. Deterministically replace NOT() with WARN_IF() for specific rules
+    # 6. Deterministically replace NOT() with WARN_IF() for specific rules
     rules_w_warnif: list[ActinMapping] = []
     for criterion in rules_w_new:
         criterion_updated = criterion.copy()
@@ -463,7 +463,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
         rules_w_warnif.append(criterion_updated)
 
-    # 6. Generate confidence score and explanation - optional
+    # 7. Generate confidence score and explanation - optional
     if confidence_estimate:
         rules_w_confidence = []
         for criterion in rules_w_warnif:
