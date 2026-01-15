@@ -16,14 +16,14 @@ from trialcurator.utils import load_trial_data, load_eligibility_criteria, llm_j
 from trialcurator.eligibility_text_preparation import llm_rules_prep_workflow, llm_rules_prep_workflow_grouped_w_original_statements
 
 from . import actin_mapping_prompts
-from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat
+from .actin_curator_utils import load_actin_resource, flatten_actin_rules, find_new_actin_rules, actin_rule_reformat, blank_shell_only_actin_rule_fields
 
 
 logger = logging.getLogger(__name__)
 
 RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - most commonly the presence or absence of a full stop.
 
-TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$",re.IGNORECASE | re.MULTILINE)
+TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 class ActinMapping(TypedDict, total=False):
@@ -196,6 +196,74 @@ def actin_mark_new_rules(actin_rule: dict | list | str, actin_df: pd.DataFrame) 
     return find_new_actin_rules(actin_rule, actin_rules)
 
 
+def rewrite_not_to_warnif(expr: str, rule_to_warnif: dict[str, bool]) -> str:
+
+    def _should_replace_not_with_warnif(_rule_token: str, _rule_to_warnif: dict[str, bool]) -> bool:
+        return bool(_rule_to_warnif.get(_rule_token, False))
+
+    def _extract_atomic_rule_token_after_parentheses(_expr: str, _open_paren_idx: int) -> str | None:
+        """
+        Extract an *atomic* ACTIN rule token from NOT(<RULETOKEN>): after the RULETOKEN (and optional whitespace), the next non-space character must be ')'.
+        Otherwise it is considered to be a composite expression
+        """
+        i = _open_paren_idx + 1
+        n = len(_expr)
+
+        while i < n and _expr[i].isspace():
+            i += 1
+
+        start = i
+        while i < n and (_expr[i].isupper() or _expr[i].isdigit() or _expr[i] == "_"):
+            i += 1
+
+        token = _expr[start:i]
+        if not token:
+            return None
+
+        # Enforce atomicity: allow optional [params] then must close ')'
+        j = i
+        while j < n and _expr[j].isspace():
+            j += 1
+
+        # deal with parameter block: RULE[...]
+        if j < n and _expr[j] == "[":
+            j += 1
+            while j < n and _expr[j] != "]":
+                j += 1
+            if j >= n:
+                return None
+            j += 1  # consume ']'
+            while j < n and _expr[j].isspace():
+                j += 1
+
+        if j >= n or _expr[j] != ")":
+            return None
+
+        return token
+
+    if "NOT" not in expr:
+        return expr
+
+    pattern = re.compile(r"\bNOT(\s*)\(")
+    matches = list(pattern.finditer(expr))
+    if not matches:
+        return expr
+
+    out = expr
+    for m in reversed(matches):
+        not_start = m.start()
+        open_paren_idx = m.end() - 1
+
+        rule_token = _extract_atomic_rule_token_after_parentheses(out, open_paren_idx)
+        if rule_token is None:
+            continue
+
+        if _should_replace_not_with_warnif(rule_token, rule_to_warnif):
+            out = out[:not_start] + "WARN_IF" + out[not_start + 3:]
+
+    return out
+
+
 def actin_mark_confidence_score(criteria_dict: ActinMapping, client: LlmClient) -> dict[str, Any]:
     logger.info("\nSTART GENERATING ACTIN MAPPING CONFIDENCE SCORE\n")
 
@@ -302,7 +370,7 @@ def group_actin_by_parent(parents: list[dict[str, Any]], flat_actin: list[ActinM
 
 
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
-    actin_df, actin_cat = load_actin_resource(actin_filepath)
+    actin_df, actin_cat, rule_to_warnif = load_actin_resource(actin_filepath)
 
     # 1. Assign ACTIN category
     rules_w_cat = []
@@ -336,14 +404,23 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
                 raise TypeError(f"Unexpected format in mapped_rules: {rule}")
         rules_w_mapping.append(criterion_updated)
 
+    # 2b. Blank out shell-only logical outputs (e.g., NOT(AND()))
+    rules_w_mapping_cleaned = []
+    for criterion in rules_w_mapping:
+        rules_w_mapping_cleaned.append(blank_shell_only_actin_rule_fields(criterion))
+
     # 3. Reformat ACTIN rules
     rules_reformat = []
-    for criterion in rules_w_mapping:
+    for criterion in rules_w_mapping_cleaned:
         criterion_updated = criterion.copy()
 
         actin_rule = criterion.get("actin_rule")
-        actin_rule_reformatted = actin_rule_reformat(actin_rule)
-        criterion_updated["actin_rule_reformat"] = actin_rule_reformatted
+
+        if actin_rule == "" or actin_rule is None:
+            criterion_updated["actin_rule_reformat"] = ""
+        else:
+            criterion_updated["actin_rule_reformat"] = actin_rule_reformat(actin_rule)
+
         rules_reformat.append(criterion_updated)
 
     # 4. Mark new rules
@@ -352,16 +429,44 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
         criterion_updated = criterion.copy()
 
         actin_rule = criterion.get("actin_rule")
-        new_rules = actin_mark_new_rules(actin_rule, actin_df)
 
-        if len(new_rules) > 0:
+        if actin_rule == "" or actin_rule is None:
+            criterion_updated["new_rule"] = []
+        else:
+            new_rules = actin_mark_new_rules(actin_rule, actin_df)
             criterion_updated["new_rule"] = new_rules
+
         rules_w_new.append(criterion_updated)
 
-    # 5. Generate confidence score and explanation - optional
+    # 5. Deterministically replace NOT() with WARN_IF() for specific rules
+    rules_w_warnif: list[ActinMapping] = []
+    for criterion in rules_w_new:
+        criterion_updated = criterion.copy()
+
+        if criterion.get("new_rule", []):  # Do not rewrite expressions containing newly invented rules
+            rules_w_warnif.append(criterion_updated)
+            continue
+
+        expr = criterion.get("actin_rule_reformat")
+        if not isinstance(expr, str) or expr.strip() == "":
+            rules_w_warnif.append(criterion_updated)
+            continue
+
+        if isinstance(expr, str):
+            new_expr = rewrite_not_to_warnif(expr, rule_to_warnif)
+
+            # Only change NOT( -> WARN_IF( and nothing else
+            if new_expr.replace("WARN_IF(", "NOT(") != expr:
+                raise AssertionError("Unexpected rewrite change beyond NOT() -> WARN_IF()")
+
+            criterion_updated["actin_rule_reformat"] = new_expr
+
+        rules_w_warnif.append(criterion_updated)
+
+    # 6. Generate confidence score and explanation - optional
     if confidence_estimate:
         rules_w_confidence = []
-        for criterion in rules_w_new:
+        for criterion in rules_w_warnif:
             criterion_updated = criterion.copy()
 
             confidence_fields = actin_mark_confidence_score(criterion, client)
@@ -371,7 +476,7 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
         actin_output = rules_w_confidence.copy()
     else:
-        actin_output = rules_w_new.copy()
+        actin_output = rules_w_warnif.copy()
 
     return actin_output
 
@@ -447,10 +552,9 @@ def printable_summary_grouped(grouped_output: list[dict[str, Any]], file):
         print("\n", file=file)
 
 
-REDUNDANT_ATTRIBUTES = ("original_input_rule", "original_input_rule_id")
-
-
 def strip_redundant_curation_fields(grouped_output: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    REDUNDANT_ATTRIBUTES = ("original_input_rule", "original_input_rule_id")
+
     for parent in grouped_output:
         curations = parent.get("curations", [])
 
@@ -505,7 +609,7 @@ def main():
     input_file.add_argument("--input_json", type=Path, help="Downloaded json file from ClinicalTrial.gov")
     input_file.add_argument("--input_txt", type=Path, help="Text file of trial protocol")
 
-    parser.add_argument("--actin_filepath", help='Full path to ACTIN rules CSV', required=True)
+    parser.add_argument("--actin_filepath", help='Full path to ACTIN resource file CSV', required=True)
 
     parser.add_argument("--output_complete", help="Complete output file from ACTIN curator", required=False)
     parser.add_argument("--output_concise", help="Human readable output summary file from ACTIN curator (.tsv or .txt recommended)", required=False)

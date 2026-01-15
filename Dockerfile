@@ -12,7 +12,7 @@ ENV GOOGLE_CLOUD_LOCATION="europe-west4"
 ENV OPENAI_API_KEY="dummy"
 
 ENTRYPOINT /usr/local/bin/python -m actin_curator.actin_curator \
-  --actin_filepath /trial-curator/actin_curator/data/ACTIN_rules/ACTIN_rules_w_categories_13062025.csv \
+  --actin_filepath /trial-curator/actin_curator/data/ACTIN_rules/ACTIN_rules_w_categories_WARNIF_19122025.csv \
   --output_complete /actin_data/output/complete.json \
   --output_concise /actin_data/output/concise.txt \
   --input_txt /actin_data/input/criteria.txt \
