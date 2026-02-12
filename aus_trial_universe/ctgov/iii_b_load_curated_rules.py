@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+import typing
 from pathlib import Path
 from typing import Any
 
@@ -8,11 +11,44 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Shims / safe helpers
+# =============================================================================
+
 def _make_shim(class_name: str):
+    """
+    Simple object shim:
+    - accepts any kwargs
+    - stores them in __dict__
+    """
     def __init__(self, *_, **kwargs):
         self.__dict__.update(kwargs)
 
     return type(class_name, (), {"__init__": __init__})
+
+
+class _TypingInternalShim:
+    """
+    A permissive stand-in for typing internal classes/functions that sometimes
+    appear in serialized *_overwritten.py files.
+
+    Goal: allow exec() to succeed. We do NOT need correct typing semantics at runtime.
+    """
+
+    def __init__(self, *_, **__):
+        pass
+
+    def __call__(self, *_, **__):
+        return _TypingInternalShim()
+
+    def __getitem__(self, _):
+        return _TypingInternalShim()
+
+    def __getattr__(self, _):
+        return _TypingInternalShim()
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return "_TypingInternalShim()"
 
 
 def _auto_fix_positional_after_keyword(source: str) -> str:
@@ -200,7 +236,7 @@ def _auto_fix_extra_closing_brackets(source: str) -> str:
     lines = source.splitlines()
     out: list[str] = []
 
-    for idx, line in enumerate(lines):
+    for line in lines:
         stripped = line.strip()
 
         if stripped == "]":
@@ -222,9 +258,152 @@ def _auto_fix_extra_closing_brackets(source: str) -> str:
     return "\n".join(out)
 
 
+def _try_import_typing_extensions():
+    try:
+        import typing_extensions  # type: ignore
+        return typing_extensions
+    except Exception:
+        return None
+
+
+# =============================================================================
+# Typing internals injection (comprehensive + safe)
+# =============================================================================
+
+# A curated list of common private symbols that have shown up in serialized files.
+# We prefer SHIMS for these rather than the real typing objects, because:
+# - they are private & version-specific
+# - real typing internals may reject kwargs (e.g. __doc__) and crash exec()
+_TYPING_INTERNAL_NAMES = (
+    # Previously seen in your errors
+    "_LiteralGenericAlias",
+    "_TypedCacheSpecialForm",
+    "_SpecialForm",
+    # Commonly adjacent internals across versions
+    "_SpecialGenericAlias",
+    "_GenericAlias",
+    "_UnionGenericAlias",
+    "_BaseGenericAlias",
+    "_CallableGenericAlias",
+    "_AnnotatedAlias",
+    "_Final",
+    "_NotIterable",
+)
+
+
+def _inject_typing_internals(module_globs: dict[str, Any]) -> None:
+    """
+    Inject permissive shims for typing internals that may appear in serialized files.
+    Never overwrites existing bindings.
+    """
+    te = _try_import_typing_extensions()
+
+    for name in _TYPING_INTERNAL_NAMES:
+        if name in module_globs:
+            continue
+
+        # Prefer shim for private/internal typing symbols.
+        # If you ever need a "real" object for a *public* symbol, bind it explicitly elsewhere.
+        module_globs[name] = _make_shim(name)
+
+        # For completeness, also expose the real object under a different name if available
+        # (debugging only). We do NOT use it by default.
+        real = getattr(typing, name, None)
+        if real is None and te is not None:
+            real = getattr(te, name, None)
+        if real is not None:
+            module_globs[f"__REAL_{name}__"] = real
+
+
+def _try_inject_missing_name_from_exception(module_globs: dict[str, Any], exc: BaseException) -> bool:
+    """
+    If exec() fails with NameError for a missing symbol, inject it.
+
+    Strategy:
+    - if name looks like a typing internal (starts with "_"), inject a shim
+    - else try importing from typing / typing_extensions; if not present, shim it anyway
+
+    Returns True if we injected something (caller may retry exec once).
+    """
+    if not isinstance(exc, NameError):
+        return False
+
+    name = getattr(exc, "name", None)
+    if not name or not isinstance(name, str):
+        msg = str(exc)
+        if "name '" in msg and "' is not defined" in msg:
+            try:
+                name = msg.split("name '", 1)[1].split("'", 1)[0]
+            except Exception:
+                name = None
+
+    if not name or not isinstance(name, str):
+        return False
+
+    if name in module_globs:
+        return False
+
+    te = _try_import_typing_extensions()
+
+    if name.startswith("_"):
+        module_globs[name] = _make_shim(name)
+        logger.info("Injected shim for missing internal symbol %r into exec globals.", name)
+        return True
+
+    obj = getattr(typing, name, None)
+    if obj is None and te is not None:
+        obj = getattr(te, name, None)
+
+    if obj is not None:
+        module_globs[name] = obj
+        logger.info("Injected missing symbol %r into exec globals (from typing/typing_extensions).", name)
+        return True
+
+    # Fallback: shim it
+    module_globs[name] = _make_shim(name)
+    logger.info("Injected shim for missing symbol %r into exec globals (fallback).", name)
+    return True
+
+
+def _maybe_fix_typing_specialform_typeerror(module_globs: dict[str, Any], exc: BaseException) -> bool:
+    """
+    Handle the class of errors like:
+      TypeError: _SpecialForm.__init__() got an unexpected keyword argument '__doc__'
+
+    This happens when serialized files instantiate typing internals with kwargs that a
+    particular Python version's typing internals don't accept.
+
+    Fix: ensure those symbols are shims (not real typing objects) and request a retry.
+    """
+    if not isinstance(exc, TypeError):
+        return False
+
+    msg = str(exc)
+    if "_SpecialForm.__init__()" not in msg:
+        return False
+    if "unexpected keyword argument '__doc__'" not in msg:
+        return False
+
+    changed = False
+    for name in ("_SpecialForm", "_TypedCacheSpecialForm", "_LiteralGenericAlias"):
+        if name not in module_globs or not isinstance(module_globs[name], type):
+            # enforce shim
+            module_globs[name] = _make_shim(name)
+            changed = True
+
+    if changed:
+        logger.info("Replaced typing internals with shims after _SpecialForm TypeError; retrying exec once.")
+    return changed
+
+
+# =============================================================================
+# Loader
+# =============================================================================
+
 def load_curated_rules(py_filepath: Path) -> list[Any] | None:
     module_globs: dict[str, Any] = {"__builtins__": __builtins__}
 
+    # Bring in criterion schema objects, swapping Criterion classes to shims
     for name in dir(cs):
         obj = getattr(cs, name)
 
@@ -261,16 +440,34 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
         return None
 
     def _try_exec(src: str, label: str) -> list[Any] | None:
+        # KEEP old fixes: inject typing internals (now shim-based and comprehensive)
+        _inject_typing_internals(module_globs)
+
         try:
             code = compile(src, label, "exec")
         except SyntaxError:
             raise
 
+        # Attempt exec; if NameError or known typing TypeError occurs, patch globals and retry once.
         try:
             exec(code, module_globs)
         except Exception as e:  # defensive
-            logger.exception("While executing %s (%s): %s", py_filepath, label, e)
-            return None
+            retried = False
+
+            if _try_inject_missing_name_from_exception(module_globs, e):
+                retried = True
+            elif _maybe_fix_typing_specialform_typeerror(module_globs, e):
+                retried = True
+
+            if retried:
+                try:
+                    exec(code, module_globs)
+                except Exception as e2:
+                    logger.exception("While executing %s (%s): %s", py_filepath, label, e2)
+                    return None
+            else:
+                logger.exception("While executing %s (%s): %s", py_filepath, label, e)
+                return None
 
         rules = module_globs.get("rules")
         if rules is None:
@@ -292,7 +489,7 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
             e.msg,
         )
 
-        # 2) Attempt automatic repairs
+        # 2) Attempt automatic repairs (KEEP old fixes)
         fixed = source
         changed = False
 
@@ -304,10 +501,10 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
             ("extra closing brackets", _auto_fix_extra_closing_brackets),
         ]
 
-        for label, fixer in fixers:
+        for lbl, fixer in fixers:
             new_fixed = fixer(fixed)
             if new_fixed != fixed:
-                logger.info("Auto-fix (%s) applied to %s", label, py_filepath)
+                logger.info("Auto-fix (%s) applied to %s", lbl, py_filepath)
                 fixed = new_fixed
                 changed = True
 
@@ -330,10 +527,7 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
             return None
 
         if rules is not None:
-            logger.info(
-                "Auto-fix succeeded for %s; using repaired source.",
-                py_filepath,
-            )
+            logger.info("Auto-fix succeeded for %s; using repaired source.", py_filepath)
         return rules
 
     except Exception as e:

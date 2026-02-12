@@ -5,17 +5,16 @@ from typing import Any, List, Dict, Tuple, Optional
 import pandas as pd
 import numpy as np
 
-from au_trial_universe.ctgov_llm_curation_loader import load_curated_rules
+from aus_trial_universe.ctgov.ctgov_llm_curation_loader import load_curated_rules
 
 logger = logging.getLogger(__name__)
 
 
 SEARCHING_CRITERIA = [
-    "PrimaryTumorCriterion",
+    "PrimaryTumorCriterion", "HistologyCriterion",
     "MolecularBiomarkerCriterion",
     "MolecularSignatureCriterion",
-    "GeneAlterationCriterion",
-    # "InfectionCriterion",
+    "GeneAlterationCriterion"
 ]
 
 

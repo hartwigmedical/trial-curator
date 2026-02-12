@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Tuple, Optional
 import pandas as pd
 
-from au_trial_universe.ctgov_trials_to_remove import trials_remove
+from aus_trial_universe.ctgov.resources.i_ctgov_trials_to_remove import trials_remove
 
 logger = logging.getLogger(__name__)
 
