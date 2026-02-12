@@ -1,20 +1,3 @@
-"""
-vi_write_curated_rules.py
-
-Shared serializer for curated rule objects -> Python source file.
-
-Goal:
-- Provide a single, consistent writer used by all overwrite modules.
-- Serialize Rule/Criterion trees in the same style as the original curated outputs:
-    ClassName(attr=value, ...)
-  assuming objects are attribute-only and class names are resolvable when importing.
-
-Notes:
-- This is intentionally strict and minimal: it does not try to pretty-print
-  beyond stable indentation and preserving __dict__ insertion order.
-- It does not import the criterion classes; it only writes source.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,21 +10,6 @@ def _indent(s: str, n: int = 4) -> str:
 
 
 def obj_to_source(obj: Any) -> str:
-    """
-    Serialize an object tree to Python source.
-
-    Supported:
-    - None, bool, int, float, str
-    - list, tuple, dict
-    - objects with a __dict__ (attribute-only objects)
-
-    For objects with __dict__:
-      ClassName(
-          attr=value,
-          ...
-      )
-    preserving attribute insertion order in __dict__.
-    """
     if obj is None:
         return "None"
     if isinstance(obj, (str, int, float, bool)):
@@ -64,7 +32,6 @@ def obj_to_source(obj: Any) -> str:
 
     d = getattr(obj, "__dict__", None)
     if not isinstance(d, dict):
-        # Fallback for uncommon types; should be rare in curated trees.
         return repr(obj)
 
     cls = type(obj).__name__
@@ -77,11 +44,6 @@ def obj_to_source(obj: Any) -> str:
 
 
 def write_rules_py(rules: List[Any], out_path: str | Path) -> Path:
-    """
-    Write a curated rules python file with a top-level `rules = [...]`.
-
-    Returns the output path.
-    """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     content = "rules = " + obj_to_source(rules) + "\n"

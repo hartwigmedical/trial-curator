@@ -7,7 +7,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Tokens that should be treated as empty AFTER normalization.
+
 _EMPTY_TOKENS: Set[str] = {"", "na", "n/a", "unknown"}
 
 
@@ -16,7 +16,6 @@ def _clean_ele(value: str) -> str:
 
 
 def norm(x: Any) -> str:
-    """Normalize a cell/node value for matching (lower, strip). Empty -> ''."""
     if x is None:
         return ""
     if isinstance(x, numbers.Real):
@@ -29,7 +28,6 @@ def norm(x: Any) -> str:
 
 
 def is_effectively_empty(x: Any) -> bool:
-    """Empty under project semantics (None/NaN/blank/NA/unknown)."""
     return norm(x) in _EMPTY_TOKENS
 
 
@@ -68,7 +66,6 @@ def fix_mojibake_str(value: str) -> str:
 
 
 def fix_mojibake_df(df: pd.DataFrame) -> pd.DataFrame:
-    """In-place fix for common mojibake in object columns."""
     obj_cols = df.select_dtypes(include=["object"]).columns
     for col in obj_cols:
         df[col] = df[col].apply(lambda v: fix_mojibake_str(v) if isinstance(v, str) else v)

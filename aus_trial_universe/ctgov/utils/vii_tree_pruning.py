@@ -4,16 +4,7 @@ from typing import Any, Optional
 
 
 def remove_node_from_parent(rule: Any, parent: Optional[Any], node: Any) -> None:
-    """
-    Remove `node` from its parent without collapsing containers.
 
-    Supported parent shapes:
-    - parent is None: remove from rule.curation (list) or set singleton curation to []
-    - parent.criteria: list -> remove identity matches
-    - parent.criterion / parent.condition: set to None if identity match
-
-    Raises if it cannot remove the node deterministically.
-    """
     if parent is None:
         cur = getattr(rule, "curation", None)
         if isinstance(cur, list):

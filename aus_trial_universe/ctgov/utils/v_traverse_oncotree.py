@@ -14,25 +14,12 @@ from aus_trial_universe.ctgov.utils.ii_normalisation import (
     norm,
 )
 
-# -----------------------------------------------------------------------------
 # Constants / parsing utilities
-# -----------------------------------------------------------------------------
-
 LEVEL_COLS = [f"level_{i}" for i in range(1, 8)]
 CODE_RE = re.compile(r"\(([^()]+)\)\s*$")  # requires trailing "(CODE)"
 
 
 def parse_name_code(cell: object) -> Optional[Tuple[str, str]]:
-    """
-    Parse 'Name (CODE)' -> (Name, CODE). CODE must be present as the trailing token.
-
-    Returns None if:
-    - blank/empty (including NA/unknown after normalization)
-    - trailing (CODE) missing
-    - name or code missing after parsing
-
-    Note: this is intentionally strict (no fuzzy matching).
-    """
     if is_effectively_empty(cell):
         return None
     s = fix_mojibake_str(str(cell)).strip()
@@ -46,17 +33,9 @@ def parse_name_code(cell: object) -> Optional[Tuple[str, str]]:
     return name, code
 
 
-# -----------------------------------------------------------------------------
 # PrimaryTumor overwrite utilities (term -> level, OR splitting)
-# -----------------------------------------------------------------------------
 
 def split_or_terms(value: object) -> List[str]:
-    """
-    Split a mapping cell into OR terms using '|' only.
-    Commas are treated as literal (no special handling).
-
-    Always returns a list; blank/empty -> [].
-    """
     if is_effectively_empty(value):
         return []
     s = fix_mojibake_str(str(value)).strip()
@@ -65,14 +44,6 @@ def split_or_terms(value: object) -> List[str]:
 
 
 def build_term_to_level_index(oncotree_csv: str | Path) -> Dict[str, int]:
-    """
-    Build a strict lookup: norm('Name (CODE)') -> level_int (1..7),
-    scanning every non-empty cell in level_1..level_7.
-
-    Raises if:
-    - required columns missing
-    - the same normalized term appears at different levels
-    """
     path = Path(oncotree_csv)
     df = pd.read_csv(path, encoding="utf-8-sig", keep_default_na=False, na_values=[])
     df.columns = [str(c).strip() for c in df.columns]
@@ -106,10 +77,6 @@ def build_term_to_level_index(oncotree_csv: str | Path) -> Dict[str, int]:
 
 
 def levels_for_terms(terms: List[str], term_to_level: Dict[str, int]) -> Optional[List[int]]:
-    """
-    Convert a list of 'Name (CODE)' terms into parallel list of levels.
-    Returns None if any term is not found (caller decides removal semantics).
-    """
     levels: List[int] = []
     for t in terms:
         lvl = term_to_level.get(norm(t))
@@ -119,9 +86,7 @@ def levels_for_terms(terms: List[str], term_to_level: Dict[str, int]) -> Optiona
     return levels
 
 
-# -----------------------------------------------------------------------------
 # Tree data structures
-# -----------------------------------------------------------------------------
 
 @dataclass
 class OncoTreeNode:
@@ -133,7 +98,6 @@ class OncoTreeNode:
 
     @property
     def term(self) -> str:
-        """Return canonical 'Name (CODE)'."""
         return f"{self.name} ({self.code})"
 
     def add_child(self, child: "OncoTreeNode") -> None:
@@ -141,12 +105,6 @@ class OncoTreeNode:
 
 
 class OncoTree:
-    """
-    Minimal OncoTree:
-    - Node identity is CODE (unique key).
-    - Build from oncotree.csv path-table (level_1..level_7).
-    - Supports search + ancestor traversal + level lifting.
-    """
 
     def __init__(self) -> None:
         self.nodes_by_code: Dict[str, OncoTreeNode] = {}
@@ -154,14 +112,7 @@ class OncoTree:
 
     @classmethod
     def from_oncotree_csv(cls, path: str | Path) -> "OncoTree":
-        """
-        Build the tree from a CSV with columns level_1..level_7, each cell like 'Name (CODE)'.
-        Ignores non-level columns (meta* etc).
 
-        Validations:
-        - same CODE cannot appear at multiple levels
-        - parent consistency for repeated CODE occurrences
-        """
         tree = cls()
         path = Path(path)
 
@@ -217,7 +168,6 @@ class OncoTree:
         return self.nodes_by_code.get(code)
 
     def lift_to_level(self, code: str, target_level: int) -> Optional[OncoTreeNode]:
-        """Return the ancestor node at target_level (e.g. level 1 ancestor), or None if not found."""
         node = self.get(code)
         if node is None:
             return None
@@ -229,7 +179,6 @@ class OncoTree:
         return cur
 
     def ancestors(self, code: str) -> List[OncoTreeNode]:
-        """Return path root..node (inclusive)."""
         node = self.get(code)
         if node is None:
             return []
@@ -242,11 +191,9 @@ class OncoTree:
         return path
 
     def ancestors_by_level(self, code: str) -> Dict[int, OncoTreeNode]:
-        """Mapping {level: node} for the path root..entry. Includes the entry node."""
         return {n.level: n for n in self.ancestors(code)}
 
     def descendants(self, code: str) -> List[OncoTreeNode]:
-        """Return all descendants (excluding the node itself)."""
         node = self.get(code)
         if node is None:
             return []
@@ -259,7 +206,6 @@ class OncoTree:
         return out
 
     def leaf_descendants(self, code: str) -> List[OncoTreeNode]:
-        """Return all leaf descendants under the node (nodes with no children)."""
         node = self.get(code)
         if node is None:
             return []
