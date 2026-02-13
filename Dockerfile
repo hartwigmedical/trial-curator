@@ -9,10 +9,11 @@ ENV PYTHONPATH=/trial-curator
 ENV GOOGLE_GENAI_USE_VERTEXAI=true
 ENV GOOGLE_CLOUD_PROJECT="actin-shared"
 ENV GOOGLE_CLOUD_LOCATION="europe-west4"
-ENV LLM_PROVIDER="Google"
 ENV OPENAI_API_KEY="dummy"
 
-ENTRYPOINT /usr/local/bin/python -m actin_curator.actin_curator --llm_provider $LLM_PROVIDER \
-  --actin_filepath /trial-curator/actin_curator/data/ACTIN_rules/ACTIN_rules_w_categories_13062025.csv \
-  --output_file_complete /actin_data/output/trial_curator_complete.out.$LLM_PROVIDER \
-  --input_text_file /actin_data/input/criteria.txt
+ENTRYPOINT /usr/local/bin/python -m actin_curator.actin_curator \
+  --actin_filepath /trial-curator/actin_curator/data/ACTIN_rules/ACTIN_rules_w_categories_WARNIF_19122025.csv \
+  --output_complete /actin_data/output/complete.json \
+  --output_concise /actin_data/output/concise.txt \
+  --input_txt /actin_data/input/criteria.txt \
+  --group_by_original_statement \

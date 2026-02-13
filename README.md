@@ -8,16 +8,17 @@ The ACTIN project has added a `Dockerfile` and wrapper script for easily running
 in GCP somewhere or on a user's machine:
 
 * To obtain a Docker image either:
-  * Issue `docker build .` in the root directory of the project and run `docker images`, noting the "hash" of the `docker` image
-    just built.
-  * OR run `docker pull europe-west4-docker.pkg.dev/actin-build/build-registry-docker/actin-trial-curator:x` where `x` is the tag
-    of the version for an existing container you want.
-* Run `actin_curator.sh` once with the image hash or tag and any directory you would like to use for input/output to/from the
-  container.  Let's use `/tmp/actin_data` for the rest of the steps. The needed directories under `/tmp/actin_data` will be
+    * Issue `docker build .` in the root directory of the project and run `docker images`, noting the "hash" of the `docker` image
+      just built.
+    * OR run `docker pull europe-west4-docker.pkg.dev/actin-build/build-registry-docker/actin-trial-curator:x` where `x` is the tag
+      of the version for an existing container you want.
+* Run `actin_curator.sh` once with the image hash or tag and the directory to use for input/output to/from the
+  container. Let's use `~/hmf/tmp/actin_data` for the rest of the steps. The needed directories under `~/hmf/tmp/actin_data` will be
   created.
-* Copy your inclusion criteria that should be interpreted into `/tmp/actin_data/input/criteria.txt`.
-* Recall your `actin_curator.sh` command line and run it again, this time it should run for a couple of minutes and then write
-  output from the LLM in `/tmp/actin_data/output`.
+* Store your input text in "new_trial_paste_form" Document in Google Drive and download as TXT file, OR store your input text in
+  `~/hmf/tmp/actin_data/input/criteria.txt` directly.
+* Recall your `actin_curator.sh` command line and run it again (with only the image hash or tag as input), this time it should run for a
+  couple of minutes and then write output from the LLM to `~/hmf/tmp/actin_data/output`.
 
 ### Troubleshooting
 

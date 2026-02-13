@@ -1,9 +1,9 @@
 import json
 import re
 import logging
-from json import JSONDecodeError
 from trialcurator.llm_client import LlmClient
 from utils.smart_json_parser import SmartJsonParser
+
 
 logger = logging.getLogger(__name__)
 
@@ -192,22 +192,51 @@ def fix_malformed_json(json_str: str) -> str:
 
 
 def llm_json_check_and_repair(response: str, client: LlmClient):
+    # STEP 1 — Extract JSON from ```json blocks
+    extracted = extract_code_blocks(response, "json").strip()
 
+    # STEP 2 — Fast path: pure JSON?
     try:
-        extracted_response = extract_code_blocks(response, "json")
-        first_fix = fix_malformed_json(extracted_response)
-        second_fix = SmartJsonParser(first_fix).consume_value()
-        return second_fix
+        return json.loads(extracted)
+    except json.JSONDecodeError:
+        pass  # Not pure JSON
 
-    except Exception as e:
-        logger.warning(f"An exception {e} of type {type(e)} occurred.")
-        logger.warning("Send to LLM for repair.")
-        repair_prompt = f"""
+    # STEP 3 — Try existing "fix_malformed_json" helper first
+    try:
+        fixed = fix_malformed_json(extracted)
+        return json.loads(fixed)
+    except Exception:
+        pass  # Still not valid JSON
+
+    # STEP 4 — Try SmartJsonParser as a last resort
+    try:
+        return SmartJsonParser(extracted).consume_value()
+    except Exception as e1:
+        logger.warning(f"SmartJsonParser failed: {e1}. Triggering LLM repair.")
+
+    # STEP 5 — Ask LLM to repair JSON
+    repair_prompt = f"""
 Fix the following JSON so it parses correctly. Return only the corrected JSON object:
-{response}
+
+```json
+{extracted}
+```
 """
-        repaired_response = client.llm_ask(repair_prompt)
-        extracted_response = extract_code_blocks(repaired_response, "json")
-        first_fix = fix_malformed_json(extracted_response)
-        second_fix = SmartJsonParser(first_fix).consume_value()
-        return second_fix
+    repaired = client.llm_ask(repair_prompt)
+    extracted_repaired = extract_code_blocks(repaired, "json").strip()
+
+    # Try json.loads first
+    try:
+        return json.loads(extracted_repaired)
+    except json.JSONDecodeError:
+        pass
+
+    # Try fix_malformed_json then json
+    try:
+        repaired_fixed = fix_malformed_json(extracted_repaired)
+        return json.loads(repaired_fixed)
+    except Exception:
+        pass
+
+    # Absolute last resort: SmartJsonParser
+    return SmartJsonParser(extracted_repaired).consume_value()
