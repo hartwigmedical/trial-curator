@@ -63,6 +63,8 @@ Classify each eligibility criterion into one or more ACTIN categories.
 - Do **not** assign a category based on a term appearing in the text unless the clinical meaning directly aligns with that category.
   Example:
   - A criterion mentioning “untreated CNS metastases” should typically fall under **Medical_History_and_Comorbidities**, not **Cancer_Type_and_Tumor_Site_Localization**, unless tumor classification is explicitly discussed.
+  - Washout periods related to chemotherapy, radiotherapy, surgery, or investigational anticancer therapies belong to **Prior_Cancer_Treatments_and_Modalities_and_Washout_Periods**, while ongoing therapeutic drug use belongs to **Current_Medication_Use**.
+  - Criteria describing vaccination, immunization, or receipt of a vaccine (including live, attenuated, mRNA, or other vaccines) represent infectious disease history/status, even when expressed using timing or washout language such as “within X days/weeks prior to first dose”.
 
 ## ACTIN CATEGORIES
 The following categories are available:
@@ -197,15 +199,12 @@ def actin_mark_new_rules(actin_rule: dict | list | str, actin_df: pd.DataFrame) 
 
 
 def rewrite_not_to_warnif(expr: str, rule_to_warnif: dict[str, bool]) -> str:
+    import re
 
     def _should_replace_not_with_warnif(_rule_token: str, _rule_to_warnif: dict[str, bool]) -> bool:
         return bool(_rule_to_warnif.get(_rule_token, False))
 
     def _extract_atomic_rule_token_after_parentheses(_expr: str, _open_paren_idx: int) -> str | None:
-        """
-        Extract an *atomic* ACTIN rule token from NOT(<RULETOKEN>): after the RULETOKEN (and optional whitespace), the next non-space character must be ')'.
-        Otherwise it is considered to be a composite expression
-        """
         i = _open_paren_idx + 1
         n = len(_expr)
 
@@ -241,6 +240,83 @@ def rewrite_not_to_warnif(expr: str, rule_to_warnif: dict[str, bool]) -> str:
 
         return token
 
+    def _extract_or_rule_tokens_after_parentheses(_expr: str, _open_paren_idx: int) -> list[str] | None:
+        i = _open_paren_idx + 1
+        n = len(_expr)
+
+        # skip whitespace
+        while i < n and _expr[i].isspace():
+            i += 1
+
+        # expect OR
+        if i + 1 >= n or _expr[i : i + 2] != "OR":
+            return None
+        i += 2
+
+        while i < n and _expr[i].isspace():
+            i += 1
+
+        # expect '('
+        if i >= n or _expr[i] != "(":
+            return None
+        i += 1  # now inside OR(...)
+
+        tokens: list[str] = []
+        while True:
+            # skip whitespace before next arg
+            while i < n and _expr[i].isspace():
+                i += 1
+
+            # parse RULETOKEN
+            start = i
+            while i < n and (_expr[i].isupper() or _expr[i].isdigit() or _expr[i] == "_"):
+                i += 1
+            token = _expr[start:i]
+            if not token:
+                return None
+            tokens.append(token)
+
+            # skip whitespace
+            while i < n and _expr[i].isspace():
+                i += 1
+
+            # optional [params] — consume but ignore content; allow commas inside params
+            if i < n and _expr[i] == "[":
+                i += 1
+                depth = 1
+                while i < n and depth > 0:
+                    if _expr[i] == "[":
+                        depth += 1
+                    elif _expr[i] == "]":
+                        depth -= 1
+                    i += 1
+                if depth != 0:
+                    return None
+                while i < n and _expr[i].isspace():
+                    i += 1
+
+            # either comma (more args) or ')' (end OR)
+            if i >= n:
+                return None
+
+            if _expr[i] == ",":
+                i += 1
+                continue
+
+            if _expr[i] == ")":
+                i += 1  # consume ')' closing OR(...)
+                break
+
+            return None
+
+        # after OR(...) optional whitespace then must close NOT(...)
+        while i < n and _expr[i].isspace():
+            i += 1
+        if i >= n or _expr[i] != ")":
+            return None
+
+        return tokens
+
     if "NOT" not in expr:
         return expr
 
@@ -254,12 +330,17 @@ def rewrite_not_to_warnif(expr: str, rule_to_warnif: dict[str, bool]) -> str:
         not_start = m.start()
         open_paren_idx = m.end() - 1
 
+        # 1) atomic NOT(RULE[...])
         rule_token = _extract_atomic_rule_token_after_parentheses(out, open_paren_idx)
-        if rule_token is None:
+        if rule_token is not None:
+            if _should_replace_not_with_warnif(rule_token, rule_to_warnif):
+                out = out[:not_start] + "WARN_IF" + out[not_start + 3 :]
             continue
 
-        if _should_replace_not_with_warnif(rule_token, rule_to_warnif):
-            out = out[:not_start] + "WARN_IF" + out[not_start + 3:]
+        # 2) composite NOT(OR(ruleA, ruleB, ...)) where ALL leaves are warnif rules
+        or_rule_tokens = _extract_or_rule_tokens_after_parentheses(out, open_paren_idx)
+        if or_rule_tokens and all(_should_replace_not_with_warnif(t, rule_to_warnif) for t in or_rule_tokens):
+            out = out[:not_start] + "WARN_IF" + out[not_start + 3 :]
 
     return out
 

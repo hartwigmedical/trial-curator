@@ -139,6 +139,9 @@ SPECIFIC_CATEGORY_PROMPTS = {
     "Infectious_Disease_History_and_Status": (
         "Identify active or past infections (e.g., HIV, hepatitis), tuberculosis, vaccine recency, and infection exclusion."
         "- Use general ACTIN rules for known infections (e.g., HAS_KNOWN_HIV_INFECTION, HAS_KNOWN_HEPATITIS_C_INFECTION) when they fully capture the exclusion intent."
+        "- For vaccine timing criteria, prefer vaccine-specific rules over generic medication rules."
+        "- If vaccine type is unspecified (just 'vaccine'/'vaccination') but a timing window is given, represent uncertainty as: "
+        "`OR(HAS_RECEIVED_LIVE_VACCINE_WITHIN_X_MONTHS[...], HAS_RECEIVED_NON_LIVE_VACCINE_WITHIN_X_WEEKS[...])`, using the same time window converted to the rule’s units."
         "- Only introduce treatment status (e.g., antiviral use, undetectable viral load) if the criterion **clearly makes it medically relevant**."
         "- Avoid unnecessary nesting of AND/NOT structures when a simpler general rule accurately reflects the exclusion."
     ),
