@@ -4,6 +4,7 @@ import logging
 import json
 from typing import List, Any, Dict
 from pathlib import Path
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -166,9 +167,11 @@ def main():
 
     combined_df = pd.DataFrame(rows)
 
-    # Remove trials with zero DRUG intervention
+    # Retain trials with DRUG intervention ("BIOLOGICAL" label contains drug interventions, at the cost of some false positives)
     final_df = combined_df.loc[
-        combined_df["interventionType"].apply(lambda x: "DRUG" in x)
+        combined_df["interventionType"].apply(
+            lambda x: any(t in x for t in ["DRUG", "BIOLOGICAL"])
+        )
     ].reset_index(drop=True)
 
     logger.info(f"Read in {count} trials from ct.gov")
