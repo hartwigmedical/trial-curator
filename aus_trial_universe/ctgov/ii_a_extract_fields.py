@@ -54,39 +54,6 @@ def extract_conditions(trial: Dict[str, Any]) -> Dict[str, Any]:
     return conditions_tbl
 
 
-def extract_intervention_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
-    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
-    interventions: list[dict[str, Any]] = trial.get("protocolSection").get("armsInterventionsModule").get("interventions")
-
-    iType: List[str] = []
-    iName: List[str] = []
-    iOtherNames: List[str] = []
-
-    for inter in interventions:
-        iTypeSingle = inter.get("type")
-        iNameSingle = inter.get("name")
-        iOtherNamesSingle = inter.get("otherNames") or []
-
-        if isinstance(iTypeSingle, str):
-            iType.append(iTypeSingle.strip())
-        if isinstance(iNameSingle, str):
-            iName.append(iNameSingle.strip())
-        if isinstance(iOtherNamesSingle, list):
-            iOtherNames.extend(x.strip() for x in iOtherNamesSingle if isinstance(x, str) and x.strip())
-
-    iType = _dedup_records(iType)
-    iName = _dedup_records(iName)
-    iOtherNames = _dedup_records(iOtherNames)
-
-    inter_tbl = {
-        "nctId": nctId,
-        "interventionType": iType,
-        "interventionName": iName,
-        "interventionOtherNames": iOtherNames
-    }
-    return inter_tbl
-
-
 def extract_age_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
     nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
     minage = trial.get("protocolSection").get("eligibilityModule").get("minimumAge", "")
@@ -137,10 +104,73 @@ def extract_location_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
     return loc_tbl
 
 
+def extract_intervention_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    interventions: list[dict[str, Any]] = trial.get("protocolSection").get("armsInterventionsModule").get("interventions")
+
+    iType: List[str] = []
+    iName: List[str] = []
+    iOtherNames: List[str] = []
+
+    for inter in interventions:
+        iTypeSingle = inter.get("type")
+        iNameSingle = inter.get("name")
+        iOtherNamesSingle = inter.get("otherNames") or []
+
+        if isinstance(iTypeSingle, str):
+            iType.append(iTypeSingle.strip())
+        if isinstance(iNameSingle, str):
+            iName.append(iNameSingle.strip())
+        if isinstance(iOtherNamesSingle, list):
+            iOtherNames.extend(x.strip() for x in iOtherNamesSingle if isinstance(x, str) and x.strip())
+
+    iType = _dedup_records(iType)
+    iName = _dedup_records(iName)
+    iOtherNames = _dedup_records(iOtherNames)
+
+    inter_tbl = {
+        "nctId": nctId,
+        "interventionType": iType,
+        "interventionName": iName,
+        "interventionOtherNames": iOtherNames
+    }
+    return inter_tbl
+
+
+def extract_arms_fields(trial: Dict[str, Any]) -> List[Dict[str, Any]]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    arm_groups: List[Dict[str, Any]] = trial.get("protocolSection").get("armsInterventionsModule", {}).get("armGroups", [])
+
+    arm_rows: List[Dict[str, Any]] = []
+    for arm in arm_groups:
+        arm_type = arm.get("type")
+        arm_label = arm.get("label")
+        intervention_names = arm.get("interventionNames")
+
+        intervention_regime: List[str] = []
+        if isinstance(intervention_names, list):
+            for ele in intervention_names:
+                if isinstance(ele, str) and ":" in ele:
+                    prefix, val = ele.split(":", 1)
+
+                    if prefix and val:
+                        cleaned_val = val.strip()
+                        if cleaned_val:
+                            intervention_regime.append(cleaned_val)
+
+        arm_rows.append({
+            "nctId": nctId,
+            "armType": arm_type.strip() if isinstance(arm_type, str) else arm_type,
+            "armLabel": arm_label.strip() if isinstance(arm_label, str) else arm_label,
+            "intervention_regime": str(intervention_regime),
+        })
+    return arm_rows
+
+
 def main():
     parser = argparse.ArgumentParser(description="Extract relevant data fields from JSON file with all CT.gov trials")
     parser.add_argument("--ctgov_filepath", help="Filepath to the aggregate CT.gov json file", required=True)
-    parser.add_argument("--output_dir", help="Directory to store the output csv", required=True)
+    parser.add_argument("--output_dir", help="Directory to store the output xlsx workbook", required=True)
     parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     args = parser.parse_args()
 
@@ -152,9 +182,12 @@ def main():
     trial_text = Path(args.ctgov_filepath).read_text(encoding="utf-8")
     trials = json.loads(trial_text)
 
-    rows = []
+    general_rows = []
+    arm_rows = []
     count = 0
+
     for trial in trials:
+        count += 1
         basic_tbl = extract_basic_fields(trial)
         conditions_tbl = extract_conditions(trial)
         ages_tbl = extract_age_fields(trial)
@@ -162,23 +195,29 @@ def main():
         loc_tbl = extract_location_fields(trial)
 
         combined_tbl: Dict[str, Any] = basic_tbl | conditions_tbl | ages_tbl | inter_tbl | loc_tbl
-        rows.append(combined_tbl)
-        count += 1
 
-    combined_df = pd.DataFrame(rows)
+        # Retain trials with DRUG intervention ("BIOLOGICAL" label contains drug interventions, at the cost of some false positives)
+        intervention_types = combined_tbl.get("interventionType") or []
+        is_drug_trial = any(t in intervention_types for t in ["DRUG", "BIOLOGICAL"])
 
-    # Retain trials with DRUG intervention ("BIOLOGICAL" label contains drug interventions, at the cost of some false positives)
-    final_df = combined_df.loc[
-        combined_df["interventionType"].apply(
-            lambda x: any(t in x for t in ["DRUG", "BIOLOGICAL"])
+        if not is_drug_trial:
+            continue
+
+        general_rows.append(combined_tbl)
+        arm_rows.extend(
+            extract_arms_fields(trial)
         )
-    ].reset_index(drop=True)
+
+    general_df = pd.DataFrame(general_rows)
+    arms_df = pd.DataFrame(arm_rows)
 
     logger.info(f"Read in {count} trials from ct.gov")
-    logger.info(f"Processed {len(combined_df)} trials for data fields extraction")
-    logger.info(f"Filtered to {len(final_df)} trials with at least one drug intervention")
+    logger.info(f"Filtered to {len(general_df)} trials with at least one drug intervention with {len(arms_df)} arms/cohorts.")
 
-    final_df.to_csv(os.path.join(args.output_dir, "ctgov_field_extractions.csv"), index=False)
+    output_filepath = os.path.join(args.output_dir, "ctgov_field_extractions.xlsx")
+    with pd.ExcelWriter(output_filepath, engine="openpyxl") as writer:
+        general_df.to_excel(writer, sheet_name="general", index=False)
+        arms_df.to_excel(writer, sheet_name="arms", index=False)
 
 
 if __name__ == "__main__":
