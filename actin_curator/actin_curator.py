@@ -480,6 +480,28 @@ def unwrap_not_for_non_negatable_rules(actin_rule):
     }
 
 
+def collapse_singleton_logical_wrappers(actin_rule: Any) -> Any:
+    if isinstance(actin_rule, list):
+        return [collapse_singleton_logical_wrappers(x) for x in actin_rule]
+
+    if not isinstance(actin_rule, dict):
+        return actin_rule
+
+    normalized = {
+        key: collapse_singleton_logical_wrappers(value)
+        for key, value in actin_rule.items()
+    }
+
+    if len(normalized) == 1:
+        op = next(iter(normalized))
+        value = normalized[op]
+
+        if op in {"AND", "OR"} and isinstance(value, list) and len(value) == 1:
+            return value[0]
+
+    return normalized
+
+
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
     actin_df, actin_cat, rule_to_warnif = load_actin_resource(actin_filepath)
 
@@ -531,9 +553,20 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
 
         rules_w_mapping_normalized.append(criterion_updated)
 
+    # 3c. Collapse singleton logical wrappers such as AND([x]) -> x
+    rules_w_mapping_simplified = []
+    for criterion in rules_w_mapping_normalized:
+        criterion_updated = criterion.copy()
+        actin_rule = criterion_updated.get("actin_rule")
+
+        if actin_rule not in ("", None):
+            criterion_updated["actin_rule"] = collapse_singleton_logical_wrappers(actin_rule)
+
+        rules_w_mapping_simplified.append(criterion_updated)
+
     # 4. Reformat ACTIN rules
     rules_reformat = []
-    for criterion in rules_w_mapping_normalized:
+    for criterion in rules_w_mapping_simplified:
         criterion_updated = criterion.copy()
 
         actin_rule = criterion.get("actin_rule")
