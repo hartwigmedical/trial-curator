@@ -25,6 +25,10 @@ RULE_SIMILARITY_THRESHOLD = 95  # To only allow for punctuation differences - mo
 
 TRIAL_ID_PATTERN = re.compile(r"^\s*Trial\s+ID\s*:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 
+NON_NEGATABLE_ACTIN_RULES: set[str] = {
+    "ADHERENCE_TO_PROTOCOL_REGARDING_ATTENUATED_VACCINE_USE",
+}
+
 
 class ActinMapping(TypedDict, total=False):
     input_rule: str
@@ -451,6 +455,31 @@ def group_actin_by_parent(parents: list[dict[str, Any]], flat_actin: list[ActinM
     return grouped_output
 
 
+def unwrap_not_for_non_negatable_rules(actin_rule):
+    if isinstance(actin_rule, list):
+        return [unwrap_not_for_non_negatable_rules(x) for x in actin_rule]
+
+    if not isinstance(actin_rule, dict):
+        return actin_rule
+
+    # Case 1: exact wrapper {"NOT": {"RULE_NAME": [...]}}
+    if set(actin_rule.keys()) == {"NOT"}:
+        inner = unwrap_not_for_non_negatable_rules(actin_rule["NOT"])
+
+        if isinstance(inner, dict) and len(inner) == 1:
+            inner_rule_name = next(iter(inner.keys()))
+            if inner_rule_name in NON_NEGATABLE_ACTIN_RULES:
+                return inner
+
+        return {"NOT": inner}
+
+    # Case 2: recurse through logical structure / normal rule dicts
+    return {
+        key: unwrap_not_for_non_negatable_rules(value)
+        for key, value in actin_rule.items()
+    }
+
+
 def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_filepath: str, confidence_estimate: bool) -> list[ActinMapping]:
     actin_df, actin_cat, rule_to_warnif = load_actin_resource(actin_filepath)
 
@@ -486,14 +515,25 @@ def actin_workflow(input_rules: list[dict[str, Any]], client: LlmClient, actin_f
                 raise TypeError(f"Unexpected format in mapped_rules: {rule}")
         rules_w_mapping.append(criterion_updated)
 
-    # 3. Blank out shell-only logical outputs (e.g., NOT(AND()))
+    # 3a. Blank out shell-only logical outputs (e.g., NOT(AND()))
     rules_w_mapping_cleaned = []
     for criterion in rules_w_mapping:
         rules_w_mapping_cleaned.append(blank_shell_only_actin_rule_fields(criterion))
 
+    # 3b. Unwrap NOT around rules that must never be negated
+    rules_w_mapping_normalized = []
+    for criterion in rules_w_mapping_cleaned:
+        criterion_updated = criterion.copy()
+        actin_rule = criterion_updated.get("actin_rule")
+
+        if actin_rule not in ("", None):
+            criterion_updated["actin_rule"] = unwrap_not_for_non_negatable_rules(actin_rule)
+
+        rules_w_mapping_normalized.append(criterion_updated)
+
     # 4. Reformat ACTIN rules
     rules_reformat = []
-    for criterion in rules_w_mapping_cleaned:
+    for criterion in rules_w_mapping_normalized:
         criterion_updated = criterion.copy()
 
         actin_rule = criterion.get("actin_rule")
