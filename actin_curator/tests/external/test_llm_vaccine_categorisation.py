@@ -116,3 +116,14 @@ def test_medication_category_2(client_and_actin_data):
         client,
         actin_categories,
     )
+
+
+def test_medication_category_3(client_and_actin_data):
+    client, _, actin_categories = client_and_actin_data
+
+    assert_categories(
+        "EXCLUDE Treatment with therapeutic oral or intravenous antibiotics within 2 weeks prior to initiation of study treatment",
+        ["Current_Medication_Use"],
+        client,
+        actin_categories,
+    )

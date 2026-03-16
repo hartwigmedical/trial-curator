@@ -158,3 +158,18 @@ def test_medication_mapping_2(client_and_actin_data):
         rule_to_warnif,
         category=["Current_Medication_Use"],
     )
+
+
+def test_medication_mapping_3(client_and_actin_data):
+    client, actin_rules, _, rule_to_warnif = client_and_actin_data
+
+    assert_warnif_mapping(
+        "EXCLUDE Treatment with therapeutic oral or intravenous antibiotics within 2 weeks prior to initiation of study treatment",
+        [
+            "WARN_IF(HAS_RECEIVED_CATEGORY_X_MEDICATION_WITHIN_Y_WEEKS['antibiotics', 2])"
+        ],
+        client,
+        actin_rules,
+        rule_to_warnif,
+        category=["Current_Medication_Use"],
+    )

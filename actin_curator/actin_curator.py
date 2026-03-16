@@ -65,6 +65,7 @@ Classify each eligibility criterion into one or more ACTIN categories.
   - A criterion mentioning “untreated CNS metastases” should typically fall under **Medical_History_and_Comorbidities**, not **Cancer_Type_and_Tumor_Site_Localization**, unless tumor classification is explicitly discussed.
   - Washout periods related to chemotherapy, radiotherapy, surgery, or investigational anticancer therapies belong to **Prior_Cancer_Treatments_and_Modalities_and_Washout_Periods**, while ongoing therapeutic drug use belongs to **Current_Medication_Use**.
   - Criteria describing vaccination, immunization, or receipt of a vaccine (including live, attenuated, mRNA, or other vaccines) represent infectious disease history/status, even when expressed using timing or washout language such as “within X days/weeks prior to first dose”.
+  - Criteria describing therapeutic drug treatment — including antibiotics, antivirals, antifungals, immunosuppressants, or other medications taken/received within a recent time window — belong to **Current_Medication_Use**.
 
 ## ACTIN CATEGORIES
 The following categories are available:
