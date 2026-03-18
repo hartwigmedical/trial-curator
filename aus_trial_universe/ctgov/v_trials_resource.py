@@ -26,6 +26,7 @@ OUTPUT_COLUMNS = [
     "CuratedConditions",
     "CancerType_stage1",
     "CancerType_stage2",
+    "CancerType_stage3",
 ]
 
 DELIMITER = " | "
@@ -43,6 +44,7 @@ DEFAULT_NCTID_COLUMN = "nctId"
 DEFAULT_CONDITIONS_COLUMN = "conditions"
 DEFAULT_STAGE1_COLUMN = "CancerType_stage1"
 DEFAULT_STAGE2_COLUMN = "CancerType_stage2"
+DEFAULT_STAGE3_COLUMN = "CancerType_stage3"
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +443,7 @@ def _resolve_cancer_type_stage1(primary_tumor_raw: object, curated_conditions_ra
 
 
 # ---------------------------------------------------------------------------
-# OncoTree hierarchy + CancerType stage 2
+# CancerType stage 2
 # ---------------------------------------------------------------------------
 
 
@@ -592,9 +594,79 @@ def _resolve_cancer_type_stage2(
 
 
 # ---------------------------------------------------------------------------
-# End-to-end workbook transformation
+# CancerType stage 3
 # ---------------------------------------------------------------------------
 
+def _should_keep_negative_term_for_stage3(
+    negative_term: str,
+    positive_terms: Sequence[str],
+    hierarchy: OncoTreeHierarchy,
+) -> bool:
+    inner_term = _unwrap_not(negative_term)
+    if inner_term is None:
+        return False
+
+    # Drop unknown negatives
+    if not hierarchy.has_term(inner_term):
+        return False
+
+    for positive_term in positive_terms:
+        if not hierarchy.has_term(positive_term):
+            continue
+        if hierarchy.is_more_granular(candidate=inner_term, reference=positive_term):
+            return True
+
+    return False
+
+
+def _filter_negative_terms_for_stage3(
+    negative_terms: Sequence[str],
+    positive_terms: Sequence[str],
+    hierarchy: OncoTreeHierarchy,
+) -> List[str]:
+    kept_negative_terms: List[str] = []
+
+    for negative_term in _dedupe_preserve_order(negative_terms):
+        if _should_keep_negative_term_for_stage3(
+            negative_term,
+            positive_terms,
+            hierarchy,
+        ):
+            kept_negative_terms.append(negative_term)
+
+    return kept_negative_terms
+
+
+def _resolve_cancer_type_stage3(
+    cancer_type_stage2_raw: object,
+    hierarchy: OncoTreeHierarchy,
+) -> str:
+    all_terms = _dedupe_preserve_order(_split_terms(cancer_type_stage2_raw))
+    if not all_terms:
+        return PAN_CANCER
+
+    positive_terms = _extract_positive_terms(cancer_type_stage2_raw)
+    negative_terms = _extract_negative_terms(cancer_type_stage2_raw)
+
+    if not positive_terms:
+        return PAN_CANCER
+
+    retained_negative_terms = _filter_negative_terms_for_stage3(
+        negative_terms,
+        positive_terms,
+        hierarchy,
+    )
+    combined_terms = _dedupe_preserve_order(positive_terms + retained_negative_terms)
+
+    if not combined_terms:
+        return PAN_CANCER
+
+    return _join_terms(combined_terms)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end workbook transformation
+# ---------------------------------------------------------------------------
 
 def append_all_cancer_type_outputs_to_workbook(
     input_excel: Path,
@@ -611,6 +683,7 @@ def append_all_cancer_type_outputs_to_workbook(
     conditions_value_column_name: str = "Oncotree_curation",
     stage1_output_column_name: str = DEFAULT_STAGE1_COLUMN,
     stage2_output_column_name: str = DEFAULT_STAGE2_COLUMN,
+    stage3_output_column_name: str = DEFAULT_STAGE3_COLUMN,
 ) -> Path:
     trial_lookup = build_trial_criteria_lookup(curated_dir)
     conditions_mapping = load_conditions_mapping(
@@ -635,6 +708,7 @@ def append_all_cancer_type_outputs_to_workbook(
             "CuratedConditions",
             stage1_output_column_name,
             stage2_output_column_name,
+            stage3_output_column_name,
         ],
     )
 
@@ -674,6 +748,11 @@ def append_all_cancer_type_outputs_to_workbook(
             hierarchy,
         )
 
+        cancer_type_stage3_value = _resolve_cancer_type_stage3(
+            cancer_type_stage2_value,
+            hierarchy,
+        )
+
         ws.cell(row=row_idx, column=output_columns["GeneAlteration"]).value = gene_alteration_value
         ws.cell(row=row_idx, column=output_columns["PrimaryTumor"]).value = primary_tumor_value
         ws.cell(row=row_idx, column=output_columns["CuratedConditions"]).value = curated_conditions_value
@@ -685,6 +764,10 @@ def append_all_cancer_type_outputs_to_workbook(
             row=row_idx,
             column=output_columns[stage2_output_column_name],
         ).value = cancer_type_stage2_value
+        ws.cell(
+            row=row_idx,
+            column=output_columns[stage3_output_column_name],
+        ).value = cancer_type_stage3_value
 
     missing_in_excel = sorted(set(trial_lookup) - nct_rows_seen)
     if missing_in_excel:
@@ -713,7 +796,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Append GeneAlteration, PrimaryTumor, CuratedConditions, "
-            "CancerType_stage1, and CancerType_stage2 to the arms worksheet."
+            "CancerType_stage1, CancerType_stage2, and CancerType_stage3 "
+            "to the general worksheet."
         )
     )
     parser.add_argument(
@@ -739,7 +823,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--sheet_name",
         default=DEFAULT_SHEET_NAME,
-        help="Worksheet to update; defaults to 'arms'",
+        help="Worksheet to update; defaults to 'general'",
     )
     parser.add_argument(
         "--nctid_column",
@@ -776,6 +860,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=DEFAULT_STAGE2_COLUMN,
         help="Header name of the CancerType_stage2 column",
     )
+    parser.add_argument(
+        "--stage3_output_column",
+        default=DEFAULT_STAGE3_COLUMN,
+        help="Header name of the CancerType_stage3 column",
+    )
     parser.add_argument("--log_level", default="INFO", help="Logging level (INFO/DEBUG/...)")
     args = parser.parse_args(argv)
 
@@ -798,6 +887,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         conditions_value_column_name=args.conditions_value_column,
         stage1_output_column_name=args.stage1_output_column,
         stage2_output_column_name=args.stage2_output_column,
+        stage3_output_column_name=args.stage3_output_column,
     )
     logger.info("Wrote %s", args.output_excel)
     return 0
