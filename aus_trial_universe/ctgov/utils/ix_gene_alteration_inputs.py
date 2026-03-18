@@ -361,8 +361,6 @@ def normalize_model_token(token: str) -> str:
 # =========================
 # Atomic mapping
 # =========================
-
-# v3 patterns
 HGVS_PROTEIN_RE = re.compile(r"\bp\.[A-Za-z0-9_?*]+")
 EXON_RE = re.compile(r"\bexon\s+(\d+)\b", re.IGNORECASE)
 
@@ -375,9 +373,9 @@ def infer_gaindel_type_from_variant_curation(variant_curation: str) -> Optional[
     # v3 behavior
     v = (variant_curation or "").lower()
     if "deletion" in v or "loss" in v:
-        return "SOMATIC_DEL"
+        return "HOM_DEL"
     if "amplification" in v or "copy number gain" in v or "cn gain" in v:
-        return "SOMATIC_GAIN"
+        return "GAIN"
     return None
 
 
@@ -468,7 +466,6 @@ def map_arm_atom(gene_locus_expr: str, variant_curation: str, arm_type_override:
 
 def map_smallvariant_from_variant_curation(gene: str, variant_curation: str) -> str:
     """
-    v3 behavior (restored):
       - Always includes gene=...
       - Extract HGVS protein -> transcriptImpact.hgvsProteinImpact
       - Extract exon -> transcriptImpact.affectedExon
@@ -496,14 +493,14 @@ def map_smallvariant_from_variant_curation(gene: str, variant_curation: str) -> 
 
 
 def map_atom_to_args(
-    atom_token: str,
-    gene: str,
-    variant_curation: str,
-    *,
-    fusion_both: bool,
-    fusion_5: bool,
-    fusion_3: bool,
-    allow_fusion_flags: bool,
+        atom_token: str,
+        gene: str,
+        variant_curation: str,
+        *,
+        fusion_both: bool,
+        fusion_5: bool,
+        fusion_3: bool,
+        allow_fusion_flags: bool,
 ) -> str:
     token = normalize_model_token(atom_token)
 
@@ -554,14 +551,14 @@ def map_atom_to_args(
 
 
 def render_expr_boolean(
-    expr: Expr,
-    gene: str,
-    variant: str,
-    *,
-    fusion_both: bool,
-    fusion_5: bool,
-    fusion_3: bool,
-    allow_fusion_flags: bool,
+        expr: Expr,
+        gene: str,
+        variant: str,
+        *,
+        fusion_both: bool,
+        fusion_5: bool,
+        fusion_3: bool,
+        allow_fusion_flags: bool,
 ) -> str:
     if isinstance(expr, Atom):
         return map_atom_to_args(
@@ -629,7 +626,7 @@ def render_expr_boolean(
 
 
 # =========================
-# Dedup / ordering for OR-unions (same as v3 intent)
+# Dedup / ordering for OR-unions
 # =========================
 
 def class_of_expr(expr: str) -> str:
@@ -654,7 +651,7 @@ def is_more_detailed(a: str, b: str) -> bool:
         s = s.strip()
         if "[" not in s or "]" not in s:
             return 0
-        inside = s[s.find("[") + 1 : s.rfind("]")]
+        inside = s[s.find("[") + 1: s.rfind("]")]
         return inside.count("&") + (1 if inside.strip() else 0)
 
     return score(a) > score(b)
@@ -665,11 +662,16 @@ def dedupe_keep_most_detailed(exprs: List[str]) -> List[str]:
     best: Dict[Tuple[str, str], str] = {}
 
     gene_re = re.compile(r"\bgene=([^ &\]]+)")
+    type_re = re.compile(r"\btype=([^ &\]]+)")
+
     for e in exprs:
         cls = class_of_expr(e)
-        m = gene_re.search(e)
-        gene = m.group(1) if m else ""
-        k = (cls, gene)
+        m_gene = gene_re.search(e)
+        gene = m_gene.group(1) if m_gene else ""
+        m_type = type_re.search(e)
+        typ = m_type.group(1) if m_type else ""
+        k = (cls, gene, typ)
+
         prev = best.get(k)
         if prev is None:
             best[k] = e
@@ -680,9 +682,12 @@ def dedupe_keep_most_detailed(exprs: List[str]) -> List[str]:
     seen = set()
     for e in exprs:
         cls = class_of_expr(e)
-        m = gene_re.search(e)
-        gene = m.group(1) if m else ""
-        k = (cls, gene)
+        m_gene = gene_re.search(e)
+        gene = m_gene.group(1) if m_gene else ""
+        m_type = type_re.search(e)
+        typ = m_type.group(1) if m_type else ""
+        k = (cls, gene, typ)
+
         chosen = best.get(k, e)
         if chosen in seen:
             continue
@@ -693,14 +698,14 @@ def dedupe_keep_most_detailed(exprs: List[str]) -> List[str]:
 
 
 def token_to_class_expr(
-    token_norm: str,
-    gene: str,
-    variant: str,
-    *,
-    fusion_both: bool,
-    fusion_5: bool,
-    fusion_3: bool,
-    allow_fusion_flags: bool,
+        token_norm: str,
+        gene: str,
+        variant: str,
+        *,
+        fusion_both: bool,
+        fusion_5: bool,
+        fusion_3: bool,
+        allow_fusion_flags: bool,
 ) -> str:
     return map_atom_to_args(
         token_norm,
@@ -714,7 +719,7 @@ def token_to_class_expr(
 
 
 # =========================
-# Keyword-triggered augmentations (new spec #3)
+# Keyword-triggered augmentations
 # =========================
 
 def keyword_smallvariant_constraints(variant_curation: str, model_expr_str: str) -> List[str]:
@@ -739,7 +744,7 @@ def append_or_terms(expr: str, extra_terms: List[str]) -> str:
         return " | ".join(extra_terms)
 
     needs_wrap = (" & " in base) or base.startswith("NOT(") or (
-        " | " in base and not (base.startswith("(") and base.endswith(")"))
+            " | " in base and not (base.startswith("(") and base.endswith(")"))
     )
     if needs_wrap and not (base.startswith("(") and base.endswith(")")):
         base = f"({base})"
@@ -842,19 +847,19 @@ def map_row_to_args(row: pd.Series) -> str:
                         )
                     )
 
-                # new spec #3: always add keyword-triggered constraints
+                # always add keyword-triggered constraints
                 exprs.extend(keyword_terms)
 
-                # new spec #2 (revised): suppress Gene_type expansion ONLY when exactly "Fusion"
+                # suppress Gene_type expansion ONLY when exactly "Fusion"
                 suppress_gene_type_expansion = normalize_text(model_expr_str) == "Fusion"
                 if not suppress_gene_type_expansion:
                     if gene_type == "TSG":
                         exprs.append(f"SmallVariant[gene={gene}]")
-                        exprs.append(f"GainDeletion[gene={gene} & type=SOMATIC_DEL]")
+                        exprs.append(f"GainDeletion[gene={gene} & type=HOM_DEL]")
                         exprs.append(f"Disruption[gene={gene}]")
                     elif gene_type == "ONCO":
                         exprs.append(f"SmallVariant[gene={gene}]")
-                        exprs.append(f"GainDeletion[gene={gene} & type=SOMATIC_GAIN]")
+                        exprs.append(f"GainDeletion[gene={gene} & type=GAIN]")
                         if fusion_both or fusion_5 or fusion_3:
                             exprs.append(map_fusion_with_flags(gene, fusion_both, fusion_5, fusion_3))
 
@@ -867,7 +872,7 @@ def map_row_to_args(row: pd.Series) -> str:
             continue
 
         if n > 1 and (" | " in comp_expr or " & " in comp_expr) and not (
-            comp_expr.startswith("(") and comp_expr.endswith(")")
+                comp_expr.startswith("(") and comp_expr.endswith(")")
         ):
             comp_expr = f"({comp_expr})"
 
@@ -890,17 +895,6 @@ def _normalize_operator_spacing(s: str) -> str:
     return s
 
 
-import re
-from typing import List
-
-_OR_TOKEN_RE = re.compile(r"\bOR\b", flags=re.IGNORECASE)
-
-def _normalize_operator_spacing(s: str) -> str:
-    s = re.sub(r"\s*\|\s*", " | ", s)
-    s = re.sub(r"\s*&\s*", " & ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
 def _is_wrapped_by_parens(s: str) -> bool:
     s = s.strip()
     if len(s) < 2 or not (s.startswith("(") and s.endswith(")")):
@@ -918,11 +912,13 @@ def _is_wrapped_by_parens(s: str) -> bool:
             return False
     return depth == 0
 
+
 def _strip_outer_parens(s: str) -> str:
     s = s.strip()
     while _is_wrapped_by_parens(s):
         s = s[1:-1].strip()
     return s
+
 
 def _split_top_level(s: str, sep: str) -> List[str]:
     """
@@ -951,6 +947,7 @@ def _split_top_level(s: str, sep: str) -> List[str]:
     if tail:
         out.append(tail)
     return out
+
 
 def _flatten_or_terms(expr: str) -> List[str]:
     """
@@ -982,6 +979,7 @@ def _flatten_or_terms(expr: str) -> List[str]:
     term = _strip_outer_parens(expr)
     term = _normalize_operator_spacing(term)
     return [term] if term else []
+
 
 def postprocess_args_mapping(args_str: str) -> str:
     """
@@ -1047,11 +1045,11 @@ def main():
     LOGGER.info("Reading workbook: %s (sheet=%s)", input_path, args.sheet_name)
     df = pd.read_excel(input_path, sheet_name=args.sheet_name)
 
-    LOGGER.info("Generating Args (overwriting Args by default)...")
-    df["Args"] = df.apply(map_row_to_args, axis=1)
-
-    LOGGER.info("Post-processing Args (OR->|, dedupe)...")
-    df["Args_postprocessed"] = df["Args"].apply(postprocess_args_mapping)
+    LOGGER.info("Generating new Args")
+    df["Args_postprocessed"] = df.apply(
+        lambda row: postprocess_args_mapping(map_row_to_args(row)),
+        axis=1
+    )
 
     output_path = output_dir / f"{input_path.stem}_mapped.xlsx"
 
