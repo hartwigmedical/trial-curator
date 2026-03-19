@@ -4,7 +4,7 @@ AI magic for curating trial protocols automatically!
 
 ## Using Under Docker
 
-The ACTIN project has added a `Dockerfile` and wrapper script for easily running the ACTIN curation module against Vertex either
+The ACTIN project has added a `Dockerfile` and wrapper script for easily running the ACTIN curation module against OpenAI either
 in GCP somewhere or on a user's machine:
 
 * To obtain a Docker image either:
