@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.csv_mapping_file import (
+from aus_trial_universe.ctgov.utils.general.csv_mapping_file import (
     load_resource_csv,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.text_normalisation import (
+from aus_trial_universe.ctgov.utils.general.text_normalisation import (
     norm_cell,
     clean_cell_str,
 )
