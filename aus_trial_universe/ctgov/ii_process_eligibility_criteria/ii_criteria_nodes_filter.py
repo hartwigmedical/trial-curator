@@ -11,8 +11,8 @@ from aus_trial_universe.ctgov.ii_process_eligibility_criteria.criteria_registry 
     CRITERION_TO_CLASSNAME,
     CURATED_FIELD_BY_CLASSNAME,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.traverse_curation_tree import walk_trial
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.write_curated_rules import write_rules_py
+from aus_trial_universe.ctgov.utils.general.traverse_curation_tree import walk_trial
+from aus_trial_universe.ctgov.utils.general.write_curated_rules import write_rules_py
 
 logger = logging.getLogger(__name__)
 

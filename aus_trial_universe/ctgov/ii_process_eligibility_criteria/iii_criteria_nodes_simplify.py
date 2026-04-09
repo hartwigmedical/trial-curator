@@ -10,17 +10,17 @@ from aus_trial_universe.ctgov.ii_process_eligibility_criteria.criteria_registry 
     SUPPORTED_CRITERIA,
     CRITERION_TO_CLASSNAME,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.traverse_curation_tree import (
+from aus_trial_universe.ctgov.utils.general.traverse_curation_tree import (
     normalise_forest_into_list,
     walk_trial,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.prune_criteria_nodes import (
+from aus_trial_universe.ctgov.utils.general.prune_criteria_nodes import (
     prune_nontarget_criteria_in_rules,
     remove_descriptions_from_rules,
     remove_exclude_and_flipped_from_rules,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.write_curated_rules import write_rules_py
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.general_utils.prune_curation_tree import remove_node_from_parent
+from aus_trial_universe.ctgov.utils.general.write_curated_rules import write_rules_py
+from aus_trial_universe.ctgov.utils.general.prune_curation_tree import remove_node_from_parent
 
 logger = logging.getLogger(__name__)
 

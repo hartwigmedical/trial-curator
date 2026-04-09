@@ -5,16 +5,19 @@ from typing import Dict, Set
 SUPPORTED_CRITERIA: Set[str] = {
     "primary_tumour",
     "gene_alteration",
+    "molecular_signature",
 }
 
 CRITERION_TO_CLASSNAME: Dict[str, str] = {
     "primary_tumour": "PrimaryTumorCriterion",
     "gene_alteration": "GeneAlterationCriterion",
+    "molecular_signature": "MolecularSignatureCriterion",
 }
 
 CURATED_FIELD_BY_CLASSNAME: Dict[str, str] = {
     "PrimaryTumorCriterion": "Oncotree_curation",
     "GeneAlterationCriterion": "gene_alteration_curation",
+    "MolecularSignatureCriterion": "molecular_signature_curation",
 }
 
 
