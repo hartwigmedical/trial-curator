@@ -3,6 +3,7 @@ import logging
 import json
 from pathlib import Path
 from typing import Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
@@ -30,6 +31,43 @@ def get_nct_id(trial: dict[str, Any]) -> str | None:
     )
 
 
+def process_single_trial(
+    trial: dict[str, Any],
+    out_dir: Path,
+    overwrite_existing: bool,
+) -> tuple[str, str]:
+    """
+    Process a single trial and return (status, trial_id).
+
+    status is one of: completed, skipped
+    Exceptions are allowed to propagate so caller can log/count failures.
+    """
+    client = curator.OpenaiClient()  # one client per worker thread
+
+    trial_id = get_nct_id(trial)
+    if not trial_id:
+        raise ValueError("Skipping trial with missing nctId.")
+
+    trial_id = trial_id.strip()
+    output_filepath = out_dir / f"{trial_id}.py"
+
+    if output_filepath.exists() and not overwrite_existing:
+        return ("skipped", trial_id)
+
+    eligibility_criteria = curator.load_eligibility_criteria(trial)
+    processed_rules = curator.llm_rules_prep_workflow(eligibility_criteria, client)
+    if not processed_rules:
+        raise ValueError("No rules produced by text preparation workflow.")
+
+    curated_rules: list[curator.RuleOutput] = []
+    for criterion in processed_rules:
+        curated_result = curator.pydantic_curator_workflow(criterion, client)
+        curated_rules.append(curated_result)
+
+    curator._write_output_py(output_filepath, curated_rules)
+    return ("completed", trial_id)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Process CT.gov trials via the Pydantic curator.")
     parser.add_argument("--input_json", help="JSON file with multiple CT.gov trials", required=True)
@@ -39,6 +77,7 @@ def main():
     parser.add_argument("--limit", help="Optional: no. trials to process", default=None, type=int, required=False)
     parser.add_argument("--overwrite_existing", help="Re-curate even if output file exists", action="store_true", required=False)
     parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    parser.add_argument("--max_workers", help="Number of trials to process in parallel", default=1, type=int, required=False)
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -46,7 +85,6 @@ def main():
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
 
-    client = curator.OpenaiClient()  # client is from the pydantic curator namespace
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -89,42 +127,62 @@ def main():
     trials_count = len(trials)
     logger.info(f"Processing {trials_count} trials")
 
-    for ind, trial in enumerate(trials, start=1):  # to start counting trials from 1,2,3... instead of being 0-indexed
+    # Preserve original missing-nctId behavior before submitting to thread pool
+    valid_trials: list[dict[str, Any]] = []
+    examined = 0
+
+    for trial in trials:
         trial_id = get_nct_id(trial)
         if not trial_id:
-            logger.warning("Skipping trial with missing nctId (%d/%d examined).", ind, trials_count)
+            examined += 1
+            logger.warning("Skipping trial with missing nctId (%d/%d examined).", examined, trials_count)
             failed += 1
             continue
+        valid_trials.append(trial)
 
-        trial_id = trial_id.strip()
-        output_filepath = out_dir / f"{trial_id}.py"
+    if not valid_trials:
+        logger.info(f"Finished. total={trials_count}, of which completed={completed}, skipped={skipped}, failed={failed}")
+        return
 
-        if output_filepath.exists() and not args.overwrite_existing:
-            logger.info(f"{trial_id}.py exists. Skipping.")
-            logger.info(f"{ind}/{trials_count} examined.")
-            skipped += 1
-            continue
+    max_workers = max(1, args.max_workers)
 
-        try:
-            eligibility_criteria = curator.load_eligibility_criteria(trial)
-            processed_rules = curator.llm_rules_prep_workflow(eligibility_criteria, client)
-            if not processed_rules:
-                raise ValueError("No rules produced by text preparation workflow.")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_trial = {
+            executor.submit(
+                process_single_trial,
+                trial,
+                out_dir,
+                args.overwrite_existing,
+            ): trial
+            for trial in valid_trials
+        }
 
-            curated_rules: list[curator.RuleOutput] = []
-            for criterion in processed_rules:
-                curated_result = curator.pydantic_curator_workflow(criterion, client)
-                curated_rules.append(curated_result)
+        for future in as_completed(future_to_trial):
+            examined += 1
+            trial = future_to_trial[future]
+            trial_id = (get_nct_id(trial) or "").strip() or "<missing nctId>"
 
-            curator._write_output_py(output_filepath, curated_rules)
-            logger.info(f"{trial_id} curated. Saved as {output_filepath}.")
-            logger.info(f"{ind}/{trials_count} examined.")
-            completed += 1
+            try:
+                status, returned_trial_id = future.result()
 
-        except Exception:
-            logger.exception(f"{trial_id} failed.")
-            logger.info(f"{ind}/{trials_count} examined.")
-            failed += 1
+                if status == "skipped":
+                    logger.info(f"{returned_trial_id}.py exists. Skipping.")
+                    logger.info(f"{examined}/{trials_count} examined.")
+                    skipped += 1
+                elif status == "completed":
+                    output_filepath = out_dir / f"{returned_trial_id}.py"
+                    logger.info(f"{returned_trial_id} curated. Saved as {output_filepath}.")
+                    logger.info(f"{examined}/{trials_count} examined.")
+                    completed += 1
+                else:
+                    logger.error(f"{returned_trial_id} returned unknown status: {status}")
+                    logger.info(f"{examined}/{trials_count} examined.")
+                    failed += 1
+
+            except Exception:
+                logger.exception(f"{trial_id} failed.")
+                logger.info(f"{examined}/{trials_count} examined.")
+                failed += 1
 
     logger.info(f"Finished. total={trials_count}, of which completed={completed}, skipped={skipped}, failed={failed}")
 
