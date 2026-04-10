@@ -6,6 +6,7 @@ import logging
 import re
 from collections import defaultdict
 from copy import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -15,10 +16,10 @@ from openpyxl.utils import get_column_letter
 
 logger = logging.getLogger(__name__)
 
-TARGET_CRITERIA = {
-    "GeneAlterationCriterion": ("GeneAlteration", "gene_alteration_curation", False),
-    "PrimaryTumorCriterion": ("PrimaryTumor", "Oncotree_curation", False),
-}
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 
 DELIMITER = " | "
 NCT_ID_RE = re.compile(r"(NCT\d{8})", re.IGNORECASE)
@@ -38,10 +39,54 @@ DEFAULT_STEP2_COLUMN = "CancerType_step2"
 DEFAULT_STEP3_COLUMN = "CancerType_step3"
 
 
+@dataclass(frozen=True)
+class CriterionSpec:
+    class_name: str
+    label: str
+    value_arg_name: str
+    split_on_delimiter: bool = False
+    emit_inclusive_exclusive: bool = False
+
+
+CRITERION_SPECS: Dict[str, CriterionSpec] = {
+    "GeneAlterationCriterion": CriterionSpec(
+        class_name="GeneAlterationCriterion",
+        label="GeneAlteration",
+        value_arg_name="gene_alteration_curation",
+        split_on_delimiter=False,
+        emit_inclusive_exclusive=True,
+    ),
+    "MolecularSignatureCriterion": CriterionSpec(
+        class_name="MolecularSignatureCriterion",
+        label="MolecularSignature",
+        value_arg_name="molecular_signature_curation",
+        split_on_delimiter=False,
+        emit_inclusive_exclusive=True,
+    ),
+    "PrimaryTumorCriterion": CriterionSpec(
+        class_name="PrimaryTumorCriterion",
+        label="PrimaryTumor",
+        value_arg_name="Oncotree_curation",
+        split_on_delimiter=False,
+        emit_inclusive_exclusive=False,
+    ),
+}
+
+NON_CANCER_OUTPUT_ORDER: List[str] = [
+    "GeneAlteration",
+    "GeneAlteration-Inclusive",
+    "GeneAlteration-Exclusive",
+    "MolecularSignature",
+    "MolecularSignature-Inclusive",
+    "MolecularSignature-Exclusive",
+    "PrimaryTumor",
+    "CuratedConditions",
+]
+
+
 # ---------------------------------------------------------------------------
 # Generic worksheet helpers
 # ---------------------------------------------------------------------------
-
 
 def _find_header_column(ws, header_name: str) -> int:
     for col_idx in range(1, ws.max_column + 1):
@@ -108,15 +153,13 @@ def _prepare_output_columns(ws, column_names: Sequence[str]) -> Dict[str, int]:
 # ---------------------------------------------------------------------------
 # Criteria extraction from curated NCT*.py files
 # ---------------------------------------------------------------------------
-def _split_top_level_pipe(expr: str) -> list[str]:
-    """
-    Split on top-level ' | ' only, respecting nesting inside (), [], {}.
-    """
+
+def _split_top_level_pipe(expr: str) -> List[str]:
     if not expr:
         return []
 
-    parts: list[str] = []
-    buf: list[str] = []
+    parts: List[str] = []
+    buf: List[str] = []
     paren = 0
     bracket = 0
     brace = 0
@@ -162,7 +205,7 @@ def _split_top_level_pipe(expr: str) -> list[str]:
             paren == 0
             and bracket == 0
             and brace == 0
-            and expr[i:i+3] == " | "
+            and expr[i:i + 3] == DELIMITER
         ):
             part = "".join(buf).strip()
             if part:
@@ -182,9 +225,6 @@ def _split_top_level_pipe(expr: str) -> list[str]:
 
 
 def _is_balanced_wrapped_not(term: str) -> bool:
-    """
-    True only if the whole term is exactly NOT(<content>) at top level.
-    """
     if not term:
         return False
 
@@ -207,7 +247,6 @@ def _is_balanced_wrapped_not(term: str) -> bool:
             paren -= 1
             if paren < 0:
                 return False
-            # before the very last char, paren should not drop to 0
             if paren == 0 and i != len(term) - 1:
                 return False
         elif ch == "[":
@@ -226,32 +265,28 @@ def _is_balanced_wrapped_not(term: str) -> bool:
     return paren == 0 and bracket == 0 and brace == 0
 
 
-def _unwrap_gene_alt_not(term: str) -> str:
-    term = term.strip()
-    return term[4:-1].strip()
+def _unwrap_wrapped_not(term: str) -> str:
+    return term.strip()[4:-1].strip()
 
 
-def _normalize_gene_alt_unit(term: str) -> str:
-    """
-    Normalization for exact top-level contradiction matching only.
-    Keeps logic unchanged; only normalizes whitespace.
-    """
+def _normalize_contradiction_unit(term: str) -> str:
     return re.sub(r"\s+", " ", term.strip())
 
 
-def _build_gene_alteration_postprocessed(raw_value: str) -> tuple[str, str]:
+def _build_inclusive_exclusive_values(raw_value: str) -> Tuple[str, str]:
     """
-    Returns:
-        (GeneAlteration-Inclusive, GeneAlteration-Exclusive)
+    Generic splitter used for criterion families that emit:
+      - <Criterion>-Inclusive
+      - <Criterion>-Exclusive
 
     Rules:
-    - split original GeneAlteration on top-level ' | '
+    - split on top-level ' | '
     - positive top-level terms -> Inclusive
     - negative top-level NOT(...) terms -> Exclusive
-    - contradiction cleanup on exact top-level units only:
+    - exact contradiction cleanup on top-level units only:
           X  versus  NOT(X)
       removes both
-    - Exclusive is emitted in compressed form:
+    - Exclusive emitted as:
           NOT(A | B | C)
     """
     if raw_value is None:
@@ -263,8 +298,8 @@ def _build_gene_alteration_postprocessed(raw_value: str) -> tuple[str, str]:
 
     top_level_terms = _split_top_level_pipe(raw_value)
 
-    positive_terms: list[str] = []
-    negative_inner_terms: list[str] = []
+    positive_terms: List[str] = []
+    negative_inner_terms: List[str] = []
 
     for term in top_level_terms:
         term = term.strip()
@@ -272,31 +307,26 @@ def _build_gene_alteration_postprocessed(raw_value: str) -> tuple[str, str]:
             continue
 
         if _is_balanced_wrapped_not(term):
-            negative_inner_terms.append(_unwrap_gene_alt_not(term))
+            negative_inner_terms.append(_unwrap_wrapped_not(term))
         else:
             positive_terms.append(term)
 
-    # exact top-level contradiction cleanup
-    positive_norms = {_normalize_gene_alt_unit(t) for t in positive_terms}
-    negative_norms = {_normalize_gene_alt_unit(t) for t in negative_inner_terms}
+    positive_norms = {_normalize_contradiction_unit(t) for t in positive_terms}
+    negative_norms = {_normalize_contradiction_unit(t) for t in negative_inner_terms}
     contradictions = positive_norms & negative_norms
 
     if contradictions:
         positive_terms = [
             t for t in positive_terms
-            if _normalize_gene_alt_unit(t) not in contradictions
+            if _normalize_contradiction_unit(t) not in contradictions
         ]
         negative_inner_terms = [
             t for t in negative_inner_terms
-            if _normalize_gene_alt_unit(t) not in contradictions
+            if _normalize_contradiction_unit(t) not in contradictions
         ]
 
-    inclusive_value = " | ".join(positive_terms) if positive_terms else ""
-
-    if negative_inner_terms:
-        exclusive_value = f"NOT({' | '.join(negative_inner_terms)})"
-    else:
-        exclusive_value = ""
+    inclusive_value = DELIMITER.join(positive_terms) if positive_terms else ""
+    exclusive_value = f"NOT({DELIMITER.join(negative_inner_terms)})" if negative_inner_terms else ""
 
     return inclusive_value, exclusive_value
 
@@ -397,17 +427,16 @@ def _walk_ast(node: ast.AST, bucket: Dict[str, List[str]], *, negation_depth: in
                 _walk_ast(child, bucket, negation_depth=negation_depth + 1)
             return
 
-        target_spec = TARGET_CRITERIA.get(func_name)
+        target_spec = CRITERION_SPECS.get(func_name)
         if target_spec is not None:
-            criterion_label, value_arg_name, split_on_delimiter = target_spec
-            raw_value = _get_string_constant(_get_call_argument(node, value_arg_name))
+            raw_value = _get_string_constant(_get_call_argument(node, target_spec.value_arg_name))
             if raw_value:
                 _add_extracted_value(
                     bucket,
-                    criterion_label,
+                    target_spec.label,
                     raw_value,
                     is_negated=negation_depth > 0,
-                    split_on_delimiter=split_on_delimiter,
+                    split_on_delimiter=target_spec.split_on_delimiter,
                 )
 
     for child in ast.iter_child_nodes(node):
@@ -469,7 +498,6 @@ def build_trial_criteria_lookup(curated_dir: Path) -> Dict[str, Dict[str, List[s
 # ---------------------------------------------------------------------------
 # Conditions mapping
 # ---------------------------------------------------------------------------
-
 
 def _parse_condition_terms(raw_value: object) -> List[str]:
     if raw_value is None:
@@ -540,9 +568,8 @@ def load_conditions_mapping(
 
 
 # ---------------------------------------------------------------------------
-# CancerType step 1
+# Cancer type logic
 # ---------------------------------------------------------------------------
-
 
 def _split_terms(raw_value: object) -> List[str]:
     text = _normalize_string(raw_value)
@@ -623,10 +650,6 @@ def _resolve_cancer_type_step1(primary_tumor_raw: object, curated_conditions_raw
 
     return _join_terms(combined_terms)
 
-
-# ---------------------------------------------------------------------------
-# CancerType step 2
-# ---------------------------------------------------------------------------
 
 class OncoTreeHierarchy:
     def __init__(
@@ -774,10 +797,6 @@ def _resolve_cancer_type_step2(
     return _join_terms(combined_terms)
 
 
-# ---------------------------------------------------------------------------
-# CancerType step 3
-# ---------------------------------------------------------------------------
-
 def _should_keep_negative_term_for_step3(
     negative_term: str,
     positive_terms: Sequence[str],
@@ -787,7 +806,6 @@ def _should_keep_negative_term_for_step3(
     if inner_term is None:
         return False
 
-    # Drop unknown negatives
     if not hierarchy.has_term(inner_term):
         return False
 
@@ -845,11 +863,51 @@ def _resolve_cancer_type_step3(
     return _join_terms(combined_terms)
 
 
+def resolve_cancer_type_outputs(
+    primary_tumor_value: str,
+    curated_conditions_value: str,
+    hierarchy: OncoTreeHierarchy,
+) -> Dict[str, str]:
+    step1 = _resolve_cancer_type_step1(primary_tumor_value, curated_conditions_value)
+    step2 = _resolve_cancer_type_step2(step1, hierarchy)
+    step3 = _resolve_cancer_type_step3(step2, hierarchy)
+
+    return {
+        DEFAULT_STEP1_COLUMN: step1,
+        DEFAULT_STEP2_COLUMN: step2,
+        DEFAULT_STEP3_COLUMN: step3,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Criterion output shaping
+# ---------------------------------------------------------------------------
+
+def _build_trial_output_values(
+    trial_criteria: Dict[str, List[str]],
+) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+
+    for spec in CRITERION_SPECS.values():
+        raw_value = _join_cleaned_values(
+            spec.label,
+            trial_criteria.get(spec.label, []),
+        )
+        out[spec.label] = raw_value
+
+        if spec.emit_inclusive_exclusive:
+            inclusive_value, exclusive_value = _build_inclusive_exclusive_values(raw_value)
+            out[f"{spec.label}-Inclusive"] = inclusive_value
+            out[f"{spec.label}-Exclusive"] = exclusive_value
+
+    return out
+
+
 # ---------------------------------------------------------------------------
 # End-to-end workbook transformation
 # ---------------------------------------------------------------------------
 
-def append_all_cancer_type_outputs_to_workbook(
+def append_trial_outputs_to_workbook(
     input_excel: Path,
     output_excel: Path,
     curated_dir: Path,
@@ -883,12 +941,8 @@ def append_all_cancer_type_outputs_to_workbook(
 
     output_columns = _prepare_output_columns(
         ws,
-        [
-            "GeneAlteration",
-            "GeneAlteration-Inclusive",
-            "GeneAlteration-Exclusive",
-            "PrimaryTumor",
-            "CuratedConditions",
+        NON_CANCER_OUTPUT_ORDER
+        + [
             step1_output_column_name,
             step2_output_column_name,
             step3_output_column_name,
@@ -905,20 +959,7 @@ def append_all_cancer_type_outputs_to_workbook(
             nct_rows_seen.add(nct_id)
 
         trial_criteria = trial_lookup.get(nct_id, {})
-
-        gene_alteration_value = _join_cleaned_values(
-            "GeneAlteration",
-            trial_criteria.get("GeneAlteration", []),
-        )
-
-        gene_alteration_inclusive_value, gene_alteration_exclusive_value = (
-            _build_gene_alteration_postprocessed(gene_alteration_value)
-        )
-
-        primary_tumor_value = _join_cleaned_values(
-            "PrimaryTumor",
-            trial_criteria.get("PrimaryTumor", []),
-        )
+        criterion_outputs = _build_trial_output_values(trial_criteria)
 
         raw_conditions_value = ws.cell(row=row_idx, column=conditions_col_idx).value
         curated_conditions_value = _map_condition_terms(
@@ -926,44 +967,25 @@ def append_all_cancer_type_outputs_to_workbook(
             conditions_mapping,
             missing_condition_terms=missing_condition_terms,
         )
+        criterion_outputs["CuratedConditions"] = curated_conditions_value
 
-        cancer_type_step1_value = _resolve_cancer_type_step1(
-            primary_tumor_value,
+        cancer_type_outputs = resolve_cancer_type_outputs(
+            criterion_outputs.get("PrimaryTumor", ""),
             curated_conditions_value,
-        )
-        cancer_type_step2_value = _resolve_cancer_type_step2(
-            cancer_type_step1_value,
             hierarchy,
         )
 
-        cancer_type_step3_value = _resolve_cancer_type_step3(
-            cancer_type_step2_value,
-            hierarchy,
-        )
-
-        ws.cell(row=row_idx, column=output_columns["GeneAlteration"]).value = gene_alteration_value
-        ws.cell(
-            row=row_idx,
-            column=output_columns["GeneAlteration-Inclusive"],
-        ).value = gene_alteration_inclusive_value
-        ws.cell(
-            row=row_idx,
-            column=output_columns["GeneAlteration-Exclusive"],
-        ).value = gene_alteration_exclusive_value
-        ws.cell(row=row_idx, column=output_columns["PrimaryTumor"]).value = primary_tumor_value
+        ws.cell(row=row_idx, column=output_columns["GeneAlteration"]).value = criterion_outputs.get("GeneAlteration", "")
+        ws.cell(row=row_idx, column=output_columns["GeneAlteration-Inclusive"]).value = criterion_outputs.get("GeneAlteration-Inclusive", "")
+        ws.cell(row=row_idx, column=output_columns["GeneAlteration-Exclusive"]).value = criterion_outputs.get("GeneAlteration-Exclusive", "")
+        ws.cell(row=row_idx, column=output_columns["MolecularSignature"]).value = criterion_outputs.get("MolecularSignature", "")
+        ws.cell(row=row_idx, column=output_columns["MolecularSignature-Inclusive"]).value = criterion_outputs.get("MolecularSignature-Inclusive", "")
+        ws.cell(row=row_idx, column=output_columns["MolecularSignature-Exclusive"]).value = criterion_outputs.get("MolecularSignature-Exclusive", "")
+        ws.cell(row=row_idx, column=output_columns["PrimaryTumor"]).value = criterion_outputs.get("PrimaryTumor", "")
         ws.cell(row=row_idx, column=output_columns["CuratedConditions"]).value = curated_conditions_value
-        ws.cell(
-            row=row_idx,
-            column=output_columns[step1_output_column_name],
-        ).value = cancer_type_step1_value
-        ws.cell(
-            row=row_idx,
-            column=output_columns[step2_output_column_name],
-        ).value = cancer_type_step2_value
-        ws.cell(
-            row=row_idx,
-            column=output_columns[step3_output_column_name],
-        ).value = cancer_type_step3_value
+        ws.cell(row=row_idx, column=output_columns[step1_output_column_name]).value = cancer_type_outputs[DEFAULT_STEP1_COLUMN]
+        ws.cell(row=row_idx, column=output_columns[step2_output_column_name]).value = cancer_type_outputs[DEFAULT_STEP2_COLUMN]
+        ws.cell(row=row_idx, column=output_columns[step3_output_column_name]).value = cancer_type_outputs[DEFAULT_STEP3_COLUMN]
 
     missing_in_excel = sorted(set(trial_lookup) - nct_rows_seen)
     if missing_in_excel:
@@ -991,9 +1013,9 @@ def append_all_cancer_type_outputs_to_workbook(
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Append GeneAlteration, PrimaryTumor, CuratedConditions, "
-            "CancerType_step1, CancerType_step2, and CancerType_step3 "
-            "to the general worksheet."
+            "Append GeneAlteration, MolecularSignature, PrimaryTumor, "
+            "CuratedConditions, CancerType_step1, CancerType_step2, and "
+            "CancerType_step3 to the general worksheet."
         )
     )
     parser.add_argument(
@@ -1069,7 +1091,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    append_all_cancer_type_outputs_to_workbook(
+    append_trial_outputs_to_workbook(
         input_excel=args.input_excel,
         output_excel=args.output_excel,
         curated_dir=args.curated_dir,
