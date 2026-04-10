@@ -56,7 +56,7 @@ NCT_ID_PATTERNS: Sequence[re.Pattern[str]] = (
     re.compile(r"\bNCT_ID\s*=\s*['\"](?P<value>NCT\d+)['\"]"),
 )
 
-NULL_SENTINELS = {"", "[None]", "NOT([None])"}
+NULL_SENTINELS = {"", "NOT([None])"}
 
 
 @dataclass(frozen=True)
