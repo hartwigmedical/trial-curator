@@ -72,7 +72,7 @@ def _is_pan_cancer_term(term: str) -> bool:
 
 
 def _is_effectively_missing_conditions_term(term: str) -> bool:
-    return _normalize_string(term) == "[None]"
+    return _normalize_string(term) in {"", "[None]", "NOT([None])"}
 
 
 def _clean_conditions_curation(value: object) -> str:
@@ -97,6 +97,11 @@ def _is_strict_descendant(tree: OncoTree, descendant_code: str, ancestor_code: s
 
 def _simplify_curation_terms(tree: OncoTree, value: object) -> str:
     terms = _dedupe_preserve_order(_split_terms_preserve_order(value))
+
+    # Treat "[None]" as missing if it is the only term
+    if len(terms) == 1 and terms[0] == "[None]":
+        return ""
+
     if len(terms) <= 1:
         return DELIMITER.join(terms)
 
@@ -153,10 +158,12 @@ def classify_relation(
     primary_terms = _split_terms_preserve_order(primary_curation)
     condition_terms = _split_terms_preserve_order(cleaned_conditions_curation)
 
+    # Conditions missing
     if not condition_terms or all(_is_effectively_missing_conditions_term(term) for term in condition_terms):
         return "conditions_missing"
 
-    if not primary_terms:
+    # Primary missing: treat "[None]" as missing
+    if not primary_terms or all(_is_effectively_missing_conditions_term(term) for term in primary_terms):
         return "primary_missing"
 
     condition_terms_non_missing = [

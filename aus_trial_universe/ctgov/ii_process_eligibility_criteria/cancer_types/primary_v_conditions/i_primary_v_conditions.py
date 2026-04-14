@@ -425,7 +425,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
     )
     parser.add_argument(
-        "--curated_dir",
+        "--initial_curated_dir",
         required=True,
         type=Path,
         help="Directory of curated NCT*.py files or a single file",
@@ -481,7 +481,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     rows: List[PrimaryTumorOccurrenceRow] = []
     n_files = 0
 
-    for py_path in _iter_input_py_files(args.curated_dir):
+    for py_path in _iter_input_py_files(args.initial_curated_dir):
         n_files += 1
         try:
             rows.extend(
