@@ -7,7 +7,7 @@ from typing import Dict, List, Sequence, Tuple
 
 import pandas as pd
 
-from i_interventions_processing import (
+from i_extract_interventions import (
     COL_PROCESSED,
     normalize_processed_row,
     split_top_level_pipes,
