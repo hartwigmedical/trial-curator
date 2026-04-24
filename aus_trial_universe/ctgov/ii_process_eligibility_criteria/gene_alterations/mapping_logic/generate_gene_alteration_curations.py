@@ -756,6 +756,20 @@ def append_or_terms(expr: str, extra_terms: List[str]) -> str:
 # Core row mapping
 # =========================
 
+def findings_model_has_only_deletion_types(model_expr_str: str) -> bool:
+    try:
+        expr = parse_model_expr(model_expr_str)
+    except MappingError:
+        return False
+
+    tokens = set(extract_positive_atoms(expr))
+    allowed = {
+        "GainDeletion.type.HOM_DEL",
+        "GainDeletion.type.HET_DEL",
+    }
+    return bool(tokens) and tokens.issubset(allowed)
+
+
 def map_row_to_args(row: pd.Series) -> str:
     gene_raw = normalize_text(row.get("Gene_curation", ""))
     model_raw = normalize_text(row.get("FindingsModel_curation", ""))
@@ -862,6 +876,12 @@ def map_row_to_args(row: pd.Series) -> str:
                         exprs.append(f"GainDeletion[gene={gene} & type=GAIN]")
                         if fusion_both or fusion_5 or fusion_3:
                             exprs.append(map_fusion_with_flags(gene, fusion_both, fusion_5, fusion_3))
+
+                if findings_model_has_only_deletion_types(model_expr_str):
+                    exprs = [
+                        e for e in exprs
+                        if not e.strip().startswith("SmallVariant[")
+                    ]
 
                 exprs = dedupe_keep_most_detailed(exprs)
                 exprs = sort_by_preferred_order(exprs)
@@ -1023,8 +1043,7 @@ def main():
     )
 
     parser.add_argument("--input_xlsx", required=True)
-    parser.add_argument("--output_dir", required=True)
-    parser.add_argument("--sheet_name", required=True)
+    parser.add_argument("--output_xlsx", required=True)
     parser.add_argument(
         "--log_level",
         default="INFO",
@@ -1039,11 +1058,11 @@ def main():
     )
 
     input_path = Path(args.input_xlsx)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = Path(args.output_xlsx)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    LOGGER.info("Reading workbook: %s (sheet=%s)", input_path, args.sheet_name)
-    df = pd.read_excel(input_path, sheet_name=args.sheet_name)
+    LOGGER.info("Reading workbook: %s", input_path)
+    df = pd.read_excel(input_path)
 
     LOGGER.info("Generating new Args")
     df["Args_postprocessed"] = df.apply(
@@ -1051,11 +1070,9 @@ def main():
         axis=1
     )
 
-    output_path = output_dir / f"{input_path.stem}_mapped.xlsx"
-
     LOGGER.info("Writing output: %s", output_path)
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name=args.sheet_name, index=False)
+        df.to_excel(writer, index=False)
 
     LOGGER.info("Done. Output written to %s", output_path)
 
