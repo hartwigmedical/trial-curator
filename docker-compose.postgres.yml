@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: trial_curator_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trial_curator
+      POSTGRES_USER: trial_curator
+      POSTGRES_PASSWORD: trial_curator_dev
+    ports:
+      - "55432:5432"
+    volumes:
+      - trial_curator_postgres_data:/var/lib/postgresql/data
+      - ./sql:/sql
+
+volumes:
+  trial_curator_postgres_data:
