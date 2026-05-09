@@ -175,3 +175,11 @@ cython_debug/
 
 # additionals
 .DS_Store
+
+# drug ontology data
+/data/*
+
+# SQLite / DB dumps
+*.db
+*.sqlite
+*.sqlite3

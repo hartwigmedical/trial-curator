@@ -91,5 +91,5 @@ CREATE INDEX IF NOT EXISTS idx_ctgov_drug_term_atc_status
 CREATE INDEX IF NOT EXISTS idx_ctgov_drug_term_atc_source_version
     ON drug_classification.ctgov_drug_term_atc_mapping(atc_source_version);
 
-CREATE INDEX IF NOT EXISTS idx_ctgov_drug_term_atc_payload
-    ON drug_classification.ctgov_drug_term_atc_mapping USING GIN(resolution_payload);
+-- resolution_payload is audit metadata. Avoid a GIN index here because
+-- expanded candidate diagnostics can make this index disproportionately large.
