@@ -161,7 +161,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--input_tsv",
         required=True,
         type=Path,
-        help="Path to TSV produced by extract_interventions_from_json.py.",
+        help="Path to TSV produced by extract.py.",
     )
     parser.add_argument(
         "--source_version",
@@ -190,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    load_dotenv(dotenv_path=Path(".env"), override=True)
+    load_dotenv(dotenv_path=args.env_file, override=True)
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
