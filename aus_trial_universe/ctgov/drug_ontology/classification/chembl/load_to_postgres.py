@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-"""Load ChEMBL molecule-level evidence into PostgreSQL at anchor-level granularity.
+"""Load ChEMBL molecule-level evidence for simplified CTGov drug ontology outputs.
 
-Materialized layer is ChEMBL-anchor-level, not CTGov alias/source-field-level.
-A compact review TSV is one row per CTGov/RxNorm/ChEMBL anchor.
+Input tables:
+    drug_identity.ctgov_drug_term_rxnorm_mapping
+    drug_identity.ctgov_intervention_drug_term_link
+
+Essential outputs are SQL-derived only:
+    dbdump_ctgov_intervention_chembl_link.tsv
+    dbdump_chembl_intervention_evidence_review.tsv
+
+No Python-side TSVs are written.
 """
 
 import argparse
-import csv
 import json
 import logging
 import os
@@ -15,14 +21,14 @@ import uuid
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Connection, Engine
 
-from aus_trial_universe.ctgov.drug_ontology.ctgov_to_rxnorm import RxnConsoIndex
-from aus_trial_universe.ctgov.drug_ontology.classification.chembl.rxnorm_to_chembl import (
+from aus_trial_universe.ctgov.drug_ontology.rxnorm.matcher import RxnConsoIndex
+from aus_trial_universe.ctgov.drug_ontology.classification.chembl.chembl_molecules import (
     ChemblAtc,
     ChemblBuildResult,
     ChemblIndication,
@@ -43,30 +49,20 @@ from aus_trial_universe.ctgov.drug_ontology.classification.chembl.rxnorm_to_chem
 logger = logging.getLogger(__name__)
 SUMMARY_DELIMITER = " | "
 
-FETCH_CT_GOV_DRUG_TERMS_SQL = text(
+
+FETCH_RXNORM_DRUG_TERMS_SQL = text(
     """
-    SELECT
-        t.ctgov_drug_term_id,
-        t.input_drug_name,
-        t.input_drug_name_normalized,
-        t.source_field,
-        t.term_kind,
-        m.match_status,
-        m.rxnorm_rxcui,
-        m.rxnorm_canonical_name,
-        m.rxnorm_term_type,
-        m.rxnorm_ingredient_rxcui,
-        m.rxnorm_ingredient_name,
-        m.rxnorm_ingredient_term_type,
-        m.rxnorm_ingredient_resolution_stage,
-        m.rxnorm_ingredient_path,
-        m.manual_review_needed AS rxnorm_mapping_manual_review_needed,
-        m.rxnorm_source_version
-    FROM drug_identity.ctgov_drug_term t
-    JOIN drug_identity.ctgov_drug_term_rxnorm_mapping m
-      ON m.ctgov_drug_term_id = t.ctgov_drug_term_id
-    WHERE m.rxnorm_source_version = :rxnorm_source_version
-    ORDER BY t.ctgov_drug_term_id
+    SELECT DISTINCT
+        input_drug_name,
+        match_status,
+        rxnorm_rxcui,
+        rxnorm_canonical_name,
+        rxnorm_term_type,
+        rxnorm_ingredient_rxcui,
+        rxnorm_ingredient_name,
+        rxnorm_ingredient_term_type
+    FROM drug_identity.ctgov_drug_term_rxnorm_mapping
+    ORDER BY input_drug_name
     """
 )
 
@@ -97,18 +93,18 @@ COMPLETE_LOAD_BATCH_SQL = text(
     """
 )
 
-DELETE_EXISTING_CHEMBL_SQL = text(
+TRUNCATE_CHEMBL_TABLES_SQL = text(
     """
-    DELETE FROM drug_classification.chembl_molecule
-    WHERE chembl_source_version = :chembl_source_version
-    """
-)
-
-DELETE_EXISTING_CT_GOV_CHEMBL_ANCHORS_SQL = text(
-    """
-    DELETE FROM drug_classification.ctgov_chembl_anchor
-    WHERE rxnorm_source_version = :rxnorm_source_version
-      AND chembl_source_version = :chembl_source_version
+    TRUNCATE TABLE
+        drug_classification.input_drug_name_chembl_anchor,
+        drug_classification.chembl_anchor_molecule_mapping,
+        drug_classification.chembl_molecule_warning,
+        drug_classification.chembl_molecule_atc,
+        drug_classification.chembl_molecule_indication,
+        drug_classification.chembl_molecule_mechanism,
+        drug_classification.chembl_molecule_relation,
+        drug_classification.chembl_molecule_alias,
+        drug_classification.chembl_molecule
     """
 )
 
@@ -374,106 +370,70 @@ INSERT_CHEMBL_WARNING_SQL = text(
     """
 )
 
-INSERT_CT_GOV_CHEMBL_ANCHOR_SQL = text(
+INSERT_INPUT_CHEMBL_ANCHOR_SQL = text(
     """
-    INSERT INTO drug_classification.ctgov_chembl_anchor (
-        load_batch_id,
-        anchor_key,
-        anchor_type,
-        anchor_rxcui,
-        anchor_name,
-        anchor_term_type,
-        anchor_strategy,
-        anchor_path,
-        represented_ctgov_drug_term_count,
-        represented_input_names_summary,
-        manual_review_needed,
-        rxnorm_source_version,
-        chembl_source_version
-    )
-    VALUES (
-        :load_batch_id,
-        :anchor_key,
-        :anchor_type,
-        :anchor_rxcui,
-        :anchor_name,
-        :anchor_term_type,
-        :anchor_strategy,
-        :anchor_path,
-        :represented_ctgov_drug_term_count,
-        :represented_input_names_summary,
-        :manual_review_needed,
-        :rxnorm_source_version,
-        :chembl_source_version
-    )
-    RETURNING ctgov_chembl_anchor_id
-    """
-)
-
-INSERT_CT_GOV_ANCHOR_TERM_SQL = text(
-    """
-    INSERT INTO drug_classification.ctgov_chembl_anchor_drug_term (
-        ctgov_chembl_anchor_id,
-        ctgov_drug_term_id,
+    INSERT INTO drug_classification.input_drug_name_chembl_anchor (
         input_drug_name,
-        source_field,
-        term_kind,
-        anchor_selection_strategy,
-        rxnorm_source_version,
-        chembl_source_version
+        chembl_anchor_key
     )
     VALUES (
-        :ctgov_chembl_anchor_id,
-        :ctgov_drug_term_id,
         :input_drug_name,
-        :source_field,
-        :term_kind,
-        :anchor_selection_strategy,
-        :rxnorm_source_version,
-        :chembl_source_version
+        :chembl_anchor_key
     )
+    ON CONFLICT (input_drug_name, chembl_anchor_key)
+    DO NOTHING
     """
 )
 
 INSERT_CHEMBL_ANCHOR_MAPPING_SQL = text(
     """
-    INSERT INTO drug_classification.rxnorm_chembl_anchor_mapping (
-        ctgov_chembl_anchor_id,
+    INSERT INTO drug_classification.chembl_anchor_molecule_mapping (
+        chembl_anchor_key,
+        chembl_anchor_type,
+        chembl_anchor_rxcui,
+        chembl_anchor_name,
+        chembl_link_status,
+        chembl_molecule_key,
         chembl_molecule_id,
-        load_batch_id,
-        link_status,
-        match_strategy,
         molecule_relation_type,
+        match_strategy,
         matched_name,
-        matched_name_type,
-        resolution_payload,
-        rxnorm_source_version,
-        chembl_source_version
+        matched_name_type
     )
     VALUES (
-        :ctgov_chembl_anchor_id,
+        :chembl_anchor_key,
+        :chembl_anchor_type,
+        :chembl_anchor_rxcui,
+        :chembl_anchor_name,
+        :chembl_link_status,
+        :chembl_molecule_key,
         :chembl_molecule_id,
-        :load_batch_id,
-        :link_status,
-        :match_strategy,
         :molecule_relation_type,
+        :match_strategy,
         :matched_name,
-        :matched_name_type,
-        CAST(:resolution_payload AS jsonb),
-        :rxnorm_source_version,
-        :chembl_source_version
+        :matched_name_type
     )
+    ON CONFLICT (
+        chembl_anchor_key,
+        chembl_molecule_key,
+        molecule_relation_type
+    )
+    DO UPDATE SET
+        chembl_anchor_type = EXCLUDED.chembl_anchor_type,
+        chembl_anchor_rxcui = EXCLUDED.chembl_anchor_rxcui,
+        chembl_anchor_name = EXCLUDED.chembl_anchor_name,
+        chembl_link_status = EXCLUDED.chembl_link_status,
+        chembl_molecule_id = EXCLUDED.chembl_molecule_id,
+        match_strategy = EXCLUDED.match_strategy,
+        matched_name = EXCLUDED.matched_name,
+        matched_name_type = EXCLUDED.matched_name_type
     """
 )
 
 
 @dataclass(frozen=True)
-class CtgovDrugTermForChembl:
-    ctgov_drug_term_id: int
+class RxNormDrugTermForChembl:
     input_drug_name: str
-    input_drug_name_normalized: str
-    source_field: str
-    term_kind: str
     match_status: str
     rxnorm_rxcui: str
     rxnorm_canonical_name: str
@@ -481,10 +441,7 @@ class CtgovDrugTermForChembl:
     rxnorm_ingredient_rxcui: str
     rxnorm_ingredient_name: str
     rxnorm_ingredient_term_type: str
-    rxnorm_ingredient_resolution_stage: str
-    rxnorm_ingredient_path: str
-    rxnorm_mapping_manual_review_needed: bool
-    rxnorm_source_version: str
+    rxnorm_mapping_manual_review_needed: bool = False
 
 
 @dataclass
@@ -517,19 +474,16 @@ class ChemblAnchorAggregate:
     matched_names: set[str]
     matched_name_types: set[str]
     anchor_selection_strategies: Counter
-    ctgov_terms: dict[int, CtgovDrugTermForChembl]
+    input_drug_names: set[str]
 
 
-def fetch_ctgov_drug_terms_for_chembl(engine: Engine, rxnorm_source_version: str) -> list[CtgovDrugTermForChembl]:
+def fetch_rxnorm_drug_terms_for_chembl(engine: Engine) -> list[RxNormDrugTermForChembl]:
     with engine.connect() as conn:
-        rows = conn.execute(FETCH_CT_GOV_DRUG_TERMS_SQL, {"rxnorm_source_version": rxnorm_source_version}).mappings().all()
+        rows = conn.execute(FETCH_RXNORM_DRUG_TERMS_SQL).mappings().all()
+
     return [
-        CtgovDrugTermForChembl(
-            ctgov_drug_term_id=int(row["ctgov_drug_term_id"]),
+        RxNormDrugTermForChembl(
             input_drug_name=clean_text(row["input_drug_name"]),
-            input_drug_name_normalized=clean_text(row["input_drug_name_normalized"]),
-            source_field=clean_text(row["source_field"]),
-            term_kind=clean_text(row["term_kind"]),
             match_status=clean_text(row["match_status"]),
             rxnorm_rxcui=clean_text(row["rxnorm_rxcui"]),
             rxnorm_canonical_name=clean_text(row["rxnorm_canonical_name"]),
@@ -537,10 +491,6 @@ def fetch_ctgov_drug_terms_for_chembl(engine: Engine, rxnorm_source_version: str
             rxnorm_ingredient_rxcui=clean_text(row["rxnorm_ingredient_rxcui"]),
             rxnorm_ingredient_name=clean_text(row["rxnorm_ingredient_name"]),
             rxnorm_ingredient_term_type=clean_text(row["rxnorm_ingredient_term_type"]),
-            rxnorm_ingredient_resolution_stage=clean_text(row["rxnorm_ingredient_resolution_stage"]),
-            rxnorm_ingredient_path=clean_text(row["rxnorm_ingredient_path"]),
-            rxnorm_mapping_manual_review_needed=bool(row["rxnorm_mapping_manual_review_needed"]),
-            rxnorm_source_version=clean_text(row["rxnorm_source_version"]),
         )
         for row in rows
     ]
@@ -562,7 +512,11 @@ def load_rxnorm_index(rxnorm_rrf_dir: Path) -> RxnConsoIndex:
     return RxnConsoIndex.from_rrf_dir(rxnorm_rrf_dir)
 
 
-def derive_ctgov_chembl_anchor(term: CtgovDrugTermForChembl, conso_index: RxnConsoIndex) -> ChemblLinkAnchor | None:
+    logger.info("Loading RxNorm CONSO index from %s", rxnorm_rrf_dir)
+    return RxnConsoIndex.from_rrf_dir(rxnorm_rrf_dir)
+
+
+def derive_rxnorm_chembl_anchor(term: RxNormDrugTermForChembl, conso_index: RxnConsoIndex) -> ChemblLinkAnchor | None:
     if term.match_status != "MATCHED" or not term.rxnorm_rxcui:
         return None
     return derive_chembl_link_anchor_from_values(
@@ -577,13 +531,13 @@ def derive_ctgov_chembl_anchor(term: CtgovDrugTermForChembl, conso_index: RxnCon
     )
 
 
-def query_values_for_terms(terms: Sequence[CtgovDrugTermForChembl], conso_index: RxnConsoIndex) -> list[str]:
+def query_values_for_terms(terms: Sequence[RxNormDrugTermForChembl], conso_index: RxnConsoIndex) -> list[str]:
     values: list[str] = []
     for term in terms:
         values.append(term.input_drug_name)
         values.append(term.rxnorm_canonical_name)
         values.append(term.rxnorm_ingredient_name)
-        anchor = derive_ctgov_chembl_anchor(term, conso_index)
+        anchor = derive_rxnorm_chembl_anchor(term, conso_index)
         if anchor:
             values.append(anchor.link_anchor_name)
     return [value for value in values if clean_text(value)]
@@ -658,7 +612,7 @@ def is_blocked_combination_brand(value: object) -> bool:
 
 
 def choose_anchor_for_term(
-    term: CtgovDrugTermForChembl,
+    term: RxNormDrugTermForChembl,
     conso_index: RxnConsoIndex,
     chembl_result: ChemblBuildResult,
 ) -> ChemblAnchorCandidate:
@@ -719,7 +673,7 @@ def choose_anchor_for_term(
             anchor_selection_strategy=f"DIRECT_CHEMBL_NAME_AMBIGUOUS:{direct_strategy}",
         )
 
-    rx_anchor = derive_ctgov_chembl_anchor(term, conso_index)
+    rx_anchor = derive_rxnorm_chembl_anchor(term, conso_index)
     if rx_anchor and rx_anchor.link_anchor_name:
         rx_matches, rx_strategy = chembl_matches_for_query(chembl_result, rx_anchor.link_anchor_name)
         if rx_matches:
@@ -784,43 +738,6 @@ def choose_anchor_for_term(
         matched_name_type="",
         anchor_selection_strategy="NO_RXNORM_OR_CHEMBL_MATCH",
     )
-
-
-def aggregate_ctgov_anchors(
-    terms: Sequence[CtgovDrugTermForChembl],
-    conso_index: RxnConsoIndex,
-    chembl_result: ChemblBuildResult,
-) -> dict[str, ChemblAnchorAggregate]:
-    aggregates: dict[str, ChemblAnchorAggregate] = {}
-    for term in terms:
-        candidate = choose_anchor_for_term(term, conso_index, chembl_result)
-        agg = aggregates.get(candidate.anchor_key)
-        if agg is None:
-            agg = ChemblAnchorAggregate(
-                anchor_key=candidate.anchor_key,
-                anchor_type=candidate.anchor_type,
-                anchor_rxcui=candidate.anchor_rxcui,
-                anchor_name=candidate.anchor_name,
-                anchor_term_type=candidate.anchor_term_type,
-                anchor_strategy=candidate.anchor_strategy,
-                anchor_path=candidate.anchor_path,
-                manual_review_needed=candidate.manual_review_needed,
-                matched_molregnos=set(candidate.matched_molregnos),
-                matched_names=set(),
-                matched_name_types=set(),
-                anchor_selection_strategies=Counter(),
-                ctgov_terms={},
-            )
-            aggregates[candidate.anchor_key] = agg
-        agg.matched_molregnos.update(candidate.matched_molregnos)
-        if candidate.matched_name:
-            agg.matched_names.add(candidate.matched_name)
-        if candidate.matched_name_type:
-            agg.matched_name_types.add(candidate.matched_name_type)
-        agg.anchor_selection_strategies[candidate.anchor_selection_strategy] += 1
-        agg.ctgov_terms[term.ctgov_drug_term_id] = term
-        agg.manual_review_needed = agg.manual_review_needed or candidate.manual_review_needed or len(agg.matched_molregnos) > 1
-    return aggregates
 
 
 def index_by_molregno(rows: Sequence) -> dict[int, list]:
@@ -954,126 +871,124 @@ def indication_phase_summary(indications: Sequence[ChemblIndication]) -> str:
     return SUMMARY_DELIMITER.join(pieces)
 
 
-def build_anchor_check_rows(
-    anchors: Mapping[str, ChemblAnchorAggregate],
-    molecules_by_molregno: Mapping[int, ChemblMolecule],
-    relations_by_source: Mapping[int, Sequence[ChemblMoleculeRelation]],
-    mechanisms_by_molregno: Mapping[int, Sequence[ChemblMechanism]],
-    indications_by_molregno: Mapping[int, Sequence[ChemblIndication]],
-    atc_by_molregno: Mapping[int, Sequence[ChemblAtc]],
-    warnings_by_molregno: Mapping[int, Sequence[ChemblWarning]],
-    mapping_row_counts: Mapping[str, int],
-) -> list[dict[str, object]]:
-    rows: list[dict[str, object]] = []
-    for anchor in sorted(anchors.values(), key=lambda a: (a.anchor_type, a.anchor_name.lower(), a.anchor_key)):
-        rels = relation_targets_for_anchor(anchor, relations_by_source)
-        target_molregnos = [rel.related_molregno for rel in rels if rel.related_molregno in molecules_by_molregno]
-        molecules = [molecules_by_molregno[molregno] for molregno in target_molregnos]
-        mechanisms = [row for molregno in target_molregnos for row in mechanisms_by_molregno.get(molregno, [])]
-        indications = [row for molregno in target_molregnos for row in indications_by_molregno.get(molregno, [])]
-        oncology_indications = [row for row in indications if row.is_oncology]
-        atc_rows = [row for molregno in target_molregnos for row in atc_by_molregno.get(molregno, [])]
-        warnings = [row for molregno in target_molregnos for row in warnings_by_molregno.get(molregno, [])]
+def aggregate_input_chembl_anchors(
+    terms: Sequence[RxNormDrugTermForChembl],
+    conso_index: RxnConsoIndex,
+    chembl_result: ChemblBuildResult,
+) -> tuple[list[dict[str, object]], dict[str, ChemblAnchorAggregate]]:
+    link_records: list[dict[str, object]] = []
+    aggregates: dict[str, ChemblAnchorAggregate] = {}
 
-        max_mol_phase = max([phase_sort_key(m.max_phase) for m in molecules], default=-1)
-        max_ind_phase = max([phase_sort_key(i.max_phase_for_ind) for i in indications], default=-1)
-        max_onc_phase = max([phase_sort_key(i.max_phase_for_ind) for i in oncology_indications], default=-1)
-        link_status = "MATCHED_CHEMBL_MOLECULE" if molecules else "NO_CHEMBL_MOLECULE_FOR_ANCHOR"
+    for term in terms:
+        candidate = choose_anchor_for_term(term, conso_index, chembl_result)
 
-        highest_indications = [i for i in indications if phase_sort_key(i.max_phase_for_ind) == max_ind_phase]
-        highest_onc_indications = [i for i in oncology_indications if phase_sort_key(i.max_phase_for_ind) == max_onc_phase]
-
-        clinical_summary_parts = []
-        if max_mol_phase >= 0:
-            clinical_summary_parts.append(f"molecule max phase {max_mol_phase}")
-        if max_ind_phase >= 0:
-            clinical_summary_parts.append(f"highest indication phase {max_ind_phase}")
-        if max_onc_phase >= 0:
-            clinical_summary_parts.append(f"highest oncology indication phase {max_onc_phase}")
-        first_approvals = summarize_values(m.first_approval for m in molecules if m.first_approval)
-        if first_approvals:
-            clinical_summary_parts.append(f"first approval {first_approvals}")
-
-        rows.append(
+        link_records.append(
             {
-                "anchor_key": anchor.anchor_key,
-                "anchor_type": anchor.anchor_type,
-                "anchor_rxcui": anchor.anchor_rxcui,
-                "anchor_name": anchor.anchor_name,
-                "anchor_term_type": anchor.anchor_term_type,
-                "anchor_strategy": anchor.anchor_strategy,
-                "anchor_path": anchor.anchor_path,
-                "link_status": link_status,
-                "manual_review_needed": anchor.manual_review_needed or len(anchor.matched_molregnos) > 1,
-                "represented_ctgov_drug_term_count": len(anchor.ctgov_terms),
-                "represented_input_names_summary": summarize_values(term.input_drug_name for term in anchor.ctgov_terms.values()),
-                "chembl_molecule_count": len(molecules),
-                "chembl_ids_summary": summarize_values(m.chembl_id for m in molecules),
-                "chembl_pref_names_summary": summarize_values(m.pref_name for m in molecules),
-                "chembl_molecules_summary": summarize_values(f"{m.chembl_id} {m.pref_name}" for m in molecules),
-                "chembl_match_strategy_distribution": json.dumps(dict(anchor.anchor_selection_strategies), ensure_ascii=False, sort_keys=True),
-                "chembl_relation_summary": summarize_values(f"{rel.relation_type}:{molecules_by_molregno.get(rel.related_molregno).chembl_id if rel.related_molregno in molecules_by_molregno else rel.related_molregno}" for rel in rels),
-                "highest_molecule_max_phase": max_mol_phase if max_mol_phase >= 0 else "",
-                "max_phase_summary": summarize_values(m.max_phase for m in molecules if m.max_phase),
-                "molecule_type_summary": summarize_values(m.molecule_type for m in molecules),
-                "structure_type_summary": summarize_values(m.structure_type for m in molecules),
-                "first_approval_summary": first_approvals,
-                "therapeutic_flag_summary": summarize_values(m.therapeutic_flag for m in molecules),
-                "dosed_ingredient_summary": summarize_values(m.dosed_ingredient for m in molecules),
-                "first_in_class_summary": summarize_values(m.first_in_class for m in molecules),
-                "orphan_flag_summary": summarize_values(m.orphan for m in molecules),
-                "withdrawn_flag_summary": summarize_values(m.withdrawn_flag for m in molecules),
-                "black_box_warning_summary": summarize_values(m.black_box_warning for m in molecules),
-                "oral_summary": summarize_values(m.oral for m in molecules),
-                "parenteral_summary": summarize_values(m.parenteral for m in molecules),
-                "topical_summary": summarize_values(m.topical for m in molecules),
-                "prodrug_summary": summarize_values(m.prodrug for m in molecules),
-                "standard_inchi_key_summary": summarize_values(m.standard_inchi_key for m in molecules if m.standard_inchi_key),
-                "clinical_evidence_level_summary": "; ".join(clinical_summary_parts),
-                "mechanism_count": len(mechanisms),
-                "mechanism_summary": summarize_values(m.mechanism_of_action for m in mechanisms),
-                "mechanism_action_type_summary": summarize_values(m.action_type for m in mechanisms),
-                "target_summary": summarize_values(m.target_pref_name for m in mechanisms),
-                "mechanism_target_chembl_ids_summary": summarize_values(m.target_chembl_id for m in mechanisms),
-                "target_type_summary": summarize_values(m.target_type for m in mechanisms),
-                "target_organism_summary": summarize_values(m.target_organism for m in mechanisms),
-                "target_accession_summary": summarize_values(m.target_accessions for m in mechanisms),
-                "mechanism_evidence_json": mechanism_json(mechanisms, molecules_by_molregno),
-                "indication_count": len(indications),
-                "highest_indication_max_phase": max_ind_phase if max_ind_phase >= 0 else "",
-                "highest_indication_terms_summary": summarize_values((i.efo_term or i.mesh_heading) for i in highest_indications),
-                "highest_indication_efo_summary": summarize_values(i.efo_id for i in highest_indications if i.efo_id),
-                "highest_indication_mesh_summary": summarize_values(i.mesh_id for i in highest_indications if i.mesh_id),
-                "indication_phase_ordered_summary": indication_phase_summary(indications),
-                "indication_phase_json": indication_json(indications, molecules_by_molregno),
-                "oncology_indication_count": len(oncology_indications),
-                "highest_oncology_indication_max_phase": max_onc_phase if max_onc_phase >= 0 else "",
-                "oncology_indication_phase_ordered_summary": indication_phase_summary(oncology_indications),
-                "oncology_indication_phase_json": indication_json(oncology_indications, molecules_by_molregno),
-                "atc_count": len(atc_rows),
-                "atc_codes_summary": summarize_values(a.level5 for a in atc_rows),
-                "atc_l1_summary": summarize_values(a.level1 for a in atc_rows),
-                "warning_count": len(warnings),
-                "warning_type_summary": summarize_values(w.warning_type for w in warnings),
-                "warning_class_summary": summarize_values(w.warning_class for w in warnings),
-                "warning_summary": summarize_values(f"{w.warning_type}: {w.warning_class}" for w in warnings),
-                "warning_json": warning_json(warnings, molecules_by_molregno),
-                "mapping_row_count": mapping_row_counts.get(anchor.anchor_key, 0),
+                "input_drug_name": term.input_drug_name,
+                "chembl_anchor_key": candidate.anchor_key,
             }
         )
-    return rows
+
+        aggregate = aggregates.get(candidate.anchor_key)
+        if aggregate is None:
+            aggregate = ChemblAnchorAggregate(
+                anchor_key=candidate.anchor_key,
+                anchor_type=candidate.anchor_type,
+                anchor_rxcui=candidate.anchor_rxcui,
+                anchor_name=candidate.anchor_name,
+                anchor_term_type=candidate.anchor_term_type,
+                anchor_strategy=candidate.anchor_strategy,
+                anchor_path=candidate.anchor_path,
+                manual_review_needed=candidate.manual_review_needed,
+                matched_molregnos=set(candidate.matched_molregnos),
+                matched_names=set(),
+                matched_name_types=set(),
+                anchor_selection_strategies=Counter(),
+                input_drug_names={term.input_drug_name},
+            )
+            aggregates[candidate.anchor_key] = aggregate
+        else:
+            aggregate.matched_molregnos.update(candidate.matched_molregnos)
+            aggregate.input_drug_names.add(term.input_drug_name)
+
+        if candidate.matched_name:
+            aggregate.matched_names.add(candidate.matched_name)
+        if candidate.matched_name_type:
+            aggregate.matched_name_types.add(candidate.matched_name_type)
+        aggregate.anchor_selection_strategies[candidate.anchor_selection_strategy] += 1
+        aggregate.manual_review_needed = aggregate.manual_review_needed or candidate.manual_review_needed or len(aggregate.matched_molregnos) > 1
+
+    return link_records, aggregates
 
 
-def write_check_tsv(rows: Iterable[Mapping[str, object]], output_tsv: Path) -> None:
-    rows = list(rows)
-    output_tsv.parent.mkdir(parents=True, exist_ok=True)
-    if not rows:
-        output_tsv.write_text("", encoding="utf-8")
-        return
-    with output_tsv.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()), delimiter="\t")
-        writer.writeheader()
-        writer.writerows(rows)
+def query_values_for_terms(terms: Sequence[RxNormDrugTermForChembl], conso_index: RxnConsoIndex) -> list[str]:
+    values: list[str] = []
+    for term in terms:
+        values.append(term.input_drug_name)
+        values.append(term.rxnorm_canonical_name)
+        values.append(term.rxnorm_ingredient_name)
+        anchor = derive_rxnorm_chembl_anchor(term, conso_index)
+        if anchor:
+            values.append(anchor.link_anchor_name)
+    return [value for value in values if clean_text(value)]
+
+
+def molecule_relation_mapping_records(
+    anchors: Mapping[str, ChemblAnchorAggregate],
+    molecule_id_by_molregno: Mapping[int, int],
+    molecules_by_molregno: Mapping[int, ChemblMolecule],
+    relations_by_source: Mapping[int, Sequence[ChemblMoleculeRelation]],
+) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+
+    for anchor in sorted(anchors.values(), key=lambda a: (a.anchor_type, a.anchor_name.lower(), a.anchor_key)):
+        rels = relation_targets_for_anchor(anchor, relations_by_source)
+        target_molregnos = [
+            rel.related_molregno
+            for rel in rels
+            if rel.related_molregno in molecule_id_by_molregno
+        ]
+
+        if not target_molregnos:
+            records.append(
+                {
+                    "chembl_anchor_key": anchor.anchor_key,
+                    "chembl_anchor_type": anchor.anchor_type,
+                    "chembl_anchor_rxcui": anchor.anchor_rxcui,
+                    "chembl_anchor_name": anchor.anchor_name,
+                    "chembl_link_status": "NO_CHEMBL_MOLECULE_FOR_ANCHOR",
+                    "chembl_molecule_key": "",
+                    "chembl_molecule_id": None,
+                    "molecule_relation_type": "",
+                    "match_strategy": ";".join(f"{k}={v}" for k, v in sorted(anchor.anchor_selection_strategies.items())),
+                    "matched_name": summarize_values(anchor.matched_names),
+                    "matched_name_type": summarize_values(anchor.matched_name_types),
+                }
+            )
+            continue
+
+        for rel in rels:
+            molecule = molecules_by_molregno.get(rel.related_molregno)
+            if molecule is None or rel.related_molregno not in molecule_id_by_molregno:
+                continue
+
+            records.append(
+                {
+                    "chembl_anchor_key": anchor.anchor_key,
+                    "chembl_anchor_type": anchor.anchor_type,
+                    "chembl_anchor_rxcui": anchor.anchor_rxcui,
+                    "chembl_anchor_name": anchor.anchor_name,
+                    "chembl_link_status": "MATCHED_CHEMBL_MOLECULE",
+                    "chembl_molecule_key": molecule.chembl_id,
+                    "chembl_molecule_id": molecule_id_by_molregno[rel.related_molregno],
+                    "molecule_relation_type": rel.relation_type,
+                    "match_strategy": ";".join(f"{k}={v}" for k, v in sorted(anchor.anchor_selection_strategies.items())),
+                    "matched_name": summarize_values(anchor.matched_names),
+                    "matched_name_type": summarize_values(anchor.matched_name_types),
+                }
+            )
+
+    return records
 
 
 def insert_chembl_records(
@@ -1176,26 +1091,26 @@ def load_chembl_mappings_to_postgres(
     database_url: str,
     chembl_sqlite_path: Path,
     rxnorm_rrf_dir: Path,
-    rxnorm_source_version: str,
     chembl_source_version: str,
-    output_check_tsv: Path | None,
 ) -> uuid.UUID:
     engine = create_engine(database_url)
     conso_index = load_rxnorm_index(rxnorm_rrf_dir)
-    ctgov_terms = fetch_ctgov_drug_terms_for_chembl(engine, rxnorm_source_version)
-    logger.info("Fetched %d CTGov drug terms for ChEMBL linking", len(ctgov_terms))
 
-    query_values = query_values_for_terms(ctgov_terms, conso_index)
+    terms = fetch_rxnorm_drug_terms_for_chembl(engine)
+    logger.info("Fetched %d simplified RxNorm drug terms for ChEMBL linking", len(terms))
+
+    query_values = query_values_for_terms(terms, conso_index)
     chembl = build_chembl_records(chembl_sqlite_path, query_values)
-    anchors = aggregate_ctgov_anchors(ctgov_terms, conso_index, chembl)
-    logger.info("Collapsed CTGov terms to %d ChEMBL anchors", len(anchors))
+    link_rows, anchors = aggregate_input_chembl_anchors(terms, conso_index, chembl)
+
+    logger.info(
+        "Collapsed %d input drug terms to %d ChEMBL anchors",
+        len(terms),
+        len(anchors),
+    )
 
     molecules_by_molregno = molecule_by_molregno(chembl.molecules)
     relations_by_source = index_by_molregno(chembl.relations)
-    mechanisms_by_molregno = index_by_molregno(chembl.mechanisms)
-    indications_by_molregno = index_by_molregno(chembl.indications)
-    atc_by_molregno = index_by_molregno(chembl.atc_rows)
-    warnings_by_molregno = index_by_molregno(chembl.warnings)
 
     load_batch_id = uuid.uuid4()
     source_file = json.dumps(
@@ -1206,146 +1121,75 @@ def load_chembl_mappings_to_postgres(
         ensure_ascii=False,
     )
 
-    mapping_row_counts: Counter[str] = Counter()
-
     with engine.begin() as conn:
         create_load_batch(conn, load_batch_id, source_file=source_file, source_version=chembl_source_version)
-        conn.execute(
-            DELETE_EXISTING_CT_GOV_CHEMBL_ANCHORS_SQL,
-            {"rxnorm_source_version": rxnorm_source_version, "chembl_source_version": chembl_source_version},
-        )
-        conn.execute(DELETE_EXISTING_CHEMBL_SQL, {"chembl_source_version": chembl_source_version})
+        conn.execute(TRUNCATE_CHEMBL_TABLES_SQL)
 
         molecule_id_by_molregno = insert_chembl_records(conn, chembl, load_batch_id, chembl_source_version)
 
-        anchor_id_by_key: dict[str, int] = {}
-        for anchor in anchors.values():
-            anchor_id = conn.execute(
-                INSERT_CT_GOV_CHEMBL_ANCHOR_SQL,
-                {
-                    "load_batch_id": str(load_batch_id),
-                    "anchor_key": anchor.anchor_key,
-                    "anchor_type": anchor.anchor_type,
-                    "anchor_rxcui": anchor.anchor_rxcui or None,
-                    "anchor_name": anchor.anchor_name,
-                    "anchor_term_type": anchor.anchor_term_type or None,
-                    "anchor_strategy": anchor.anchor_strategy,
-                    "anchor_path": anchor.anchor_path or None,
-                    "represented_ctgov_drug_term_count": len(anchor.ctgov_terms),
-                    "represented_input_names_summary": summarize_values(term.input_drug_name for term in anchor.ctgov_terms.values()),
-                    "manual_review_needed": anchor.manual_review_needed,
-                    "rxnorm_source_version": rxnorm_source_version,
-                    "chembl_source_version": chembl_source_version,
-                },
-            ).scalar_one()
-            anchor_id_by_key[anchor.anchor_key] = int(anchor_id)
+        if link_rows:
+            conn.execute(INSERT_INPUT_CHEMBL_ANCHOR_SQL, link_rows)
 
-        anchor_term_records = []
-        for anchor in anchors.values():
-            selection_strategy = ";".join(f"{k}={v}" for k, v in sorted(anchor.anchor_selection_strategies.items()))
-            for term in anchor.ctgov_terms.values():
-                anchor_term_records.append(
-                    {
-                        "ctgov_chembl_anchor_id": anchor_id_by_key[anchor.anchor_key],
-                        "ctgov_drug_term_id": term.ctgov_drug_term_id,
-                        "input_drug_name": term.input_drug_name,
-                        "source_field": term.source_field,
-                        "term_kind": term.term_kind,
-                        "anchor_selection_strategy": selection_strategy,
-                        "rxnorm_source_version": rxnorm_source_version,
-                        "chembl_source_version": chembl_source_version,
-                    }
-                )
-        if anchor_term_records:
-            conn.execute(INSERT_CT_GOV_ANCHOR_TERM_SQL, anchor_term_records)
+        mapping_rows = molecule_relation_mapping_records(
+            anchors=anchors,
+            molecule_id_by_molregno=molecule_id_by_molregno,
+            molecules_by_molregno=molecules_by_molregno,
+            relations_by_source=relations_by_source,
+        )
+        if mapping_rows:
+            conn.execute(INSERT_CHEMBL_ANCHOR_MAPPING_SQL, mapping_rows)
 
-        mapping_records = []
-        for anchor in anchors.values():
-            anchor_id = anchor_id_by_key[anchor.anchor_key]
-            rels = relation_targets_for_anchor(anchor, relations_by_source)
-            if not rels:
-                mapping_records.append(
-                    {
-                        "ctgov_chembl_anchor_id": anchor_id,
-                        "chembl_molecule_id": None,
-                        "load_batch_id": str(load_batch_id),
-                        "link_status": "NO_CHEMBL_MOLECULE_FOR_ANCHOR",
-                        "match_strategy": "NO_MATCH",
-                        "molecule_relation_type": None,
-                        "matched_name": None,
-                        "matched_name_type": None,
-                        "resolution_payload": payload_for_mapping(anchor, None, None),
-                        "rxnorm_source_version": rxnorm_source_version,
-                        "chembl_source_version": chembl_source_version,
-                    }
-                )
-                mapping_row_counts[anchor.anchor_key] += 1
-                continue
-
-            for rel in rels:
-                molecule = molecules_by_molregno.get(rel.related_molregno)
-                if molecule is None or rel.related_molregno not in molecule_id_by_molregno:
-                    continue
-                mapping_records.append(
-                    {
-                        "ctgov_chembl_anchor_id": anchor_id,
-                        "chembl_molecule_id": molecule_id_by_molregno[rel.related_molregno],
-                        "load_batch_id": str(load_batch_id),
-                        "link_status": "MATCHED_CHEMBL_MOLECULE",
-                        "match_strategy": ";".join(f"{k}={v}" for k, v in sorted(anchor.anchor_selection_strategies.items())),
-                        "molecule_relation_type": rel.relation_type,
-                        "matched_name": summarize_values(anchor.matched_names),
-                        "matched_name_type": summarize_values(anchor.matched_name_types),
-                        "resolution_payload": payload_for_mapping(anchor, molecule, rel.relation_type),
-                        "rxnorm_source_version": rxnorm_source_version,
-                        "chembl_source_version": chembl_source_version,
-                    }
-                )
-                mapping_row_counts[anchor.anchor_key] += 1
-
-        if mapping_records:
-            conn.execute(INSERT_CHEMBL_ANCHOR_MAPPING_SQL, mapping_records)
-
-        complete_load_batch(conn, load_batch_id, row_count=len(mapping_records))
-
-    check_rows = build_anchor_check_rows(
-        anchors,
-        molecules_by_molregno,
-        relations_by_source,
-        mechanisms_by_molregno,
-        indications_by_molregno,
-        atc_by_molregno,
-        warnings_by_molregno,
-        mapping_row_counts,
-    )
-    if output_check_tsv is not None:
-        write_check_tsv(check_rows, output_check_tsv)
-        logger.info("Wrote ChEMBL compact check TSV to %s", output_check_tsv)
+        complete_load_batch(conn, load_batch_id, row_count=len(mapping_rows))
 
     logger.info(
-        "Loaded ChEMBL: %d molecules, %d anchors, %d mapping rows; load_batch_id=%s",
+        "Loaded ChEMBL: %d molecules, %d anchors, %d input-anchor links, %d anchor-molecule rows; load_batch_id=%s",
         len(chembl.molecules),
         len(anchors),
-        sum(mapping_row_counts.values()),
+        len(link_rows),
+        len(mapping_rows),
         load_batch_id,
     )
     return load_batch_id
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Load ChEMBL molecule-level evidence for CTGov/RxNorm drug anchors into PostgreSQL.")
-    parser.add_argument("--chembl_sqlite_path", required=True, type=Path, help="Path to ChEMBL SQLite database, e.g. chembl_36.db.")
-    parser.add_argument("--rxnorm_rrf_dir", required=True, type=Path, help="Directory containing RxNorm RRF files.")
-    parser.add_argument("--rxnorm_source_version", required=True, help="RxNorm source version to select from Part 2 mappings.")
-    parser.add_argument("--chembl_source_version", required=True, help="ChEMBL source version label, usually basename of ChEMBL raw folder or DB stem.")
-    parser.add_argument("--output_check_tsv", type=Path, default=None, help="Optional compact TSV, one row per CTGov/ChEMBL anchor.")
-    parser.add_argument("--env_file", type=Path, default=Path(".env"), help="Path to .env containing DATABASE_URL.")
-    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    parser = argparse.ArgumentParser(
+        description="Load ChEMBL evidence for simplified CTGov drug ontology outputs."
+    )
+    parser.add_argument(
+        "--chembl_sqlite_path",
+        required=True,
+        type=Path,
+        help="Path to ChEMBL SQLite database, e.g. chembl_36.db.",
+    )
+    parser.add_argument(
+        "--rxnorm_rrf_dir",
+        required=True,
+        type=Path,
+        help="Directory containing RxNorm RRF files.",
+    )
+    parser.add_argument(
+        "--chembl_source_version",
+        required=True,
+        help="ChEMBL source version label, usually basename of ChEMBL raw folder or DB stem.",
+    )
+    parser.add_argument(
+        "--env_file",
+        type=Path,
+        default=Path(".env"),
+        help="Path to .env containing DATABASE_URL.",
+    )
+    parser.add_argument(
+        "--log_level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -1359,9 +1203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         database_url=database_url,
         chembl_sqlite_path=args.chembl_sqlite_path,
         rxnorm_rrf_dir=args.rxnorm_rrf_dir,
-        rxnorm_source_version=args.rxnorm_source_version,
         chembl_source_version=args.chembl_source_version,
-        output_check_tsv=args.output_check_tsv,
     )
     return 0
 

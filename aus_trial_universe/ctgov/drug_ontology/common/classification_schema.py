@@ -33,10 +33,14 @@ TERM_DELIMITER = DISPLAY_DELIMITER
 # Shared CTGov intervention type filters
 # =============================================================================
 
+# Only these CTGov intervention types are normalised into drug lookup aliases
+# during Part 1. CTGov type OTHER is deliberately excluded because it includes
+# non-drug concepts such as observation, questionnaires, care processes, and
+# procedures. OTHER rows are still retained in ctgov.intervention_staging; they
+# simply do not receive normalised drug aliases by default.
 TARGET_DRUG_INTERVENTION_TYPES = {
     "DRUG",
     "BIOLOGICAL",
-    "OTHER",
     "COMBINATION_PRODUCT",
 }
 
@@ -101,12 +105,8 @@ def ordered_unique(values: Iterable[object]) -> List[str]:
 
     for value in values:
         clean = clean_text(value)
-        if not clean:
+        if not clean or clean in seen:
             continue
-
-        if clean in seen:
-            continue
-
         seen.add(clean)
         out.append(clean)
 

@@ -12,9 +12,9 @@ import logging
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
-from aus_trial_universe.ctgov.drug_ontology.ctgov_to_rxnorm import (
+from aus_trial_universe.ctgov.drug_ontology.rxnorm.matcher import (
     IngredientResolution,
     RxnConsoIndex,
     RxnRelIndex,

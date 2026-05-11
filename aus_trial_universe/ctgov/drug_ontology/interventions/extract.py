@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import re
@@ -10,29 +9,23 @@ from typing import Any, Iterator, Sequence
 
 import pandas as pd
 
+from aus_trial_universe.ctgov.drug_ontology.common.classification_schema import (
+    COL_INTERVENTION_ALL_ALIASES,
+    COL_INTERVENTION_ALL_ALIASES_NORMALISED,
+    COL_INTERVENTION_ALL_ALIASES_NORMALISED_FULL,
+    COL_INTERVENTION_ARM_GROUP_LABELS,
+    COL_INTERVENTION_DESCRIPTION,
+    COL_INTERVENTION_INDEX,
+    COL_INTERVENTION_NAME,
+    COL_INTERVENTION_OTHER_NAMES,
+    COL_INTERVENTION_TYPE,
+    COL_NCT_ID,
+    CORE_INTERVENTION_COLUMNS,
+    DISPLAY_DELIMITER,
+    TARGET_DRUG_INTERVENTION_TYPES,
+)
+
 logger = logging.getLogger(__name__)
-
-MULTI_VALUE_DELIMITER = " | "
-
-TARGET_INTERVENTION_TYPES_FOR_NORMALISATION = {
-    "DRUG",
-    "BIOLOGICAL",
-    "OTHER",
-    "COMBINATION_PRODUCT",
-}
-
-OUTPUT_COLUMNS = [
-    "nct_id",
-    "intervention_index",
-    "intervention_type",
-    "intervention_name",
-    "intervention_description",
-    "intervention_otherNames",
-    "intervention_armGroupLabels",
-    "intervention_all_aliases",
-    "intervention_all_aliases_normalised",
-    "intervention_all_aliases_normalised_full",
-]
 
 TRADEMARK_SYMBOL_RE = re.compile(r"[®™\ufe0f]")
 TRADEMARK_TEXT_RE = re.compile(
@@ -175,7 +168,7 @@ def ordered_unique_nonblank(values: Sequence[object]) -> list[str]:
 
 
 def join_pipe(values: Sequence[object]) -> str:
-    return MULTI_VALUE_DELIMITER.join(ordered_unique_nonblank(values))
+    return DISPLAY_DELIMITER.join(ordered_unique_nonblank(values))
 
 
 def basic_text_normalise(text: object) -> str:
@@ -291,9 +284,9 @@ def normalise_intervention_aliases(intervention_all_aliases: object) -> str:
         return ""
 
     normalised_terms: list[str] = []
-    for alias in raw_value.split(MULTI_VALUE_DELIMITER):
+    for alias in raw_value.split(DISPLAY_DELIMITER):
         normalised_terms.extend(split_alias_component(alias))
-    return MULTI_VALUE_DELIMITER.join(ordered_unique_clean_terms(normalised_terms))
+    return DISPLAY_DELIMITER.join(ordered_unique_clean_terms(normalised_terms))
 
 
 def normalise_intervention_aliases_full(intervention_all_aliases: object) -> str:
@@ -303,7 +296,7 @@ def normalise_intervention_aliases_full(intervention_all_aliases: object) -> str
         return ""
 
     normalised_terms: list[str] = []
-    for alias in raw_value.split(MULTI_VALUE_DELIMITER):
+    for alias in raw_value.split(DISPLAY_DELIMITER):
         alias = basic_text_normalise(alias)
         alias, parenthetical_terms = extract_parenthetical_terms(alias)
         alias = clean_normalised_term(alias)
@@ -314,11 +307,11 @@ def normalise_intervention_aliases_full(intervention_all_aliases: object) -> str
             term for term in parenthetical_terms if not should_discard_normalised_term(term)
         )
 
-    return MULTI_VALUE_DELIMITER.join(ordered_unique_clean_terms(normalised_terms))
+    return DISPLAY_DELIMITER.join(ordered_unique_clean_terms(normalised_terms))
 
 
 def should_normalise_intervention_type(intervention_type: str) -> bool:
-    return intervention_type.strip().upper() in TARGET_INTERVENTION_TYPES_FOR_NORMALISATION
+    return intervention_type.strip().upper() in TARGET_DRUG_INTERVENTION_TYPES
 
 
 def extract_study_records(payload: Any) -> list[dict[str, Any]]:
@@ -341,6 +334,9 @@ def extract_study_records(payload: Any) -> list[dict[str, Any]]:
 
 def iter_study_records_from_json(input_json: Path) -> Iterator[dict[str, Any]]:
     """Read standard JSON or JSON Lines / NDJSON containing CTGov study records."""
+    if not input_json.exists():
+        raise FileNotFoundError(f"Input JSON not found: {input_json}")
+
     text = input_json.read_text(encoding="utf-8").strip()
     if not text:
         return
@@ -408,16 +404,16 @@ def extract_intervention_rows(study_record: dict[str, Any]) -> list[dict[str, st
 
         rows.append(
             {
-                "nct_id": nct_id,
-                "intervention_index": str(intervention_index),
-                "intervention_type": intervention_type,
-                "intervention_name": intervention_name,
-                "intervention_description": intervention_description,
-                "intervention_otherNames": join_pipe(other_names),
-                "intervention_armGroupLabels": join_pipe(arm_group_labels),
-                "intervention_all_aliases": intervention_all_aliases,
-                "intervention_all_aliases_normalised": normalised_aliases,
-                "intervention_all_aliases_normalised_full": normalised_full_aliases,
+                COL_NCT_ID: nct_id,
+                COL_INTERVENTION_INDEX: str(intervention_index),
+                COL_INTERVENTION_TYPE: intervention_type,
+                COL_INTERVENTION_NAME: intervention_name,
+                COL_INTERVENTION_DESCRIPTION: intervention_description,
+                COL_INTERVENTION_OTHER_NAMES: join_pipe(other_names),
+                COL_INTERVENTION_ARM_GROUP_LABELS: join_pipe(arm_group_labels),
+                COL_INTERVENTION_ALL_ALIASES: intervention_all_aliases,
+                COL_INTERVENTION_ALL_ALIASES_NORMALISED: normalised_aliases,
+                COL_INTERVENTION_ALL_ALIASES_NORMALISED_FULL: normalised_full_aliases,
             }
         )
 
@@ -425,69 +421,15 @@ def extract_intervention_rows(study_record: dict[str, Any]) -> list[dict[str, st
 
 
 def build_interventions_dataframe(input_json: Path) -> pd.DataFrame:
+    """Build the canonical intervention dataframe from CTGov JSON/NDJSON.
+
+    This function does not write TSV output. The canonical pipeline is:
+      JSON -> PostgreSQL -> SQL-derived TSV dump.
+    """
     rows: list[dict[str, str]] = []
     for study_number, study_record in enumerate(iter_study_records_from_json(input_json), start=1):
         rows.extend(extract_intervention_rows(study_record))
         if study_number % 100 == 0:
             logger.info("Processed %d study records", study_number)
-    return pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
 
-
-def write_interventions_tsv(input_json: Path, output_tsv: Path) -> None:
-    if not input_json.exists():
-        raise FileNotFoundError(f"Input JSON not found: {input_json}")
-    if output_tsv.suffix.lower() != ".tsv":
-        raise ValueError(f"Output path must end in .tsv: {output_tsv}")
-
-    logger.info("Reading CT.gov JSON: %s", input_json)
-    df = build_interventions_dataframe(input_json)
-    logger.info("Extracted %d intervention rows", len(df))
-
-    output_tsv.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(
-        output_tsv,
-        sep="\t",
-        index=False,
-        encoding="utf-8",
-        lineterminator="\n",
-    )
-    logger.info("Wrote intervention-centric TSV to %s", output_tsv)
-
-
-def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Read CTGov JSON/NDJSON and write one intervention-centric TSV."
-    )
-    parser.add_argument(
-        "--input_json",
-        required=True,
-        type=Path,
-        help="Path to CTGov JSON input file. Supports JSON and JSON Lines / NDJSON.",
-    )
-    parser.add_argument(
-        "--output_tsv",
-        required=True,
-        type=Path,
-        help="Required output TSV path. No default output file is assumed.",
-    )
-    parser.add_argument(
-        "--log_level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Logging level.",
-    )
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(argv)
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
-    write_interventions_tsv(input_json=args.input_json, output_tsv=args.output_tsv)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return pd.DataFrame(rows, columns=CORE_INTERVENTION_COLUMNS)

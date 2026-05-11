@@ -13,19 +13,17 @@ Design lessons carried over from ATC/FDA/POTTR:
 - isotope/radionuclide notation is canonicalized while preserving isotope identity.
 """
 
-import csv
 import json
 import logging
 import re
 import sqlite3
 import unicodedata
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Sequence
 
-from aus_trial_universe.ctgov.drug_ontology.ctgov_to_rxnorm import (
+from aus_trial_universe.ctgov.drug_ontology.rxnorm.matcher import (
     RxnConsoIndex,
-    normalize_lookup_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +54,7 @@ SIMPLE_FORM_MODIFIER_TOKENS = {
 
 ONCOLOGY_TERM_RE = re.compile(
     r"\b(cancer|carcinoma|neoplasm|neoplastic|tumou?r|melanoma|leuka?emia|lymphoma|"
-    r"myeloma|sarcoma|glioma|blastoma|mesothelioma|malignan|adenoma|leukemic|leukaemic)\b",
+    r"myeloma|sarcoma|glioma|blastoma|mesothelioma|malignan|adenoma|leukemic|leukaemic|neoplasms?)\b",
     re.IGNORECASE,
 )
 

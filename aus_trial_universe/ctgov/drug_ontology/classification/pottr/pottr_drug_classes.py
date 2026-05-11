@@ -15,9 +15,9 @@ import re
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Sequence
 
-from aus_trial_universe.ctgov.drug_ontology.ctgov_to_rxnorm import (
+from aus_trial_universe.ctgov.drug_ontology.rxnorm.matcher import (
     IngredientResolution,
     RxnConsoIndex,
     RxnRelIndex,

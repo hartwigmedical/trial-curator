@@ -12,50 +12,48 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+from aus_trial_universe.ctgov.drug_ontology.common.classification_schema import (
+    COL_INTERVENTION_DESCRIPTION,
+    COL_INTERVENTION_INDEX,
+    COL_INTERVENTION_NAME,
+    COL_INTERVENTION_TYPE,
+    COL_NCT_ID,
+    REQUIRED_STABLE_INTERVENTION_COLUMNS,
+)
+from aus_trial_universe.ctgov.drug_ontology.interventions.extract import (
+    build_interventions_dataframe,
+)
+
 logger = logging.getLogger(__name__)
 
-REQUIRED_STABLE_COLUMNS = [
-    "nct_id",
-    "intervention_index",
-    "intervention_type",
-    "intervention_name",
-    "intervention_description",
-]
 
+def build_interventions_from_json(input_json: Path) -> pd.DataFrame:
+    if not input_json.exists():
+        raise FileNotFoundError(f"Input JSON not found: {input_json}")
 
-def read_interventions_tsv(input_tsv: Path) -> pd.DataFrame:
-    if not input_tsv.exists():
-        raise FileNotFoundError(f"Input TSV not found: {input_tsv}")
+    df = build_interventions_dataframe(input_json)
 
-    df = pd.read_csv(
-        input_tsv,
-        sep="\t",
-        dtype=str,
-        keep_default_na=False,
-        encoding="utf-8",
-    )
-
-    missing = [col for col in REQUIRED_STABLE_COLUMNS if col not in df.columns]
+    missing = [col for col in REQUIRED_STABLE_INTERVENTION_COLUMNS if col not in df.columns]
     if missing:
         raise ValueError(
-            f"Input TSV is missing required stable columns: {missing}. "
+            f"Extracted intervention dataframe is missing required stable columns: {missing}. "
             f"Found columns: {list(df.columns)}"
         )
 
-    df["intervention_index"] = pd.to_numeric(
-        df["intervention_index"],
+    df[COL_INTERVENTION_INDEX] = pd.to_numeric(
+        df[COL_INTERVENTION_INDEX],
         errors="raise",
     ).astype(int)
 
     return df
 
 
-def load_tsv_to_postgres(
-    input_tsv: Path,
+def load_json_to_postgres(
+    input_json: Path,
     source_version: str | None,
     database_url: str,
 ) -> uuid.UUID:
-    df = read_interventions_tsv(input_tsv)
+    df = build_interventions_from_json(input_json)
     load_batch_id = uuid.uuid4()
 
     records = []
@@ -63,12 +61,12 @@ def load_tsv_to_postgres(
         records.append(
             {
                 "load_batch_id": str(load_batch_id),
-                "nct_id": row["nct_id"],
-                "intervention_index": int(row["intervention_index"]),
-                "intervention_type": row.get("intervention_type", ""),
-                "intervention_name": row.get("intervention_name", ""),
-                "intervention_description": row.get("intervention_description", ""),
-                "source_tsv": str(input_tsv),
+                "nct_id": row[COL_NCT_ID],
+                "intervention_index": int(row[COL_INTERVENTION_INDEX]),
+                "intervention_type": row.get(COL_INTERVENTION_TYPE, ""),
+                "intervention_name": row.get(COL_INTERVENTION_NAME, ""),
+                "intervention_description": row.get(COL_INTERVENTION_DESCRIPTION, ""),
+                "source_file": str(input_json),
                 "source_version": source_version,
                 "row_payload": json.dumps(row, ensure_ascii=False),
             }
@@ -89,7 +87,7 @@ def load_tsv_to_postgres(
                 )
                 VALUES (
                     :load_batch_id,
-                    'ctgov_intervention_tsv',
+                    'ctgov_intervention_json',
                     :source_file,
                     :source_version,
                     'started'
@@ -98,40 +96,41 @@ def load_tsv_to_postgres(
             ),
             {
                 "load_batch_id": str(load_batch_id),
-                "source_file": str(input_tsv),
+                "source_file": str(input_json),
                 "source_version": source_version,
             },
         )
 
-        conn.execute(
-            text(
-                """
-                INSERT INTO ctgov.intervention_staging (
-                    load_batch_id,
-                    nct_id,
-                    intervention_index,
-                    intervention_type,
-                    intervention_name,
-                    intervention_description,
-                    source_tsv,
-                    source_version,
-                    row_payload
-                )
-                VALUES (
-                    :load_batch_id,
-                    :nct_id,
-                    :intervention_index,
-                    :intervention_type,
-                    :intervention_name,
-                    :intervention_description,
-                    :source_tsv,
-                    :source_version,
-                    CAST(:row_payload AS jsonb)
-                )
-                """
-            ),
-            records,
-        )
+        if records:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO ctgov.intervention_staging (
+                        load_batch_id,
+                        nct_id,
+                        intervention_index,
+                        intervention_type,
+                        intervention_name,
+                        intervention_description,
+                        source_file,
+                        source_version,
+                        row_payload
+                    )
+                    VALUES (
+                        :load_batch_id,
+                        :nct_id,
+                        :intervention_index,
+                        :intervention_type,
+                        :intervention_name,
+                        :intervention_description,
+                        :source_file,
+                        :source_version,
+                        CAST(:row_payload AS jsonb)
+                    )
+                    """
+                ),
+                records,
+            )
 
         conn.execute(
             text(
@@ -155,13 +154,16 @@ def load_tsv_to_postgres(
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Load the canonical CTGov interventions TSV into PostgreSQL."
+        description=(
+            "Extract CTGov interventions from JSON/NDJSON and load them directly "
+            "into PostgreSQL. No accepted TSV is written by this loader."
+        )
     )
     parser.add_argument(
-        "--input_tsv",
+        "--input_json",
         required=True,
         type=Path,
-        help="Path to TSV produced by extract.py.",
+        help="Path to CTGov JSON input file. Supports JSON and JSON Lines / NDJSON.",
     )
     parser.add_argument(
         "--source_version",
@@ -196,13 +198,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not database_url:
         raise RuntimeError("DATABASE_URL is not set. Check your .env file.")
 
-    load_batch_id = load_tsv_to_postgres(
-        input_tsv=args.input_tsv,
+    load_batch_id = load_json_to_postgres(
+        input_json=args.input_json,
         source_version=args.source_version,
         database_url=database_url,
     )
 
-    logger.info("Loaded TSV into PostgreSQL with load_batch_id=%s", load_batch_id)
+    logger.info("Loaded CTGov JSON into PostgreSQL with load_batch_id=%s", load_batch_id)
     return 0
 
 
