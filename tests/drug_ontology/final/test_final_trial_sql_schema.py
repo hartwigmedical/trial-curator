@@ -68,13 +68,24 @@ def test_final_trial_output_has_expected_key_and_evidence_columns():
         "fda_drug_names",
         "pottr_class_names",
         "matched_chembl_ids",
+        "chembl_indication_phase_terms_summary",
         "chembl_oncology_indication_phase_terms_summary",
     ]:
         assert column in sql
 
 
-def test_final_trial_sql_newline_cleans_text_output():
+def test_final_trial_sql_cleans_tabs_and_newlines_in_text_output():
     sql = SQL_PATH.read_text(encoding="utf-8")
 
+    assert "E'[\\\\r\\\\n\\\\t]+'" in sql
     assert "regexp_replace(COALESCE(final_raw.intervention_names" in sql
     assert "regexp_replace(COALESCE(final_raw.chembl_mechanism_comment_summaries" in sql
+
+
+def test_final_trial_sql_caps_text_cells_below_excel_limit():
+    sql = SQL_PATH.read_text(encoding="utf-8")
+
+    assert "length(regexp_replace(COALESCE(final_raw.chembl_indication_phase_terms_summary" in sql
+    assert "left(regexp_replace(COALESCE(final_raw.chembl_indication_phase_terms_summary" in sql
+    assert "29982" in sql
+    assert "... [TRUNCATED]" in sql

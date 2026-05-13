@@ -18,8 +18,9 @@ DROP VIEW IF EXISTS drug_classification.final_intervention_drug_classification_e
 --   This avoids ATC × FDA × POTTR × ChEMBL Cartesian row explosion.
 
 CREATE OR REPLACE VIEW drug_classification.final_intervention_drug_classification_export AS
--- Final output text columns are newline-cleaned so the TSV export has one
--- physical line per intervention row.
+-- Final output text columns are cleaned and capped so the TSV export has one
+-- physical line per intervention row and remains spreadsheet-safe. Excel has a
+-- 32,767-character cell limit; cap text fields below that threshold.
 WITH
 staging AS (
     SELECT DISTINCT ON (s.nct_id, s.intervention_index)
@@ -350,118 +351,494 @@ LEFT JOIN chembl_by_intervention AS c
 )
 
 SELECT
-    regexp_replace(COALESCE(final_raw.ctgov_intervention_key, ''), E'[\\r\\n]+', ' ', 'g') AS ctgov_intervention_key
-  , regexp_replace(COALESCE(final_raw.nct_id, ''), E'[\\r\\n]+', ' ', 'g') AS nct_id
+    CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.ctgov_intervention_key, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.ctgov_intervention_key, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.ctgov_intervention_key, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS ctgov_intervention_key
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.nct_id, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.nct_id, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.nct_id, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS nct_id
   , final_raw.intervention_index
-  , regexp_replace(COALESCE(final_raw.intervention_type, ''), E'[\\r\\n]+', ' ', 'g') AS intervention_type
-  , regexp_replace(COALESCE(final_raw.intervention_name, ''), E'[\\r\\n]+', ' ', 'g') AS intervention_name
-  , regexp_replace(COALESCE(final_raw.intervention_description, ''), E'[\\r\\n]+', ' ', 'g') AS intervention_description
-  , regexp_replace(COALESCE(final_raw.intervention_other_names, ''), E'[\\r\\n]+', ' ', 'g') AS intervention_other_names
-  , regexp_replace(COALESCE(final_raw.arm_group_labels, ''), E'[\\r\\n]+', ' ', 'g') AS arm_group_labels
-  , regexp_replace(COALESCE(final_raw.intervention_all_aliases, ''), E'[\\r\\n]+', ' ', 'g') AS intervention_all_aliases
-  , regexp_replace(COALESCE(final_raw.intervention_all_aliases_normalised, ''), E'[\\r\\n]+', ' ', 'g') AS intervention_all_aliases_normalised
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.intervention_type, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.intervention_type, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.intervention_type, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS intervention_type
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.intervention_name, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.intervention_name, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.intervention_name, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS intervention_name
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.intervention_description, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.intervention_description, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.intervention_description, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS intervention_description
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.intervention_other_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.intervention_other_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.intervention_other_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS intervention_other_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.arm_group_labels, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.arm_group_labels, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.arm_group_labels, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS arm_group_labels
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.intervention_all_aliases, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.intervention_all_aliases, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.intervention_all_aliases, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS intervention_all_aliases
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.intervention_all_aliases_normalised, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.intervention_all_aliases_normalised, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.intervention_all_aliases_normalised, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS intervention_all_aliases_normalised
   , final_raw.input_drug_name_count
-  , regexp_replace(COALESCE(final_raw.input_drug_names, ''), E'[\\r\\n]+', ' ', 'g') AS input_drug_names
-  , regexp_replace(COALESCE(final_raw.rxnorm_match_statuses, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_match_statuses
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.input_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.input_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.input_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS input_drug_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_match_statuses
   , final_raw.rxnorm_matched_input_drug_name_count
   , final_raw.rxnorm_unmatched_or_review_input_drug_name_count
-  , regexp_replace(COALESCE(final_raw.rxnorm_unmatched_or_review_input_drug_names, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_unmatched_or_review_input_drug_names
-  , regexp_replace(COALESCE(final_raw.rxnorm_matched_terms, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_matched_terms
-  , regexp_replace(COALESCE(final_raw.rxnorm_rxcuis, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_rxcuis
-  , regexp_replace(COALESCE(final_raw.rxnorm_canonical_names, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_canonical_names
-  , regexp_replace(COALESCE(final_raw.rxnorm_term_types, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_term_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_unmatched_or_review_input_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_unmatched_or_review_input_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_unmatched_or_review_input_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_unmatched_or_review_input_drug_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_matched_terms, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_matched_terms, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_matched_terms, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_matched_terms
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_rxcuis
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_canonical_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_canonical_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_canonical_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_canonical_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_term_types
   , final_raw.rxnorm_ingredient_count
-  , regexp_replace(COALESCE(final_raw.rxnorm_ingredient_rxcuis, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_ingredient_rxcuis
-  , regexp_replace(COALESCE(final_raw.rxnorm_ingredient_names, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_ingredient_names
-  , regexp_replace(COALESCE(final_raw.rxnorm_ingredient_term_types, ''), E'[\\r\\n]+', ' ', 'g') AS rxnorm_ingredient_term_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_ingredient_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_ingredient_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_ingredient_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_ingredient_rxcuis
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_ingredient_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_ingredient_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_ingredient_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_ingredient_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.rxnorm_ingredient_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.rxnorm_ingredient_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.rxnorm_ingredient_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS rxnorm_ingredient_term_types
   , final_raw.atc_code_count
-  , regexp_replace(COALESCE(final_raw.atc_match_statuses, ''), E'[\\r\\n]+', ' ', 'g') AS atc_match_statuses
-  , regexp_replace(COALESCE(final_raw.atc_codes, ''), E'[\\r\\n]+', ' ', 'g') AS atc_codes
-  , regexp_replace(COALESCE(final_raw.atc_names, ''), E'[\\r\\n]+', ' ', 'g') AS atc_names
-  , regexp_replace(COALESCE(final_raw.atc_l1_codes, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l1_codes
-  , regexp_replace(COALESCE(final_raw.atc_l1_names, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l1_names
-  , regexp_replace(COALESCE(final_raw.atc_l2_codes, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l2_codes
-  , regexp_replace(COALESCE(final_raw.atc_l2_names, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l2_names
-  , regexp_replace(COALESCE(final_raw.atc_l3_codes, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l3_codes
-  , regexp_replace(COALESCE(final_raw.atc_l3_names, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l3_names
-  , regexp_replace(COALESCE(final_raw.atc_l4_codes, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l4_codes
-  , regexp_replace(COALESCE(final_raw.atc_l4_names, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l4_names
-  , regexp_replace(COALESCE(final_raw.atc_l5_codes, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l5_codes
-  , regexp_replace(COALESCE(final_raw.atc_l5_names, ''), E'[\\r\\n]+', ' ', 'g') AS atc_l5_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_match_statuses
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_codes, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_codes
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l1_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l1_codes, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l1_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l1_codes
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l1_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l1_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l1_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l1_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l2_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l2_codes, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l2_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l2_codes
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l2_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l2_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l2_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l2_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l3_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l3_codes, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l3_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l3_codes
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l3_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l3_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l3_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l3_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l4_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l4_codes, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l4_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l4_codes
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l4_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l4_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l4_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l4_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l5_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l5_codes, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l5_codes, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l5_codes
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.atc_l5_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.atc_l5_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.atc_l5_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS atc_l5_names
   , final_raw.fda_anchor_count
   , final_raw.fda_product_component_count
-  , regexp_replace(COALESCE(final_raw.fda_anchor_rxcuis, ''), E'[\\r\\n]+', ' ', 'g') AS fda_anchor_rxcuis
-  , regexp_replace(COALESCE(final_raw.fda_anchor_names, ''), E'[\\r\\n]+', ' ', 'g') AS fda_anchor_names
-  , regexp_replace(COALESCE(final_raw.fda_anchor_term_types, ''), E'[\\r\\n]+', ' ', 'g') AS fda_anchor_term_types
-  , regexp_replace(COALESCE(final_raw.fda_link_statuses, ''), E'[\\r\\n]+', ' ', 'g') AS fda_link_statuses
-  , regexp_replace(COALESCE(final_raw.fda_drug_names, ''), E'[\\r\\n]+', ' ', 'g') AS fda_drug_names
-  , regexp_replace(COALESCE(final_raw.fda_active_ingredient_components, ''), E'[\\r\\n]+', ' ', 'g') AS fda_active_ingredient_components
-  , regexp_replace(COALESCE(final_raw.fda_application_numbers, ''), E'[\\r\\n]+', ' ', 'g') AS fda_application_numbers
-  , regexp_replace(COALESCE(final_raw.fda_application_products, ''), E'[\\r\\n]+', ' ', 'g') AS fda_application_products
-  , regexp_replace(COALESCE(final_raw.fda_marketing_statuses, ''), E'[\\r\\n]+', ' ', 'g') AS fda_marketing_statuses
-  , regexp_replace(COALESCE(final_raw.fda_latest_approved_submission_status_dates, ''), E'[\\r\\n]+', ' ', 'g') AS fda_latest_approved_submission_status_dates
-  , regexp_replace(COALESCE(final_raw.fda_has_approved_submission_values, ''), E'[\\r\\n]+', ' ', 'g') AS fda_has_approved_submission_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_anchor_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_anchor_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_anchor_rxcuis, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_anchor_rxcuis
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_anchor_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_anchor_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_anchor_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_anchor_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_anchor_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_anchor_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_anchor_term_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_anchor_term_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_link_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_link_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_link_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_link_statuses
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_drug_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_active_ingredient_components, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_active_ingredient_components, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_active_ingredient_components, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_active_ingredient_components
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_application_numbers, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_application_numbers, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_application_numbers, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_application_numbers
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_application_products, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_application_products, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_application_products, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_application_products
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_marketing_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_marketing_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_marketing_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_marketing_statuses
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_latest_approved_submission_status_dates, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_latest_approved_submission_status_dates, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_latest_approved_submission_status_dates, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_latest_approved_submission_status_dates
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_has_approved_submission_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_has_approved_submission_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_has_approved_submission_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_has_approved_submission_values
   , final_raw.fda_has_any_approved_submission
-  , regexp_replace(COALESCE(final_raw.fda_sponsor_names, ''), E'[\\r\\n]+', ' ', 'g') AS fda_sponsor_names
-  , regexp_replace(COALESCE(final_raw.fda_forms, ''), E'[\\r\\n]+', ' ', 'g') AS fda_forms
-  , regexp_replace(COALESCE(final_raw.fda_strength_components, ''), E'[\\r\\n]+', ' ', 'g') AS fda_strength_components
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_sponsor_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_sponsor_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_sponsor_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_sponsor_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_forms, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_forms, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_forms, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_forms
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.fda_strength_components, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.fda_strength_components, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.fda_strength_components, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS fda_strength_components
   , final_raw.pottr_review_row_count
   , final_raw.pottr_matched_class_row_count
-  , regexp_replace(COALESCE(final_raw.pottr_match_statuses, ''), E'[\\r\\n]+', ' ', 'g') AS pottr_match_statuses
-  , regexp_replace(COALESCE(final_raw.matched_pottr_drug_names, ''), E'[\\r\\n]+', ' ', 'g') AS matched_pottr_drug_names
-  , regexp_replace(COALESCE(final_raw.pottr_direct_class_names, ''), E'[\\r\\n]+', ' ', 'g') AS pottr_direct_class_names
-  , regexp_replace(COALESCE(final_raw.pottr_class_names, ''), E'[\\r\\n]+', ' ', 'g') AS pottr_class_names
-  , regexp_replace(COALESCE(final_raw.pottr_class_relations, ''), E'[\\r\\n]+', ' ', 'g') AS pottr_class_relations
-  , regexp_replace(COALESCE(final_raw.pottr_class_paths, ''), E'[\\r\\n]+', ' ', 'g') AS pottr_class_paths
-  , regexp_replace(COALESCE(final_raw.pottr_class_in_hierarchy_values, ''), E'[\\r\\n]+', ' ', 'g') AS pottr_class_in_hierarchy_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.pottr_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.pottr_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.pottr_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS pottr_match_statuses
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.matched_pottr_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.matched_pottr_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.matched_pottr_drug_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS matched_pottr_drug_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.pottr_direct_class_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.pottr_direct_class_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.pottr_direct_class_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS pottr_direct_class_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.pottr_class_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.pottr_class_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.pottr_class_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS pottr_class_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.pottr_class_relations, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.pottr_class_relations, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.pottr_class_relations, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS pottr_class_relations
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.pottr_class_paths, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.pottr_class_paths, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.pottr_class_paths, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS pottr_class_paths
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.pottr_class_in_hierarchy_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.pottr_class_in_hierarchy_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.pottr_class_in_hierarchy_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS pottr_class_in_hierarchy_values
   , final_raw.chembl_review_row_count
   , final_raw.chembl_matched_molecule_row_count
   , final_raw.matched_chembl_molecule_count
-  , regexp_replace(COALESCE(final_raw.chembl_match_statuses, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_match_statuses
-  , regexp_replace(COALESCE(final_raw.matched_chembl_ids, ''), E'[\\r\\n]+', ' ', 'g') AS matched_chembl_ids
-  , regexp_replace(COALESCE(final_raw.matched_chembl_pref_names, ''), E'[\\r\\n]+', ' ', 'g') AS matched_chembl_pref_names
-  , regexp_replace(COALESCE(final_raw.chembl_molecule_relation_types, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_molecule_relation_types
-  , regexp_replace(COALESCE(final_raw.chembl_match_strategies, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_match_strategies
-  , regexp_replace(COALESCE(final_raw.chembl_matched_names, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_matched_names
-  , regexp_replace(COALESCE(final_raw.chembl_matched_name_types, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_matched_name_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_match_statuses, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_match_statuses
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.matched_chembl_ids, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.matched_chembl_ids, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.matched_chembl_ids, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS matched_chembl_ids
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.matched_chembl_pref_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.matched_chembl_pref_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.matched_chembl_pref_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS matched_chembl_pref_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_molecule_relation_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_molecule_relation_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_molecule_relation_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_molecule_relation_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_match_strategies, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_match_strategies, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_match_strategies, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_match_strategies
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_matched_names, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_matched_names, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_matched_names, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_matched_names
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_matched_name_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_matched_name_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_matched_name_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_matched_name_types
   , final_raw.chembl_highest_max_phase
-  , regexp_replace(COALESCE(final_raw.chembl_max_phases, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_max_phases
-  , regexp_replace(COALESCE(final_raw.chembl_first_approval_years, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_first_approval_years
-  , regexp_replace(COALESCE(final_raw.chembl_molecule_types, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_molecule_types
-  , regexp_replace(COALESCE(final_raw.chembl_structure_types, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_structure_types
-  , regexp_replace(COALESCE(final_raw.chembl_therapeutic_flags, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_therapeutic_flags
-  , regexp_replace(COALESCE(final_raw.chembl_dosed_ingredient_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_dosed_ingredient_values
-  , regexp_replace(COALESCE(final_raw.chembl_first_in_class_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_first_in_class_values
-  , regexp_replace(COALESCE(final_raw.chembl_prodrug_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_prodrug_values
-  , regexp_replace(COALESCE(final_raw.chembl_chemical_probe_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_chemical_probe_values
-  , regexp_replace(COALESCE(final_raw.chembl_oral_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_oral_values
-  , regexp_replace(COALESCE(final_raw.chembl_parenteral_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_parenteral_values
-  , regexp_replace(COALESCE(final_raw.chembl_topical_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_topical_values
-  , regexp_replace(COALESCE(final_raw.chembl_black_box_warning_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_black_box_warning_values
-  , regexp_replace(COALESCE(final_raw.chembl_withdrawn_flag_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_withdrawn_flag_values
-  , regexp_replace(COALESCE(final_raw.chembl_orphan_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_orphan_values
-  , regexp_replace(COALESCE(final_raw.chembl_full_mwt_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_full_mwt_values
-  , regexp_replace(COALESCE(final_raw.chembl_full_molformula_values, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_full_molformula_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_max_phases, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_max_phases, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_max_phases, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_max_phases
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_first_approval_years, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_first_approval_years, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_first_approval_years, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_first_approval_years
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_molecule_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_molecule_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_molecule_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_molecule_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_structure_types, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_structure_types, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_structure_types, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_structure_types
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_therapeutic_flags, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_therapeutic_flags, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_therapeutic_flags, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_therapeutic_flags
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_dosed_ingredient_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_dosed_ingredient_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_dosed_ingredient_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_dosed_ingredient_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_first_in_class_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_first_in_class_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_first_in_class_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_first_in_class_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_prodrug_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_prodrug_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_prodrug_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_prodrug_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_chemical_probe_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_chemical_probe_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_chemical_probe_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_chemical_probe_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_oral_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_oral_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_oral_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_oral_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_parenteral_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_parenteral_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_parenteral_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_parenteral_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_topical_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_topical_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_topical_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_topical_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_black_box_warning_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_black_box_warning_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_black_box_warning_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_black_box_warning_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_withdrawn_flag_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_withdrawn_flag_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_withdrawn_flag_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_withdrawn_flag_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_orphan_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_orphan_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_orphan_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_orphan_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_full_mwt_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_full_mwt_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_full_mwt_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_full_mwt_values
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_full_molformula_values, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_full_molformula_values, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_full_molformula_values, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_full_molformula_values
   , final_raw.chembl_max_mechanism_count
-  , regexp_replace(COALESCE(final_raw.chembl_mechanism_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_mechanism_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_action_type_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_action_type_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_target_chembl_ids_summary, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_target_chembl_ids_summary
-  , regexp_replace(COALESCE(final_raw.chembl_target_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_target_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_target_type_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_target_type_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_target_organism_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_target_organism_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_target_accessions_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_target_accessions_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_direct_interaction_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_direct_interaction_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_molecular_mechanism_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_molecular_mechanism_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_disease_efficacy_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_disease_efficacy_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_mechanism_comment_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_mechanism_comment_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_selectivity_comment_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_selectivity_comment_summaries
-  , regexp_replace(COALESCE(final_raw.chembl_binding_site_comment_summaries, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_binding_site_comment_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_mechanism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_mechanism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_mechanism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_mechanism_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_action_type_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_action_type_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_action_type_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_action_type_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_target_chembl_ids_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_target_chembl_ids_summary, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_target_chembl_ids_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_target_chembl_ids_summary
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_target_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_target_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_target_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_target_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_target_type_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_target_type_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_target_type_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_target_type_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_target_organism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_target_organism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_target_organism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_target_organism_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_target_accessions_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_target_accessions_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_target_accessions_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_target_accessions_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_direct_interaction_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_direct_interaction_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_direct_interaction_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_direct_interaction_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_molecular_mechanism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_molecular_mechanism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_molecular_mechanism_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_molecular_mechanism_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_disease_efficacy_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_disease_efficacy_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_disease_efficacy_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_disease_efficacy_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_mechanism_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_mechanism_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_mechanism_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_mechanism_comment_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_selectivity_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_selectivity_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_selectivity_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_selectivity_comment_summaries
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_binding_site_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_binding_site_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_binding_site_comment_summaries, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_binding_site_comment_summaries
   , final_raw.chembl_max_indication_count
   , final_raw.chembl_highest_indication_max_phase
-  , regexp_replace(COALESCE(final_raw.chembl_indication_phase_terms_summary, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_indication_phase_terms_summary
-  , regexp_replace(COALESCE(final_raw.chembl_highest_indication_terms_with_phase_summary, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_highest_indication_terms_with_phase_summary
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_indication_phase_terms_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_indication_phase_terms_summary, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_indication_phase_terms_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_indication_phase_terms_summary
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_highest_indication_terms_with_phase_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_highest_indication_terms_with_phase_summary, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_highest_indication_terms_with_phase_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_highest_indication_terms_with_phase_summary
   , final_raw.chembl_max_oncology_indication_count
   , final_raw.chembl_highest_oncology_indication_max_phase
-  , regexp_replace(COALESCE(final_raw.chembl_oncology_indication_phase_terms_summary, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_oncology_indication_phase_terms_summary
-  , regexp_replace(COALESCE(final_raw.chembl_highest_oncology_indication_terms_with_phase_summary, ''), E'[\\r\\n]+', ' ', 'g') AS chembl_highest_oncology_indication_terms_with_phase_summary
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_oncology_indication_phase_terms_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_oncology_indication_phase_terms_summary, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_oncology_indication_phase_terms_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_oncology_indication_phase_terms_summary
+  , CASE
+        WHEN length(regexp_replace(COALESCE(final_raw.chembl_highest_oncology_indication_terms_with_phase_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')) > 30000
+            THEN left(regexp_replace(COALESCE(final_raw.chembl_highest_oncology_indication_terms_with_phase_summary, ''), E'[\\r\\n\\t]+', ' ', 'g'), 29982) || ' ... [TRUNCATED]'
+        ELSE regexp_replace(COALESCE(final_raw.chembl_highest_oncology_indication_terms_with_phase_summary, ''), E'[\\r\\n\\t]+', ' ', 'g')
+    END AS chembl_highest_oncology_indication_terms_with_phase_summary
 FROM final_raw;
