@@ -10,7 +10,7 @@ from aus_trial_universe.ctgov.utils.general.traverse_curation_tree import (
     walk_trial,
 )
 
-from .i_primary_tumor_mapping import (
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cancer_types.primary_tumor.primary_tumor_mapping import (
     PrimaryTumorKey,
     PrimaryTumorMap,
     make_primary_tumor_key,

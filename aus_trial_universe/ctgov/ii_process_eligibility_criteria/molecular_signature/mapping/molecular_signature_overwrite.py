@@ -10,7 +10,7 @@ from aus_trial_universe.ctgov.utils.general.traverse_curation_tree import (
     walk_trial,
 )
 
-from .i_molecular_signature_mapping import (
+from .molecular_signature_mapping import (
     MolecularSignatureKey,
     MolecularSignatureMap,
     make_molecular_signature_key,
@@ -37,6 +37,7 @@ def rewrite_molecular_signature_node(
         raise TypeError(f"MolecularSignatureCriterion node has no __dict__: {node}")
 
     d.clear()
+
     if (
         molecular_signature_curation
         and not is_effectively_empty(molecular_signature_curation)

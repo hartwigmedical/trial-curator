@@ -1,10 +1,13 @@
-from .mapping import (
+from .molecular_signature_mapping import (
     MolecularSignatureKey,
     MolecularSignatureMap,
     build_molecular_signature_map,
-    get_molecular_signature_key_from_node,
     load_mapping_resource,
     make_molecular_signature_key,
+)
+
+from .molecular_signature_overwrite import (
+    get_molecular_signature_key_from_node,
     overwrite_molecular_signature_in_rules,
     rewrite_molecular_signature_node,
 )

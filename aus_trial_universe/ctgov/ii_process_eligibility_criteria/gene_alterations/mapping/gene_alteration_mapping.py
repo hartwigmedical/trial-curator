@@ -26,8 +26,22 @@ def load_mapping_resource(mapping_path: Path) -> pd.DataFrame:
     if suffix == ".csv":
         return load_resource_csv(mapping_path)
 
+    if suffix == ".tsv":
+        return pd.read_csv(
+            mapping_path,
+            sep="\t",
+            dtype=str,
+            keep_default_na=False,
+            na_values=[],
+        )
+
     if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(mapping_path)
+        return pd.read_excel(
+            mapping_path,
+            dtype=str,
+            keep_default_na=False,
+            na_values=[],
+        )
 
     raise ValueError(f"Unsupported mapping resource format: {mapping_path}")
 

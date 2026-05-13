@@ -5,7 +5,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, DefaultDict, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, DefaultDict, Dict, Iterable, List, Sequence, Tuple
 
 import pandas as pd
 
@@ -18,12 +18,12 @@ from aus_trial_universe.ctgov.utils.general.text_normalisation import (
     norm_cell,
 )
 
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.i_gene_alteration_mapping import (
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.mapping.gene_alteration_mapping import (
     GeneAlterationKey,
     load_mapping_resource,
     make_gene_alteration_key,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.ii_gene_alteration_overwrite import (
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.mapping.gene_alteration_overwrite import (
     get_gene_alteration_key_from_node
 )
 

@@ -115,7 +115,7 @@ def _pick_most_recent(paths: Sequence[Path]) -> Path:
 
 
 def _find_mapping_resource(resources_dir: Path, token: str) -> Path:
-    allowed_suffixes = {".csv", ".xlsx", ".xls"}
+    allowed_suffixes = {".csv", ".tsv", ".xlsx", ".xls"}
     matches = [
         p
         for p in resources_dir.iterdir()
@@ -174,6 +174,8 @@ def _read_tabular_file(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
     if suffix == ".csv":
         return pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[])
+    if suffix == ".tsv":
+        return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, na_values=[])
     if suffix in {".xlsx", ".xls"}:
         return pd.read_excel(path, dtype=str, keep_default_na=False, na_values=[])
     raise ValueError(f"Unsupported input file type: {path.suffix}")
@@ -184,6 +186,9 @@ def _write_tabular_file(df: pd.DataFrame, path: Path) -> None:
     suffix = path.suffix.lower()
     if suffix == ".csv":
         df.to_csv(path, index=False)
+        return
+    if suffix == ".tsv":
+        df.to_csv(path, sep="\t", index=False)
         return
     if suffix in {".xlsx", ".xls"}:
         df.to_excel(path, index=False)
@@ -218,12 +223,7 @@ def load_trial_conditions_lookup(
       - conditions_original
       - conditions_oncotree_curation
     """
-    df = pd.read_csv(
-        conditions_csv,
-        dtype=str,
-        keep_default_na=False,
-        na_values=[],
-    )
+    df = _read_tabular_file(conditions_csv)
     df.columns = [str(c).strip() for c in df.columns]
 
     trial_id_col = _find_column_case_insensitive(df.columns.tolist(), "trial_id")
@@ -568,6 +568,17 @@ def _is_effectively_missing_conditions_term(term: str) -> bool:
     return _normalize_string(term) in {"", "[None]", "NOT([None])"}
 
 
+def _has_non_missing_conditions_curation(value: object) -> bool:
+    terms = _split_terms_preserve_order(value)
+    if not terms:
+        return False
+
+    return any(
+        not _is_effectively_missing_conditions_term(term)
+        for term in terms
+    )
+
+
 def _clean_conditions_curation(value: object) -> str:
     terms = _split_terms_preserve_order(value)
     deduped_terms = _dedupe_preserve_order(terms)
@@ -699,6 +710,80 @@ def make_row(
     )
 
 
+def make_conditions_only_row(
+        *,
+        nct_id: str,
+        trial_conditions: Dict[str, str],
+) -> PrimaryTumorOccurrenceRow:
+    """
+    Create a synthetic occurrence row for a trial that has trial-level
+    conditions but no extracted PrimaryTumorCriterion row.
+
+    Downstream row-level determination already has a primary_missing branch,
+    so this keeps the fallback in the logic layer rather than in the pipeline
+    orchestration layer.
+    """
+    return PrimaryTumorOccurrenceRow(
+        nct_id=_blank_if_empty(nct_id),
+        primary_tumor_type="",
+        primary_tumor_location="",
+        primary_tumor_oncotree_curation="",
+        conditions_original=_blank_if_empty(trial_conditions.get("conditions_original", "")),
+        conditions_oncotree_curation=_blank_if_empty(
+            trial_conditions.get("conditions_oncotree_curation", "")
+        ),
+        rule_text="",
+        inclusive_rule=True,
+        ancestor_chain="",
+        siblings_summary="",
+    )
+
+
+def build_conditions_only_rows(
+        *,
+        primary_tumor_rows: Sequence[PrimaryTumorOccurrenceRow],
+        conditions_lookup: Dict[str, Dict[str, str]],
+) -> List[PrimaryTumorOccurrenceRow]:
+    nct_ids_with_primary_rows = {
+        _normalize_string(row.nct_id).upper()
+        for row in primary_tumor_rows
+        if _normalize_string(row.nct_id)
+    }
+
+    out: List[PrimaryTumorOccurrenceRow] = []
+    skipped_missing_conditions_only = 0
+
+    for nct_id in sorted(conditions_lookup):
+        normalized_nct_id = _normalize_string(nct_id).upper()
+        if not normalized_nct_id:
+            continue
+
+        if normalized_nct_id in nct_ids_with_primary_rows:
+            continue
+
+        trial_conditions = conditions_lookup[normalized_nct_id]
+        conditions_curation = trial_conditions.get("conditions_oncotree_curation", "")
+
+        if not _has_non_missing_conditions_curation(conditions_curation):
+            skipped_missing_conditions_only += 1
+            continue
+
+        out.append(
+            make_conditions_only_row(
+                nct_id=normalized_nct_id,
+                trial_conditions=trial_conditions,
+            )
+        )
+
+    if skipped_missing_conditions_only:
+        logger.info(
+            "Excluded %d conditions-only trial(s) with no cancer-mapped condition",
+            skipped_missing_conditions_only,
+        )
+
+    return out
+
+
 def walk_rule_tree(
         *,
         nct_id: str,
@@ -776,7 +861,16 @@ def extract_rows_from_trial_file(
         pt_map: PrimaryTumorMap,
         conditions_lookup: Dict[str, Dict[str, str]],
 ) -> List[PrimaryTumorOccurrenceRow]:
-    nct_id = get_nct_id(py_path)
+    nct_id = get_nct_id(py_path).upper()
+
+    if nct_id not in conditions_lookup:
+        logger.info(
+            "Skipping %s because %s is not present in trial-level conditions lookup",
+            py_path,
+            nct_id,
+        )
+        return []
+
     rules = load_curated_rules(py_path)
     if not rules:
         logger.warning("No rules loaded from %s", py_path)
@@ -941,6 +1035,36 @@ def apply_manual_overwrite_concat(df: pd.DataFrame, manual_df: pd.DataFrame) -> 
     return out
 
 
+def filter_manual_overwrite_to_generated_trials(
+        manual_df: pd.DataFrame,
+        generated_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if generated_df.empty:
+        return manual_df.iloc[0:0].copy()
+
+    nct_col = _find_column_case_insensitive(manual_df.columns.tolist(), "nct_id")
+
+    generated_nct_ids = {
+        _normalize_string(value).upper()
+        for value in generated_df["nct_id"].tolist()
+        if _normalize_string(value)
+    }
+
+    before = len(manual_df)
+
+    out = manual_df.loc[
+        manual_df[nct_col].map(lambda value: _normalize_string(value).upper() in generated_nct_ids)
+    ].copy()
+
+    dropped = before - len(out)
+    if dropped:
+        logger.info(
+            "Dropped %d manual overwrite row(s) for trials not present in generated primary-vs-conditions rows",
+            dropped,
+        )
+
+    return out.reset_index(drop=True)
+
 # ---------------------------
 # Combined workflow
 # ---------------------------
@@ -988,17 +1112,60 @@ def run_combined_workflow(
                 raise
             logger.exception("Skipping %s due to error: %s", py_path, exc)
 
-    logger.info("Extracted %d row(s) from %d file(s)", len(rows), n_files)
+    logger.info(
+        "Extracted %d primary tumour occurrence row(s) from %d file(s)",
+        len(rows),
+        n_files,
+    )
 
-    out = rows_to_dataframe(rows)
-    out = add_comparison_columns(out, tree)
+    primary_out = rows_to_dataframe(rows)
+    primary_out = add_comparison_columns(primary_out, tree)
 
     logger.info("Loading manual overwrite file: %s", manual_overwrite_file)
     manual_df = _read_tabular_file(manual_overwrite_file)
     manual_df.columns = [str(col).strip() for col in manual_df.columns]
 
-    logger.info("Applying manual overwrite horizontal concat")
-    out = apply_manual_overwrite_concat(out, manual_df)
+    manual_df = filter_manual_overwrite_to_generated_trials(
+        manual_df=manual_df,
+        generated_df=primary_out,
+    )
+
+    logger.info("Applying manual overwrite horizontal concat to primary-tumour rows")
+    primary_out = apply_manual_overwrite_concat(primary_out, manual_df)
+
+    conditions_only_rows = build_conditions_only_rows(
+        primary_tumor_rows=rows,
+        conditions_lookup=conditions_lookup,
+    )
+    logger.info(
+        "Adding %d conditions-only trial row(s) with no PrimaryTumorCriterion",
+        len(conditions_only_rows),
+    )
+
+    if not conditions_only_rows:
+        return primary_out
+
+    conditions_only_out = rows_to_dataframe(conditions_only_rows)
+    conditions_only_out = add_comparison_columns(conditions_only_out, tree)
+
+    # Conditions-only rows do not have corresponding manual-overwrite rows.
+    # Preserve the primary_out schema by adding blank values for manual payload columns.
+    for column in primary_out.columns:
+        if column not in conditions_only_out.columns:
+            conditions_only_out[column] = ""
+
+    for column in conditions_only_out.columns:
+        if column not in primary_out.columns:
+            primary_out[column] = ""
+
+    out = pd.concat(
+        [
+            primary_out,
+            conditions_only_out.loc[:, primary_out.columns],
+        ],
+        ignore_index=True,
+    )
+
     return out
 
 
@@ -1023,7 +1190,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--conditions_csv",
         required=True,
         type=Path,
-        help="CSV containing trial_id, conditions_original, and conditions_oncotree_curation",
+        help="CSV/TSV/XLSX containing trial_id, conditions_original, and conditions_oncotree_curation",
     )
     parser.add_argument(
         "--mapping_dir",
@@ -1042,7 +1209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         required=True,
         type=Path,
         help=(
-            "CSV/XLSX containing nct_id, primary_tumor_type, primary_tumor_location, "
+            "CSV/TSV/XLSX containing nct_id, primary_tumor_type, primary_tumor_location, "
             "conditions_original, and manual_overwrite."
         ),
     )
@@ -1050,7 +1217,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--output_file",
         required=True,
         type=Path,
-        help="Path to write the output CSV/XLSX.",
+        help="Path to write the output CSV/TSV/XLSX.",
     )
     parser.add_argument(
         "--fail_on_error",

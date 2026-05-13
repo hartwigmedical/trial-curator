@@ -33,6 +33,22 @@ def is_blank(v: object) -> bool:
     return s == "" or s == "_" or s.lower() == "nan"
 
 
+def is_wildtype_model(model_expr: object) -> bool:
+    return normalize_text(model_expr).casefold() == "wildtype"
+
+
+def render_wildtype_args(gene_raw: object) -> str:
+    genes = split_commas(normalize_text(gene_raw))
+    if not genes and not is_blank(gene_raw):
+        genes = [normalize_text(gene_raw)]
+
+    return " | ".join(
+        f"Wildtype[{gene}]"
+        for gene in genes
+        if not is_blank(gene)
+    )
+
+
 def clean_bool(v: object) -> bool:
     if v is None:
         return False
@@ -776,6 +792,9 @@ def map_row_to_args(row: pd.Series) -> str:
 
     if is_blank(gene_raw) or is_blank(model_raw):
         return ""
+
+    if is_wildtype_model(model_raw):
+        return render_wildtype_args(gene_raw)
 
     var_raw = normalize_text(row.get("Variant_curation", ""))
     gene_type_raw = normalize_text(row.get("Gene_type", ""))

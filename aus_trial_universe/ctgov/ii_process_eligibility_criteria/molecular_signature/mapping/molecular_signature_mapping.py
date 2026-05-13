@@ -10,9 +10,9 @@ from aus_trial_universe.ctgov.utils.general.csv_mapping_file import (
     load_resource_csv,
 )
 from aus_trial_universe.ctgov.utils.general.text_normalisation import (
-    norm_cell,
     clean_cell_str,
     is_effectively_empty,
+    norm_cell,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,13 +22,27 @@ MolecularSignatureMap = Dict[MolecularSignatureKey, str]
 
 
 def load_mapping_resource(mapping_path: Path) -> pd.DataFrame:
-    suffix = mapping_path.suffix.lower()
+    suffix = mapping_path.suffix.casefold()
 
     if suffix == ".csv":
         return load_resource_csv(mapping_path)
 
+    if suffix == ".tsv":
+        return pd.read_csv(
+            mapping_path,
+            sep="\t",
+            dtype=str,
+            keep_default_na=False,
+            na_values=[],
+        )
+
     if suffix in {".xlsx", ".xls"}:
-        return pd.read_excel(mapping_path)
+        return pd.read_excel(
+            mapping_path,
+            dtype=str,
+            keep_default_na=False,
+            na_values=[],
+        )
 
     raise ValueError(f"Unsupported mapping resource format: {mapping_path}")
 
@@ -39,12 +53,13 @@ def make_molecular_signature_key(signature: str) -> MolecularSignatureKey:
 
 def build_molecular_signature_map(mapping_path: Path) -> MolecularSignatureMap:
     df = load_mapping_resource(mapping_path)
+    df.columns = [str(column).strip() for column in df.columns]
 
     required = [
         "Signature_lookup",
         "Findings_curation",
     ]
-    missing = [c for c in required if c not in df.columns]
+    missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(
             f"Molecular signature mapping resource missing required columns: {missing}"

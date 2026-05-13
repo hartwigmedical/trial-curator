@@ -10,7 +10,7 @@ from aus_trial_universe.ctgov.utils.general.traverse_curation_tree import (
     walk_trial,
 )
 
-from .i_gene_alteration_mapping import (
+from .gene_alteration_mapping import (
     GeneAlterationKey,
     GeneAlterationMap,
     make_gene_alteration_key,
