@@ -785,9 +785,6 @@ def _clean_positive_terms(raw_value: object, hierarchy: OncoTreeHierarchy) -> Li
     terms = [term for term in terms if term]
     terms = _dedupe_preserve_order(terms)
 
-    if len(terms) > 1:
-        terms = [term for term in terms if not _is_pan_cancer_term(term)]
-
     terms = _reduce_positive_terms_with_oncotree(terms, hierarchy)
     return _dedupe_preserve_order(terms)
 

@@ -402,12 +402,21 @@ def _polarity_from_rule_and_not(
     under_not_criterion: bool,
 ) -> str:
     """
-    Inclusive rule + positive criterion      -> inclusive
-    Inclusive rule + NOT(criterion)         -> exclusive
-    Exclusion rule + positive criterion     -> exclusive
-    Exclusion rule + NOT(criterion)         -> inclusive
+    Determine trial-level polarity for a mapped MolecularSignatureCriterion.
+
+    CTGov exclusion rules are represented as:
+
+        Rule(exclude=True, curation=NotCriterion(...))
+
+    In this convention, the NotCriterion wrapper under an exclusion rule is
+    structural/canonical representation of the excluded condition, not an
+    additional biological negation.
+
+    Therefore a criterion is trial-level exclusive if either:
+      - the source rule is an exclusion rule, or
+      - the criterion is under NotCriterion in an inclusion rule.
     """
-    return "exclusive" if bool(rule_exclude) ^ bool(under_not_criterion) else "inclusive"
+    return "exclusive" if bool(rule_exclude) or bool(under_not_criterion) else "inclusive"
 
 
 def _derive_input_text_from_node(node: Any) -> str:

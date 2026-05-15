@@ -43,7 +43,7 @@ def render_wildtype_args(gene_raw: object) -> str:
         genes = [normalize_text(gene_raw)]
 
     return " | ".join(
-        f"Wildtype[{gene}]"
+        f"Wildtype[gene={gene}]"
         for gene in genes
         if not is_blank(gene)
     )

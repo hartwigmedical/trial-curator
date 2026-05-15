@@ -301,12 +301,8 @@ def _collect_trial_positive_terms(group: pd.DataFrame) -> List[str]:
     terms: List[str] = []
     for value in group[INPUT_INCLUSIVE_COL].tolist():
         terms.extend(_split_or_terms(value))
+
     terms = [term for term in (_normalize_string(t) for t in terms) if term]
-    terms = _dedupe_preserve_order(terms)
-
-    if len(terms) > 1:
-        terms = [term for term in terms if not _is_pan_cancer_term(term)]
-
     return _dedupe_preserve_order(terms)
 
 
