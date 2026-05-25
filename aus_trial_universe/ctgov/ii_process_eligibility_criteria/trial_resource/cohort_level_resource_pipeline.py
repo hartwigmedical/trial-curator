@@ -76,9 +76,9 @@ class CohortResourcePipelineOutputs:
 
 
 def _default_export_file(
-    eligibility_dir: Path,
-    *,
-    export_date: Optional[str] = None,
+        eligibility_dir: Path,
+        *,
+        export_date: Optional[str] = None,
 ) -> Path:
     if export_date is None:
         export_date = date.today().strftime(DEFAULT_EXPORT_SUFFIX_FORMAT)
@@ -104,10 +104,10 @@ def _normalize_string(value: object) -> str:
 
 
 def _find_column_case_insensitive(
-    df: pd.DataFrame,
-    candidates: Sequence[str],
-    *,
-    label: str,
+        df: pd.DataFrame,
+        candidates: Sequence[str],
+        *,
+        label: str,
 ) -> str:
     normalized_to_original = {
         re.sub(r"[^a-z0-9]+", "", str(column).casefold()): str(column)
@@ -173,10 +173,10 @@ def _normalize_cohort_base_table(cohort_base_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _load_or_build_cohort_base(
-    *,
-    curated_dir: Path,
-    cohort_base_file: Optional[Path],
-    fail_on_error: bool,
+        *,
+        curated_dir: Path,
+        cohort_base_file: Optional[Path],
+        fail_on_error: bool,
 ) -> pd.DataFrame:
     if cohort_base_file is not None:
         df = _read_tabular_file(cohort_base_file)
@@ -233,9 +233,9 @@ def _base_trial_keys_in_order(base_df: pd.DataFrame) -> List[str]:
 
 
 def _complete_cohort_base_for_base_trials(
-    *,
-    base_df: pd.DataFrame,
-    cohort_base_df: pd.DataFrame,
+        *,
+        base_df: pd.DataFrame,
+        cohort_base_df: pd.DataFrame,
 ) -> pd.DataFrame:
     """
     Return a cohort base restricted to the base trial table, with one guaranteed
@@ -314,8 +314,8 @@ def _complete_cohort_base_for_base_trials(
 
 
 def _expand_base_trials_to_cohorts(
-    base_df: pd.DataFrame,
-    cohort_base_df: pd.DataFrame,
+        base_df: pd.DataFrame,
+        cohort_base_df: pd.DataFrame,
 ) -> pd.DataFrame:
     _require_columns(base_df, ["_nct_id_key"], label="Base trials table")
     _require_columns(
@@ -369,10 +369,10 @@ def _expand_base_trials_to_cohorts(
 
 
 def _load_cohort_component_table(
-    path: Path,
-    *,
-    required_value_columns: Sequence[str],
-    label: str,
+        path: Path,
+        *,
+        required_value_columns: Sequence[str],
+        label: str,
 ) -> pd.DataFrame:
     df = _read_tabular_file(path)
     df.columns = [str(column).strip() for column in df.columns]
@@ -394,7 +394,7 @@ def _load_cohort_component_table(
     out["_cohort_key"] = out[cohort_column].map(normalize_cohort_label)
     out = out[
         out["_nct_id_key"].ne("") & out["_cohort_key"].ne("")
-    ].copy()
+        ].copy()
 
     duplicated = out.loc[
         out.duplicated(["_nct_id_key", "_cohort_key"], keep=False),
@@ -427,8 +427,8 @@ def _load_cohort_component_table(
 
 
 def _component_keys_not_in_base(
-    base_df: pd.DataFrame,
-    component_df: pd.DataFrame,
+        base_df: pd.DataFrame,
+        component_df: pd.DataFrame,
 ) -> List[Tuple[str, str]]:
     if component_df.empty:
         return []
@@ -452,11 +452,11 @@ def _component_keys_not_in_base(
 
 
 def _merge_cohort_component(
-    base_df: pd.DataFrame,
-    component_df: pd.DataFrame,
-    *,
-    value_columns: Sequence[str],
-    label: str,
+        base_df: pd.DataFrame,
+        component_df: pd.DataFrame,
+        *,
+        value_columns: Sequence[str],
+        label: str,
 ) -> pd.DataFrame:
     unmatched_component_keys = _component_keys_not_in_base(base_df, component_df)
     if unmatched_component_keys:
@@ -505,12 +505,131 @@ def _merge_cohort_component(
     return merged
 
 
+def _split_component_terms(value: object, delimiter: str) -> List[str]:
+    text = _normalize_string(value)
+    if not text:
+        return []
+
+    return [part.strip() for part in text.split(delimiter) if part.strip()]
+
+
+def _dedupe_preserve_order(values: Iterable[str]) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+
+    for value in values:
+        text = _normalize_string(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+
+    return out
+
+
+def _join_component_terms(values: Iterable[str], delimiter: str) -> str:
+    return delimiter.join(_dedupe_preserve_order(values))
+
+
+def _inherit_general_cancer_type_terms_into_explicit_cohorts(
+        df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Ensure explicit cohort cancer-type values inherit the trial's general
+    cancer-type terms after the cancer-type component has been merged.
+
+    This is intentionally final-resource and cancer-type specific. It fixes
+    rows that exist in the full cohort base but are absent from the sparse
+    cancer-type component table, while leaving gene alteration, molecular
+    signature, row keys, and row counts unchanged.
+    """
+    required = [
+        "_nct_id_key",
+        COHORT_COLUMN,
+        "cancer_type_inclusive",
+        "cancer_type_exclusive",
+    ]
+    _require_columns(
+        df,
+        required,
+        label="Cohort resource table before cancer-type inheritance",
+    )
+
+    out = df.copy()
+
+    general_rows = out.loc[
+        out[COHORT_COLUMN].eq(GENERAL_COHORT),
+        [
+            "_nct_id_key",
+            "cancer_type_inclusive",
+            "cancer_type_exclusive",
+        ],
+    ].copy()
+
+    if general_rows.empty:
+        return out
+
+    general_by_trial = general_rows.set_index("_nct_id_key", drop=False)
+    changed_rows = 0
+
+    explicit_mask = ~out[COHORT_COLUMN].eq(GENERAL_COHORT)
+    for idx, row in out.loc[explicit_mask].iterrows():
+        nct_id = _normalize_nct_id(row.get("_nct_id_key", ""))
+        if not nct_id or nct_id not in general_by_trial.index:
+            continue
+
+        general = general_by_trial.loc[nct_id]
+
+        current_inclusive = _split_component_terms(
+            row.get("cancer_type_inclusive", ""),
+            " | ",
+        )
+        general_inclusive = _split_component_terms(
+            general.get("cancer_type_inclusive", ""),
+            " | ",
+        )
+
+        current_exclusive = _split_component_terms(
+            row.get("cancer_type_exclusive", ""),
+            " & ",
+        )
+        general_exclusive = _split_component_terms(
+            general.get("cancer_type_exclusive", ""),
+            " & ",
+        )
+
+        new_inclusive = _join_component_terms(
+            [*current_inclusive, *general_inclusive],
+            " | ",
+        )
+        new_exclusive = _join_component_terms(
+            [*current_exclusive, *general_exclusive],
+            " & ",
+        )
+
+        if (
+                new_inclusive != _normalize_string(row.get("cancer_type_inclusive", ""))
+                or new_exclusive != _normalize_string(row.get("cancer_type_exclusive", ""))
+        ):
+            changed_rows += 1
+            out.at[idx, "cancer_type_inclusive"] = new_inclusive
+            out.at[idx, "cancer_type_exclusive"] = new_exclusive
+
+    if changed_rows:
+        LOGGER.info(
+            "Inherited general cancer-type terms into %d explicit cohort row(s)",
+            changed_rows,
+        )
+
+    return out
+
+
 def _order_output_columns(out: pd.DataFrame) -> pd.DataFrame:
     base_columns = [
         column
         for column in out.columns
         if column not in {"_nct_id_key", "_cohort_key", *FINAL_OUTPUT_COLUMNS}
-        and column != COHORT_COLUMN
+           and column != COHORT_COLUMN
     ]
 
     if OUTPUT_NCT_ID_COLUMN in base_columns:
@@ -526,21 +645,22 @@ def _order_output_columns(out: pd.DataFrame) -> pd.DataFrame:
 
     return out.loc[:, [*ordered_base_columns, *FINAL_OUTPUT_COLUMNS]]
 
+
 # =============================================================================
 # Public table builder
 # =============================================================================
 
 
 def build_cohort_resource_table(
-    *,
-    trials_file: Path,
-    curated_dir: Path,
-    cancer_type_file: Path,
-    gene_alteration_file: Path,
-    molecular_signature_file: Path,
-    cohort_base_file: Optional[Path] = None,
-    nct_id_column: Optional[str] = None,
-    fail_on_error: bool = False,
+        *,
+        trials_file: Path,
+        curated_dir: Path,
+        cancer_type_file: Path,
+        gene_alteration_file: Path,
+        molecular_signature_file: Path,
+        cohort_base_file: Optional[Path] = None,
+        nct_id_column: Optional[str] = None,
+        fail_on_error: bool = False,
 ) -> pd.DataFrame:
     base_df = _load_base_trials(
         trials_file,
@@ -592,6 +712,8 @@ def build_cohort_resource_table(
         value_columns=("cancer_type_inclusive", "cancer_type_exclusive"),
         label="cancer_type",
     )
+
+    out = _inherit_general_cancer_type_terms_into_explicit_cohorts(out)
 
     out = _merge_cohort_component(
         out,
@@ -656,19 +778,19 @@ def build_cohort_resource_table(
 
 
 def discover_pipeline_inputs(
-    *,
-    repo_root: Path,
-    eligibility_data_dir: Path,
-    trials_file: Optional[Path],
-    curated_dir: Optional[Path],
-    cancer_type_file: Optional[Path],
-    gene_alteration_file: Optional[Path],
-    molecular_signature_file: Optional[Path],
-    cohort_base_file: Optional[Path],
-    output_file: Optional[Path],
-    export_date: Optional[str],
-    nct_id_column: Optional[str],
-    fail_on_error: bool,
+        *,
+        repo_root: Path,
+        eligibility_data_dir: Path,
+        trials_file: Optional[Path],
+        curated_dir: Optional[Path],
+        cancer_type_file: Optional[Path],
+        gene_alteration_file: Optional[Path],
+        molecular_signature_file: Optional[Path],
+        cohort_base_file: Optional[Path],
+        output_file: Optional[Path],
+        export_date: Optional[str],
+        nct_id_column: Optional[str],
+        fail_on_error: bool,
 ) -> CohortResourcePipelineInputs:
     repo_root = repo_root.resolve()
     eligibility_dir = _resolve_path(eligibility_data_dir, repo_root)
@@ -768,7 +890,7 @@ def validate_pipeline_inputs(inputs: CohortResourcePipelineInputs) -> None:
 
 
 def run_cohort_resource_pipeline(
-    inputs: CohortResourcePipelineInputs,
+        inputs: CohortResourcePipelineInputs,
 ) -> CohortResourcePipelineOutputs:
     LOGGER.info("Cohort-resource pipeline inputs:")
     LOGGER.info("  trials_file:                %s", inputs.trials_file)
