@@ -17,6 +17,9 @@ from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cancer_types impor
     build_primary_tumor_map,
     get_primary_tumor_key_from_node,
 )
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cohort_utils import (
+    serialize_rule_cohorts,
+)
 from aus_trial_universe.ctgov.utils.general.text_normalisation import (
     clean_cell_str,
     is_effectively_empty,
@@ -45,6 +48,7 @@ BASE_CSV_COLUMNS: Sequence[str] = (
     "conditions_oncotree_curation",
     "rule_text",
     "inclusive_rule",
+    "cohorts",
     "ancestor_chain",
     "siblings_summary",
 )
@@ -93,6 +97,7 @@ class PrimaryTumorOccurrenceRow:
     conditions_oncotree_curation: str
     rule_text: str
     inclusive_rule: bool
+    cohorts: str
     ancestor_chain: str
     siblings_summary: str
 
@@ -705,6 +710,7 @@ def make_row(
         ),
         rule_text=_blank_if_empty(getattr(rule, "rule_text", None)),
         inclusive_rule=not bool(getattr(rule, "exclude", False)),
+        cohorts=serialize_rule_cohorts(rule),
         ancestor_chain=build_ancestor_chain(ancestors),
         siblings_summary=build_siblings_summary(node, parent),
     )
@@ -734,6 +740,7 @@ def make_conditions_only_row(
         ),
         rule_text="",
         inclusive_rule=True,
+        cohorts="",
         ancestor_chain="",
         siblings_summary="",
     )

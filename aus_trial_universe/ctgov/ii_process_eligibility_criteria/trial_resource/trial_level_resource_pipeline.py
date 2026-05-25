@@ -38,6 +38,8 @@ NCT_ID_COLUMN_CANDIDATES: Sequence[str] = (
     "TrialId",
 )
 
+OUTPUT_NCT_ID_COLUMN = "nctId"
+
 FINAL_OUTPUT_COLUMNS: Sequence[str] = (
     "cancer_type_inclusive",
     "cancer_type_exclusive",
@@ -173,6 +175,45 @@ def _find_nct_id_column(df: pd.DataFrame, explicit_column: Optional[str] = None)
     )
 
 
+def _canonicalize_base_nct_id_output_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Return ``df`` with a single user-visible NCT ID column: ``nctId``.
+
+    ``_nct_id_key`` remains as the internal merge key.  Any duplicate NCT ID
+    columns used only for detection/normalisation, such as ``nct_id``, are
+    removed from the exported base columns.
+    """
+    if "_nct_id_key" not in df.columns:
+        raise ValueError("Internal error: _nct_id_key is required before NCT ID canonicalisation")
+
+    out = df.copy()
+    visible_columns = [column for column in out.columns if column != "_nct_id_key"]
+    candidate_norms = {_normalize_header(column) for column in NCT_ID_COLUMN_CANDIDATES}
+    id_positions = [
+        idx
+        for idx, column in enumerate(visible_columns)
+        if _normalize_header(column) in candidate_norms
+    ]
+    insert_at = min(id_positions) if id_positions else 0
+
+    out = out.drop(columns=[OUTPUT_NCT_ID_COLUMN], errors="ignore")
+    out.insert(insert_at, OUTPUT_NCT_ID_COLUMN, out["_nct_id_key"])
+
+    duplicate_id_columns = [
+        column
+        for column in out.columns
+        if column not in {OUTPUT_NCT_ID_COLUMN, "_nct_id_key"}
+        and _normalize_header(column) in candidate_norms
+    ]
+    if duplicate_id_columns:
+        LOGGER.info(
+            "Dropping duplicate NCT ID column(s) from resource export: %s",
+            duplicate_id_columns,
+        )
+        out = out.drop(columns=duplicate_id_columns)
+
+    return out
+
+
 def _require_columns(
     df: pd.DataFrame,
     required_columns: Iterable[str],
@@ -220,10 +261,7 @@ def _load_base_trials(
     if blank_keys:
         LOGGER.warning("Base trials file has %d row(s) with blank NCT ID key", blank_keys)
 
-    if "nct_id" in out.columns:
-        out["nct_id"] = out["_nct_id_key"]
-    else:
-        out.insert(0, "nct_id", out["_nct_id_key"])
+    out = _canonicalize_base_nct_id_output_column(out)
 
     duplicate_keys = out.loc[
         out["_nct_id_key"].ne("") & out["_nct_id_key"].duplicated(keep=False),
@@ -407,8 +445,12 @@ def build_trial_resource_table(
         "Built trial resource table: rows=%d columns=%d unique_trials=%d",
         len(out),
         len(out.columns),
-        out["nct_id"].map(_normalize_nct_id).replace("", pd.NA).dropna().nunique()
-        if "nct_id" in out.columns
+        out[OUTPUT_NCT_ID_COLUMN]
+        .map(_normalize_nct_id)
+        .replace("", pd.NA)
+        .dropna()
+        .nunique()
+        if OUTPUT_NCT_ID_COLUMN in out.columns
         else 0,
     )
 
