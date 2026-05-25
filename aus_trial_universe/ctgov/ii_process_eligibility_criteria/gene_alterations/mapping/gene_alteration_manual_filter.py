@@ -12,6 +12,11 @@ import pandas as pd
 from aus_trial_universe.ctgov.i_download_trials_and_extract_eligibility.utils.load_curated_rules import (
     load_curated_rules,
 )
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cohort_utils import (
+    build_cohort_base_from_curated_rules,
+    expand_to_effective_cohort_rows,
+    serialize_rule_cohorts,
+)
 from aus_trial_universe.ctgov.utils.general.text_normalisation import (
     clean_cell_str,
     is_effectively_empty,
@@ -27,7 +32,7 @@ REQUIRED_MANUAL_COLUMNS: Sequence[str] = (
     "manual_overwrite_mappingStatus",
 )
 
-OUTPUT_COLUMNS: Sequence[str] = (
+TRIAL_LEVEL_OUTPUT_COLUMNS: Sequence[str] = (
     "TrialId",
     "source_file",
     "rule_index",
@@ -35,6 +40,7 @@ OUTPUT_COLUMNS: Sequence[str] = (
     "criterion_path",
     "rule_text",
     "exclusive_rule",
+    "cohorts",
     "under_not_criterion",
     "input_text",
     "gene_input",
@@ -44,6 +50,29 @@ OUTPUT_COLUMNS: Sequence[str] = (
     "manual_filter_action",
     "manual_filter_reason",
 )
+
+COHORT_LEVEL_OUTPUT_COLUMNS: Sequence[str] = (
+    "TrialId",
+    "cohort",
+    "source_file",
+    "rule_index",
+    "criterion_index",
+    "criterion_path",
+    "rule_text",
+    "exclusive_rule",
+    "cohorts",
+    "under_not_criterion",
+    "input_text",
+    "gene_input",
+    "alteration_input",
+    "variant_input",
+    "description_input",
+    "manual_filter_action",
+    "manual_filter_reason",
+)
+
+# Backward-compatible alias for existing imports/tests.
+OUTPUT_COLUMNS: Sequence[str] = TRIAL_LEVEL_OUTPUT_COLUMNS
 
 
 @dataclass(frozen=True)
@@ -62,6 +91,7 @@ class GeneAlterationCriterionRecord:
     criterion_path: str
     rule_text: str
     exclusive_rule: bool
+    cohorts: str
     under_not_criterion: bool
     input_text: str
     gene_input: str
@@ -346,6 +376,7 @@ def extract_filter_records_from_rules(
     for rule_index, rule in enumerate(rules, start=1):
         rule_text = _display_cell(getattr(rule, "rule_text", ""))
         rule_exclude = _safe_bool(getattr(rule, "exclude", False))
+        cohorts = serialize_rule_cohorts(rule)
 
         for node, under_not, path in iter_gene_alteration_nodes(rule):
             criterion_counter += 1
@@ -367,6 +398,7 @@ def extract_filter_records_from_rules(
                     criterion_path=path,
                     rule_text=rule_text,
                     exclusive_rule=rule_exclude,
+                    cohorts=cohorts,
                     under_not_criterion=under_not,
                     input_text=input_text,
                     gene_input=_display_cell(getattr(node, "gene", "")),
@@ -458,6 +490,103 @@ def build_manual_filter_report(
     return df
 
 
+def _cohort_base_with_trial_id_column(cohort_base_df: pd.DataFrame) -> pd.DataFrame:
+    """Return cohort base table with TrialId/cohort columns for manual-filter expansion."""
+    if "TrialId" in cohort_base_df.columns:
+        return cohort_base_df.copy()
+
+    if "nct_id" not in cohort_base_df.columns:
+        raise ValueError(
+            "Cohort base table must contain either 'nct_id' or 'TrialId'. "
+            f"Found columns: {list(cohort_base_df.columns)}"
+        )
+
+    return cohort_base_df.rename(columns={"nct_id": "TrialId"}).copy()
+
+
+def build_manual_filter_cohort_level_report(
+    *,
+    trial_level_df: pd.DataFrame,
+    input_dir: Optional[Path] = None,
+    cohort_base_df: Optional[pd.DataFrame] = None,
+    fail_on_error: bool = False,
+) -> pd.DataFrame:
+    """
+    Expand the trial/raw manual-filter report to effective nct_id + cohort rows.
+
+    Input convention:
+      - blank ``cohorts`` means the source Rule is general/trial-wide
+      - nonblank ``cohorts`` contains serialized Rule.cohorts labels
+
+    Output convention:
+      - ``cohort == "(general)"`` receives only general rows
+      - each explicit cohort receives general rows plus its own explicit rows
+
+    ``trial_level_df`` is usually the output of build_manual_filter_report().
+    """
+    for column in TRIAL_LEVEL_OUTPUT_COLUMNS:
+        if column not in trial_level_df.columns:
+            trial_level_df[column] = ""
+
+    trial_level_df = trial_level_df.loc[:, list(TRIAL_LEVEL_OUTPUT_COLUMNS)].copy()
+
+    if cohort_base_df is None:
+        if input_dir is None:
+            raise ValueError(
+                "Either input_dir or cohort_base_df must be supplied to build "
+                "the cohort-level manual filter report."
+            )
+        cohort_base_df = build_cohort_base_from_curated_rules(
+            curated_dir=input_dir,
+            fail_on_error=fail_on_error,
+        )
+
+    cohort_base_for_manual = _cohort_base_with_trial_id_column(cohort_base_df)
+
+    expanded = expand_to_effective_cohort_rows(
+        trial_level_df,
+        cohort_base_for_manual,
+        nct_col="TrialId",
+        cohorts_col="cohorts",
+        cohort_col="cohort",
+    )
+
+    for column in COHORT_LEVEL_OUTPUT_COLUMNS:
+        if column not in expanded.columns:
+            expanded[column] = ""
+
+    expanded = expanded.loc[:, list(COHORT_LEVEL_OUTPUT_COLUMNS)]
+
+    LOGGER.info(
+        "Built cohort-level manual filter report: rows=%d keep=%d drop=%d",
+        len(expanded),
+        int((expanded["manual_filter_action"] == "keep").sum()) if not expanded.empty else 0,
+        int((expanded["manual_filter_action"] == "drop").sum()) if not expanded.empty else 0,
+    )
+
+    return expanded
+
+
+def build_manual_filter_reports(
+    *,
+    input_dir: Path,
+    manual_overwrite_file: Path,
+    fail_on_error: bool = False,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Return (trial_level_df, cohort_level_df) manual-filter reports."""
+    trial_level_df = build_manual_filter_report(
+        input_dir=input_dir,
+        manual_overwrite_file=manual_overwrite_file,
+        fail_on_error=fail_on_error,
+    )
+    cohort_level_df = build_manual_filter_cohort_level_report(
+        trial_level_df=trial_level_df,
+        input_dir=input_dir,
+        fail_on_error=fail_on_error,
+    )
+    return trial_level_df, cohort_level_df
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -488,7 +617,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--output_file",
         required=True,
         type=Path,
-        help="Output report path: .tsv, .csv, .xlsx, or .xls.",
+        help="Trial-level/raw output report path: .tsv, .csv, .xlsx, or .xls.",
+    )
+    parser.add_argument(
+        "--cohort_output_file",
+        required=False,
+        type=Path,
+        default=None,
+        help=(
+            "Optional cohort-level/effective output report path. If supplied, "
+            "writes the general-plus-cohort-expanded manual-filter report."
+        ),
     )
     parser.add_argument(
         "--fail_on_error",
@@ -508,15 +647,32 @@ def main(argv: Optional[List[str]] = None) -> int:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    df = build_manual_filter_report(
+    trial_level_df = build_manual_filter_report(
         input_dir=args.input_dir,
         manual_overwrite_file=args.manual_overwrite_file,
         fail_on_error=args.fail_on_error,
     )
 
-    LOGGER.info("Writing manual filter report: %s", args.output_file)
-    _write_tabular_file(df, args.output_file)
-    LOGGER.info("Done. Wrote %d row(s) to %s", len(df), args.output_file)
+    LOGGER.info("Writing trial-level manual filter report: %s", args.output_file)
+    _write_tabular_file(trial_level_df, args.output_file)
+    LOGGER.info("Done. Wrote %d row(s) to %s", len(trial_level_df), args.output_file)
+
+    if args.cohort_output_file is not None:
+        cohort_level_df = build_manual_filter_cohort_level_report(
+            trial_level_df=trial_level_df,
+            input_dir=args.input_dir,
+            fail_on_error=args.fail_on_error,
+        )
+        LOGGER.info(
+            "Writing cohort-level manual filter report: %s",
+            args.cohort_output_file,
+        )
+        _write_tabular_file(cohort_level_df, args.cohort_output_file)
+        LOGGER.info(
+            "Done. Wrote %d row(s) to %s",
+            len(cohort_level_df),
+            args.cohort_output_file,
+        )
 
     return 0
 

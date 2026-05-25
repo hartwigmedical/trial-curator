@@ -21,6 +21,9 @@ from aus_trial_universe.ctgov.utils.general.text_normalisation import (
     clean_cell_str,
     is_effectively_empty,
 )
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cohort_utils import (
+    serialize_rule_cohorts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ MAPPED_CRITERIA_COLUMNS: Sequence[str] = (
     "criterion_path",
     "rule_text",
     "rule_exclude",
+    "cohorts",
     "under_not_criterion",
     "polarity",
     "input_text",
@@ -271,10 +275,7 @@ def build_processed_mapping_resource(
     mapping_resource_file: Path,
 ) -> pd.DataFrame:
     """
-    Copy the curated molecular-signature resource into processed/ with cleaned
-    column names and stable string reading.
-
-    No mapping logic is changed here.
+    Copy the curated molecular-signature resource into processed/ with cleaned column names and stable string reading.
     """
     df = _read_tabular_file(mapping_resource_file)
     df.columns = [str(column).strip() for column in df.columns]
@@ -488,6 +489,7 @@ def build_mapped_criteria_table(
             for rule_index, rule in enumerate(rules, start=1):
                 rule_text = _display_cell(getattr(rule, "rule_text", ""))
                 rule_exclude = _safe_bool(getattr(rule, "exclude", False))
+                cohorts = serialize_rule_cohorts(rule)
 
                 for node, under_not, criterion_path in iter_molecular_signature_nodes(
                     rule,
@@ -512,6 +514,7 @@ def build_mapped_criteria_table(
                             "criterion_path": criterion_path,
                             "rule_text": rule_text,
                             "rule_exclude": rule_exclude,
+                            "cohorts": cohorts,
                             "under_not_criterion": bool(under_not),
                             "polarity": _polarity_from_rule_and_not(
                                 rule_exclude=rule_exclude,

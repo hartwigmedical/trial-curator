@@ -17,6 +17,7 @@ from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.m
     postprocess_args_mapping,
 )
 from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.mapping.gene_alteration_manual_filter import (
+    build_manual_filter_cohort_level_report,
     build_manual_filter_report,
     derive_input_text_from_node,
     iter_gene_alteration_nodes,
@@ -35,6 +36,9 @@ from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.m
 from aus_trial_universe.ctgov.ii_process_eligibility_criteria.gene_alterations.qa.gene_alteration_conflicts import (
     build_gene_alteration_conflict_report,
 )
+from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cohort_utils import (
+    serialize_rule_cohorts,
+)
 from aus_trial_universe.ctgov.utils.general.text_normalisation import (
     clean_cell_str,
     is_effectively_empty,
@@ -52,10 +56,15 @@ DEFAULT_PROCESSED_SUBDIR = Path("processed/gene_alteration")
 
 GENERATED_MAPPING_RESOURCE_STEM = "01_gene_alteration_mapping_resource"
 MAPPING_CORRECTIONS_FILENAME = "mapping_corrections.xlsx"
-MANUAL_FILTER_STEM = "02_gene_alteration_manual_filter"
+MANUAL_FILTER_TRIAL_LEVEL_STEM = "02a_gene_alteration_manual_filter_trial_level"
+MANUAL_FILTER_COHORT_LEVEL_STEM = "02b_gene_alteration_manual_filter_cohort_level"
 MAPPED_CRITERIA_STEM = "03_gene_alteration_mapped_criteria"
 TRIAL_LEVEL_STEM = "04_trial_level_gene_alteration"
-CONFLICTS_STEM = "05_gene_alteration_conflicts"
+TRIAL_LEVEL_CONFLICTS_STEM = "99a_gene_alteration_conflicts_trial_level"
+
+# Backward-compatible aliases for older imports/tests.
+MANUAL_FILTER_STEM = MANUAL_FILTER_TRIAL_LEVEL_STEM
+CONFLICTS_STEM = TRIAL_LEVEL_CONFLICTS_STEM
 
 DEFAULT_OUTPUT_FORMAT = "tsv"
 
@@ -67,6 +76,7 @@ MAPPED_CRITERIA_COLUMNS: Sequence[str] = (
     "criterion_path",
     "rule_text",
     "rule_exclude",
+    "cohorts",
     "under_not_criterion",
     "polarity",
     "input_text",
@@ -101,10 +111,21 @@ class GeneAlterationPipelineInputs:
 @dataclass(frozen=True)
 class GeneAlterationPipelineOutputs:
     generated_mapping_resource_file: Path
-    manual_filter_file: Path
+    manual_filter_trial_level_file: Path
+    manual_filter_cohort_level_file: Path
     mapped_criteria_file: Path
     trial_level_gene_alteration_file: Path
-    conflict_report_file: Path
+    trial_level_conflict_report_file: Path
+
+    @property
+    def manual_filter_file(self) -> Path:
+        """Backward-compatible alias for the trial-level manual-filter file."""
+        return self.manual_filter_trial_level_file
+
+    @property
+    def conflict_report_file(self) -> Path:
+        """Backward-compatible alias for the trial-level conflict report."""
+        return self.trial_level_conflict_report_file
 
 
 # =============================================================================
@@ -472,6 +493,7 @@ def build_mapped_criteria_table(
             for rule_index, rule in enumerate(rules, start=1):
                 rule_text = _display_cell(getattr(rule, "rule_text", ""))
                 rule_exclude = _safe_bool(getattr(rule, "exclude", False))
+                cohorts = serialize_rule_cohorts(rule)
 
                 for node, under_not, criterion_path in iter_gene_alteration_nodes(rule):
                     criterion_counter += 1
@@ -501,6 +523,7 @@ def build_mapped_criteria_table(
                             "criterion_path": criterion_path,
                             "rule_text": rule_text,
                             "rule_exclude": rule_exclude,
+                            "cohorts": cohorts,
                             "under_not_criterion": bool(under_not),
                             "polarity": _polarity_from_rule_and_not(
                                 rule_exclude=rule_exclude,
@@ -806,9 +829,14 @@ def run_gene_alteration_pipeline(
         GENERATED_MAPPING_RESOURCE_STEM,
         inputs.output_format,
     )
-    manual_filter_file = _output_path(
+    manual_filter_trial_level_file = _output_path(
         inputs.output_dir,
-        MANUAL_FILTER_STEM,
+        MANUAL_FILTER_TRIAL_LEVEL_STEM,
+        inputs.output_format,
+    )
+    manual_filter_cohort_level_file = _output_path(
+        inputs.output_dir,
+        MANUAL_FILTER_COHORT_LEVEL_STEM,
         inputs.output_format,
     )
     mapped_criteria_file = _output_path(
@@ -821,9 +849,9 @@ def run_gene_alteration_pipeline(
         TRIAL_LEVEL_STEM,
         inputs.output_format,
     )
-    conflict_report_file = _output_path(
+    trial_level_conflict_report_file = _output_path(
         inputs.output_dir,
-        CONFLICTS_STEM,
+        TRIAL_LEVEL_CONFLICTS_STEM,
         inputs.output_format,
     )
 
@@ -862,17 +890,29 @@ def run_gene_alteration_pipeline(
         len(generated_mapping_resource_df),
     )
 
-    logger.info("[2/5] Building manual reject/not_mapped filter report")
-    manual_filter_df = build_manual_filter_report(
+    logger.info("[2/5] Building manual reject/not_mapped filter reports")
+    manual_filter_trial_level_df = build_manual_filter_report(
         input_dir=inputs.curated_dir,
         manual_overwrite_file=inputs.manual_overwrite_file,
         fail_on_error=inputs.fail_on_error,
     )
-    _write_tabular_file(manual_filter_df, manual_filter_file)
+    _write_tabular_file(manual_filter_trial_level_df, manual_filter_trial_level_file)
     logger.info(
-        "Wrote manual filter report: %s rows=%d",
-        manual_filter_file,
-        len(manual_filter_df),
+        "Wrote trial-level manual filter report: %s rows=%d",
+        manual_filter_trial_level_file,
+        len(manual_filter_trial_level_df),
+    )
+
+    manual_filter_cohort_level_df = build_manual_filter_cohort_level_report(
+        trial_level_df=manual_filter_trial_level_df,
+        input_dir=inputs.curated_dir,
+        fail_on_error=inputs.fail_on_error,
+    )
+    _write_tabular_file(manual_filter_cohort_level_df, manual_filter_cohort_level_file)
+    logger.info(
+        "Wrote cohort-level manual filter report: %s rows=%d",
+        manual_filter_cohort_level_file,
+        len(manual_filter_cohort_level_df),
     )
 
     logger.info("[3/5] Building mapped GeneAlterationCriterion table")
@@ -898,21 +938,22 @@ def run_gene_alteration_pipeline(
         len(trial_level_df),
     )
 
-    logger.info("[5/5] Building gene alteration conflict QA report")
-    conflict_report_df = build_gene_alteration_conflict_report(mapped_criteria_df)
-    _write_tabular_file(conflict_report_df, conflict_report_file)
+    logger.info("[5/5] Building trial-level gene alteration conflict QA report")
+    trial_level_conflict_report_df = build_gene_alteration_conflict_report(mapped_criteria_df)
+    _write_tabular_file(trial_level_conflict_report_df, trial_level_conflict_report_file)
     logger.info(
-        "Wrote gene alteration conflict report: %s rows=%d",
-        conflict_report_file,
-        len(conflict_report_df),
+        "Wrote trial-level gene alteration conflict report: %s rows=%d",
+        trial_level_conflict_report_file,
+        len(trial_level_conflict_report_df),
     )
 
     return GeneAlterationPipelineOutputs(
         generated_mapping_resource_file=generated_mapping_resource_file,
-        manual_filter_file=manual_filter_file,
+        manual_filter_trial_level_file=manual_filter_trial_level_file,
+        manual_filter_cohort_level_file=manual_filter_cohort_level_file,
         mapped_criteria_file=mapped_criteria_file,
         trial_level_gene_alteration_file=trial_level_file,
-        conflict_report_file=conflict_report_file,
+        trial_level_conflict_report_file=trial_level_conflict_report_file,
     )
 
 
@@ -927,7 +968,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "Run the CTGov gene-alteration eligibility pipeline: regenerate "
             "Mapping_args from the curation resource, apply reviewed mapping "
             "corrections, apply manual reject/not_mapped filter, map remaining "
-            "criteria, collapse to trial-level output, and produce a conflict QA report."
+            "criteria, collapse to trial-level output, and produce trial-level QA reports."
         )
     )
 
@@ -1032,13 +1073,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         "generated_mapping_resource_file:   %s",
         outputs.generated_mapping_resource_file,
     )
-    logger.info("manual_filter_file:                %s", outputs.manual_filter_file)
+    logger.info(
+        "manual_filter_trial_level_file:    %s",
+        outputs.manual_filter_trial_level_file,
+    )
+    logger.info(
+        "manual_filter_cohort_level_file:   %s",
+        outputs.manual_filter_cohort_level_file,
+    )
     logger.info("mapped_criteria_file:              %s", outputs.mapped_criteria_file)
     logger.info(
         "trial_level_gene_alteration_file:  %s",
         outputs.trial_level_gene_alteration_file,
     )
-    logger.info("conflict_report_file:              %s", outputs.conflict_report_file)
+    logger.info(
+        "trial_level_conflict_report_file:  %s",
+        outputs.trial_level_conflict_report_file,
+    )
 
     return 0
 
