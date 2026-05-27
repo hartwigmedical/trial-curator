@@ -16,7 +16,7 @@ DEFAULT_TOPOGRAPH_TSV = Path(
     "/Users/junrancao/WorkProjects/trial-curator_repo/data/ctgov/drug_ontology/raw/Topograph_13052026/TOPOGRAPH-master.tsv"
 )
 DEFAULT_OUTPUT_CSV = Path(
-    "/Users/junrancao/WorkProjects/trial-curator_repo/data/ctgov/drug_ontology/raw/Topograph_13052026/cancertype_to_oncotree/cancertype_to_oncotree.csv"
+    "/data/ctgov/drug_ontology/Topograph_hartwig_version/cancertype_to_oncotree/cancertype_to_oncotree.csv"
 )
 
 
