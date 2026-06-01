@@ -120,6 +120,18 @@ SOMATOSTATIN_CONTINUATION_RE = re.compile(r"^continuation\s+of\s+(somatostatin\s
 SOMATOSTATIN_CESSATION_RE = re.compile(r"^(?:cessation\s+of\s+somatostatin\s+analogues?|ssa\s+cessation)$", re.IGNORECASE)
 IOPOFOSINE_I131_DOSE_RE = re.compile(r"^(Iopofosine\s+I)\s+131\s+(?:single|multiple|fractionated)\s+dose$", re.IGNORECASE)
 NEW_FORMULATION_PREFIX_RE = re.compile(r"^new\s+formulation\s+of\s+", re.IGNORECASE)
+EXAMPLE_INTRO_PREFIX_RE = re.compile(
+    r"^\s*(?:"
+    r"such\s+as|"
+    r"including(?:\s+but\s+not\s+limited\s+to)?|"
+    r"for\s+example|"
+    r"for\s+instance|"
+    r"e\.?g\.?|"
+    r"eg\.?|"
+    r"like"
+    r")\s*[:,;\-]?\s+",
+    re.IGNORECASE,
+)
 COMBO_CONNECTOR_RE = re.compile(r"\s*(?:\+|;|/|\bplus\b|\band\b|\bor\b|\bwith\b|\bin\s+combination\s+with\b)\s*", re.IGNORECASE)
 COMMA_LIST_RE = re.compile(r"\s*,\s*")
 
@@ -214,6 +226,7 @@ def clean_normalised_term(text: object) -> str:
     current = LEADING_LABEL_RE.sub("", current)
     current = SPONSOR_SUFFIX_RE.sub("", current)
     current = NEW_FORMULATION_PREFIX_RE.sub("", current)
+    current = EXAMPLE_INTRO_PREFIX_RE.sub("", current)
 
     if match := IOPOFOSINE_I131_DOSE_RE.match(current):
         current = match.group(1)
