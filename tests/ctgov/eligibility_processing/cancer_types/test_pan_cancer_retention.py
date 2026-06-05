@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cancer_types.final_determination.row_level_determination import (
+from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.final_determination.row_level_determination import (
     FINAL_CANCER_2_EXCLUSIVE_COL,
     FINAL_CANCER_2_INCLUSIVE_COL,
     FINAL_CANCER_3_EXCLUSIVE_COL,
@@ -11,7 +11,7 @@ from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cancer_types.final
     add_final_cancer_3_columns,
     _clean_positive_terms,
 )
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.cancer_types.final_determination.trial_level_determination import (
+from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.final_determination.trial_level_determination import (
     INPUT_EXCLUSIVE_COL,
     INPUT_INCLUSIVE_COL,
     NCT_ID_COL,

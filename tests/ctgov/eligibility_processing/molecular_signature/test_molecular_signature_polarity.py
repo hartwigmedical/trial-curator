@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.ii_process_eligibility_criteria.molecular_signature.molecular_signature_pipeline import (
+from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.molecular_signature.molecular_signature_pipeline import (
     _polarity_from_rule_and_not,
     collapse_to_trial_level,
 )
