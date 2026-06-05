@@ -11,7 +11,8 @@ Sources
 
 Output grain
 ------------
-One row per unique input drug name per source.
+CTGov and Topograph: one row per unique input drug name per source.
+POTTR: one row per merged POTTR alias/RxNorm concept cluster.
 
 CTGov scope
 -----------
@@ -22,10 +23,13 @@ filter_target_drug_interventions().
 
 POTTR handling
 --------------
-For POTTR, the row grain is one row per POTTR canonical drug name, with
-non-canonical POTTR aliases carried in pottr_aliases. RxNorm lookup is attempted
-against the canonical name first, then against aliases in POTTR order until the
-first confident RxNorm match is found.
+For POTTR, the initial extraction grain is one row per POTTR canonical drug
+name, with non-canonical POTTR aliases carried in pottr_aliases. RxNorm lookup
+is attempted against the canonical name and every alias. POTTR records are then
+merged transitively when their matched RxNorm concept RXCUIs overlap. This
+handles cases where different POTTR canonical records are actually aliases for
+the same investigational compound, but RxNorm has separate atoms/RXCUIs for
+different source names.
 
 Output columns
 --------------
@@ -33,21 +37,21 @@ input_name
 pottr_aliases
 source
 pottr_match_term
-rxnorm_preferred_concept_name
 rxnorm_concept_id
+rxnorm_preferred_concept_name
 rxnorm_ingredient_id
 rxnorm_ingredient_name
-rxnorm_match_status
-rxnorm_match_stage
-manual_review_needed
 
 Notes
 -----
-- rxnorm_concept_id is the selected RxNorm RXCUI.
+- rxnorm_concept_id is the selected RxNorm RXCUI. For merged POTTR rows it may
+  contain multiple DISPLAY_DELIMITER-separated RXCUIs.
 - rxnorm_preferred_concept_name is the selected display/canonical name returned
-  by the existing RxNorm matcher for that RXCUI.
-- pottr_match_term is populated only for POTTR rows, where the successful match
-  may come from either the POTTR canonical name or one of its aliases.
+  by the existing RxNorm matcher for that RXCUI. For merged POTTR rows it may
+  contain multiple DISPLAY_DELIMITER-separated names in first-seen RXCUI order.
+- pottr_match_term is populated only for POTTR rows, where successful matches
+  may come from either the POTTR canonical name or any of its aliases. For
+  merged POTTR rows it may contain multiple DISPLAY_DELIMITER-separated terms.
 - If there is no confident RxNorm match, pottr_match_term,
   rxnorm_preferred_concept_name, rxnorm_concept_id, rxnorm_ingredient_id, and
   rxnorm_ingredient_name are left blank.
@@ -106,13 +110,10 @@ OUTPUT_COLUMNS = [
     "pottr_aliases",
     "source",
     "pottr_match_term",
-    "rxnorm_preferred_concept_name",
     "rxnorm_concept_id",
+    "rxnorm_preferred_concept_name",
     "rxnorm_ingredient_id",
     "rxnorm_ingredient_name",
-    "rxnorm_match_status",
-    "rxnorm_match_stage",
-    "manual_review_needed",
 ]
 
 
@@ -128,6 +129,39 @@ class SelectedRxNormMatch:
     lookup_term: str
     term_resolution: TermResolution
     ingredient_resolution: IngredientResolution
+
+
+@dataclass(frozen=True)
+class ResolvedPottrSourceTerm:
+    source_term: SourceDrugTerm
+    lookup_terms: tuple[str, ...]
+    matches: tuple[SelectedRxNormMatch, ...]
+    first_term_resolution: TermResolution
+
+
+class UnionFind:
+    def __init__(self, size: int) -> None:
+        self.parent = list(range(size))
+        self.rank = [0] * size
+
+    def find(self, item: int) -> int:
+        parent = self.parent[item]
+        if parent != item:
+            self.parent[item] = self.find(parent)
+        return self.parent[item]
+
+    def union(self, left: int, right: int) -> None:
+        left_root = self.find(left)
+        right_root = self.find(right)
+        if left_root == right_root:
+            return
+
+        if self.rank[left_root] < self.rank[right_root]:
+            left_root, right_root = right_root, left_root
+
+        self.parent[right_root] = left_root
+        if self.rank[left_root] == self.rank[right_root]:
+            self.rank[left_root] += 1
 
 
 def clean_text(value: object) -> str:
@@ -406,6 +440,12 @@ def resolve_lookup_term(
     return cache[key]
 
 
+def lookup_terms_for_source_term(source_term: SourceDrugTerm) -> list[str]:
+    if source_term.source == "pottr":
+        return ordered_unique([source_term.input_name, *source_term.pottr_aliases])
+    return [source_term.input_name]
+
+
 def select_rxnorm_match_for_source_term(
     source_term: SourceDrugTerm,
     *,
@@ -413,21 +453,14 @@ def select_rxnorm_match_for_source_term(
     rel_index: RxnRelIndex,
     cache: dict[str, tuple[TermResolution, IngredientResolution]],
 ) -> SelectedRxNormMatch | None:
-    """Return the selected confident RxNorm match, or None.
+    """Return the first selected confident RxNorm match, or None.
 
-    CTGov and Topograph try only input_name.
-
-    POTTR tries:
-        1. canonical input_name
-        2. each POTTR alias in order
-        3. stop at the first confident MATCHED result
+    This is kept for CTGov and Topograph, whose behaviour remains one input
+    term -> first confident RxNorm match. POTTR is handled by
+    build_pottr_rows(), which evaluates every alias and then merges records by
+    overlapping matched concept RXCUIs.
     """
-    if source_term.source == "pottr":
-        lookup_terms = ordered_unique([source_term.input_name, *source_term.pottr_aliases])
-    else:
-        lookup_terms = [source_term.input_name]
-
-    for lookup_term in lookup_terms:
+    for lookup_term in lookup_terms_for_source_term(source_term):
         term_resolution, ingredient_resolution = resolve_lookup_term(
             lookup_term,
             conso_index=conso_index,
@@ -443,6 +476,196 @@ def select_rxnorm_match_for_source_term(
             )
 
     return None
+
+
+def resolve_pottr_source_term(
+    source_term: SourceDrugTerm,
+    *,
+    conso_index: RxnConsoIndex,
+    rel_index: RxnRelIndex,
+    cache: dict[str, tuple[TermResolution, IngredientResolution]],
+) -> ResolvedPottrSourceTerm:
+    """Resolve a POTTR canonical term plus all aliases without early stopping."""
+    if source_term.source != "pottr":
+        raise ValueError(
+            "resolve_pottr_source_term() received non-POTTR source: "
+            f"{source_term.source!r}"
+        )
+
+    lookup_terms = tuple(lookup_terms_for_source_term(source_term))
+    first_term_resolution: TermResolution | None = None
+    matches: list[SelectedRxNormMatch] = []
+
+    for lookup_term in lookup_terms:
+        term_resolution, ingredient_resolution = resolve_lookup_term(
+            lookup_term,
+            conso_index=conso_index,
+            rel_index=rel_index,
+            cache=cache,
+        )
+
+        if first_term_resolution is None:
+            first_term_resolution = term_resolution
+
+        if term_resolution.match_status != "MATCHED":
+            continue
+
+        if not clean_text(term_resolution.rxcui):
+            continue
+
+        matches.append(
+            SelectedRxNormMatch(
+                lookup_term=lookup_term,
+                term_resolution=term_resolution,
+                ingredient_resolution=ingredient_resolution,
+            )
+        )
+
+    if first_term_resolution is None:
+        raise ValueError(f"POTTR source term has no lookup terms: {source_term!r}")
+
+    return ResolvedPottrSourceTerm(
+        source_term=source_term,
+        lookup_terms=lookup_terms,
+        matches=tuple(matches),
+        first_term_resolution=first_term_resolution,
+    )
+
+
+def row_for_pottr_resolved_group(group: Sequence[ResolvedPottrSourceTerm]) -> dict[str, object]:
+    """Build one output row for a transitively merged POTTR group."""
+    if not group:
+        raise ValueError("Cannot build a POTTR output row from an empty group")
+
+    source_terms = [resolved.source_term for resolved in group]
+    input_names = ordered_unique(source_term.input_name for source_term in source_terms)
+    input_name = input_names[0] if input_names else ""
+    input_name_key = normalize_key(input_name)
+
+    alias_values: list[str] = []
+    # Preserve merged canonical names as aliases so the merge remains auditable.
+    alias_values.extend(input_names[1:])
+    for source_term in source_terms:
+        alias_values.extend(source_term.pottr_aliases)
+
+    pottr_aliases = join_values(
+        alias for alias in alias_values if normalize_key(alias) != input_name_key
+    )
+
+    all_matches = [match for resolved in group for match in resolved.matches]
+    unique_concept_matches: list[SelectedRxNormMatch] = []
+    seen_rxcuis: set[str] = set()
+    for match in all_matches:
+        rxcui = clean_text(match.term_resolution.rxcui)
+        if not rxcui or rxcui in seen_rxcuis:
+            continue
+        seen_rxcuis.add(rxcui)
+        unique_concept_matches.append(match)
+
+    if not unique_concept_matches:
+        first_resolution = group[0].first_term_resolution
+        return {
+            "input_name": input_name,
+            "pottr_aliases": pottr_aliases,
+            "source": "pottr",
+            "pottr_match_term": "",
+            "rxnorm_preferred_concept_name": "",
+            "rxnorm_concept_id": "",
+            "rxnorm_ingredient_id": "",
+            "rxnorm_ingredient_name": "",
+            "rxnorm_match_status": first_resolution.match_status,
+            "rxnorm_match_stage": first_resolution.match_stage,
+            "manual_review_needed": "true",
+        }
+
+    concept_ids = [clean_text(match.term_resolution.rxcui) for match in unique_concept_matches]
+    concept_names = [
+        clean_text(match.term_resolution.canonical_name)
+        for match in unique_concept_matches
+    ]
+    ingredient_ids = [
+        clean_text(match.ingredient_resolution.ingredient_rxcui)
+        for match in unique_concept_matches
+    ]
+    ingredient_names = [
+        clean_text(match.ingredient_resolution.ingredient_name)
+        for match in unique_concept_matches
+    ]
+
+    manual_review_needed = bool(
+        len(ordered_unique(concept_ids)) > 1
+        or any(match.term_resolution.manual_review_needed for match in unique_concept_matches)
+        or any(match.term_resolution.match_status != "MATCHED" for match in unique_concept_matches)
+        or any(
+            not clean_text(match.ingredient_resolution.ingredient_rxcui)
+            for match in unique_concept_matches
+        )
+    )
+
+    return {
+        "input_name": input_name,
+        "pottr_aliases": pottr_aliases,
+        "source": "pottr",
+        "pottr_match_term": join_values(match.lookup_term for match in all_matches),
+        "rxnorm_concept_id": join_values(concept_ids),
+        "rxnorm_preferred_concept_name": join_values(concept_names),
+        "rxnorm_ingredient_id": join_values(ingredient_ids),
+        "rxnorm_ingredient_name": join_values(ingredient_names),
+        "rxnorm_match_status": "MATCHED",
+        "rxnorm_match_stage": join_values(
+            match.term_resolution.match_stage for match in all_matches
+        ),
+        "manual_review_needed": bool_text(manual_review_needed),
+    }
+
+
+def build_pottr_rows(
+    pottr_terms: Sequence[SourceDrugTerm],
+    *,
+    conso_index: RxnConsoIndex,
+    rel_index: RxnRelIndex,
+    cache: dict[str, tuple[TermResolution, IngredientResolution]],
+) -> list[dict[str, object]]:
+    """Resolve all POTTR aliases, then merge rows that share matched RXCUIs.
+
+    The merge is transitive. For example, if A shares an RXCUI with B and B
+    shares another RXCUI with C, A/B/C are emitted as one POTTR output row.
+    """
+    resolved_terms = [
+        resolve_pottr_source_term(
+            source_term,
+            conso_index=conso_index,
+            rel_index=rel_index,
+            cache=cache,
+        )
+        for source_term in pottr_terms
+    ]
+
+    union_find = UnionFind(len(resolved_terms))
+    indices_by_rxcui: OrderedDict[str, list[int]] = OrderedDict()
+
+    for index, resolved in enumerate(resolved_terms):
+        for match in resolved.matches:
+            rxcui = clean_text(match.term_resolution.rxcui)
+            if rxcui:
+                indices_by_rxcui.setdefault(rxcui, []).append(index)
+
+    for indices in indices_by_rxcui.values():
+        if len(indices) < 2:
+            continue
+        first_index = indices[0]
+        for other_index in indices[1:]:
+            union_find.union(first_index, other_index)
+
+    grouped_indices: OrderedDict[int, list[int]] = OrderedDict()
+    for index in range(len(resolved_terms)):
+        root = union_find.find(index)
+        grouped_indices.setdefault(root, []).append(index)
+
+    return [
+        row_for_pottr_resolved_group([resolved_terms[index] for index in indices])
+        for indices in grouped_indices.values()
+    ]
 
 
 def row_for_source_term(
@@ -561,9 +784,16 @@ def build_input_drug_rxnorm_mapping(
     resolution_cache: dict[str, tuple[TermResolution, IngredientResolution]] = {}
 
     rows: list[dict[str, object]] = []
-    for index, source_term in enumerate(source_terms, start=1):
+    non_pottr_terms = [source_term for source_term in source_terms if source_term.source != "pottr"]
+    pottr_terms = [source_term for source_term in source_terms if source_term.source == "pottr"]
+
+    for index, source_term in enumerate(non_pottr_terms, start=1):
         if index % 1000 == 0:
-            logger.info("Mapped %d/%d input drug rows", index, len(source_terms))
+            logger.info(
+                "Mapped %d/%d non-POTTR input drug rows",
+                index,
+                len(non_pottr_terms),
+            )
 
         selected_match = select_rxnorm_match_for_source_term(
             source_term,
@@ -580,6 +810,24 @@ def build_input_drug_rxnorm_mapping(
                 cache=resolution_cache,
             )
         )
+
+    if pottr_terms:
+        logger.info(
+            "Mapping and merging %d POTTR canonical input drug rows",
+            len(pottr_terms),
+        )
+        pottr_rows = build_pottr_rows(
+            pottr_terms,
+            conso_index=conso_index,
+            rel_index=rel_index,
+            cache=resolution_cache,
+        )
+        logger.info(
+            "Collapsed %d POTTR canonical input drug rows into %d POTTR output rows",
+            len(pottr_terms),
+            len(pottr_rows),
+        )
+        rows.extend(pottr_rows)
 
     write_tsv(output_tsv, rows, OUTPUT_COLUMNS)
     return len(rows)
