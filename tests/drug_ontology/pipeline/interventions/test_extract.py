@@ -69,8 +69,8 @@ def test_extracts_core_intervention_fields_and_aliases():
     assert "STI571" in row[COL_INTERVENTION_ALL_ALIASES_NORMALISED_FULL]
 
 
-def test_default_ctgov_processed_output_dir_tracks_raw_inputs_version():
-    input_json = Path("data/ctgov/drug_ontology/raw_inputs/ctgov/version_13022026/ctgov_input.json")
+def test_default_ctgov_processed_output_dir_tracks_trial_input_version():
+    input_json = Path("data/ctgov/trials/version_13022026/ctgov_input.json")
 
     assert default_output_dir_for_input(input_json) == Path(
         "data/ctgov/drug_ontology/processed_inputs/analysis/ctgov/version_13022026"

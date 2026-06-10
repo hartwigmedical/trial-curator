@@ -102,7 +102,7 @@ from aus_trial_universe.ctgov.drug_ontology.sources.pottr.drug_classes import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CTGOV_INPUT_JSON = Path("data/ctgov/drug_ontology/raw_inputs/ctgov/version_13022026/ctgov_input.json")
+DEFAULT_CTGOV_INPUT_JSON = Path("data/ctgov/trials/version_13022026/ctgov_input.json")
 DEFAULT_TOPOGRAPH_INPUT_TSV = Path(
     "data/ctgov/drug_ontology/raw_inputs/Topograph/version_13052026/TOPOGRAPH-master.tsv"
 )

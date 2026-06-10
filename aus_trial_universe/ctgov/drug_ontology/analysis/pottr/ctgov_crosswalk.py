@@ -75,7 +75,7 @@ from aus_trial_universe.ctgov.drug_ontology.shared.tsv import write_tsv as write
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CTGOV_INPUT_JSON = Path("data/ctgov/drug_ontology/raw_inputs/ctgov/version_13022026/ctgov_input.json")
+DEFAULT_CTGOV_INPUT_JSON = Path("data/ctgov/trials/version_13022026/ctgov_input.json")
 DEFAULT_POTTR_RAW_DIR = Path("data/ctgov/drug_ontology/raw_inputs/POTTR/version_29052026")
 DEFAULT_RXNORM_RRF_DIR = Path("data/ctgov/drug_ontology/raw_inputs/RxNorm/version_03022026")
 DEFAULT_ATC_TREE_TSV = Path("data/ctgov/drug_ontology/processed_inputs/analysis/ATC/version_25042026/atc_tree.tsv")

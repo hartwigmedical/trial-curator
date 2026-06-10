@@ -16,13 +16,27 @@ analysis_outputs
 comparison_runs
 ```
 
-## Raw Inputs
+## Trial Inputs
 
-`raw_inputs` is the shared read-only input root. Source files should remain in
-versioned folders:
+Registry trial inputs live outside the drug ontology domain folder because they
+feed multiple downstream workflows:
 
 ```text
-data/ctgov/drug_ontology/raw_inputs/ctgov/version_*
+data/ctgov/trials/version_*
+```
+
+The CTGov trial input file is:
+
+```text
+data/ctgov/trials/version_*/ctgov_input.json
+```
+
+## Raw Inputs
+
+`raw_inputs` is the shared read-only root for non-trial drug ontology source
+files. Source files should remain in versioned folders:
+
+```text
 data/ctgov/drug_ontology/raw_inputs/RxNorm/version_*
 data/ctgov/drug_ontology/raw_inputs/ATC/version_*
 data/ctgov/drug_ontology/raw_inputs/FDA/version_*
@@ -46,7 +60,8 @@ data/ctgov/drug_ontology/processed_inputs/pipeline
 data/ctgov/drug_ontology/processed_inputs/analysis
 ```
 
-Versioned processed-input folders inherit the selected raw input folder suffix.
+Versioned processed-input folders inherit the selected source input folder
+suffix.
 Pipeline processed inputs are limited to intermediates required by the production
 pipeline. At the moment that is the generated ATC tree:
 

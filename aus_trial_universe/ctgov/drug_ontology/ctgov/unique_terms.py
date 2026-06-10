@@ -26,7 +26,7 @@ from aus_trial_universe.ctgov.drug_ontology.ctgov.interventions import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_INPUT_JSON = Path("data/ctgov/drug_ontology/raw_inputs/ctgov/version_13022026/ctgov_input.json")
+DEFAULT_INPUT_JSON = Path("data/ctgov/trials/version_13022026/ctgov_input.json")
 DEFAULT_INTERVENTIONS_OUTPUT_FILENAME = "ctgov_interventions.tsv"
 DEFAULT_UNIQUE_OUTPUT_FILENAME = "ctgov_unique_drugs.tsv"
 DEFAULT_LINK_OUTPUT_FILENAME = "ctgov_intervention_drug_terms.tsv"
@@ -48,6 +48,16 @@ class CtgovDrugExtractionStats:
 def default_output_dir_for_input(input_json: Path) -> Path:
     """Return the default processed output directory for a CTGov input JSON path."""
     input_parent = input_json.parent
+    if input_parent.parent.name == "trials" and input_parent.parent.parent.name == "ctgov":
+        ctgov_data_root = input_parent.parent.parent
+        return (
+            ctgov_data_root
+            / "drug_ontology"
+            / "processed_inputs"
+            / "analysis"
+            / "ctgov"
+            / input_parent.name
+        )
     if "raw_inputs" in input_parent.parts:
         raw_inputs_index = input_parent.parts.index("raw_inputs")
         root = Path(*input_parent.parts[:raw_inputs_index])
