@@ -1,5 +1,6 @@
 import openai
 import logging
+
 from trialcurator.llm_client import LlmClient
 
 logger = logging.getLogger(__name__)
@@ -26,10 +27,17 @@ class OpenaiClient(LlmClient):
             top_p (float): Nucleus sampling value, controlling diversity in generated responses.
             model (str): The name of the OpenAI model to use (defaults to "gpt-4o").
         """
-        self.wrapped_client = openai.Client()
+        self.wrapped_client = self._make_wrapped_client()
         self.temperature = temperature
         self.top_p = top_p
         self.model = model
+
+    @staticmethod
+    def _make_wrapped_client():
+        client_factory = getattr(openai, "OpenAI", None) or getattr(openai, "Client", None)
+        if client_factory is None:
+            return None
+        return client_factory()
 
     def llm_ask(self, user_prompt: str, system_prompt: str = None) -> str:
         """
@@ -55,16 +63,36 @@ class OpenaiClient(LlmClient):
         for line in user_prompt.splitlines():
             logging.info(f'prompt: {line}')
 
-        completion = (self.wrapped_client.chat.completions.create(
-            model=self.model,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            messages=messages
-        ))
+        completion = self._create_chat_completion(messages)
 
         # log the response
-        response = completion.choices[0].message.content
+        response = self._completion_text(completion)
         for line in response.splitlines():
             logging.info(f'response: {line}')
 
         return response
+
+    def _create_chat_completion(self, messages):
+        kwargs = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "messages": messages,
+        }
+
+        if self.wrapped_client is not None:
+            return self.wrapped_client.chat.completions.create(**kwargs)
+
+        return openai.ChatCompletion.create(**kwargs)
+
+    @staticmethod
+    def _completion_text(completion):
+        try:
+            message = completion.choices[0].message
+        except AttributeError:
+            message = completion["choices"][0]["message"]
+
+        if isinstance(message, dict):
+            return message["content"]
+
+        return message.content
