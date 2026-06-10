@@ -15,9 +15,11 @@ DEFAULT_INPUT_XLSX = Path("data/anzctr/trials/version_10062026/anzctr_input.xlsx
 DEFAULT_OUTPUT_CSV = Path("data/anzctr/eligibility/trials/anzctr_field_extractions.csv")
 
 TRIAL_SHEET = "TRIAL"
+HEALTH_CONDITION_SHEET = "HEALTH CONDITION"
 INTERVENTION_CODE_SHEET = "INTERVENTION CODE"
 
 TRIAL_ID_COLUMN = "TRIAL ID"
+HEALTH_CONDITION_COLUMN = "HEALTH CONDITION"
 INTERVENTION_CODE_COLUMN = "INTERVENTION CODE"
 PURPOSE_COLUMN = "PURPOSE"
 STUDY_TYPE_COLUMN = "STUDY TYPE"
@@ -31,6 +33,7 @@ OUTPUT_TRIAL_COLUMNS = [
     "APPROVAL DATE",
     "STUDY TITLE",
     "SCIENTIFIC TITLE",
+    HEALTH_CONDITION_COLUMN,
     "INTERVENTIONS",
     "COMPARATOR",
     "CONTROL",
@@ -50,6 +53,11 @@ OUTPUT_TRIAL_COLUMNS = [
     "PRIMARY SPONSOR COUNTRY",
 ]
 OUTPUT_COLUMNS = OUTPUT_TRIAL_COLUMNS + [INTERVENTION_CODES_OUTPUT_COLUMN]
+TRIAL_SOURCE_COLUMNS = [
+    column
+    for column in OUTPUT_TRIAL_COLUMNS
+    if column != HEALTH_CONDITION_COLUMN
+]
 
 DISPLAY_DELIMITER = " | "
 WHITESPACE_RE = re.compile(r"\s+")
@@ -95,22 +103,52 @@ def require_columns(
         )
 
 
-def load_anzctr_workbook(input_xlsx: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_anzctr_workbook(
+    input_xlsx: str | Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     input_xlsx = Path(input_xlsx)
     trials = pd.read_excel(input_xlsx, sheet_name=TRIAL_SHEET)
+    health_conditions = pd.read_excel(input_xlsx, sheet_name=HEALTH_CONDITION_SHEET)
     intervention_codes = pd.read_excel(input_xlsx, sheet_name=INTERVENTION_CODE_SHEET)
 
     require_columns(
         trials,
-        [TRIAL_ID_COLUMN, *OUTPUT_TRIAL_COLUMNS],
+        [TRIAL_ID_COLUMN, *TRIAL_SOURCE_COLUMNS],
         sheet_name=TRIAL_SHEET,
+    )
+    require_columns(
+        health_conditions,
+        [TRIAL_ID_COLUMN, HEALTH_CONDITION_COLUMN],
+        sheet_name=HEALTH_CONDITION_SHEET,
     )
     require_columns(
         intervention_codes,
         [TRIAL_ID_COLUMN, INTERVENTION_CODE_COLUMN],
         sheet_name=INTERVENTION_CODE_SHEET,
     )
-    return trials, intervention_codes
+    return trials, health_conditions, intervention_codes
+
+
+def build_health_condition_lookup(
+    health_conditions: pd.DataFrame,
+) -> dict[str, list[str]]:
+    conditions_by_trial: dict[str, list[str]] = defaultdict(list)
+
+    for trial_id_value, condition_value in health_conditions[
+        [TRIAL_ID_COLUMN, HEALTH_CONDITION_COLUMN]
+    ].itertuples(index=False, name=None):
+        trial_id = normalise_trial_id(trial_id_value)
+        if not trial_id:
+            continue
+
+        condition = clean_text(condition_value)
+        if condition:
+            conditions_by_trial[trial_id].append(condition)
+
+    return {
+        trial_id: ordered_unique(conditions)
+        for trial_id, conditions in conditions_by_trial.items()
+    }
 
 
 def build_intervention_code_lookup(
@@ -142,18 +180,23 @@ def build_intervention_code_lookup(
 
 def extract_drug_intervention_trials(
     trials: pd.DataFrame,
+    health_conditions: pd.DataFrame,
     intervention_codes: pd.DataFrame,
 ) -> pd.DataFrame:
     codes_by_trial, drug_trial_ids = build_intervention_code_lookup(intervention_codes)
+    conditions_by_trial = build_health_condition_lookup(health_conditions)
 
     output_rows: list[dict[str, object]] = []
-    trial_output_columns = [TRIAL_ID_COLUMN, *OUTPUT_TRIAL_COLUMNS]
+    trial_output_columns = [TRIAL_ID_COLUMN, *TRIAL_SOURCE_COLUMNS]
     for row_values in trials[trial_output_columns].itertuples(index=False, name=None):
         trial_id = normalise_trial_id(row_values[0])
         if trial_id not in drug_trial_ids:
             continue
 
-        output_row = dict(zip(OUTPUT_TRIAL_COLUMNS, row_values[1:]))
+        output_row = dict(zip(TRIAL_SOURCE_COLUMNS, row_values[1:]))
+        output_row[HEALTH_CONDITION_COLUMN] = DISPLAY_DELIMITER.join(
+            conditions_by_trial.get(trial_id, [])
+        )
         output_row[INTERVENTION_CODES_OUTPUT_COLUMN] = DISPLAY_DELIMITER.join(
             codes_by_trial.get(trial_id, [])
         )
@@ -163,8 +206,12 @@ def extract_drug_intervention_trials(
 
 
 def extract_fields_to_csv(input_xlsx: str | Path, output_csv: str | Path) -> Path:
-    trials, intervention_codes = load_anzctr_workbook(input_xlsx)
-    extracted = extract_drug_intervention_trials(trials, intervention_codes)
+    trials, health_conditions, intervention_codes = load_anzctr_workbook(input_xlsx)
+    extracted = extract_drug_intervention_trials(
+        trials,
+        health_conditions,
+        intervention_codes,
+    )
 
     output_csv = Path(output_csv)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
