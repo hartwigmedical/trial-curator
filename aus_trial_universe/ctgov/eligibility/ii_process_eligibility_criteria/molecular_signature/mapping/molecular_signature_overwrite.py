@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general import (
     is_effectively_empty,
     norm_cell,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.traverse_curation_tree import (
+from aus_trial_universe.eligibility_utils.general import (
     walk_trial,
 )
 

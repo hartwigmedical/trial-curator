@@ -9,25 +9,25 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import (
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import (
     load_curated_rules,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types import (
+from aus_trial_universe.eligibility_utils.cancer_types import (
     PrimaryTumorMap,
     build_primary_tumor_map,
     get_primary_tumor_key_from_node,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cohort_utils import (
+from aus_trial_universe.eligibility_utils.cohort_utils import (
     serialize_rule_cohorts,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general.text_normalisation import (
     clean_cell_str,
     is_effectively_empty,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.traverse_curation_tree import (
+from aus_trial_universe.eligibility_utils.general.traverse_curation_tree import (
     normalise_forest_into_list,
 )
-from aus_trial_universe.ctgov.eligibility.shared.oncotree.traverse_oncotree import OncoTree
+from aus_trial_universe.eligibility_utils.oncotree.traverse_oncotree import OncoTree
 
 logger = logging.getLogger(__name__)
 
@@ -1209,7 +1209,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--oncotree_csv",
         required=True,
         type=Path,
-        help="OncoTree CSV used by aus_trial_universe.ctgov.eligibility.shared.oncotree.traverse_oncotree.OncoTree",
+        help="OncoTree CSV used by aus_trial_universe.eligibility_utils.oncotree.traverse_oncotree.OncoTree",
     )
     parser.add_argument(
         "--manual_overwrite_file",

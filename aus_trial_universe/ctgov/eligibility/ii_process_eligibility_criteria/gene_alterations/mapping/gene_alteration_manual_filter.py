@@ -9,15 +9,15 @@ from typing import Any, FrozenSet, Iterable, Iterator, List, Optional, Sequence,
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import (
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import (
     load_curated_rules,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cohort_utils import (
+from aus_trial_universe.eligibility_utils.cohort_utils import (
     build_cohort_base_from_curated_rules,
     expand_to_effective_cohort_rows,
     serialize_rule_cohorts,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general import (
     clean_cell_str,
     is_effectively_empty,
 )
@@ -70,9 +70,6 @@ COHORT_LEVEL_OUTPUT_COLUMNS: Sequence[str] = (
     "manual_filter_action",
     "manual_filter_reason",
 )
-
-# Backward-compatible alias for existing imports/tests.
-OUTPUT_COLUMNS: Sequence[str] = TRIAL_LEVEL_OUTPUT_COLUMNS
 
 
 @dataclass(frozen=True)
@@ -474,11 +471,11 @@ def build_manual_filter_report(
 
     df = pd.DataFrame([asdict(row) for row in rows])
 
-    for column in OUTPUT_COLUMNS:
+    for column in TRIAL_LEVEL_OUTPUT_COLUMNS:
         if column not in df.columns:
             df[column] = ""
 
-    df = df.loc[:, list(OUTPUT_COLUMNS)]
+    df = df.loc[:, list(TRIAL_LEVEL_OUTPUT_COLUMNS)]
 
     LOGGER.info(
         "Built manual filter report: rows=%d keep=%d drop=%d",

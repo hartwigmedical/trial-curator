@@ -5,7 +5,7 @@ from typing import Any, List, Dict, Tuple, Optional
 import pandas as pd
 import numpy as np
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import load_curated_rules
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import load_curated_rules
 
 logger = logging.getLogger(__name__)
 

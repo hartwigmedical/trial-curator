@@ -5,17 +5,17 @@ import logging
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import (
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import (
     load_curated_rules,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.write_curated_rules import (
+from aus_trial_universe.eligibility_utils.general import (
     write_rules_py,
 )
 from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.criteria_registry import (
     SUPPORTED_CRITERIA,
 )
 
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types import (
+from aus_trial_universe.eligibility_utils.cancer_types import (
     PrimaryTumorMap,
     build_primary_tumor_map,
     overwrite_primary_tumour_in_rules,

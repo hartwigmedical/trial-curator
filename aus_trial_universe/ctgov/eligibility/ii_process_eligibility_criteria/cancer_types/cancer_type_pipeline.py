@@ -9,17 +9,17 @@ from typing import Iterable, List, Optional, Sequence, Set
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.conditions.conditions_mapping import (
+from aus_trial_universe.eligibility_utils.cancer_types.conditions.conditions_mapping import (
     process as map_conditions_to_oncotree,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.final_determination.primary_vs_conditions import (
+from aus_trial_universe.eligibility_utils.cancer_types.final_determination.primary_vs_conditions import (
     run_combined_workflow as build_primary_vs_conditions,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.final_determination.row_level_determination import (
+from aus_trial_universe.eligibility_utils.cancer_types.final_determination.row_level_determination import (
     load_oncotree_hierarchy as load_row_level_oncotree_hierarchy,
     run_combined_workflow as determine_row_level_cancer_type,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.final_determination.trial_level_determination import (
+from aus_trial_universe.eligibility_utils.cancer_types.final_determination.trial_level_determination import (
     collapse_to_unique_trials,
     load_oncotree_hierarchy as load_trial_level_oncotree_hierarchy,
 )
@@ -30,13 +30,13 @@ SUPPORTED_TABULAR_SUFFIXES: Set[str] = {".csv", ".tsv", ".xlsx", ".xls"}
 SUPPORTED_CSV_SUFFIXES: Set[str] = {".csv"}
 
 DEFAULT_ELIGIBILITY_DATA_DIR = Path("data/ctgov/eligibility")
+DEFAULT_SHARED_RESOURCES_DIR = Path("data/eligibility/resources")
 DEFAULT_TRIALS_SUBDIR = Path("trials")
-DEFAULT_RESOURCES_SUBDIR = Path("resources")
 DEFAULT_PROCESSED_SUBDIR = Path("processed/cancer_type")
 
 DEFAULT_CURATED_SUBDIR = Path("trials/original_curations")
-DEFAULT_CANCER_TYPE_RESOURCE_SUBDIR = Path("resources/cancer_type")
-DEFAULT_ONCOTREE_CSV = Path("resources/oncotree.csv")
+DEFAULT_CANCER_TYPE_RESOURCE_SUBDIR = Path("cancer_type")
+DEFAULT_ONCOTREE_CSV = Path("oncotree.csv")
 
 CONDITIONS_MAPPING_STEM = "01_conditions_mapping"
 PRIMARY_VS_CONDITIONS_STEM = "02_primary_vs_conditions"
@@ -255,7 +255,7 @@ def discover_pipeline_inputs(
     resolved_resources_dir = (
         _resolve_path(resources_dir, repo_root)
         if resources_dir is not None
-        else resolved_eligibility_data_dir / DEFAULT_RESOURCES_SUBDIR
+        else _resolve_path(DEFAULT_SHARED_RESOURCES_DIR, repo_root)
     )
 
     resolved_processed_dir = (
@@ -273,7 +273,7 @@ def discover_pipeline_inputs(
     resolved_cancer_type_resource_dir = (
         _resolve_path(cancer_type_resource_dir, repo_root)
         if cancer_type_resource_dir is not None
-        else resolved_eligibility_data_dir / DEFAULT_CANCER_TYPE_RESOURCE_SUBDIR
+        else resolved_resources_dir / DEFAULT_CANCER_TYPE_RESOURCE_SUBDIR
     )
 
     resolved_conditions_output_dir = (
@@ -304,8 +304,8 @@ def discover_pipeline_inputs(
         _resolve_path(oncotree_csv, repo_root)
         if oncotree_csv is not None
         else (
-            resolved_eligibility_data_dir / DEFAULT_ONCOTREE_CSV
-            if (resolved_eligibility_data_dir / DEFAULT_ONCOTREE_CSV).exists()
+            resolved_resources_dir / DEFAULT_ONCOTREE_CSV
+            if (resolved_resources_dir / DEFAULT_ONCOTREE_CSV).exists()
             else _find_best_file(
                 resolved_resources_dir,
                 token_groups=[["oncotree", "onco_tree"]],
@@ -535,7 +535,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=Path,
         default=None,
         help=(
-            "Optional shared resources directory. Defaults to eligibility_data_dir/resources. "
+            "Optional shared resources directory. Defaults to data/eligibility/resources. "
             "Used to discover oncotree.csv if --oncotree_csv is omitted."
         ),
     )
@@ -572,7 +572,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=None,
         help=(
             "Optional explicit cancer-type resource directory. "
-            "Defaults to eligibility_data_dir/resources/cancer_type."
+            "Defaults to resources_dir/cancer_type."
         ),
     )
     parser.add_argument(
@@ -581,8 +581,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         default=None,
         help=(
             "Optional explicit OncoTree CSV. "
-            "Defaults to eligibility_data_dir/resources/oncotree.csv, "
-            "or discovery in resources_dir."
+            "Defaults to resources_dir/oncotree.csv, or discovery in resources_dir."
         ),
     )
     parser.add_argument(

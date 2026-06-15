@@ -6,7 +6,7 @@ from typing import Callable, Dict, Hashable, List, Optional, Tuple
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import fix_mojibake_df, is_effectively_empty
+from aus_trial_universe.eligibility_utils.general.text_normalisation import fix_mojibake_df, is_effectively_empty
 
 logger = logging.getLogger(__name__)
 

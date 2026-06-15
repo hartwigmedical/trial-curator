@@ -6,10 +6,10 @@ from typing import Dict
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.csv_mapping_file import (
+from aus_trial_universe.eligibility_utils.general import (
     load_resource_csv,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general import (
     clean_cell_str,
     is_effectively_empty,
     norm_cell,

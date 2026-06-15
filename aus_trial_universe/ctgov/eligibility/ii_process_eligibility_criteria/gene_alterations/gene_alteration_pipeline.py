@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import (
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import (
     load_curated_rules,
 )
 from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.gene_alterations.mapping.generate_gene_alteration_mapping import (
@@ -35,10 +35,10 @@ from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.gene_a
 from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.gene_alterations.qa.gene_alteration_conflicts import (
     build_gene_alteration_conflict_report,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cohort_utils import (
+from aus_trial_universe.eligibility_utils.cohort_utils import (
     serialize_rule_cohorts,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general import (
     clean_cell_str,
     is_effectively_empty,
 )
@@ -60,10 +60,6 @@ MANUAL_FILTER_COHORT_LEVEL_STEM = "02b_gene_alteration_manual_filter_cohort_leve
 MAPPED_CRITERIA_STEM = "03_gene_alteration_mapped_criteria"
 TRIAL_LEVEL_STEM = "04_trial_level_gene_alteration"
 TRIAL_LEVEL_CONFLICTS_STEM = "99a_gene_alteration_conflicts_trial_level"
-
-# Backward-compatible aliases for older imports/tests.
-MANUAL_FILTER_STEM = MANUAL_FILTER_TRIAL_LEVEL_STEM
-CONFLICTS_STEM = TRIAL_LEVEL_CONFLICTS_STEM
 
 DEFAULT_OUTPUT_FORMAT = "tsv"
 
@@ -115,16 +111,6 @@ class GeneAlterationPipelineOutputs:
     mapped_criteria_file: Path
     trial_level_gene_alteration_file: Path
     trial_level_conflict_report_file: Path
-
-    @property
-    def manual_filter_file(self) -> Path:
-        """Backward-compatible alias for the trial-level manual-filter file."""
-        return self.manual_filter_trial_level_file
-
-    @property
-    def conflict_report_file(self) -> Path:
-        """Backward-compatible alias for the trial-level conflict report."""
-        return self.trial_level_conflict_report_file
 
 
 # =============================================================================

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import typing
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,16 @@ import pydantic_curator.criterion_schema as cs
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+_HELPER_ASSIGNMENT_RE = re.compile(
+    r"^(?P<indent>\s*)"
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    r"(?:\s*:\s*[^=]+)?"
+    r"\s*=\s*"
+    r"(?P<rhs>.*)$"
+)
+
+_KEYWORD_ARG_RE = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 
 # =============================================================================
@@ -25,6 +36,63 @@ def _make_shim(class_name: str):
         self.__dict__.update(kwargs)
 
     return type(class_name, (), {"__init__": __init__})
+
+
+def _criterion_class_name_from_mapping(value: dict[str, Any]) -> str:
+    if "primary_tumor_type" in value:
+        return "PrimaryTumorCriterion"
+    if any(key in value for key in ("gene", "gene_symbol", "alteration", "variant")):
+        return "GeneAlterationCriterion"
+    if any(key in value for key in ("signature", "molecular_signature")):
+        return "MolecularSignatureCriterion"
+    if "sex" in value:
+        return "SexCriterion"
+    if "status" in value:
+        return "ReproductiveStatusCriterion"
+    if "measurement" in value:
+        return "LabValueCriterion"
+    if "age" in value:
+        return "AgeCriterion"
+    if "finding" in value:
+        return "DiagnosticFindingCriterion"
+    if "comorbidity" in value:
+        return "ComorbidityCriterion"
+    if "medications" in value:
+        return "Medication"
+    if "treatment" in value:
+        return "TreatmentOptionCriterion"
+    if "action" in value:
+        return "RequiredActionCriterion"
+    if "reference" in value or "window_days" in value:
+        return "TimingCriterion"
+    if "condition" in value and ("then" in value or "else_" in value):
+        return "IfCriterion"
+    if "criterion" in value:
+        return "NotCriterion"
+    if "criteria" in value:
+        return "AndCriterion"
+    return "DictCriterion"
+
+
+def _coerce_criterion_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        class_name = _criterion_class_name_from_mapping(value)
+        cls = _make_shim(class_name)
+        return cls(**{k: _coerce_criterion_value(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return [_coerce_criterion_value(item) for item in value]
+    return value
+
+
+def _coerce_rule_curation_dicts(rules: Any) -> Any:
+    if not isinstance(rules, list):
+        return rules
+
+    for rule in rules:
+        if hasattr(rule, "curation"):
+            rule.curation = _coerce_criterion_value(rule.curation)
+
+    return rules
 
 
 class _TypingInternalShim:
@@ -88,29 +156,29 @@ def _auto_fix_positional_after_keyword(source: str) -> str:
                 lines[i] = before + "curation=[" + after
 
                 j = i + 1
-                last_paren: int | None = None
+                last_expr_end: int | None = None
 
                 while j < n:
                     l = lines[j]
                     ls = l.strip()
 
-                    if ls == ")," and len(l) - len(l.lstrip()) <= len(indent):
+                    if ls in (")", "),") and len(l) - len(l.lstrip()) < len(indent):
                         break
 
-                    if ls in (")", "),"):
-                        last_paren = j
+                    if ls in (")", "),", "}", "},", "]", "],"):
+                        last_expr_end = j
 
                     j += 1
 
-                if last_paren is not None:
-                    l = lines[last_paren]
+                if last_expr_end is not None:
+                    l = lines[last_expr_end]
                     ls = l.rstrip()
-                    if ls.endswith("),"):
-                        # ...)-> ...)],  (preserve existing comma)
-                        lines[last_paren] = ls[:-2] + ")],"
-                    elif ls.endswith(")"):
-                        # ...)-> ...)],
-                        lines[last_paren] = ls + "],"
+                    if ls.endswith(("),", "},", "],")):
+                        # ...), -> ...)],  (preserve existing comma)
+                        lines[last_expr_end] = ls[:-1] + "],"
+                    elif ls.endswith((")", "}", "]")):
+                        # ...) -> ...)],
+                        lines[last_expr_end] = ls + "],"
 
                 i = j
                 continue
@@ -158,6 +226,9 @@ def _auto_fix_embedded_criterion_classes(source: str) -> str:
                     i += 1
                     break
 
+                if s2.startswith("{"):
+                    break
+
                 if s2.startswith(
                     (
                         "AndCriterion(",
@@ -191,6 +262,74 @@ def _auto_fix_embedded_criterion_classes(source: str) -> str:
     return "\n".join(out)
 
 
+def _auto_fix_curation_helper_assignments(source: str) -> str:
+    lines = source.splitlines()
+    out = lines[:]
+
+    for i, line in enumerate(lines):
+        if "curation=" not in line or not line.strip().endswith("="):
+            continue
+
+        j = i + 1
+        while j < len(lines):
+            stripped = lines[j].strip()
+            if stripped == "" or stripped.startswith("#"):
+                j += 1
+                continue
+            break
+
+        if j >= len(lines):
+            continue
+
+        match = _HELPER_ASSIGNMENT_RE.match(lines[j])
+        if match is None:
+            continue
+
+        rhs = match.group("rhs").strip()
+        indent = match.group("indent")
+        if rhs.startswith("["):
+            # The following list elements become the curation expression; the
+            # matching list closer, if present, is cleaned by the bracket fixer.
+            out[j] = ""
+        elif rhs:
+            out[j] = indent + rhs
+
+    return "\n".join(out)
+
+
+def _auto_fix_duplicate_adjacent_keyword_arguments(source: str) -> str:
+    lines = source.splitlines()
+    out: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        current = lines[i]
+        current_match = _KEYWORD_ARG_RE.match(current)
+
+        if current_match is not None:
+            j = i + 1
+            while j < len(lines) and lines[j].strip() == "":
+                j += 1
+
+            if j < len(lines):
+                next_match = _KEYWORD_ARG_RE.match(lines[j])
+                if (
+                    next_match is not None
+                    and next_match.group("indent") == current_match.group("indent")
+                    and next_match.group("key") == current_match.group("key")
+                ):
+                    # Python rejects duplicate kwargs before exec(). For adjacent
+                    # generated duplicates, keep the later value, which is usually
+                    # the more specific rewrite.
+                    i += 1
+                    continue
+
+        out.append(current)
+        i += 1
+
+    return "\n".join(out)
+
+
 def _auto_fix_dangling_criteria_after_list(source: str) -> str:
     lines = source.splitlines()
     out: list[str] = []
@@ -213,6 +352,23 @@ def _auto_fix_orphan_helper_assignments(source: str) -> str:
     out: list[str] = []
     i = 0
 
+    def _is_generated_helper_name(name: str) -> bool:
+        return (
+            name == "criteria_list"
+            or name.endswith("_criterion")
+            or name.endswith("_criteria")
+        )
+
+    def _bracket_delta(text: str) -> int:
+        return (
+            text.count("(")
+            + text.count("[")
+            + text.count("{")
+            - text.count(")")
+            - text.count("]")
+            - text.count("}")
+        )
+
     while i < len(lines):
         stripped = lines[i].lstrip()
 
@@ -226,6 +382,17 @@ def _auto_fix_orphan_helper_assignments(source: str) -> str:
                 i += 1
             continue
 
+        match = _HELPER_ASSIGNMENT_RE.match(lines[i])
+        if match is not None and _is_generated_helper_name(match.group("name")):
+            balance = _bracket_delta(lines[i])
+            i += 1
+
+            while i < len(lines) and balance > 0:
+                balance += _bracket_delta(lines[i])
+                i += 1
+
+            continue
+
         out.append(lines[i])
         i += 1
 
@@ -236,8 +403,22 @@ def _auto_fix_extra_closing_brackets(source: str) -> str:
     lines = source.splitlines()
     out: list[str] = []
 
-    for line in lines:
+    for i, line in enumerate(lines):
         stripped = line.strip()
+
+        if stripped in ("]]", "]],"):
+            j = i + 1
+            next_nonempty = ""
+            while j < len(lines):
+                next_nonempty = lines[j].strip()
+                if next_nonempty:
+                    break
+                j += 1
+
+            if next_nonempty in (")", "),"):
+                suffix = "," if stripped.endswith(",") else ""
+                out.append(line[: len(line) - len(line.lstrip())] + "]" + suffix)
+                continue
 
         if stripped == "]":
             j = len(out) - 1
@@ -473,7 +654,7 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
         if rules is None:
             logger.error("%s (%s) has no `rules` variable", py_filepath, label)
             return None
-        return rules
+        return _coerce_rule_curation_dicts(rules)
 
     # 1) Try as-is
     try:
@@ -494,6 +675,8 @@ def load_curated_rules(py_filepath: Path) -> list[Any] | None:
         changed = False
 
         fixers: list[tuple[str, Any]] = [
+            ("duplicate adjacent keyword arguments", _auto_fix_duplicate_adjacent_keyword_arguments),
+            ("curation helper assignments", _auto_fix_curation_helper_assignments),
             ("positional/list after keyword", _auto_fix_positional_after_keyword),
             ("embedded criterion classes", _auto_fix_embedded_criterion_classes),
             ("dangling 'criteria' tokens", _auto_fix_dangling_criteria_after_list),

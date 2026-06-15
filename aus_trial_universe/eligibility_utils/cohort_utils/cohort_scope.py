@@ -7,10 +7,10 @@ from typing import Any, Dict, Iterable, List, Sequence
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import (
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import (
     load_curated_rules,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general.text_normalisation import (
     clean_cell_str,
     is_effectively_empty,
 )

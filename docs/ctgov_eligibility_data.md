@@ -1,6 +1,6 @@
-# Eligibility Data
+# CTGov Eligibility Data
 
-Eligibility data is organized under:
+CTGov eligibility data is organized under:
 
 ```text
 data/ctgov/eligibility
@@ -64,24 +64,38 @@ The curated folder should contain `NCT*.py` files.
 
 ## Resources
 
-Shared eligibility resources live under:
+Registry-specific CTGov eligibility inputs live under:
 
 ```text
 data/ctgov/eligibility/resources
 ```
 
-Domain-specific resources are expected under:
+Shared eligibility resources that apply to CTGov and ANZCTR live under:
 
 ```text
-data/ctgov/eligibility/resources/cancer_type
-data/ctgov/eligibility/resources/gene_alteration
-data/ctgov/eligibility/resources/molecular_signature
+data/eligibility/resources
 ```
 
-The cancer-type pipeline also expects:
+The shared cancer-type resources are expected under:
 
 ```text
-data/ctgov/eligibility/resources/oncotree.csv
+data/eligibility/resources/cancer_type
+data/eligibility/resources/oncotree.csv
+```
+
+The reusable cancer-type implementation lives under:
+
+```text
+aus_trial_universe/eligibility_utils/cancer_types
+```
+
+The CTGov module under `aus_trial_universe/ctgov/.../cancer_types` is now only the CTGov-specific pipeline/command surface.
+
+The CTGov-specific gene-alteration and molecular-signature resources remain under:
+
+```text
+data/ctgov/eligibility/resources/gene_alteration
+data/ctgov/eligibility/resources/molecular_signature
 ```
 
 ## Processed Outputs
@@ -112,7 +126,7 @@ processed/molecular_signature/04_cohort_level_molecular_signature.tsv
 
 ## Exports
 
-Eligibility resource exports are written under:
+CTGov eligibility resource exports are written under:
 
 ```text
 data/ctgov/eligibility/exports
@@ -130,6 +144,7 @@ exports/cohort_resource_<DDMMYYYY>.tsv
 - Keep downloaded CTGov JSON snapshots under `downloads`.
 - Keep persistent downloader metadata under `state`.
 - Keep selected trial tables and curated `NCT*.py` files under `trials`.
-- Keep mapping and ontology resources under `resources`.
+- Keep shared cancer-type mapping and ontology resources under `data/eligibility/resources`.
+- Keep CTGov-only mapping resources under `data/ctgov/eligibility/resources`.
 - Treat files under `processed` as regenerateable pipeline outputs.
 - Treat files under `exports` as final eligibility resource deliverables.

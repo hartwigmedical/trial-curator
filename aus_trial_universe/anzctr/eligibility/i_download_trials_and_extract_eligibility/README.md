@@ -11,7 +11,7 @@ cd /Users/junrancao/WorkProjects/trial-curator_repo
 Extract ANZCTR trials whose intervention code includes `Treatment: Drugs`.
 
 ```bash
-/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.anzctr.eligibility.i_download_trials_and_extract_eligibility.i_extract_trials_and_fields
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.anzctr.eligibility.i_download_trials_and_extract_eligibility.i_select_trials_and_fields
 ```
 
 Default input:

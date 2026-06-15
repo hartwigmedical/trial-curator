@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cohort_utils import (
+from aus_trial_universe.eligibility_utils.cohort_utils import (
     build_cohort_base_from_curated_rules,
     expand_to_effective_cohort_rows,
     normalize_cohort_label,
@@ -27,7 +27,7 @@ from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer
     _resolve_path,
     _write_tabular_file,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.final_determination.trial_level_determination import (
+from aus_trial_universe.eligibility_utils.cancer_types.final_determination.trial_level_determination import (
     INPUT_EXCLUSIVE_COL,
     INPUT_INCLUSIVE_COL,
     NCT_ID_COL,

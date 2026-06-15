@@ -66,7 +66,7 @@ def test_makefile_does_not_expose_old_eligibility_targets():
 
 
 def test_eligibility_commands_doc_lists_make_targets():
-    doc = Path("docs/eligibility_commands.md").read_text(encoding="utf-8")
+    doc = Path("docs/ctgov_eligibility_commands.md").read_text(encoding="utf-8")
 
     for target in MAKE_TARGETS:
         assert f"make {target}" in doc
@@ -95,18 +95,21 @@ def test_eligibility_extract_criteria_includes_resource_exports_and_optional_qa(
 
 def test_eligibility_secret_files_are_ignored_and_documented():
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
-    doc = Path("docs/eligibility_commands.md").read_text(encoding="utf-8")
+    doc = Path("docs/ctgov_eligibility_commands.md").read_text(encoding="utf-8")
 
     assert ".env" in gitignore
     assert ".env.*" in gitignore
-    assert "!" + ".env" not in gitignore
+    assert "!/.env" not in gitignore
+    assert "!.env\n" not in gitignore
+    assert "!.env.local" not in gitignore
+    assert "!.env.*" not in gitignore
     assert ".env.local" in doc
     assert "OPENAI_API_KEY=API_123" in doc
 
 
 def test_docs_and_scripts_do_not_contain_openai_api_keys():
     paths = [
-        Path("docs/eligibility_commands.md"),
+        Path("docs/ctgov_eligibility_commands.md"),
         Path("scripts/eligibility/pipeline.sh"),
     ]
 

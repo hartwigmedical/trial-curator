@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, List, Optional
 
-from aus_trial_universe.ctgov.eligibility.shared.general.traverse_curation_tree import (
+from aus_trial_universe.eligibility_utils.general.traverse_curation_tree import (
     normalise_forest_into_list,
     walk_forest,
     walk_trial,

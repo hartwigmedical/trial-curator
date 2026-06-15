@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general.text_normalisation import (
     is_effectively_empty,
     norm_cell,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.traverse_curation_tree import (
+from aus_trial_universe.eligibility_utils.general.traverse_curation_tree import (
     walk_trial,
 )
 
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cancer_types.primary_tumor.primary_tumor_mapping import (
+from aus_trial_universe.eligibility_utils.cancer_types.primary_tumor.primary_tumor_mapping import (
     PrimaryTumorKey,
     PrimaryTumorMap,
     make_primary_tumor_key,

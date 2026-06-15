@@ -37,12 +37,13 @@ def seed_base_trials(data_dir: Path) -> Path:
 
 def test_cancer_type_discovery_uses_default_data_layout(tmp_path: Path):
     data_dir = tmp_path / "eligibility"
+    shared_resources_dir = tmp_path / "data/eligibility/resources"
     seed_curated_file(data_dir)
     seed_base_trials(data_dir)
-    write(data_dir / "resources/oncotree.csv", "code,name,parent\n")
-    write(data_dir / "resources/cancer_type/ConditionsCurationResource_01012026.xlsx")
-    write(data_dir / "resources/cancer_type/PrimaryTumourCurationResource_01012026.xlsx")
-    write(data_dir / "resources/cancer_type/manual_overwrite_01012026.csv", "nct_id\n")
+    write(shared_resources_dir / "oncotree.csv", "code,name,parent\n")
+    write(shared_resources_dir / "cancer_type/ConditionsCurationResource_01012026.xlsx")
+    write(shared_resources_dir / "cancer_type/PrimaryTumourCurationResource_01012026.xlsx")
+    write(shared_resources_dir / "cancer_type/manual_overwrite_01012026.csv", "nct_id\n")
 
     inputs = discover_cancer_type_inputs(
         repo_root=tmp_path,
@@ -63,6 +64,8 @@ def test_cancer_type_discovery_uses_default_data_layout(tmp_path: Path):
 
     assert inputs.ctgov_extractions_csv == data_dir / "trials/ctgov_field_extractions.csv"
     assert inputs.curated_dir == data_dir / "trials/original_curations"
+    assert inputs.cancer_type_resource_dir == shared_resources_dir / "cancer_type"
+    assert inputs.oncotree_csv == shared_resources_dir / "oncotree.csv"
     assert inputs.output_dir == data_dir / "processed/cancer_type"
     assert inputs.conditions_output_dir == data_dir / "processed/cancer_type"
 

@@ -1,6 +1,6 @@
-# Eligibility Commands
+# CTGov Eligibility Commands
 
-Run eligibility commands from the repository root.
+Run CTGov eligibility commands from the repository root.
 
 ```bash
 cd /Users/junrancao/WorkProjects/trial-curator_repo
@@ -8,7 +8,7 @@ conda activate trial_curator
 export PYTHONPATH="$PWD"
 ```
 
-Every Make command below runs the eligibility unit tests first.
+Every Make command below runs the CTGov eligibility unit tests first.
 
 ## API Key
 
@@ -18,7 +18,7 @@ Put your API key in:
 .env.local
 ```
 
-The file has already been created with placeholder values:
+The file can be created with placeholder values:
 
 ```text
 OPENAI_API_KEY=API_123
@@ -36,7 +36,7 @@ ELIGIBILITY_CANCER_TYPE_BASELINE_DIR=data/ctgov/eligibility/processed/cancer_typ
 ELIGIBILITY_GENE_ALTERATION_BASELINE_DIR=data/ctgov/eligibility/processed/gene_alteration/baseline
 ```
 
-Replace `API_123` with your real API key. `.env.local` is ignored by git and is loaded automatically by the Make commands.
+Replace `API_123` with your real API key. `.env.local` is ignored by git and is loaded automatically by the CTGov eligibility Make commands.
 
 If a key has ever been pasted into a chat, script, shell history, or committed file, rotate or revoke it before using it again.
 
@@ -96,7 +96,7 @@ make eligibility-extract-criteria
 
 ## Tests Only
 
-Run only the eligibility unit tests:
+Run only the CTGov eligibility unit tests:
 
 ```bash
 make eligibility-tests

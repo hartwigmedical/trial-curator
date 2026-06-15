@@ -378,27 +378,34 @@ def collapse_trial_group(
     return _join_or_terms(positive_terms), _join_and_terms(negative_terms)
 
 
-def collapse_to_unique_trials(df: pd.DataFrame, hierarchy: OncoTreeHierarchy) -> pd.DataFrame:
-    required_cols = [NCT_ID_COL, INPUT_INCLUSIVE_COL, INPUT_EXCLUSIVE_COL]
+def collapse_to_unique_trials(
+    df: pd.DataFrame,
+    hierarchy: OncoTreeHierarchy,
+    *,
+    id_col: str = NCT_ID_COL,
+    output_id_col: Optional[str] = None,
+) -> pd.DataFrame:
+    output_id_col = output_id_col or id_col
+    required_cols = [id_col, INPUT_INCLUSIVE_COL, INPUT_EXCLUSIVE_COL]
     missing = [col for col in required_cols if col not in df.columns]
     if missing:
         raise ValueError(f"Input file missing required column(s): {missing}")
 
     out_rows: List[Dict[str, str]] = []
 
-    grouped = df.groupby(NCT_ID_COL, sort=False, dropna=False)
-    for nct_id, group in grouped:
-        normalized_nct_id = _normalize_string(nct_id)
+    grouped = df.groupby(id_col, sort=False, dropna=False)
+    for trial_id, group in grouped:
+        normalized_trial_id = _normalize_string(trial_id)
         cancer_type_inclusive, cancer_type_exclusive = collapse_trial_group(group, hierarchy)
         out_rows.append(
             {
-                NCT_ID_COL: normalized_nct_id,
+                output_id_col: normalized_trial_id,
                 OUTPUT_INCLUSIVE_COL: cancer_type_inclusive,
                 OUTPUT_EXCLUSIVE_COL: cancer_type_exclusive,
             }
         )
 
-    return pd.DataFrame(out_rows, columns=[NCT_ID_COL, OUTPUT_INCLUSIVE_COL, OUTPUT_EXCLUSIVE_COL])
+    return pd.DataFrame(out_rows, columns=[output_id_col, OUTPUT_INCLUSIVE_COL, OUTPUT_EXCLUSIVE_COL])
 
 
 def _read_tabular_file(path: Path) -> pd.DataFrame:

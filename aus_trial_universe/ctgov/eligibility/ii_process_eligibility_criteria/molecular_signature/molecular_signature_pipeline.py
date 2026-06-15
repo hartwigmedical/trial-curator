@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import (
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import (
     load_curated_rules,
 )
 from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.molecular_signature.mapping.molecular_signature_mapping import (
@@ -17,11 +17,11 @@ from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.molecu
 from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.molecular_signature.mapping.molecular_signature_overwrite import (
     get_molecular_signature_key_from_node,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.text_normalisation import (
+from aus_trial_universe.eligibility_utils.general import (
     clean_cell_str,
     is_effectively_empty,
 )
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cohort_utils import (
+from aus_trial_universe.eligibility_utils.cohort_utils import (
     serialize_rule_cohorts,
 )
 

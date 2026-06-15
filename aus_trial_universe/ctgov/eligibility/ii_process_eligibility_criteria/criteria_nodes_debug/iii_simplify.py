@@ -5,22 +5,22 @@ import logging
 from pathlib import Path
 from typing import Any, Iterable, List, Optional, Set
 
-from aus_trial_universe.ctgov.eligibility.shared.general.load_curated_rules import load_curated_rules
+from aus_trial_universe.eligibility_utils.general.load_curated_rules import load_curated_rules
 from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.criteria_registry import (
     SUPPORTED_CRITERIA,
     CRITERION_TO_CLASSNAME,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.traverse_curation_tree import (
+from aus_trial_universe.eligibility_utils.general import (
     normalise_forest_into_list,
     walk_trial,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.prune_criteria_nodes import (
+from aus_trial_universe.eligibility_utils.general import (
     prune_nontarget_criteria_in_rules,
     remove_descriptions_from_rules,
     remove_exclude_and_flipped_from_rules,
 )
-from aus_trial_universe.ctgov.eligibility.shared.general.write_curated_rules import write_rules_py
-from aus_trial_universe.ctgov.eligibility.shared.general.prune_curation_tree import remove_node_from_parent
+from aus_trial_universe.eligibility_utils.general import write_rules_py
+from aus_trial_universe.eligibility_utils.general import remove_node_from_parent
 
 logger = logging.getLogger(__name__)
 

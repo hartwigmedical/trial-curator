@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
-from aus_trial_universe.ctgov.eligibility.ii_process_eligibility_criteria.cohort_utils import (
+from aus_trial_universe.eligibility_utils.cohort_utils import (
     GENERAL_COHORT,
     build_cohort_base_from_curated_rules,
     normalize_cohort_label,
@@ -634,9 +634,6 @@ def _order_output_columns(out: pd.DataFrame) -> pd.DataFrame:
 
     if OUTPUT_NCT_ID_COLUMN in base_columns:
         insert_at = base_columns.index(OUTPUT_NCT_ID_COLUMN) + 1
-    elif "nct_id" in base_columns:
-        # Backward-compatible fallback if a caller supplies a pre-normalised base.
-        insert_at = base_columns.index("nct_id") + 1
     else:
         insert_at = 0
 
