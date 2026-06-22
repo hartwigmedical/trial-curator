@@ -33,7 +33,7 @@ from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.
 
 logger = logging.getLogger(__name__)
 
-COHORT_LEVEL_STEM = "04_cohort_level_molecular_signature"
+COHORT_LEVEL_STEM = "03b_molecular_signature_cohort_level"
 
 COHORT_LEVEL_MOLECULAR_SIGNATURE_COLUMNS: Sequence[str] = (
     "trial_id",

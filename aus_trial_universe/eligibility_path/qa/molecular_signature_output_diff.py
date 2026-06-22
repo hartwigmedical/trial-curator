@@ -15,8 +15,8 @@ LOGGER = logging.getLogger(__name__)
 OUTPUT_FILES: Sequence[str] = (
     "01_molecular_signature_mapping_resource.tsv",
     "02_molecular_signature_mapped_criteria.tsv",
-    "03_trial_level_molecular_signature.tsv",
-    "04_cohort_level_molecular_signature.tsv",
+    "03a_molecular_signature_trial_level.tsv",
+    "03b_molecular_signature_cohort_level.tsv",
 )
 
 KEY_COLUMNS_BY_FILE: Dict[str, Sequence[str]] = {
@@ -31,8 +31,8 @@ KEY_COLUMNS_BY_FILE: Dict[str, Sequence[str]] = {
         "criterion_index",
         "criterion_path",
     ),
-    "03_trial_level_molecular_signature.tsv": ("trial_id", "nct_id"),
-    "04_cohort_level_molecular_signature.tsv": ("trial_id", "nct_id", "cohort"),
+    "03a_molecular_signature_trial_level.tsv": ("trial_id", "nct_id"),
+    "03b_molecular_signature_cohort_level.tsv": ("trial_id", "nct_id", "cohort"),
 }
 
 

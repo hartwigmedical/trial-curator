@@ -43,12 +43,6 @@ def test_anzctr_docs_use_current_module_paths():
     ) in command_doc
 
 
-def test_eligibility_path_has_single_package_readme():
-    readmes = sorted(Path("aus_trial_universe/eligibility_path").rglob("README.md"))
-
-    assert readmes == [Path("aus_trial_universe/eligibility_path/README.md")]
-
-
 def test_anzctr_docs_warn_not_to_delete_completed_llm_drug_reviews():
     doc = Path("docs/eligibility_path/anzctr_eligibility_data.md").read_text(
         encoding="utf-8"

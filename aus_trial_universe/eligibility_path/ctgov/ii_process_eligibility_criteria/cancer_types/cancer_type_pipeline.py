@@ -50,7 +50,7 @@ DEFAULT_ONCOTREE_CSV = Path("oncotree/oncotree.csv")
 CONDITIONS_MAPPING_STEM = "01_conditions_mapping"
 PRIMARY_VS_CONDITIONS_STEM = "02_primary_vs_conditions"
 ROW_LEVEL_STEM = "03_row_level_cancer_type"
-TRIAL_LEVEL_STEM = "04_trial_level_cancer_type"
+TRIAL_LEVEL_STEM = "04a_cancer_type_trial_level"
 
 DEFAULT_OUTPUT_FORMAT = "tsv"
 

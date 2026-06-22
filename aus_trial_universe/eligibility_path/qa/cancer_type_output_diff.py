@@ -17,13 +17,15 @@ REGISTRY_FILES: Dict[str, Sequence[str]] = {
         "01_conditions_mapping.tsv",
         "02_primary_vs_conditions.tsv",
         "03_row_level_cancer_type.tsv",
-        "04_trial_level_cancer_type.tsv",
+        "04a_cancer_type_trial_level.tsv",
+        "04b_cancer_type_cohort_level.tsv",
     ),
     "anzctr": (
         "01_health_condition_mapping.tsv",
         "02_primary_vs_health_condition.tsv",
         "03_row_level_cancer_type.tsv",
-        "04_trial_level_cancer_type.tsv",
+        "04a_cancer_type_trial_level.tsv",
+        "04b_cancer_type_cohort_level.tsv",
     ),
 }
 
@@ -58,7 +60,8 @@ KEY_COLUMNS_BY_FILE: Dict[str, Sequence[str]] = {
         "ancestor_chain",
         "siblings_summary",
     ),
-    "04_trial_level_cancer_type.tsv": ("trial_id", "nct_id"),
+    "04a_cancer_type_trial_level.tsv": ("trial_id", "nct_id"),
+    "04b_cancer_type_cohort_level.tsv": ("trial_id", "nct_id", "cohort"),
 }
 
 

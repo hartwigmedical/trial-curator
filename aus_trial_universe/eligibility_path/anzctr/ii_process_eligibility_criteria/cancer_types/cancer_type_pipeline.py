@@ -64,7 +64,7 @@ DEFAULT_INPUT_CSV = Path("data/trial_inputs/anzctr/extracted_trials/anzctr_field
 HEALTH_CONDITION_MAPPING_STEM = "01_health_condition_mapping"
 PRIMARY_VS_HEALTH_CONDITION_STEM = "02_primary_vs_health_condition"
 ROW_LEVEL_STEM = "03_row_level_cancer_type"
-TRIAL_LEVEL_STEM = "04_trial_level_cancer_type"
+TRIAL_LEVEL_STEM = "04a_cancer_type_trial_level"
 
 DEFAULT_OUTPUT_FORMAT = "tsv"
 PRIMARY_VS_HEALTH_CONDITION_ROW_COL = "primary_vs_health_condition_row"

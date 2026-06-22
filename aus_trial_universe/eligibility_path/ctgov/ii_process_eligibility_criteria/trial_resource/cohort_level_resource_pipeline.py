@@ -36,10 +36,10 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_CURATED_DIR = Path("data/trial_inputs/ctgov/eligibility_curations")
 
-DEFAULT_CANCER_TYPE_FILE = Path("exports/intermediates/ctgov/cancer_type/05_cohort_level_cancer_type.tsv")
-DEFAULT_GENE_ALTERATION_FILE = Path("exports/intermediates/ctgov/gene_alteration/05_cohort_level_gene_alteration.tsv")
+DEFAULT_CANCER_TYPE_FILE = Path("exports/intermediates/ctgov/cancer_type/04b_cancer_type_cohort_level.tsv")
+DEFAULT_GENE_ALTERATION_FILE = Path("exports/intermediates/ctgov/gene_alteration/04b_gene_alteration_cohort_level.tsv")
 DEFAULT_MOLECULAR_SIGNATURE_FILE = Path(
-    "exports/intermediates/ctgov/molecular_signature/04_cohort_level_molecular_signature.tsv"
+    "exports/intermediates/ctgov/molecular_signature/03b_molecular_signature_cohort_level.tsv"
 )
 
 DEFAULT_EXPORT_STEM = "cohort_resource"
@@ -987,7 +987,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help=(
             "Cohort-level cancer type file. Defaults to "
-            "data/eligibility_path/exports/intermediates/ctgov/cancer_type/05_cohort_level_cancer_type.tsv."
+            "data/eligibility_path/exports/intermediates/ctgov/cancer_type/04b_cancer_type_cohort_level.tsv."
         ),
     )
 
@@ -997,7 +997,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help=(
             "Cohort-level gene alteration file. Defaults to "
-            "data/eligibility_path/exports/intermediates/ctgov/gene_alteration/05_cohort_level_gene_alteration.tsv."
+            "data/eligibility_path/exports/intermediates/ctgov/gene_alteration/04b_gene_alteration_cohort_level.tsv."
         ),
     )
 
@@ -1007,7 +1007,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help=(
             "Cohort-level molecular signature file. Defaults to "
-            "data/eligibility_path/exports/intermediates/ctgov/molecular_signature/04_cohort_level_molecular_signature.tsv."
+            "data/eligibility_path/exports/intermediates/ctgov/molecular_signature/03b_molecular_signature_cohort_level.tsv."
         ),
     )
 

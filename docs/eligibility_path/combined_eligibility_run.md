@@ -131,6 +131,11 @@ data/eligibility_path/exports/intermediates
 data/eligibility_path/exports/final
 ```
 
+Intermediate TSVs use numbered stage prefixes. Distinct stages use `01_`,
+`02_`, and so on; paired trial/cohort outputs share the same number and use
+`a` for trial level and `b` for cohort level, for example
+`04a_cancer_type_trial_level.tsv` and `04b_cancer_type_cohort_level.tsv`.
+
 Use the cleanup targets to preview or remove generated TSV files from those
 folders while preserving source inputs:
 

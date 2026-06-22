@@ -72,7 +72,7 @@ MAPPING_CORRECTIONS_FILENAME = "mapping_corrections.xlsx"
 MANUAL_FILTER_TRIAL_LEVEL_STEM = "02a_gene_alteration_manual_filter_trial_level"
 MANUAL_FILTER_COHORT_LEVEL_STEM = "02b_gene_alteration_manual_filter_cohort_level"
 MAPPED_CRITERIA_STEM = "03_gene_alteration_mapped_criteria"
-TRIAL_LEVEL_STEM = "04_trial_level_gene_alteration"
+TRIAL_LEVEL_STEM = "04a_gene_alteration_trial_level"
 TRIAL_LEVEL_CONFLICTS_STEM = "99a_gene_alteration_conflicts_trial_level"
 
 DEFAULT_OUTPUT_FORMAT = "tsv"

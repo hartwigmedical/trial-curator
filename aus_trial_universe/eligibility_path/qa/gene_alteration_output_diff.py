@@ -17,8 +17,8 @@ OUTPUT_FILES: Sequence[str] = (
     "02a_gene_alteration_manual_filter_trial_level.tsv",
     "02b_gene_alteration_manual_filter_cohort_level.tsv",
     "03_gene_alteration_mapped_criteria.tsv",
-    "04_trial_level_gene_alteration.tsv",
-    "05_cohort_level_gene_alteration.tsv",
+    "04a_gene_alteration_trial_level.tsv",
+    "04b_gene_alteration_cohort_level.tsv",
     "99a_gene_alteration_conflicts_trial_level.tsv",
     "99b_gene_alteration_conflicts_cohort_level.tsv",
 )
@@ -51,8 +51,8 @@ KEY_COLUMNS_BY_FILE: Dict[str, Sequence[str]] = {
         "criterion_index",
         "criterion_path",
     ),
-    "04_trial_level_gene_alteration.tsv": ("trial_id", "nct_id"),
-    "05_cohort_level_gene_alteration.tsv": ("trial_id", "nct_id", "cohort"),
+    "04a_gene_alteration_trial_level.tsv": ("trial_id", "nct_id"),
+    "04b_gene_alteration_cohort_level.tsv": ("trial_id", "nct_id", "cohort"),
     "99a_gene_alteration_conflicts_trial_level.tsv": (
         "trial_id",
         "nct_id",

@@ -34,7 +34,7 @@ from aus_trial_universe.eligibility_path.shared.gene_alterations.qa.gene_alterat
 
 logger = logging.getLogger(__name__)
 
-COHORT_LEVEL_STEM = "05_cohort_level_gene_alteration"
+COHORT_LEVEL_STEM = "04b_gene_alteration_cohort_level"
 COHORT_LEVEL_CONFLICTS_STEM = "99b_gene_alteration_conflicts_cohort_level"
 
 COHORT_LEVEL_GENE_ALTERATION_COLUMNS: Sequence[str] = (

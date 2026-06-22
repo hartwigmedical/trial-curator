@@ -242,6 +242,10 @@ def source_column(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.Series([""] * len(frame), index=frame.index, dtype=object)
 
 
+def source_list_column(frame: pd.DataFrame, column: str) -> pd.Series:
+    return source_column(frame, column).map(lambda value: join_values(parse_list_like_cell(value)))
+
+
 def combine_anzctr_age(value: object, unit: object) -> str:
     value_text = clean_text(value)
     unit_text = clean_text(unit)
@@ -261,8 +265,11 @@ def derive_ctgov_location_fields(address_value: object) -> tuple[str, str]:
         parts = [part.strip() for part in address.split(",") if part.strip()]
         if parts:
             countries.append(parts[-1])
-        if len(parts) >= 3:
+        if len(parts) >= 4:
             state = parts[-3]
+            states.append(STATE_TO_ABBREVIATION.get(state.casefold(), state))
+        elif len(parts) == 3:
+            state = parts[-2]
             states.append(STATE_TO_ABBREVIATION.get(state.casefold(), state))
 
     return join_values(countries), join_values(states)
@@ -284,15 +291,15 @@ def normalize_ctgov_resource(frame: pd.DataFrame, *, cohort_level: bool = False)
     out["title"] = source_column(frame, "briefTitle")
     out["scientific_title"] = source_column(frame, "officialTitle")
     out["recruitment_status"] = source_column(frame, "status")
-    out["phase"] = source_column(frame, "phases")
+    out["phase"] = source_list_column(frame, "phases")
     out["primary_sponsor_name"] = source_column(frame, "leadSponsor")
-    out["health_condition"] = source_column(frame, "conditions")
+    out["health_condition"] = source_list_column(frame, "conditions")
     out["min_age"] = source_column(frame, "minAge")
     out["max_age"] = source_column(frame, "maxAge")
     out["recruitment_country"] = country_state[0].fillna("").map(clean_text)
     out["recruitment_state"] = country_state[1].fillna("").map(clean_text)
-    out["intervention_type_or_code"] = source_column(frame, "interventionType")
-    out["intervention_name"] = source_column(frame, "interventionName")
+    out["intervention_type_or_code"] = source_list_column(frame, "interventionType")
+    out["intervention_name"] = source_list_column(frame, "interventionName")
 
     for column in ANZCTR_LLM_REVIEW_COLUMNS:
         out[column] = ""

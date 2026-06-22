@@ -21,10 +21,10 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_ELIGIBILITY_DATA_DIR = Path("data/eligibility_path")
 
 DEFAULT_TRIALS_FILE = Path("data/trial_inputs/ctgov/extracted_trials/ctgov_field_extractions.csv")
-DEFAULT_CANCER_TYPE_FILE = Path("exports/intermediates/ctgov/cancer_type/04_trial_level_cancer_type.tsv")
-DEFAULT_GENE_ALTERATION_FILE = Path("exports/intermediates/ctgov/gene_alteration/04_trial_level_gene_alteration.tsv")
+DEFAULT_CANCER_TYPE_FILE = Path("exports/intermediates/ctgov/cancer_type/04a_cancer_type_trial_level.tsv")
+DEFAULT_GENE_ALTERATION_FILE = Path("exports/intermediates/ctgov/gene_alteration/04a_gene_alteration_trial_level.tsv")
 DEFAULT_MOLECULAR_SIGNATURE_FILE = Path(
-    "exports/intermediates/ctgov/molecular_signature/03_trial_level_molecular_signature.tsv"
+    "exports/intermediates/ctgov/molecular_signature/03a_molecular_signature_trial_level.tsv"
 )
 
 DEFAULT_EXPORT_DIR = Path("exports/final/ctgov")
@@ -582,7 +582,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help=(
             "Trial-level cancer type file. Defaults to "
-            "data/eligibility_path/exports/intermediates/ctgov/cancer_type/04_trial_level_cancer_type.tsv."
+            "data/eligibility_path/exports/intermediates/ctgov/cancer_type/04a_cancer_type_trial_level.tsv."
         ),
     )
 
@@ -592,7 +592,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help=(
             "Trial-level gene alteration file. Defaults to "
-            "data/eligibility_path/exports/intermediates/ctgov/gene_alteration/04_trial_level_gene_alteration.tsv."
+            "data/eligibility_path/exports/intermediates/ctgov/gene_alteration/04a_gene_alteration_trial_level.tsv."
         ),
     )
 
@@ -602,7 +602,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         default=None,
         help=(
             "Trial-level molecular signature file. Defaults to "
-            "data/eligibility_path/exports/intermediates/ctgov/molecular_signature/03_trial_level_molecular_signature.tsv."
+            "data/eligibility_path/exports/intermediates/ctgov/molecular_signature/03a_molecular_signature_trial_level.tsv."
         ),
     )
 

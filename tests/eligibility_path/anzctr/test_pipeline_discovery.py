@@ -114,9 +114,9 @@ def test_molecular_signature_discovery_uses_default_data_layout(tmp_path: Path):
 def test_trial_resource_discovery_uses_anzctr_final_export_defaults(tmp_path: Path):
     data_dir = tmp_path / "data/eligibility_path"
     seed_base_trials(tmp_path / "data")
-    write(data_dir / "exports/intermediates/anzctr/cancer_type/04_trial_level_cancer_type.tsv")
-    write(data_dir / "exports/intermediates/anzctr/gene_alteration/04_trial_level_gene_alteration.tsv")
-    write(data_dir / "exports/intermediates/anzctr/molecular_signature/03_trial_level_molecular_signature.tsv")
+    write(data_dir / "exports/intermediates/anzctr/cancer_type/04a_cancer_type_trial_level.tsv")
+    write(data_dir / "exports/intermediates/anzctr/gene_alteration/04a_gene_alteration_trial_level.tsv")
+    write(data_dir / "exports/intermediates/anzctr/molecular_signature/03a_molecular_signature_trial_level.tsv")
 
     inputs = discover_trial_resource_inputs(
         repo_root=tmp_path,
@@ -138,9 +138,9 @@ def test_cohort_resource_discovery_uses_anzctr_final_export_defaults(tmp_path: P
     data_dir = tmp_path / "data/eligibility_path"
     seed_curated_file(tmp_path / "data")
     seed_base_trials(tmp_path / "data")
-    write(data_dir / "exports/intermediates/anzctr/cancer_type/05_cohort_level_cancer_type.tsv")
-    write(data_dir / "exports/intermediates/anzctr/gene_alteration/05_cohort_level_gene_alteration.tsv")
-    write(data_dir / "exports/intermediates/anzctr/molecular_signature/04_cohort_level_molecular_signature.tsv")
+    write(data_dir / "exports/intermediates/anzctr/cancer_type/04b_cancer_type_cohort_level.tsv")
+    write(data_dir / "exports/intermediates/anzctr/gene_alteration/04b_gene_alteration_cohort_level.tsv")
+    write(data_dir / "exports/intermediates/anzctr/molecular_signature/03b_molecular_signature_cohort_level.tsv")
 
     inputs = discover_cohort_resource_inputs(
         repo_root=tmp_path,

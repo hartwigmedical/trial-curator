@@ -9,6 +9,7 @@ from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_re
     FINAL_TRIAL_COLUMNS,
     combine_cohort_resource_tables,
     combine_trial_resource_tables,
+    derive_ctgov_location_fields,
     discover_pipeline_inputs,
     run_combined_trial_resource_export,
 )
@@ -29,12 +30,12 @@ def test_combine_trial_resource_tables_maps_registry_columns_to_final_schema():
             "status": ["RECRUITING"],
             "phases": ["['PHASE2']"],
             "leadSponsor": ["CTGov sponsor"],
-            "conditions": ["['Breast Cancer']"],
+            "conditions": ["['Breast Cancer', 'HER2-positive Breast Cancer']"],
             "minAge": ["18 Years"],
             "maxAge": ["80 Years"],
             "address": ["['Sydney, New South Wales, 2000, Australia']"],
-            "interventionType": ["['DRUG']"],
-            "interventionName": ["['Capecitabine']"],
+            "interventionType": ["['DRUG', 'BIOLOGICAL']"],
+            "interventionName": ["['Capecitabine', 'Trastuzumab']"],
             "cancer_type_inclusive": ["Breast"],
             "cancer_type_exclusive": [""],
             "gene_alteration_inclusive": [""],
@@ -88,8 +89,12 @@ def test_combine_trial_resource_tables_maps_registry_columns_to_final_schema():
     ]
     assert combined.loc[0, "title"] == "CTGov brief"
     assert combined.loc[0, "scientific_title"] == "CTGov official"
+    assert combined.loc[0, "phase"] == "PHASE2"
+    assert combined.loc[0, "health_condition"] == "Breast Cancer | HER2-positive Breast Cancer"
     assert combined.loc[0, "recruitment_country"] == "Australia"
     assert combined.loc[0, "recruitment_state"] == "NSW"
+    assert combined.loc[0, "intervention_type_or_code"] == "DRUG | BIOLOGICAL"
+    assert combined.loc[0, "intervention_name"] == "Capecitabine | Trastuzumab"
     assert combined.loc[0, "llm_reasoning"] == ""
     assert combined.loc[1, "title"] == "ANZCTR public"
     assert combined.loc[1, "intervention_name"] == "pembrolizumab"
@@ -123,6 +128,15 @@ def test_combine_cohort_resource_tables_adds_cohort_to_schema():
 
     assert list(combined.columns) == list(FINAL_COHORT_COLUMNS)
     assert combined["cohort"].tolist() == ["(general)", "cohort A"]
+
+
+def test_derive_ctgov_location_fields_handles_addresses_without_postcodes():
+    countries, states = derive_ctgov_location_fields(
+        "['Sydney, New South Wales, Australia', 'Melbourne, Victoria, Australia']"
+    )
+
+    assert countries == "Australia"
+    assert states == "NSW | VIC"
 
 
 def test_discover_pipeline_inputs_uses_top_level_combined_export_defaults(

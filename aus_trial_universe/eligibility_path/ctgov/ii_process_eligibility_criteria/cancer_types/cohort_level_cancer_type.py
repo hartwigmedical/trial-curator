@@ -45,7 +45,7 @@ from aus_trial_universe.eligibility_path.shared.cancer_types.final_determination
 
 logger = logging.getLogger(__name__)
 
-COHORT_LEVEL_STEM = "05_cohort_level_cancer_type"
+COHORT_LEVEL_STEM = "04b_cancer_type_cohort_level"
 
 COHORT_LEVEL_CANCER_TYPE_COLUMNS: Sequence[str] = (
     "nct_id",

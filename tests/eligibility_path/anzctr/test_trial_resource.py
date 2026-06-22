@@ -20,9 +20,9 @@ def test_build_trial_resource_table_merges_numeric_base_ids_to_prefixed_componen
     tmp_path: Path,
 ):
     trials_file = tmp_path / "anzctr_field_extractions.csv"
-    cancer_type_file = tmp_path / "04_trial_level_cancer_type.tsv"
-    gene_alteration_file = tmp_path / "04_trial_level_gene_alteration.tsv"
-    molecular_signature_file = tmp_path / "03_trial_level_molecular_signature.tsv"
+    cancer_type_file = tmp_path / "04a_cancer_type_trial_level.tsv"
+    gene_alteration_file = tmp_path / "04a_gene_alteration_trial_level.tsv"
+    molecular_signature_file = tmp_path / "03a_molecular_signature_trial_level.tsv"
 
     pd.DataFrame(
         {

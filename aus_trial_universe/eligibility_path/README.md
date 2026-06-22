@@ -74,6 +74,12 @@ data/eligibility_path/exports/intermediates
 data/eligibility_path/exports/final
 ```
 
+Intermediate TSV filenames are stage-numbered. Distinct stages use `01_`,
+`02_`, and so on; paired trial/cohort outputs share the same number with
+`a` for trial level and `b` for cohort level, for example
+`04a_gene_alteration_trial_level.tsv` and
+`04b_gene_alteration_cohort_level.tsv`.
+
 Preview or remove generated TSV files from those folders:
 
 ```bash

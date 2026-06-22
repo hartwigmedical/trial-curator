@@ -51,7 +51,7 @@ DEFAULT_PROCESSED_SUBDIR = Path("molecular_signature")
 
 MAPPING_RESOURCE_STEM = "01_molecular_signature_mapping_resource"
 MAPPED_CRITERIA_STEM = "02_molecular_signature_mapped_criteria"
-TRIAL_LEVEL_STEM = "03_trial_level_molecular_signature"
+TRIAL_LEVEL_STEM = "03a_molecular_signature_trial_level"
 
 DEFAULT_OUTPUT_FORMAT = "tsv"
 
