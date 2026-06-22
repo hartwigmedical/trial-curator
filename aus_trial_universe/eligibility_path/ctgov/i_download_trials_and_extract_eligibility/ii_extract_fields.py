@@ -1,0 +1,245 @@
+import argparse
+import logging
+import json
+from typing import List, Any, Dict
+from pathlib import Path
+
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CT_GOV_INPUT_JSON = Path(
+    "data/trial_inputs/ctgov/input_trials/version_13022026/ctgov_input.json"
+)
+DEFAULT_OUTPUT_DIR = Path("data/trial_inputs/ctgov/extracted_trials")
+
+
+def _dedup_records(ele_list: List[str] | None) -> List[str]:
+    if not ele_list:
+        return []
+
+    already_there = set()
+    dedup_output = []
+
+    for i in ele_list:
+        if i not in already_there:
+            already_there.add(i)
+            dedup_output.append(i)
+
+    return dedup_output
+
+
+def extract_basic_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId: str = trial.get("protocolSection").get("identificationModule").get("nctId")
+    briefTitle: str = trial.get("protocolSection").get("identificationModule").get("briefTitle")
+    officialTitle: str = trial.get("protocolSection").get("identificationModule").get("officialTitle")
+    status: str = trial.get("protocolSection").get("statusModule").get("overallStatus")
+    leadSponsorName: str = trial.get("protocolSection").get("sponsorCollaboratorsModule").get("leadSponsor").get("name")
+    phases: list[str] = trial.get("protocolSection").get("designModule").get("phases")
+
+    basic_tbl = {
+        "nctId": nctId,
+        "briefTitle": briefTitle,
+        "officialTitle": officialTitle,
+        "status": status,
+        "phases": phases,
+        "leadSponsor": leadSponsorName,
+    }
+    return basic_tbl
+
+
+def extract_conditions(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    conditions: list[str] = trial.get("protocolSection").get("conditionsModule").get("conditions")
+
+    conditions_tbl = {
+        "nctId": nctId,
+        "conditions": conditions
+    }
+
+    return conditions_tbl
+
+
+def extract_age_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    minage = trial.get("protocolSection").get("eligibilityModule").get("minimumAge", "")
+    maxage = trial.get("protocolSection").get("eligibilityModule").get("maximumAge", "")
+
+    age_tbl = {
+        "nctId": nctId,
+        "minAge": minage,
+        "maxAge": maxage,
+    }
+    return age_tbl
+
+
+def extract_location_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    locations = trial.get("protocolSection").get("contactsLocationsModule", {}).get("locations", [])
+
+    locFacility: List[str] = []
+    locAddress: List[str] = []
+
+    for loc in locations:
+        if not isinstance(loc, dict):
+            continue
+
+        country = loc.get("country", "").strip()
+        if country not in {"Australia", "New Zealand"}:
+            continue
+
+        facility = (loc.get("facility") or "").strip()  # accommodate when facility is `None`
+        if facility:
+            locFacility.append(facility)
+
+        city = loc.get("city", "").strip()
+        state = loc.get("state", "").strip()
+        postcode = loc.get("zip", "").strip()
+        add_components = [x for x in [city, state, postcode, country] if x]
+        address = ", ".join(add_components) if add_components else country or ""
+        locAddress.append(address)
+
+    locFacility = _dedup_records(locFacility)
+    locAddress = _dedup_records(locAddress)
+
+    loc_tbl = {
+        "nctId": nctId,
+        "facility": locFacility,
+        "address": locAddress,
+    }
+    return loc_tbl
+
+
+def extract_intervention_fields(trial: Dict[str, Any]) -> Dict[str, Any]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    interventions: list[dict[str, Any]] = trial.get("protocolSection").get("armsInterventionsModule").get("interventions")
+
+    iType: List[str] = []
+    iName: List[str] = []
+    iOtherNames: List[str] = []
+
+    for inter in interventions:
+        iTypeSingle = inter.get("type")
+        iNameSingle = inter.get("name")
+        iOtherNamesSingle = inter.get("otherNames") or []
+
+        if isinstance(iTypeSingle, str):
+            iType.append(iTypeSingle.strip())
+        if isinstance(iNameSingle, str):
+            iName.append(iNameSingle.strip())
+        if isinstance(iOtherNamesSingle, list):
+            iOtherNames.extend(x.strip() for x in iOtherNamesSingle if isinstance(x, str) and x.strip())
+
+    iType = _dedup_records(iType)
+    iName = _dedup_records(iName)
+    iOtherNames = _dedup_records(iOtherNames)
+
+    inter_tbl = {
+        "nctId": nctId,
+        "interventionType": iType,
+        "interventionName": iName,
+        "interventionOtherNames": iOtherNames
+    }
+    return inter_tbl
+
+
+def extract_arms_fields(trial: Dict[str, Any]) -> List[Dict[str, Any]]:
+    nctId = trial.get("protocolSection").get("identificationModule").get("nctId")
+    arm_groups: List[Dict[str, Any]] = trial.get("protocolSection").get("armsInterventionsModule", {}).get("armGroups", [])
+
+    arm_rows: List[Dict[str, Any]] = []
+    for arm in arm_groups:
+        arm_type = arm.get("type")
+        arm_label = arm.get("label")
+        intervention_names = arm.get("interventionNames")
+
+        intervention_regime: List[str] = []
+        if isinstance(intervention_names, list):
+            for ele in intervention_names:
+                if isinstance(ele, str) and ":" in ele:
+                    prefix, val = ele.split(":", 1)
+
+                    if prefix and val:
+                        cleaned_val = val.strip()
+                        if cleaned_val:
+                            intervention_regime.append(cleaned_val)
+
+        arm_rows.append({
+            "nctId": nctId,
+            "armType": arm_type.strip() if isinstance(arm_type, str) else arm_type,
+            "armLabel": arm_label.strip() if isinstance(arm_label, str) else arm_label,
+            "intervention_regime": str(intervention_regime),
+        })
+    return arm_rows
+
+
+def extract_fields_to_outputs(ctgov_filepath: Path, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    trial_text = ctgov_filepath.read_text(encoding="utf-8")
+    trials = json.loads(trial_text)
+
+    general_rows = []
+    arm_rows = []
+    count = 0
+
+    for trial in trials:
+        count += 1
+        basic_tbl = extract_basic_fields(trial)
+        conditions_tbl = extract_conditions(trial)
+        ages_tbl = extract_age_fields(trial)
+        inter_tbl = extract_intervention_fields(trial)
+        loc_tbl = extract_location_fields(trial)
+
+        combined_tbl: Dict[str, Any] = basic_tbl | conditions_tbl | ages_tbl | inter_tbl | loc_tbl
+
+        # Retain trials with DRUG intervention ("BIOLOGICAL" label contains drug interventions, at the cost of some false positives)
+        intervention_types = combined_tbl.get("interventionType") or []
+        is_drug_trial = any(t in intervention_types for t in ["DRUG", "BIOLOGICAL"])
+
+        if not is_drug_trial:
+            continue
+
+        general_rows.append(combined_tbl)
+        arm_rows.extend(extract_arms_fields(trial))
+
+    general_df = pd.DataFrame(general_rows)
+    arms_df = pd.DataFrame(arm_rows)
+
+    logger.info(f"Read in {count} trials from ct.gov")
+    logger.info(f"Filtered to {len(general_df)} trials with at least one drug intervention with {len(arms_df)} arms/cohorts.")
+
+    csv_path = output_dir / "ctgov_field_extractions.csv"
+
+    general_df.to_csv(csv_path, index=False)
+    logger.info(f"Wrote CTGov field extraction CSV: {csv_path}")
+    return csv_path
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Extract relevant data fields from JSON file with all CT.gov trials")
+    parser.add_argument(
+        "--ctgov_filepath",
+        type=Path,
+        default=DEFAULT_CT_GOV_INPUT_JSON,
+        help=f"Filepath to the aggregate CT.gov json file. Default: {DEFAULT_CT_GOV_INPUT_JSON}",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory to store the selected-trials CSV. Default: {DEFAULT_OUTPUT_DIR}",
+    )
+    parser.add_argument("--log_level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
+
+    extract_fields_to_outputs(args.ctgov_filepath, args.output_dir)
+
+
+if __name__ == "__main__":
+    main()

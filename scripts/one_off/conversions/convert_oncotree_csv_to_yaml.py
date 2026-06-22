@@ -14,8 +14,8 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_INPUT = REPO_ROOT / "data/eligibility_resources/oncotree/oncotree.csv"
-DEFAULT_OUTPUT = REPO_ROOT / "data/eligibility_resources/oncotree/oncotree.yaml"
+DEFAULT_INPUT = REPO_ROOT / "data/eligibility_path/resources/oncotree/oncotree.csv"
+DEFAULT_OUTPUT = REPO_ROOT / "data/eligibility_path/resources/oncotree/oncotree.yaml"
 LEVEL_COLUMNS = [f"level_{idx}" for idx in range(1, 8)]
 CODE_RE = re.compile(r"\(([^()]+)\)\s*$")
 
@@ -132,7 +132,7 @@ def write_yaml(tree: list[dict[str, Any]], path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert data/eligibility_resources/oncotree/oncotree.csv to nested YAML."
+        description="Convert data/eligibility_path/resources/oncotree/oncotree.csv to nested YAML."
     )
     parser.add_argument(
         "--input",
