@@ -263,7 +263,12 @@ def extract_fields_to_outputs(
         count += 1
         basic_tbl = extract_basic_fields(trial)
         nct_id = basic_tbl.get("nctId")
-        if should_remove_trial(nct_id, registry="ctgov"):
+        # POTTR-listed trials must always reach the final output, so they
+        # override the manual-removal list as well as the drug filter below.
+        if (
+            should_remove_trial(nct_id, registry="ctgov")
+            and normalize_trial_id(nct_id) not in pottr_ids
+        ):
             logger.info("Skipping manually removed CTGov trial: %s", nct_id)
             continue
 

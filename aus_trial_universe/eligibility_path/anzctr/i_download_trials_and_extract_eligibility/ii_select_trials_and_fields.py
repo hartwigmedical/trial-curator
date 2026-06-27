@@ -306,7 +306,12 @@ def extract_drug_intervention_trials(
             else:
                 continue
 
-        if should_remove_trial(output_row.get("ACTRN"), registry="anzctr"):
+        # POTTR-listed trials override the manual-removal list too, so they
+        # always reach the final output (mirrors the drug-filter exemption).
+        if (
+            should_remove_trial(output_row.get("ACTRN"), registry="anzctr")
+            and not is_pottr
+        ):
             logger.info(
                 "Skipping manually removed ANZCTR trial: %s",
                 output_row.get("ACTRN"),

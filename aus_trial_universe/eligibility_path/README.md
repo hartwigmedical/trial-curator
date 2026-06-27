@@ -82,7 +82,8 @@ steps exempt them from the cohort (drug-intervention) filter that otherwise keep
 only `Treatment: Drugs` (ANZCTR) / `DRUG`/`BIOLOGICAL` (CTGov) trials. The POTTR
 trial set is loaded from the POTTR `trial_eligibility.AU` / `trial_registry.AU`
 sources (best-effort: if unreachable, the run proceeds without exemption). POTTR
-trials still respect the manual-removal list. If a residual set of POTTR trials
+trials also override the manual-removal list, so a POTTR-listed trial is retained
+even if its ID appears in `trials_to_remove`. If a residual set of POTTR trials
 cannot be resolved by downloading (e.g. withdrawn IDs), the recursive workflow
 converges with a warning instead of failing.
 

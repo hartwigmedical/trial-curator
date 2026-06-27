@@ -109,8 +109,9 @@ def test_extract_drug_intervention_trials_keeps_non_drug_pottr_trials():
     assert extracted["ACTRN"].tolist() == ["ACTRN1", "ACTRN2", "ACTRN3"]
 
 
-def test_pottr_exemption_does_not_override_manual_removal(monkeypatch):
-    # POTTR bypasses the drug filter but NOT the manual-removal list.
+def test_pottr_exemption_overrides_manual_removal(monkeypatch):
+    # POTTR-listed trials override both the drug filter and the manual-removal
+    # list, so a removal-listed POTTR trial (ACTRN3) is still retained.
     monkeypatch.setattr(removal_config, "trials_remove", ["ACTRN3"])
 
     extracted = extract_drug_intervention_trials(
@@ -120,7 +121,7 @@ def test_pottr_exemption_does_not_override_manual_removal(monkeypatch):
         pottr_trial_ids={"ACTRN2", "ACTRN3"},
     )
 
-    assert extracted["ACTRN"].tolist() == ["ACTRN1", "ACTRN2"]
+    assert extracted["ACTRN"].tolist() == ["ACTRN1", "ACTRN2", "ACTRN3"]
 
 
 def test_extract_drug_intervention_trials_removes_configured_anzctr_ids(monkeypatch):

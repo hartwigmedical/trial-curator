@@ -107,8 +107,12 @@ def test_extract_fields_to_outputs_keeps_non_drug_pottr_trials(tmp_path: Path):
 
     csv_df = pd.read_csv(csv_path)
     # The non-drug POTTR trial is retained; the non-drug non-POTTR trial is dropped.
-    # POTTR bypasses the drug filter but NOT the manual-removal list (NCT06461286).
-    assert csv_df["nctId"].tolist() == ["NCT00000001", "NCT00000002"]
+    # POTTR overrides both the drug filter and the manual-removal list (NCT06461286).
+    assert csv_df["nctId"].tolist() == [
+        "NCT00000001",
+        "NCT00000002",
+        "NCT06461286",
+    ]
 
 
 def test_load_ctgov_trials_merges_multiple_input_files_by_nct_id(tmp_path: Path):
