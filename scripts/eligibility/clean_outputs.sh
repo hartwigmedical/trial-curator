@@ -15,6 +15,10 @@ Remove generated eligibility-path TSV files from:
   data/eligibility_path/exports/intermediates
   data/eligibility_path/exports/final
 
+This includes dated final resources such as:
+  eligibility_trial_resource_<ddmmyyyy>.tsv
+  eligibility_cohort_resource_<ddmmyyyy>.tsv
+
 Options:
   --dry-run   Print files that would be removed, without deleting them.
   --yes, -y   Delete without prompting.

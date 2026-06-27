@@ -6,15 +6,28 @@ eligibility-path folders.
 ## Source Inputs
 
 ```text
-data/trial_inputs/anzctr/input_trials/version_10062026/anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
 data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv
 data/trial_inputs/anzctr/eligibility_curations/ACTRN*.py
 ```
 
-The raw workbook is the source registry input. The extracted trial CSV is
-generated from that workbook and includes the deterministic drug columns. The
-`ACTRN*.py` files are pydantic curator outputs and are treated as source inputs
-for downstream eligibility processing.
+ANZCTR trial downloads are written under
+`data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>`. The dated folder
+keeps separate `01_initial_search` and `02_pottr_append` workbooks. When
+multiple version folders exist, default extraction uses the newest version
+folder. The extracted trial CSV is generated from one or both selected workbooks
+and includes the deterministic drug columns. The `ACTRN*.py` files are pydantic
+curator outputs and are treated as source inputs for downstream eligibility
+processing.
+
+Downloaded trial review pages and their manifest are kept alongside the dated
+input version:
+
+```text
+data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/ACTRN*.html
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/anzctr_download_manifest_<ddmmyyyy>.tsv
+```
 
 If `anzctr_field_extractions.csv` contains completed LLM drug-review
 annotations, keep that file when cleaning generated eligibility TSVs. The drug

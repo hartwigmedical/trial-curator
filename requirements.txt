@@ -1,0 +1,6 @@
+# Runtime dependencies for the eligibility path (trial download + processing).
+# Install with: pip install -r requirements.txt
+curl_cffi>=0.7   # ANZCTR download: impersonates a browser TLS fingerprint to clear Cloudflare
+openpyxl         # read/write the ANZCTR .xlsx export
+pandas
+requests         # ClinicalTrials.gov API download

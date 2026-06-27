@@ -4,14 +4,26 @@ import argparse
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 
+from aus_trial_universe.trials_to_remove.trials_to_remove import should_remove_trial
+from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
+    existing_files,
+    latest_version_dir,
+)
+from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
+    load_pottr_trial_ids_best_effort,
+    normalize_trial_id as normalize_pottr_trial_id,
+)
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_INPUT_XLSX = Path("data/trial_inputs/anzctr/input_trials/version_10062026/anzctr_input.xlsx")
+DEFAULT_INPUT_ROOT = Path("data/trial_inputs/anzctr/input_trials")
 DEFAULT_OUTPUT_CSV = Path("data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv")
 
 TRIAL_SHEET = "TRIAL"
@@ -26,6 +38,11 @@ STUDY_TYPE_COLUMN = "STUDY TYPE"
 DRUG_INTERVENTION_CODE = "Treatment: Drugs"
 
 INTERVENTION_CODES_OUTPUT_COLUMN = "anzctr_intervention_codes"
+DEFAULT_ANZCTR_INPUT_FILENAMES = (
+    "01_initial_search_anzctr_input.xlsx",
+    "02_pottr_append_anzctr_input.xlsx",
+    "anzctr_input.xlsx",
+)
 
 OUTPUT_TRIAL_COLUMNS = [
     "ACTRN",
@@ -129,6 +146,90 @@ def load_anzctr_workbook(
     return trials, health_conditions, intervention_codes
 
 
+def load_anzctr_workbooks(
+    input_xlsx: str | Path | Sequence[str | Path],
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if isinstance(input_xlsx, (str, Path)):
+        paths = [Path(input_xlsx)]
+    else:
+        paths = [Path(path) for path in input_xlsx]
+
+    if len(paths) == 1:
+        return load_anzctr_workbook(paths[0])
+
+    trial_by_actrn: dict[str, dict[str, object]] = {}
+    conditions_by_actrn: dict[str, list[str]] = {}
+    codes_by_actrn: dict[str, list[str]] = {}
+    actrn_order: list[str] = []
+    trial_columns: list[str] = []
+    health_columns: list[str] = []
+    intervention_code_columns: list[str] = []
+
+    for path in paths:
+        trials, health_conditions, intervention_codes = load_anzctr_workbook(path)
+        trial_columns = list(trials.columns)
+        health_columns = list(health_conditions.columns)
+        intervention_code_columns = list(intervention_codes.columns)
+        conditions_by_trial = build_health_condition_lookup(health_conditions)
+        codes_by_trial, _drug_trial_ids = build_intervention_code_lookup(
+            intervention_codes
+        )
+
+        for row in trials.to_dict("records"):
+            source_trial_id = normalise_trial_id(row.get(TRIAL_ID_COLUMN))
+            actrn = normalise_trial_id(row.get("ACTRN"))
+            if not actrn:
+                continue
+            if actrn not in trial_by_actrn:
+                actrn_order.append(actrn)
+            trial_by_actrn[actrn] = dict(row)
+            conditions_by_actrn[actrn] = conditions_by_trial.get(source_trial_id, [])
+            codes_by_actrn[actrn] = codes_by_trial.get(source_trial_id, [])
+
+    trial_rows: list[dict[str, object]] = []
+    health_rows: list[dict[str, object]] = []
+    code_rows: list[dict[str, object]] = []
+    for canonical_trial_id, actrn in enumerate(actrn_order, start=1):
+        row = dict(trial_by_actrn[actrn])
+        row[TRIAL_ID_COLUMN] = canonical_trial_id
+        trial_rows.append(row)
+        health_rows.extend(
+            {TRIAL_ID_COLUMN: canonical_trial_id, HEALTH_CONDITION_COLUMN: condition}
+            for condition in conditions_by_actrn.get(actrn, [])
+        )
+        code_rows.extend(
+            {TRIAL_ID_COLUMN: canonical_trial_id, INTERVENTION_CODE_COLUMN: code}
+            for code in codes_by_actrn.get(actrn, [])
+        )
+
+    return (
+        pd.DataFrame(trial_rows, columns=trial_columns),
+        pd.DataFrame(health_rows, columns=health_columns),
+        pd.DataFrame(code_rows, columns=intervention_code_columns),
+    )
+
+
+def default_anzctr_input_files(input_root: Path = DEFAULT_INPUT_ROOT) -> list[Path]:
+    try:
+        version_dir = latest_version_dir(input_root)
+    except FileNotFoundError:
+        return [DEFAULT_INPUT_XLSX]
+
+    staged = existing_files(
+        [
+            version_dir / "01_initial_search_anzctr_input.xlsx",
+            version_dir / "02_pottr_append_anzctr_input.xlsx",
+        ]
+    )
+    if staged:
+        return staged
+
+    fallback = existing_files(
+        [version_dir / filename for filename in DEFAULT_ANZCTR_INPUT_FILENAMES]
+    )
+    return fallback or [DEFAULT_INPUT_XLSX]
+
+
 def build_health_condition_lookup(
     health_conditions: pd.DataFrame,
 ) -> dict[str, list[str]]:
@@ -182,18 +283,36 @@ def extract_drug_intervention_trials(
     trials: pd.DataFrame,
     health_conditions: pd.DataFrame,
     intervention_codes: pd.DataFrame,
+    pottr_trial_ids: set[str] | None = None,
 ) -> pd.DataFrame:
     codes_by_trial, drug_trial_ids = build_intervention_code_lookup(intervention_codes)
     conditions_by_trial = build_health_condition_lookup(health_conditions)
+    pottr_ids = pottr_trial_ids or set()
 
     output_rows: list[dict[str, object]] = []
+    pottr_exempt = 0
     trial_output_columns = [TRIAL_ID_COLUMN, *TRIAL_SOURCE_COLUMNS]
     for row_values in trials[trial_output_columns].itertuples(index=False, name=None):
         trial_id = normalise_trial_id(row_values[0])
+        output_row = dict(zip(TRIAL_SOURCE_COLUMNS, row_values[1:]))
+
+        # POTTR-listed trials must always reach the final output, so they are
+        # exempt from the drug-intervention cohort filter. POTTR keys by ACTRN,
+        # not the internal "TRIAL ID" used for drug-code matching.
+        is_pottr = normalize_pottr_trial_id(output_row.get("ACTRN")) in pottr_ids
         if trial_id not in drug_trial_ids:
+            if is_pottr:
+                pottr_exempt += 1
+            else:
+                continue
+
+        if should_remove_trial(output_row.get("ACTRN"), registry="anzctr"):
+            logger.info(
+                "Skipping manually removed ANZCTR trial: %s",
+                output_row.get("ACTRN"),
+            )
             continue
 
-        output_row = dict(zip(TRIAL_SOURCE_COLUMNS, row_values[1:]))
         output_row[HEALTH_CONDITION_COLUMN] = DISPLAY_DELIMITER.join(
             conditions_by_trial.get(trial_id, [])
         )
@@ -202,15 +321,24 @@ def extract_drug_intervention_trials(
         )
         output_rows.append(output_row)
 
+    if pottr_exempt:
+        logger.info(
+            "Retained %d non-drug trial(s) exempted as POTTR-listed.", pottr_exempt
+        )
     return pd.DataFrame(output_rows, columns=OUTPUT_COLUMNS)
 
 
-def extract_fields_to_csv(input_xlsx: str | Path, output_csv: str | Path) -> Path:
-    trials, health_conditions, intervention_codes = load_anzctr_workbook(input_xlsx)
+def extract_fields_to_csv(
+    input_xlsx: str | Path | Sequence[str | Path],
+    output_csv: str | Path,
+    pottr_trial_ids: set[str] | None = None,
+) -> Path:
+    trials, health_conditions, intervention_codes = load_anzctr_workbooks(input_xlsx)
     extracted = extract_drug_intervention_trials(
         trials,
         health_conditions,
         intervention_codes,
+        pottr_trial_ids=pottr_trial_ids,
     )
 
     output_csv = Path(output_csv)
@@ -236,8 +364,12 @@ def main() -> None:
     parser.add_argument(
         "--input_xlsx",
         type=Path,
-        default=DEFAULT_INPUT_XLSX,
-        help=f"ANZCTR workbook. Default: {DEFAULT_INPUT_XLSX}",
+        nargs="+",
+        default=None,
+        help=(
+            "ANZCTR workbook(s). Defaults to the newest "
+            "data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy> files."
+        ),
     )
     parser.add_argument(
         "--output_csv",
@@ -251,7 +383,7 @@ def main() -> None:
         default=None,
         help=(
             "RxNorm RRF directory/root for drug annotation. Defaults to "
-            "ii_extract_drugs.py's RxNorm setting."
+            "iii_extract_drugs.py's RxNorm setting."
         ),
     )
     parser.add_argument(
@@ -267,7 +399,7 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs import (
+    from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs import (
         DEFAULT_RXNORM_RRF_DIR,
         extract_drugs_to_csv,
     )
@@ -275,9 +407,10 @@ def main() -> None:
     extract_drugs_to_csv(
         args.output_csv,
         args.output_csv,
-        input_xlsx=args.input_xlsx,
+        input_xlsx=args.input_xlsx or default_anzctr_input_files(),
         refresh_input_csv=True,
         rxnorm_rrf_dir=args.rxnorm_rrf_dir or DEFAULT_RXNORM_RRF_DIR,
+        pottr_trial_ids=load_pottr_trial_ids_best_effort(registry="anzctr"),
     )
 
 

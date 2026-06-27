@@ -20,23 +20,27 @@ PIPELINE_MODULES = [
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.trial_resource.trial_level_resource_pipeline",
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.trial_resource.cohort_level_resource_pipeline",
     "aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export",
+    "aus_trial_universe.eligibility_path.shared.workflow.recursive_end_to_end_workflow",
 ]
 
 MAKE_TARGETS = [
     "eligibility-path-ctgov",
     "eligibility-path-anzctr",
+    "eligibility-path-run-all-trials-download-w-llm",
+    "eligibility-path-run-all-trials-download",
     "eligibility-path-run-all",
-    "eligibility-path-run-all-w-llm",
     "eligibility-path-clean",
     "eligibility-path-clean-dry-run",
-    "eligibility-extract-criteria",
-    "eligibility-tests",
     "eligibility-path-tests",
 ]
 
 REMOVED_MAKE_TARGETS = [
     "eligibility-path-all",
     "eligibility-path-all-w-llm",
+    "eligibility-path-run-all-w-llm",
+    "eligibility-path-run-recursive",
+    "eligibility-extract-criteria",
+    "eligibility-tests",
     "eligibility-pipeline",
     "eligibility-cancer-type",
     "eligibility-gene-alteration",
@@ -48,8 +52,9 @@ REMOVED_MAKE_TARGETS = [
 SCRIPT_COMMANDS = [
     "ctgov",
     "anzctr",
+    "all-trials-download-w-llm",
+    "all-trials-download",
     "all",
-    "all-w-llm",
     "tests",
 ]
 
@@ -100,7 +105,7 @@ def test_combined_run_doc_lists_public_workflows_and_output():
     )
 
     assert "make eligibility-path-run-all" in doc
-    assert "make eligibility-path-run-all-w-llm" in doc
+    assert "make eligibility-path-run-all-trials-download-w-llm" in doc
     assert "data/eligibility_path/exports/final/eligibility_trial_resource_<ddmmyyyy>.tsv" in doc
     assert "data/eligibility_path/exports/final/eligibility_cohort_resource_<ddmmyyyy>.tsv" in doc
     assert "registry" in doc
@@ -115,6 +120,36 @@ def test_eligibility_script_exposes_only_primary_pipeline_commands():
 
     assert "trial-resource" not in script.partition("validate_command()")[2]
     assert "cohort-resource" not in script.partition("validate_command()")[2]
+    run_all_block = script.partition("run_all()")[2].partition("validate_command()")[0]
+    assert "recursive_end_to_end_workflow" in run_all_block
+    assert "--skip_initial_downloads" in run_all_block
+
+
+def test_fresh_download_workflows_run_recursive_pipeline_with_expected_options():
+    script = Path("scripts/eligibility/pipeline.sh").read_text(encoding="utf-8")
+
+    fresh_block = script.partition("run_all_trials_download()")[2].partition(
+        "run_all_trials_download_with_llm_review()"
+    )[0]
+    assert "recursive_end_to_end_workflow" in fresh_block
+    assert "--skip_initial_downloads" not in fresh_block
+    assert "--llm_review" not in fresh_block
+    assert "--download_only" not in fresh_block
+    assert "--anzctr_headed" not in fresh_block
+    assert "--anzctr_manual_download_dir" not in fresh_block
+    assert "--anzctr_manual_download_wait_ms" not in fresh_block
+    assert "ANZCTR_INITIAL_SEARCH_FILE" not in fresh_block
+    assert "--anzctr_initial_search_file" not in fresh_block
+
+    llm_block = script.partition("run_all_trials_download_with_llm_review()")[2].partition(
+        "run_ctgov()"
+    )[0]
+    assert "recursive_end_to_end_workflow" in llm_block
+    assert "--llm_review" in llm_block
+    assert "--skip_initial_downloads" not in llm_block
+    assert "--anzctr_headed" not in llm_block
+    assert "--anzctr_manual_download_dir" not in llm_block
+    assert "--anzctr_manual_download_wait_ms" not in llm_block
 
 
 def test_eligibility_clean_script_only_targets_generated_tsv_exports():
@@ -124,6 +159,7 @@ def test_eligibility_clean_script_only_targets_generated_tsv_exports():
 
     assert "data/eligibility_path/exports/intermediates" in script
     assert "data/eligibility_path/exports/final" in script
+    assert "missing_pottr_trials_<ddmmyyyy>.tsv" not in script
     assert '-name "*.tsv"' in script
     assert "data/trial_inputs" not in script
     assert "rm --" in script
@@ -136,8 +172,9 @@ def test_eligibility_extract_criteria_includes_resource_exports_and_optional_qa(
     assert "gene_alteration_output_diff" in script
     assert "trial_level_resource_pipeline" in script
     assert "cohort_level_resource_pipeline" in script
-    assert "combined_trial_resource_export" in script
-    assert "all-w-llm" in script
+    assert "recursive_end_to_end_workflow" in script
+    assert "all-trials-download-w-llm" in script
+    assert "all-w-llm" not in script
     assert "ELIGIBILITY_EXPORT_DATE" in script
     assert "ELIGIBILITY_RUN_QA_DIFFS" in script
 

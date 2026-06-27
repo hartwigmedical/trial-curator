@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import requests
+import pandas as pd
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -312,6 +313,82 @@ def download_one_page_from_ctgov(session: requests.Session, query_term: str, pag
         raise
 
 
+def download_one_trial_from_ctgov(session: requests.Session, nct_id: str) -> dict[str, Any]:
+    nct_id = nct_id.strip().upper()
+    if not nct_id:
+        raise ValueError("nct_id is required")
+
+    try:
+        req = session.get(
+            url=f"{API_QUERY_BASE}/{nct_id}",
+            params={"format": "json"},
+            timeout=TIMEOUT,
+        )
+        req.raise_for_status()
+        return req.json()
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(
+            "HTTP error downloading %s: %s | %s",
+            nct_id,
+            e.response.status_code if e.response else "[unknown]",
+            (e.response.text if e.response and e.response.text else ""),
+        )
+        raise
+
+    except requests.exceptions.RequestException as e:
+        logger.error("Request error downloading %s: %s", nct_id, e)
+        raise
+
+
+def download_trials_by_nct_ids(
+    session: requests.Session,
+    nct_ids: list[str],
+) -> list[dict[str, Any]]:
+    trials: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for nct_id in nct_ids:
+        normalized_nct_id = nct_id.strip().upper()
+        if not normalized_nct_id or normalized_nct_id in seen:
+            continue
+        seen.add(normalized_nct_id)
+        trials.append(download_one_trial_from_ctgov(session, normalized_nct_id))
+    return trials
+
+
+def read_nct_ids(path: Path) -> list[str]:
+    if path.suffix.lower() in {".tsv", ".csv"}:
+        sep = "\t" if path.suffix.lower() == ".tsv" else ","
+        frame = pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+        if "registry" in frame.columns:
+            frame = frame.loc[
+                frame["registry"].astype(str).str.strip().str.casefold() == "ctgov"
+            ]
+        candidate_columns = ["trial_id", "trialId", "nctId", "NCTID", "NCT Id"]
+        selected_column = next(
+            (column for column in candidate_columns if column in frame.columns),
+            "",
+        )
+        if not selected_column:
+            raise ValueError(
+                f"{path} must contain one of {candidate_columns}. "
+                f"Found columns: {list(frame.columns)}"
+            )
+        values = frame[selected_column]
+    else:
+        values = path.read_text(encoding="utf-8").splitlines()
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        nct_id = str(value).strip().upper()
+        if not nct_id or not nct_id.startswith("NCT") or nct_id in seen:
+            continue
+        seen.add(nct_id)
+        out.append(nct_id)
+    return out
+
+
 def _extract_nct_id(study_obj: dict[str, Any]) -> Optional[str]:
     try:
         return study_obj["protocolSection"]["identificationModule"]["nctId"]
@@ -576,6 +653,7 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--all", action="store_true", help="Download all trials subject to the search criteria.")
     mode.add_argument("--incremental", action="store_true", help="Download only new/updated trials since last successful download.")
+    mode.add_argument("--trial_ids", type=Path, help="Text/CSV/TSV of NCT IDs to download for POTTR append.")
 
     parser.add_argument("--output_dir", required=True, help="Per-run output directory")
     parser.add_argument("--state_dir", required=True, help="Persistent state directory.")
@@ -596,6 +674,8 @@ def main():
 
     # Per-run outputs
     delta_path = output_dir / "ctgov_trials_delta.json"
+    initial_search_path = output_dir / "01_initial_search_ctgov_input.json"
+    pottr_append_path = output_dir / "02_pottr_append_ctgov_input.json"
     merged_output_path = output_dir / "ctgov_trials_merged.json"
 
     # Persistent state files
@@ -617,10 +697,22 @@ def main():
 
     base_query_terms = generate_query_terms()
 
+    if args.trial_ids:
+        nct_ids = read_nct_ids(args.trial_ids)
+        trials = download_trials_by_nct_ids(session=session, nct_ids=nct_ids)
+        _write_json_atomic(pottr_append_path, trials)
+        logger.info(
+            "Completed --trial_ids | POTTR append trials written to: %s count=%d",
+            pottr_append_path,
+            len(trials),
+        )
+        return
+
     if args.all:
         all_trials_unique = _download_all_matching_trials(session=session, query_terms=base_query_terms)
 
         # Write full snapshot to this run
+        _write_json_atomic(initial_search_path, all_trials_unique)
         _write_json_atomic(merged_output_path, all_trials_unique)
 
         # Also update persistent cache
@@ -630,6 +722,7 @@ def main():
         meta_path = _new_meta_path()
         _write_meta(meta_path, merged_trials=all_trials_unique)
 
+        logger.info("Completed --all | Initial search written to: %s", initial_search_path)
         logger.info("Completed --all | Snapshot written to: %s", merged_output_path)
         logger.info("Persistent cache updated: %s", persistent_cache_path)
         logger.info("Meta written to: %s", meta_path)

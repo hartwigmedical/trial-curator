@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility import \
-    iii_pydantic_curator_batch_run as batch
+    iv_pydantic_curator_batch_run as batch
 
 
 def test_build_eligibility_criteria_text_uses_curator_headers_and_omits_empty_values():

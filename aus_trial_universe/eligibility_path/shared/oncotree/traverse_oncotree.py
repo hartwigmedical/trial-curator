@@ -11,7 +11,6 @@ from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import 
     fix_mojibake_df,
     fix_mojibake_str,
     is_effectively_empty,
-    norm,
 )
 
 # Constants / parsing utilities
@@ -31,59 +30,6 @@ def parse_name_code(cell: object) -> Optional[Tuple[str, str]]:
     if not code or not name:
         return None
     return name, code
-
-
-# PrimaryTumor overwrite utilities (term -> level, OR splitting)
-
-def split_or_terms(value: object) -> List[str]:
-    if is_effectively_empty(value):
-        return []
-    s = fix_mojibake_str(str(value)).strip()
-    parts = [p.strip() for p in s.split("|")]
-    return [p for p in parts if p]  # drop empties
-
-
-def build_term_to_level_index(oncotree_csv: str | Path) -> Dict[str, int]:
-    path = Path(oncotree_csv)
-    df = pd.read_csv(path, encoding="utf-8-sig", keep_default_na=False, na_values=[])
-    df.columns = [str(c).strip() for c in df.columns]
-    df = fix_mojibake_df(df)
-
-    missing = [c for c in LEVEL_COLS if c not in df.columns]
-    if missing:
-        raise ValueError(f"OncoTree CSV missing expected columns: {missing}")
-
-    term_to_level: Dict[str, int] = {}
-
-    for _, row in df.iterrows():
-        for level_idx, col in enumerate(LEVEL_COLS, start=1):
-            cell = row.get(col)
-            if is_effectively_empty(cell):
-                continue
-            term = fix_mojibake_str(str(cell)).strip()
-            key = norm(term)
-            if not key:
-                continue
-
-            prev = term_to_level.get(key)
-            if prev is None:
-                term_to_level[key] = level_idx
-            elif prev != level_idx:
-                raise ValueError(
-                    f"Term appears at multiple levels: '{term}' -> {prev} vs {level_idx}"
-                )
-
-    return term_to_level
-
-
-def levels_for_terms(terms: List[str], term_to_level: Dict[str, int]) -> Optional[List[int]]:
-    levels: List[int] = []
-    for t in terms:
-        lvl = term_to_level.get(norm(t))
-        if lvl is None:
-            return None
-        levels.append(lvl)
-    return levels
 
 
 # Tree data structures

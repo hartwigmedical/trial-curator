@@ -4,11 +4,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_select_trials_and_fields import (
+from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_select_trials_and_fields import (
     OUTPUT_COLUMNS,
+    default_anzctr_input_files,
     extract_drug_intervention_trials,
     extract_fields_to_csv,
+    load_anzctr_workbooks,
 )
+from aus_trial_universe.trials_to_remove import trials_to_remove as removal_config
 
 
 def trial_rows() -> pd.DataFrame:
@@ -93,6 +96,45 @@ def test_extract_drug_intervention_trials_uses_treatment_drugs_code_only():
     ]
 
 
+def test_extract_drug_intervention_trials_keeps_non_drug_pottr_trials():
+    # Trial 2 ("Prevention: Drugs") is non-drug, so normally dropped; being
+    # POTTR-listed (by ACTRN) exempts it from the drug-intervention filter.
+    extracted = extract_drug_intervention_trials(
+        trial_rows(),
+        health_condition_rows(),
+        intervention_code_rows(),
+        pottr_trial_ids={"ACTRN2"},
+    )
+
+    assert extracted["ACTRN"].tolist() == ["ACTRN1", "ACTRN2", "ACTRN3"]
+
+
+def test_pottr_exemption_does_not_override_manual_removal(monkeypatch):
+    # POTTR bypasses the drug filter but NOT the manual-removal list.
+    monkeypatch.setattr(removal_config, "trials_remove", ["ACTRN3"])
+
+    extracted = extract_drug_intervention_trials(
+        trial_rows(),
+        health_condition_rows(),
+        intervention_code_rows(),
+        pottr_trial_ids={"ACTRN2", "ACTRN3"},
+    )
+
+    assert extracted["ACTRN"].tolist() == ["ACTRN1", "ACTRN2"]
+
+
+def test_extract_drug_intervention_trials_removes_configured_anzctr_ids(monkeypatch):
+    monkeypatch.setattr(removal_config, "trials_remove", ["ACTRN3"])
+
+    extracted = extract_drug_intervention_trials(
+        trial_rows(),
+        health_condition_rows(),
+        intervention_code_rows(),
+    )
+
+    assert extracted["ACTRN"].tolist() == ["ACTRN1"]
+
+
 def test_extract_fields_to_csv_writes_selected_trial_rows(tmp_path: Path):
     input_xlsx = tmp_path / "anzctr_input.xlsx"
     output_csv = tmp_path / "anzctr_field_extractions.csv"
@@ -118,3 +160,62 @@ def test_extract_fields_to_csv_writes_selected_trial_rows(tmp_path: Path):
         "Breast cancer | Metastatic disease",
         "",
     ]
+
+
+def test_load_anzctr_workbooks_remaps_trial_ids_and_uses_later_actrn_rows(
+    tmp_path: Path,
+):
+    initial_xlsx = tmp_path / "01_initial_search_anzctr_input.xlsx"
+    append_xlsx = tmp_path / "02_pottr_append_anzctr_input.xlsx"
+
+    with pd.ExcelWriter(initial_xlsx, engine="openpyxl") as writer:
+        trial_rows().iloc[[0]].to_excel(writer, sheet_name="TRIAL", index=False)
+        health_condition_rows().iloc[[0]].to_excel(
+            writer,
+            sheet_name="HEALTH CONDITION",
+            index=False,
+        )
+        intervention_code_rows().iloc[[0]].to_excel(
+            writer,
+            sheet_name="INTERVENTION CODE",
+            index=False,
+        )
+
+    later_trial = trial_rows().iloc[[0]].copy()
+    later_trial.loc[:, "STUDY TITLE"] = ["Updated Study 1"]
+    later_trial.loc[:, "TRIAL ID"] = [1]
+    append_health = pd.DataFrame(
+        {"TRIAL ID": [1], "HEALTH CONDITION": ["Updated cancer"]}
+    )
+    append_codes = pd.DataFrame(
+        {"TRIAL ID": [1], "INTERVENTION CODE": ["Treatment: Drugs"]}
+    )
+    with pd.ExcelWriter(append_xlsx, engine="openpyxl") as writer:
+        later_trial.to_excel(writer, sheet_name="TRIAL", index=False)
+        append_health.to_excel(writer, sheet_name="HEALTH CONDITION", index=False)
+        append_codes.to_excel(writer, sheet_name="INTERVENTION CODE", index=False)
+
+    trials, health_conditions, intervention_codes = load_anzctr_workbooks(
+        [initial_xlsx, append_xlsx]
+    )
+
+    assert trials["TRIAL ID"].tolist() == [1]
+    assert trials["STUDY TITLE"].tolist() == ["Updated Study 1"]
+    assert health_conditions["TRIAL ID"].tolist() == [1]
+    assert health_conditions["HEALTH CONDITION"].tolist() == ["Updated cancer"]
+    assert intervention_codes["TRIAL ID"].tolist() == [1]
+
+
+def test_default_anzctr_input_files_use_newest_version_staged_files(tmp_path: Path):
+    root = tmp_path / "data/trial_inputs/anzctr/input_trials"
+    older = root / "version_01012026"
+    newer = root / "version_02012026"
+    older.mkdir(parents=True)
+    newer.mkdir(parents=True)
+    (older / "anzctr_input.xlsx").write_text("", encoding="utf-8")
+    initial = newer / "01_initial_search_anzctr_input.xlsx"
+    append = newer / "02_pottr_append_anzctr_input.xlsx"
+    initial.write_text("", encoding="utf-8")
+    append.write_text("", encoding="utf-8")
+
+    assert default_anzctr_input_files(root) == [initial, append]

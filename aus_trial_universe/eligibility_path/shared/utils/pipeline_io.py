@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence, Set
 
@@ -11,6 +13,7 @@ LOGGER = logging.getLogger(__name__)
 SUPPORTED_TABULAR_SUFFIXES: Set[str] = {".csv", ".tsv", ".xlsx", ".xls"}
 SUPPORTED_CSV_SUFFIXES: Set[str] = {".csv"}
 SUPPORTED_OUTPUT_FORMATS: Set[str] = {"tsv", "csv", "xlsx", "xls"}
+VERSION_DIR_RE = re.compile(r"^version_(\d{8})$")
 
 
 def normalize_token(value: str) -> str:
@@ -145,3 +148,31 @@ def output_path(output_dir: Path, stem: str, output_format: str) -> Path:
         )
 
     return output_dir / f"{stem}.{normalized_format}"
+
+
+def version_dir_sort_key(path: Path) -> tuple[int, str, str]:
+    match = VERSION_DIR_RE.match(path.name)
+    if not match:
+        return (0, "", path.name)
+    try:
+        version_date = datetime.strptime(match.group(1), "%d%m%Y").date()
+    except ValueError:
+        return (0, "", path.name)
+    return (1, version_date.isoformat(), path.name)
+
+
+def latest_version_dir(root: Path) -> Path:
+    if not root.exists():
+        raise FileNotFoundError(f"Version root does not exist: {root}")
+    candidates = [
+        path
+        for path in root.iterdir()
+        if path.is_dir() and VERSION_DIR_RE.match(path.name)
+    ]
+    if not candidates:
+        raise FileNotFoundError(f"No version_<ddmmyyyy> folders found in {root}")
+    return sorted(candidates, key=version_dir_sort_key)[-1]
+
+
+def existing_files(paths: Sequence[Path]) -> list[Path]:
+    return [path for path in paths if path.exists() and path.is_file()]

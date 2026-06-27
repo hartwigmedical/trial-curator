@@ -5,9 +5,10 @@ from pathlib import Path
 
 
 PIPELINE_MODULES = [
-    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_select_trials_and_fields",
-    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs",
-    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_pydantic_curator_batch_run",
+    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_download_trials",
+    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_select_trials_and_fields",
+    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs",
+    "aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iv_pydantic_curator_batch_run",
     "aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.cancer_types.cancer_type_pipeline",
     "aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.cancer_types.cohort_level_cancer_type",
     "aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.gene_alterations.gene_alteration_pipeline",

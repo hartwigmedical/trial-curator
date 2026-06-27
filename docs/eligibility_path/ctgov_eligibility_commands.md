@@ -32,14 +32,19 @@ loaded automatically by `scripts/eligibility/pipeline.sh`.
 Static/source inputs:
 
 ```text
-data/trial_inputs/ctgov/input_trials/version_13022026/ctgov_input.json
+data/trial_inputs/ctgov/input_trials/version_<ddmmyyyy>/01_initial_search_ctgov_input.json
+data/trial_inputs/ctgov/input_trials/version_<ddmmyyyy>/02_pottr_append_ctgov_input.json
 data/trial_inputs/ctgov/extracted_trials/ctgov_field_extractions.csv
 data/trial_inputs/ctgov/eligibility_curations/NCT*.py
-data/trial_inputs/anzctr/input_trials/version_10062026/anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
 data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv
 data/trial_inputs/anzctr/eligibility_curations/ACTRN*.py
 data/eligibility_path/resources
 ```
+
+When input paths are omitted, extraction commands use the newest
+`version_<ddmmyyyy>` folder under each registry's `input_trials` directory.
 
 Generated outputs:
 
@@ -65,10 +70,18 @@ Run ANZCTR:
 make eligibility-path-anzctr
 ```
 
-Run both registries and write the single combined trial-resource TSV:
+Run both registries from the newest existing input version folders and write
+the combined trial/cohort resource TSVs:
 
 ```bash
 make eligibility-path-run-all
+```
+
+Freshly download CTGov and ANZCTR initial trial inputs into dated
+`version_<ddmmyyyy>` folders, then run the recursive no-LLM workflow:
+
+```bash
+make eligibility-path-run-all-trials-download
 ```
 
 The final cross-registry files are:
@@ -78,16 +91,11 @@ data/eligibility_path/exports/final/eligibility_trial_resource_<ddmmyyyy>.tsv
 data/eligibility_path/exports/final/eligibility_cohort_resource_<ddmmyyyy>.tsv
 ```
 
-Run both registries with the optional ANZCTR LLM drug review:
+Run the most complete workflow with fresh downloads and optional ANZCTR LLM
+drug review:
 
 ```bash
-make eligibility-path-run-all-w-llm
-```
-
-The older aggregate target is kept as an alias for both registries:
-
-```bash
-make eligibility-extract-criteria
+make eligibility-path-run-all-trials-download-w-llm
 ```
 
 Set the dated export suffix:
@@ -118,7 +126,6 @@ make eligibility-path-clean
 ## Tests Only
 
 ```bash
-make eligibility-tests
 make eligibility-path-tests
 ```
 

@@ -6,8 +6,10 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date
+from io import StringIO
 from pathlib import Path
 from typing import Optional, Sequence
+from urllib.request import urlopen
 
 import pandas as pd
 
@@ -26,18 +28,17 @@ DEFAULT_REGISTRY_COHORT_EXPORT_STEM = "cohort_resource"
 DEFAULT_COMBINED_TRIAL_EXPORT_STEM = "eligibility_trial_resource"
 DEFAULT_COMBINED_COHORT_EXPORT_STEM = "eligibility_cohort_resource"
 DEFAULT_EXPORT_DIR = Path("exports/final")
+DEFAULT_POTTR_TRIAL_ELIGIBILITY_URL = (
+    "https://github.com/fpylin/POTTR/blob/master/data/trial_eligibility.AU.tsv"
+)
+DEFAULT_POTTR_TRIAL_REGISTRY_URL = (
+    "https://github.com/fpylin/POTTR/blob/master/data/trial_registry.AU.tsv"
+)
 
 REGISTRY_COLUMN = "registry"
 TRIAL_ID_COLUMN = "trialId"
 COHORT_COLUMN = "cohort"
 DISPLAY_DELIMITER = " | "
-
-ANZCTR_LLM_REVIEW_COLUMNS: Sequence[str] = (
-    "llm_drug_to_remove",
-    "llm_drugs_to_add",
-    "llm_drugs_to_correct",
-    "llm_reasoning",
-)
 
 ELIGIBILITY_VALUE_COLUMNS: Sequence[str] = (
     "cancer_type_inclusive",
@@ -49,29 +50,29 @@ ELIGIBILITY_VALUE_COLUMNS: Sequence[str] = (
 )
 
 FINAL_TRIAL_COLUMNS: Sequence[str] = (
-    REGISTRY_COLUMN,
     TRIAL_ID_COLUMN,
+    REGISTRY_COLUMN,
     "title",
     "scientific_title",
+    "primary_sponsor",
     "recruitment_status",
     "phase",
-    "primary_sponsor_name",
-    "health_condition",
-    "min_age",
-    "max_age",
-    "recruitment_country",
-    "recruitment_state",
-    "intervention_type_or_code",
+    "country",
+    "original_health_conditions",
+    "intervention_type",
     "intervention_name",
-    *ANZCTR_LLM_REVIEW_COLUMNS,
     *ELIGIBILITY_VALUE_COLUMNS,
 )
 
 FINAL_COHORT_COLUMNS: Sequence[str] = (
-    REGISTRY_COLUMN,
     TRIAL_ID_COLUMN,
+    REGISTRY_COLUMN,
     COHORT_COLUMN,
-    *[column for column in FINAL_TRIAL_COLUMNS if column not in {REGISTRY_COLUMN, TRIAL_ID_COLUMN}],
+    *[
+        column
+        for column in FINAL_TRIAL_COLUMNS
+        if column not in {TRIAL_ID_COLUMN, REGISTRY_COLUMN}
+    ],
 )
 
 # Explicit cross-registry schema for the top-level eligibility resource exports.
@@ -79,24 +80,17 @@ FINAL_COHORT_COLUMNS: Sequence[str] = (
 # top-level files deliberately do not keep every source column; they map CTGov
 # and ANZCTR fields onto the common columns above.
 SCHEMA_DOCUMENTATION: Sequence[tuple[str, str, str]] = (
-    ("registry", 'fixed "ctgov"', 'fixed "anzctr"'),
     ("trialId", "nctId", "trialId"),
+    ("registry", 'fixed "ctgov"', 'fixed "anzctr"'),
     ("title", "briefTitle", "STUDY TITLE"),
     ("scientific_title", "officialTitle", "SCIENTIFIC TITLE"),
+    ("primary_sponsor", "leadSponsor", "PRIMARY SPONSOR NAME"),
     ("recruitment_status", "status", "RECRUITMENT STATUS"),
     ("phase", "phases", "PHASE"),
-    ("primary_sponsor_name", "leadSponsor", "PRIMARY SPONSOR NAME"),
-    ("health_condition", "conditions", "HEALTH CONDITION"),
-    ("min_age", "minAge", "MIN AGE + MIN AGE TYPE"),
-    ("max_age", "maxAge", "MAX AGE + MAX AGE TYPE"),
-    ("recruitment_country", "derived from address", "RECRUITMENT COUNTRY"),
-    ("recruitment_state", "derived from address", "RECRUITMENT STATE"),
-    ("intervention_type_or_code", "interventionType", "anzctr_intervention_codes"),
+    ("country", "derived from address", "RECRUITMENT COUNTRY"),
+    ("original_health_conditions", "conditions", "HEALTH CONDITION"),
+    ("intervention_type", "interventionType", "anzctr_intervention_codes"),
     ("intervention_name", "interventionName", "DRUG_rxnorm_matched"),
-    ("llm_drug_to_remove", "", "llm_drug_to_remove"),
-    ("llm_drugs_to_add", "", "llm_drugs_to_add"),
-    ("llm_drugs_to_correct", "", "llm_drugs_to_correct"),
-    ("llm_reasoning", "", "llm_reasoning"),
     ("cancer_type_inclusive", "cancer_type_inclusive", "cancer_type_inclusive"),
     ("cancer_type_exclusive", "cancer_type_exclusive", "cancer_type_exclusive"),
     ("gene_alteration_inclusive", "gene_alteration_inclusive", "gene_alteration_inclusive"),
@@ -133,12 +127,15 @@ class CombinedEligibilityResourceInputs:
     anzctr_cohort_resource_file: Path
     trial_output_file: Path
     cohort_output_file: Path
+    pottr_trial_eligibility_file: str
+    pottr_trial_registry_file: str
 
 
 @dataclass(frozen=True)
 class CombinedEligibilityResourceOutputs:
     trial_output_file: Path
     cohort_output_file: Path
+    missing_pottr_trials: pd.DataFrame
 
     @property
     def output_file(self) -> Path:
@@ -236,6 +233,11 @@ def join_values(values: Sequence[str]) -> str:
     return DISPLAY_DELIMITER.join(ordered_unique(list(values)))
 
 
+def normalize_delimited_cell(value: object, delimiter: str = ",") -> str:
+    parts = [part for part in clean_text(value).split(delimiter)]
+    return delimiter.join(ordered_unique(parts))
+
+
 def source_column(frame: pd.DataFrame, column: str) -> pd.Series:
     if column in frame.columns:
         return frame[column].fillna("").map(clean_text)
@@ -246,14 +248,224 @@ def source_list_column(frame: pd.DataFrame, column: str) -> pd.Series:
     return source_column(frame, column).map(lambda value: join_values(parse_list_like_cell(value)))
 
 
-def combine_anzctr_age(value: object, unit: object) -> str:
-    value_text = clean_text(value)
-    unit_text = clean_text(unit)
-    if not value_text or unit_text.casefold() == "not stated":
+def normalize_trial_id(value: object) -> str:
+    return clean_text(value).upper()
+
+
+def is_url(value: str) -> bool:
+    return value.startswith(("http://", "https://"))
+
+
+def normalize_github_tsv_url(value: str) -> str:
+    text = clean_text(value)
+    if text.startswith("https://github.com/") and "/blob/" in text:
+        return text.replace("https://github.com/", "https://raw.githubusercontent.com/").replace(
+            "/blob/",
+            "/",
+            1,
+        )
+    return text
+
+
+def resolve_source_path_or_url(value: str | Path, repo_root: Path) -> str:
+    text = normalize_github_tsv_url(str(value))
+    if is_url(text):
+        return text
+    return str(resolve_path(Path(text), repo_root))
+
+
+def read_pottr_tsv_source(source: str | Path) -> pd.DataFrame:
+    source_text = normalize_github_tsv_url(str(source))
+    if is_url(source_text):
+        with urlopen(source_text, timeout=30) as response:
+            text = response.read().decode("utf-8")
+        return pd.read_csv(StringIO(text), sep="\t", dtype=str, keep_default_na=False)
+
+    return pd.read_csv(Path(source_text), sep="\t", dtype=str, keep_default_na=False)
+
+
+def load_pottr_trial_source(source: str | Path, *, label: str) -> pd.DataFrame:
+    frame = read_pottr_tsv_source(source)
+    if "trial_id" not in frame.columns:
+        raise ValueError(
+            f"POTTR {label} file must contain 'trial_id'. Found columns: {list(frame.columns)}"
+        )
+    frame = frame.copy()
+    frame["trial_id"] = frame["trial_id"].map(normalize_trial_id)
+    frame = frame.loc[frame["trial_id"].ne("")]
+    return frame.drop_duplicates(subset=["trial_id"], keep="first")
+
+
+def infer_pottr_trial_registry(trial_id: object) -> str:
+    text = normalize_trial_id(trial_id)
+    if text.startswith("NCT"):
+        return "ctgov"
+    if text.startswith("ACTRN"):
+        return "anzctr"
+    return ""
+
+
+def build_pottr_trial_index(
+    pottr_trial_eligibility: pd.DataFrame,
+    pottr_trial_registry_frame: pd.DataFrame,
+) -> pd.DataFrame:
+    eligibility = pottr_trial_eligibility.copy()
+    registry = pottr_trial_registry_frame.copy()
+
+    eligibility = eligibility.rename(
+        columns={
+            column: f"eligibility_{column}"
+            for column in eligibility.columns
+            if column != "trial_id" and column != "eligibility_criteria"
+        }
+    )
+    eligibility["in_pottr_trial_eligibility"] = True
+    registry["in_pottr_trial_registry"] = True
+
+    merged = eligibility.merge(registry, on="trial_id", how="outer")
+    for column in ("in_pottr_trial_eligibility", "in_pottr_trial_registry"):
+        merged[column] = merged[column].fillna(False).astype(bool)
+    merged = merged.fillna("")
+    merged["registry"] = merged["trial_id"].map(infer_pottr_trial_registry)
+
+    leading_columns = [
+        "trial_id",
+        "registry",
+        "in_pottr_trial_eligibility",
+        "in_pottr_trial_registry",
+    ]
+    other_columns = [column for column in merged.columns if column not in leading_columns]
+    return merged.loc[:, leading_columns + other_columns].sort_values(
+        "trial_id",
+        kind="stable",
+    )
+
+
+def build_missing_pottr_trials(
+    trial_resource: pd.DataFrame,
+    cohort_resource: pd.DataFrame,
+    pottr_trial_eligibility: pd.DataFrame,
+    pottr_trial_registry: pd.DataFrame,
+) -> pd.DataFrame:
+    resource_trial_ids = set()
+    for frame in (trial_resource, cohort_resource):
+        if TRIAL_ID_COLUMN not in frame.columns:
+            raise ValueError(
+                f"Final resource file must contain {TRIAL_ID_COLUMN!r}. "
+                f"Found columns: {list(frame.columns)}"
+            )
+        resource_trial_ids.update(frame[TRIAL_ID_COLUMN].map(normalize_trial_id))
+
+    pottr_trials = build_pottr_trial_index(
+        pottr_trial_eligibility,
+        pottr_trial_registry,
+    )
+    return pottr_trials.loc[
+        ~pottr_trials["trial_id"].isin(resource_trial_ids)
+    ].reset_index(drop=True)
+
+
+def build_missing_pottr_trials_from_sources(
+    trial_resource: pd.DataFrame,
+    cohort_resource: pd.DataFrame,
+    *,
+    pottr_trial_eligibility_file: str | Path,
+    pottr_trial_registry_file: str | Path,
+) -> pd.DataFrame:
+    return build_missing_pottr_trials(
+        trial_resource,
+        cohort_resource,
+        load_pottr_trial_source(
+            pottr_trial_eligibility_file,
+            label="trial eligibility",
+        ),
+        load_pottr_trial_source(
+            pottr_trial_registry_file,
+            label="trial registry",
+        ),
+    )
+
+
+def load_pottr_trial_ids(
+    *,
+    pottr_trial_eligibility_file: str | Path = DEFAULT_POTTR_TRIAL_ELIGIBILITY_URL,
+    pottr_trial_registry_file: str | Path = DEFAULT_POTTR_TRIAL_REGISTRY_URL,
+    registry: str | None = None,
+) -> set[str]:
+    """Return the set of normalized POTTR-listed trial IDs.
+
+    POTTR lists the trials that must always appear in the final eligibility
+    output. The extract/select steps use this set to exempt POTTR trials from
+    the cohort (drug-intervention) filter so they are never dropped before
+    processing. When ``registry`` is "ctgov" or "anzctr", only IDs that map to
+    that registry are returned.
+    """
+    ids: set[str] = set()
+    for source, label in (
+        (pottr_trial_eligibility_file, "trial eligibility"),
+        (pottr_trial_registry_file, "trial registry"),
+    ):
+        frame = load_pottr_trial_source(source, label=label)
+        ids.update(frame["trial_id"])
+    if registry is not None:
+        ids = {tid for tid in ids if infer_pottr_trial_registry(tid) == registry}
+    return ids
+
+
+def load_pottr_trial_ids_best_effort(
+    *,
+    registry: str | None = None,
+    pottr_trial_eligibility_file: str | Path = DEFAULT_POTTR_TRIAL_ELIGIBILITY_URL,
+    pottr_trial_registry_file: str | Path = DEFAULT_POTTR_TRIAL_REGISTRY_URL,
+) -> set[str]:
+    """Load POTTR trial IDs, returning an empty set if the source is unreachable.
+
+    The extract steps call this so a transient POTTR-source failure (e.g. no
+    network) degrades to "no exemption this run" rather than crashing the
+    pipeline. Any POTTR trial dropped as a result is still reported as missing
+    by the combined export, which converges gracefully.
+    """
+    try:
+        return load_pottr_trial_ids(
+            registry=registry,
+            pottr_trial_eligibility_file=pottr_trial_eligibility_file,
+            pottr_trial_registry_file=pottr_trial_registry_file,
+        )
+    except Exception as error:  # noqa: BLE001 - best-effort, must never block extraction
+        LOGGER.warning(
+            "Could not load POTTR trial list for exemption (%s); proceeding "
+            "without POTTR exemption this run. POTTR trials may be filtered out "
+            "and reported as missing by the combined export.",
+            error,
+        )
+        return set()
+
+
+def normalize_cancer_type_cell(value: object) -> str:
+    text = clean_text(value)
+    if not text:
         return ""
-    if re.fullmatch(r"\d+\.0", value_text):
-        value_text = value_text[:-2]
-    return clean_text(f"{value_text} {unit_text}" if unit_text else value_text)
+
+    def replace_mapping(match: re.Match[str]) -> str:
+        not_prefix = match.group("not") or ""
+        close = ")" if not_prefix and match.group("close") else ""
+        return f"{match.group('prefix')}{not_prefix}{match.group('code')}{close}"
+
+    text = re.sub(
+        r"(?P<prefix>^|[|&]\s*)(?P<not>NOT\()?(?P<name>[^|&]+?)\s+\((?P<code>[A-Z0-9_./-]+)\)(?P<close>\))?",
+        replace_mapping,
+        text,
+    )
+    text = re.sub(
+        r"(?P<prefix>,\s*NOT\()(?P<name>[^,|&]+?)\s+\((?P<code>[A-Z0-9_./-]+)\)(?P<close>\))",
+        lambda match: f"{match.group('prefix')}{match.group('code')})",
+        text,
+    )
+    return re.sub(
+        r"(?P<prefix>NOT\([A-Z0-9_./-]+\),\s*)(?P<name>[A-Za-z][^,|&]+?)\s+\((?P<code>[A-Z0-9_./-]+)\)",
+        lambda match: f"{match.group('prefix')}{match.group('code')}",
+        text,
+    )
 
 
 def derive_ctgov_location_fields(address_value: object) -> tuple[str, str]:
@@ -290,21 +502,18 @@ def normalize_ctgov_resource(frame: pd.DataFrame, *, cohort_level: bool = False)
 
     out["title"] = source_column(frame, "briefTitle")
     out["scientific_title"] = source_column(frame, "officialTitle")
+    out["primary_sponsor"] = source_column(frame, "leadSponsor")
     out["recruitment_status"] = source_column(frame, "status")
     out["phase"] = source_list_column(frame, "phases")
-    out["primary_sponsor_name"] = source_column(frame, "leadSponsor")
-    out["health_condition"] = source_list_column(frame, "conditions")
-    out["min_age"] = source_column(frame, "minAge")
-    out["max_age"] = source_column(frame, "maxAge")
-    out["recruitment_country"] = country_state[0].fillna("").map(clean_text)
-    out["recruitment_state"] = country_state[1].fillna("").map(clean_text)
-    out["intervention_type_or_code"] = source_list_column(frame, "interventionType")
+    out["country"] = country_state[0].fillna("").map(clean_text)
+    out["original_health_conditions"] = source_list_column(frame, "conditions")
+    out["intervention_type"] = source_list_column(frame, "interventionType")
     out["intervention_name"] = source_list_column(frame, "interventionName")
 
-    for column in ANZCTR_LLM_REVIEW_COLUMNS:
-        out[column] = ""
     for column in ELIGIBILITY_VALUE_COLUMNS:
         out[column] = source_column(frame, column)
+    for column in ("cancer_type_inclusive", "cancer_type_exclusive"):
+        out[column] = out[column].map(normalize_cancer_type_cell)
 
     return out.loc[:, FINAL_COHORT_COLUMNS if cohort_level else FINAL_TRIAL_COLUMNS]
 
@@ -318,33 +527,20 @@ def normalize_anzctr_resource(frame: pd.DataFrame, *, cohort_level: bool = False
 
     out["title"] = source_column(frame, "STUDY TITLE")
     out["scientific_title"] = source_column(frame, "SCIENTIFIC TITLE")
+    out["primary_sponsor"] = source_column(frame, "PRIMARY SPONSOR NAME")
     out["recruitment_status"] = source_column(frame, "RECRUITMENT STATUS")
     out["phase"] = source_column(frame, "PHASE")
-    out["primary_sponsor_name"] = source_column(frame, "PRIMARY SPONSOR NAME")
-    out["health_condition"] = source_column(frame, "HEALTH CONDITION")
-    out["min_age"] = [
-        combine_anzctr_age(value, unit)
-        for value, unit in zip(
-            source_column(frame, "MIN AGE"),
-            source_column(frame, "MIN AGE TYPE"),
-        )
-    ]
-    out["max_age"] = [
-        combine_anzctr_age(value, unit)
-        for value, unit in zip(
-            source_column(frame, "MAX AGE"),
-            source_column(frame, "MAX AGE TYPE"),
-        )
-    ]
-    out["recruitment_country"] = source_column(frame, "RECRUITMENT COUNTRY")
-    out["recruitment_state"] = source_column(frame, "RECRUITMENT STATE")
-    out["intervention_type_or_code"] = source_column(frame, "anzctr_intervention_codes")
+    out["country"] = source_column(frame, "RECRUITMENT COUNTRY").map(
+        normalize_delimited_cell
+    )
+    out["original_health_conditions"] = source_column(frame, "HEALTH CONDITION")
+    out["intervention_type"] = source_column(frame, "anzctr_intervention_codes")
     out["intervention_name"] = source_column(frame, "DRUG_rxnorm_matched")
 
-    for column in ANZCTR_LLM_REVIEW_COLUMNS:
-        out[column] = source_column(frame, column)
     for column in ELIGIBILITY_VALUE_COLUMNS:
         out[column] = source_column(frame, column)
+    for column in ("cancer_type_inclusive", "cancer_type_exclusive"):
+        out[column] = out[column].map(normalize_cancer_type_cell)
 
     return out.loc[:, FINAL_COHORT_COLUMNS if cohort_level else FINAL_TRIAL_COLUMNS]
 
@@ -390,6 +586,8 @@ def discover_pipeline_inputs(
     output_file: Optional[Path] = None,
     trial_output_file: Optional[Path] = None,
     cohort_output_file: Optional[Path] = None,
+    pottr_trial_eligibility_file: str | Path | None = None,
+    pottr_trial_registry_file: str | Path | None = None,
     export_date: Optional[str],
 ) -> CombinedEligibilityResourceInputs:
     repo_root = repo_root.resolve()
@@ -456,6 +654,14 @@ def discover_pipeline_inputs(
             cohort_level=True,
         )
     )
+    resolved_pottr_trial_eligibility_file = resolve_source_path_or_url(
+        pottr_trial_eligibility_file or DEFAULT_POTTR_TRIAL_ELIGIBILITY_URL,
+        repo_root,
+    )
+    resolved_pottr_trial_registry_file = resolve_source_path_or_url(
+        pottr_trial_registry_file or DEFAULT_POTTR_TRIAL_REGISTRY_URL,
+        repo_root,
+    )
 
     inputs = CombinedEligibilityResourceInputs(
         ctgov_trial_resource_file=resolved_ctgov_trial_file,
@@ -464,6 +670,8 @@ def discover_pipeline_inputs(
         anzctr_cohort_resource_file=resolved_anzctr_cohort_file,
         trial_output_file=resolved_trial_output_file,
         cohort_output_file=resolved_cohort_output_file,
+        pottr_trial_eligibility_file=resolved_pottr_trial_eligibility_file,
+        pottr_trial_registry_file=resolved_pottr_trial_registry_file,
     )
     validate_pipeline_inputs(inputs)
     return inputs
@@ -500,6 +708,12 @@ def run_combined_trial_resource_export(
 
     write_tabular_file(trial_combined, inputs.trial_output_file)
     write_tabular_file(cohort_combined, inputs.cohort_output_file)
+    missing_pottr_trials = build_missing_pottr_trials_from_sources(
+        trial_combined,
+        cohort_combined,
+        pottr_trial_eligibility_file=inputs.pottr_trial_eligibility_file,
+        pottr_trial_registry_file=inputs.pottr_trial_registry_file,
+    )
     LOGGER.info(
         "Wrote combined eligibility trial resource: %s rows=%d columns=%d",
         inputs.trial_output_file,
@@ -512,9 +726,20 @@ def run_combined_trial_resource_export(
         len(cohort_combined),
         len(cohort_combined.columns),
     )
+    LOGGER.info(
+        "Computed missing POTTR trials rows=%d columns=%d",
+        len(missing_pottr_trials),
+        len(missing_pottr_trials.columns),
+    )
+    if not missing_pottr_trials.empty:
+        LOGGER.info(
+            "Missing POTTR trials:\n%s",
+            missing_pottr_trials.to_csv(sep="\t", index=False).strip(),
+        )
     return CombinedEligibilityResourceOutputs(
         trial_output_file=inputs.trial_output_file,
         cohort_output_file=inputs.cohort_output_file,
+        missing_pottr_trials=missing_pottr_trials,
     )
 
 
@@ -593,6 +818,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--pottr_trial_eligibility_file",
+        default=None,
+        help=(
+            "POTTR trial eligibility TSV path or URL. Defaults to POTTR's "
+            "trial_eligibility.AU.tsv on GitHub."
+        ),
+    )
+    parser.add_argument(
+        "--pottr_trial_registry_file",
+        default=None,
+        help=(
+            "POTTR trial registry TSV path or URL. Defaults to POTTR's "
+            "trial_registry.AU.tsv on GitHub."
+        ),
+    )
+    parser.add_argument(
         "--export_date",
         default=None,
         help="Date suffix for default filenames, in ddmmyyyy format.",
@@ -620,13 +861,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         output_file=args.output_file,
         trial_output_file=args.trial_output_file,
         cohort_output_file=args.cohort_output_file,
+        pottr_trial_eligibility_file=args.pottr_trial_eligibility_file,
+        pottr_trial_registry_file=args.pottr_trial_registry_file,
         export_date=args.export_date,
     )
     outputs = run_combined_trial_resource_export(inputs)
     LOGGER.info(
-        "Combined eligibility resource export complete: trial=%s cohort=%s",
+        "Combined eligibility resource export complete: trial=%s cohort=%s missing_pottr_rows=%d",
         outputs.trial_output_file,
         outputs.cohort_output_file,
+        len(outputs.missing_pottr_trials),
     )
     return 0
 

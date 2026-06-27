@@ -1,6 +1,5 @@
 import argparse
 import logging
-import json
 from pathlib import Path
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,8 +7,31 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 
 import pydantic_curator.pydantic_curator as curator
+from aus_trial_universe.eligibility_path.ctgov.i_download_trials_and_extract_eligibility.ii_extract_fields import (
+    default_ctgov_input_files,
+    load_ctgov_trials,
+)
 
 logger = logging.getLogger(__name__)
+
+# Third-party / curator-internal loggers that flood the shared run log (especially
+# at DEBUG): the OpenAI client's HTTP traffic and the curator library internals.
+# Capped to WARNING so only this module's per-trial "<id> curated. Saved as <path>."
+# status lines remain in the log.
+_NOISY_CURATOR_LOGGERS = (
+    "pydantic_curator",
+    "openai",
+    "httpx",
+    "httpcore",
+    "anthropic",
+    "urllib3",
+)
+
+
+def _quiet_curator_internals() -> None:
+    for name in _NOISY_CURATOR_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
 
 DEFAULT_INPUT_JSON = Path(
     "data/trial_inputs/ctgov/input_trials/version_13022026/ctgov_input.json"
@@ -50,8 +72,6 @@ def process_single_trial(
     status is one of: completed, skipped
     Exceptions are allowed to propagate so caller can log/count failures.
     """
-    client = curator.OpenaiClient()  # one client per worker thread
-
     trial_id = get_nct_id(trial)
     if not trial_id:
         raise ValueError("Skipping trial with missing nctId.")
@@ -61,6 +81,8 @@ def process_single_trial(
 
     if output_filepath.exists() and not overwrite_existing:
         return ("skipped", trial_id)
+
+    client = curator.OpenaiClient()  # one client per worker thread
 
     eligibility_criteria = curator.load_eligibility_criteria(trial)
     processed_rules = curator.llm_rules_prep_workflow(eligibility_criteria, client)
@@ -81,8 +103,12 @@ def main():
     parser.add_argument(
         "--input_json",
         type=Path,
-        default=DEFAULT_INPUT_JSON,
-        help=f"JSON file with multiple CT.gov trials. Default: {DEFAULT_INPUT_JSON}",
+        nargs="+",
+        default=None,
+        help=(
+            "JSON file(s) with CT.gov trials. Defaults to the newest "
+            "data/trial_inputs/ctgov/input_trials/version_<ddmmyyyy> files."
+        ),
     )
     parser.add_argument(
         "--selected_trial_csv",
@@ -107,14 +133,12 @@ def main():
         level=getattr(logging, args.log_level),
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
+    _quiet_curator_internals()
 
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(args.input_json, "r", encoding="utf-8") as f:
-        trials = json.load(f)
-    if not isinstance(trials, list):
-        raise ValueError("Expected input JSON to be a list of trials.")
+    trials = load_ctgov_trials(args.input_json or default_ctgov_input_files())
 
     # Filter to selected trials
     selected_ids = load_selected_trial_ids(args.selected_trial_csv)

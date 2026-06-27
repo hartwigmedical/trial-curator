@@ -537,31 +537,6 @@ def build_manual_filter_cohort_level_report(
     return expanded
 
 
-def build_manual_filter_reports(
-    *,
-    input_dir: Path,
-    manual_overwrite_file: Path,
-    fail_on_error: bool = False,
-    trial_id_prefix: str = "NCT",
-    trial_id_column: str = "nct_id",
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (trial_level_df, cohort_level_df) manual-filter reports."""
-    trial_level_df = build_manual_filter_report(
-        input_dir=input_dir,
-        manual_overwrite_file=manual_overwrite_file,
-        fail_on_error=fail_on_error,
-        trial_id_prefix=trial_id_prefix,
-    )
-    cohort_level_df = build_manual_filter_cohort_level_report(
-        trial_level_df=trial_level_df,
-        input_dir=input_dir,
-        fail_on_error=fail_on_error,
-        trial_id_prefix=trial_id_prefix,
-        trial_id_column=trial_id_column,
-    )
-    return trial_level_df, cohort_level_df
-
-
 # =============================================================================
 # CLI
 # =============================================================================

@@ -19,8 +19,8 @@ OUTPUT_FILES: Sequence[str] = (
     "03_gene_alteration_mapped_criteria.tsv",
     "04a_gene_alteration_trial_level.tsv",
     "04b_gene_alteration_cohort_level.tsv",
-    "99a_gene_alteration_conflicts_trial_level.tsv",
-    "99b_gene_alteration_conflicts_cohort_level.tsv",
+    "diagnostics/01a_gene_alteration_conflicts_trial_level.tsv",
+    "diagnostics/01b_gene_alteration_conflicts_cohort_level.tsv",
 )
 
 KEY_COLUMNS_BY_FILE: Dict[str, Sequence[str]] = {
@@ -53,13 +53,13 @@ KEY_COLUMNS_BY_FILE: Dict[str, Sequence[str]] = {
     ),
     "04a_gene_alteration_trial_level.tsv": ("trial_id", "nct_id"),
     "04b_gene_alteration_cohort_level.tsv": ("trial_id", "nct_id", "cohort"),
-    "99a_gene_alteration_conflicts_trial_level.tsv": (
+    "diagnostics/01a_gene_alteration_conflicts_trial_level.tsv": (
         "trial_id",
         "nct_id",
         "positive_term",
         "negative_term",
     ),
-    "99b_gene_alteration_conflicts_cohort_level.tsv": (
+    "diagnostics/01b_gene_alteration_conflicts_cohort_level.tsv": (
         "trial_id",
         "nct_id",
         "cohort",

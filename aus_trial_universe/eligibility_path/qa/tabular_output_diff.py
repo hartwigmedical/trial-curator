@@ -273,6 +273,7 @@ def create_snapshot_and_diffs(
         diff_file = snapshot_dir / f"diff_{filename}"
 
         if current_file.exists():
+            snapshot_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(current_file, snapshot_file)
             LOGGER.info("Copied current output to snapshot: %s", snapshot_file)
         else:
@@ -316,4 +317,3 @@ def create_snapshot_and_diffs(
     write_tsv(summary_df, snapshot_dir / "diff_summary.tsv")
     LOGGER.info("Wrote diff summary: %s", snapshot_dir / "diff_summary.tsv")
     return summary_df
-

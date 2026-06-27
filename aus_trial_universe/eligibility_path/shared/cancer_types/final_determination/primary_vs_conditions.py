@@ -965,7 +965,7 @@ def add_comparison_columns(
 # Manual overwrite horizontal concat
 # ---------------------------
 
-def _validate_manual_concat_alignment(input_df: pd.DataFrame, manual_df: pd.DataFrame) -> None:
+def _validate_manual_overwrite_columns(input_df: pd.DataFrame, manual_df: pd.DataFrame) -> None:
     missing_input = [col for col in MANUAL_KEY_COLS if col not in input_df.columns]
     if missing_input:
         raise ValueError(f"Input file missing required manual alignment column(s): {missing_input}")
@@ -975,45 +975,57 @@ def _validate_manual_concat_alignment(input_df: pd.DataFrame, manual_df: pd.Data
     if missing_manual:
         raise ValueError(f"Manual overwrite file missing required column(s): {missing_manual}")
 
-    if len(input_df) != len(manual_df):
-        raise ValueError(
-            "Input file and manual overwrite file must have the same number of rows for horizontal concat. "
-            f"Got {len(input_df)} vs {len(manual_df)}."
-        )
 
-    mismatch_rows: List[int] = []
-    for i in range(len(input_df)):
-        input_row = input_df.iloc[i]
-        manual_row = manual_df.iloc[i]
-
-        checks = (
-            _normalize_for_comparison(input_row.get("nct_id", "")) == _normalize_for_comparison(
-                manual_row.get("nct_id", "")),
-            _normalize_for_comparison(input_row.get("primary_tumor_type", "")) == _normalize_for_comparison(
-                manual_row.get("primary_tumor_type", "")),
-            _normalize_for_comparison(input_row.get("primary_tumor_location", "")) == _normalize_for_comparison(
-                manual_row.get("primary_tumor_location", "")),
-            _normalize_for_comparison(input_row.get("conditions_original", "")) == _normalize_for_comparison(
-                manual_row.get("conditions_original", "")),
-        )
-        if not all(checks):
-            mismatch_rows.append(i + 2)
-            if len(mismatch_rows) >= 5:
-                break
-
-    if mismatch_rows:
-        raise ValueError(
-            "Input file and manual overwrite file failed row-wise alignment checks for horizontal concat. "
-            f"First mismatched Excel-style row number(s): {mismatch_rows}"
-        )
+def _manual_overwrite_key(frame: pd.DataFrame) -> pd.Series:
+    """Normalized alignment key built from the manual key columns."""
+    key = frame[MANUAL_KEY_COLS[0]].map(_normalize_for_comparison)
+    for col in MANUAL_KEY_COLS[1:]:
+        key = key.str.cat(frame[col].map(_normalize_for_comparison), sep="\x1f")
+    return key
 
 
 def apply_manual_overwrite_concat(df: pd.DataFrame, manual_df: pd.DataFrame) -> pd.DataFrame:
-    _validate_manual_concat_alignment(df, manual_df)
+    """Attach the manual-overwrite columns to generated rows by key (left join).
 
-    manual_payload = manual_df.copy().drop(columns=list(MANUAL_KEY_COLS), errors="ignore")
-    out = pd.concat([df.reset_index(drop=True), manual_payload.reset_index(drop=True)], axis=1)
-    return out
+    This used to be a positional horizontal concat that required the generated
+    table and the manual file to have identical row counts and ordering, so it
+    broke whenever the curated trial set changed (e.g. after a fresh download).
+    Matching on the key columns instead lets newly generated rows that have no
+    manual entry fall through with blank overwrite values, and ignores manual
+    rows that no longer correspond to a generated row.
+    """
+    _validate_manual_overwrite_columns(df, manual_df)
+
+    payload_cols = [col for col in manual_df.columns if col not in MANUAL_KEY_COLS]
+
+    merge_key = "__manual_overwrite_key__"
+    left = df.reset_index(drop=True).copy()
+    right = manual_df.copy()
+    left[merge_key] = _manual_overwrite_key(left)
+    right[merge_key] = _manual_overwrite_key(right)
+
+    duplicate_keys = right[merge_key].duplicated(keep="first")
+    if duplicate_keys.any():
+        logger.warning(
+            "Dropping %d manual overwrite row(s) with duplicate alignment keys; keeping the first per key.",
+            int(duplicate_keys.sum()),
+        )
+        right = right.loc[~duplicate_keys]
+
+    merged = left.merge(
+        right[[merge_key, *payload_cols]], on=merge_key, how="left"
+    ).drop(columns=[merge_key])
+
+    matched = int(merged[MANUAL_COL].notna().sum()) if MANUAL_COL in merged.columns else 0
+    for col in payload_cols:
+        merged[col] = merged[col].where(merged[col].notna(), "")
+
+    logger.info(
+        "Applied manual overwrite by key: %d of %d generated row(s) matched a manual entry.",
+        matched,
+        len(merged),
+    )
+    return merged
 
 
 def filter_manual_overwrite_to_generated_trials(

@@ -45,15 +45,70 @@ data/eligibility_path/exports/final/eligibility_cohort_resource_<ddmmyyyy>.tsv
 To include ANZCTR LLM drug review in the cross-registry workflow:
 
 ```bash
-make eligibility-path-run-all-w-llm
+make eligibility-path-run-all-trials-download-w-llm
 ```
 
 ## Direct Modules
 
+Run the standard ANZCTR initial search from the reviewed advanced-search
+parameters. The browser opens `TrialSearch.aspx`, expands advanced search,
+submits the filters, clicks `DOWNLOAD`, saves the official `TrialDetails.zip`,
+and imports the xlsx inside it as the canonical input workbook:
+
+```bash
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_download_trials \
+  --initial_search
+```
+
+Download POTTR-append ANZCTR trials by ACTRN into the same dated version folder.
+The trial-ID file can be a plain text file or a CSV/TSV with `trial_id`,
+`trialId`, `ACTRN`, or `actrn`:
+
+```bash
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_download_trials \
+  --trial_ids path/to/missing_anzctr_trial_ids.tsv \
+  --output_dir data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>
+```
+
+This writes, by default:
+
+```text
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/anzctr_download_manifest_<ddmmyyyy>.tsv
+data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/01_initial_search_TrialDetails.zip
+data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/ACTRN*.html
+```
+
+If ANZCTR blocks automation with Cloudflare, the workflow relaunches in headed
+mode. Once a visible browser is opened after Cloudflare, complete the ANZCTR
+search manually in that browser and click `DOWNLOAD`; the script stops trying to
+click `SEARCH` itself and only watches for the downloaded file.
+
+```bash
+ELIGIBILITY_ANZCTR_HEADED=1 ELIGIBILITY_ANZCTR_SEARCH_RETRIES=1 make eligibility-path-run-all-trials-download
+```
+
+The workflow watches `${HOME}/Downloads` for a new ANZCTR zip/xlsx and imports
+it automatically.
+
+To debug the live browser download, set `ELIGIBILITY_ANZCTR_HEADED=1` and lower
+`ELIGIBILITY_ANZCTR_SEARCH_RETRIES` while checking Cloudflare behavior.
+
+Then refresh the canonical extracted-trials CSV from that appended workbook:
+
+```bash
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
+  --refresh_input_csv \
+  --input_xlsx \
+    data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx \
+    data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
+```
+
 Extract drug-intervention trials and annotate them with RxNorm-matched drugs:
 
 ```bash
-/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs \
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
   --refresh_input_csv
 ```
 
@@ -68,7 +123,7 @@ Override that root or a concrete version directory with `--rxnorm_rrf_dir`.
 Optionally run the LLM drug review:
 
 ```bash
-/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs \
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
   --refresh_input_csv \
   --llm_review
 ```
@@ -76,7 +131,7 @@ Optionally run the LLM drug review:
 For a full LLM review from the raw workbook, use:
 
 ```bash
-/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs \
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
   --refresh_input_csv \
   --llm_review \
   --llm_workers 10 \

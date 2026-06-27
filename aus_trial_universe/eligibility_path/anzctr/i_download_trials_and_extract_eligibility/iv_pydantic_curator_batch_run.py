@@ -13,6 +13,25 @@ import pydantic_curator.pydantic_curator as curator
 
 logger = logging.getLogger(__name__)
 
+# Third-party / curator-internal loggers that flood the shared run log (especially
+# at DEBUG): the OpenAI client's HTTP traffic and the curator library internals.
+# Capped to WARNING so only this module's per-trial "<id> curated. Saved as <path>."
+# status lines remain in the log.
+_NOISY_CURATOR_LOGGERS = (
+    "pydantic_curator",
+    "openai",
+    "httpx",
+    "httpcore",
+    "anthropic",
+    "urllib3",
+)
+
+
+def _quiet_curator_internals() -> None:
+    for name in _NOISY_CURATOR_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 DEFAULT_INPUT_CSV = Path("data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv")
 DEFAULT_OUTPUT_DIR = Path("data/trial_inputs/anzctr/eligibility_curations")
 
@@ -337,6 +356,7 @@ def main() -> None:
         level=getattr(logging, args.log_level),
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    _quiet_curator_internals()
 
     run_batch(
         input_csv=args.input_csv,

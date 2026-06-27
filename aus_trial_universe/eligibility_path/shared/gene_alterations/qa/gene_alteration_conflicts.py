@@ -22,7 +22,7 @@ DEFAULT_MAPPED_CRITERIA_FILE = Path(
 )
 DEFAULT_OUTPUT_FILE = Path(
     "data/eligibility_path/exports/intermediates/ctgov/gene_alteration/"
-    "99a_gene_alteration_conflicts_trial_level.tsv"
+    "diagnostics/01a_gene_alteration_conflicts_trial_level.tsv"
 )
 
 TRIAL_ID_COLUMN_CANDIDATES: Sequence[str] = (
@@ -532,7 +532,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         help=(
             "Output conflict report path. Defaults to "
             "data/eligibility_path/exports/intermediates/ctgov/gene_alteration/"
-            "99a_gene_alteration_conflicts_trial_level.tsv."
+            "diagnostics/01a_gene_alteration_conflicts_trial_level.tsv."
         ),
     )
     parser.add_argument(

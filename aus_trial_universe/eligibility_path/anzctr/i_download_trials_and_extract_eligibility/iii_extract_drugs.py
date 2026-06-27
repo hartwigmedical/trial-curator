@@ -33,9 +33,13 @@ from aus_trial_universe.drug_utility_path.ctgov.drug_ontology.identity.rxnorm.ma
     token_boundary_pattern,
     tokenize,
 )
-from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_select_trials_and_fields import (
+from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_select_trials_and_fields import (
     DEFAULT_INPUT_XLSX,
+    default_anzctr_input_files,
     extract_fields_to_csv,
+)
+from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
+    load_pottr_trial_ids_best_effort,
 )
 from trialcurator.drug_openai_client import DrugOpenaiClient
 
@@ -903,8 +907,9 @@ def append_drug_columns(
 def ensure_input_csv(
     input_csv: Path,
     *,
-    input_xlsx: Path = DEFAULT_INPUT_XLSX,
+    input_xlsx: Path | Sequence[Path] | None = None,
     create_input_csv: bool = False,
+    pottr_trial_ids: set[str] | None = None,
 ) -> Path:
     if input_csv.exists():
         return input_csv
@@ -920,7 +925,11 @@ def ensure_input_csv(
         input_csv,
         input_xlsx,
     )
-    return extract_fields_to_csv(input_xlsx, input_csv)
+    return extract_fields_to_csv(
+        input_xlsx or default_anzctr_input_files(),
+        input_csv,
+        pottr_trial_ids=pottr_trial_ids,
+    )
 
 
 def rxnorm_required_filenames(*, ingredient_resolution: bool = True) -> tuple[str, ...]:
@@ -1045,11 +1054,12 @@ def extract_drugs_to_csv(
     input_csv: str | Path,
     output_csv: str | Path,
     *,
-    input_xlsx: str | Path = DEFAULT_INPUT_XLSX,
+    input_xlsx: str | Path | Sequence[str | Path] | None = None,
     create_input_csv: bool = False,
     refresh_input_csv: bool = False,
     rxnorm_rrf_dir: str | Path = DEFAULT_RXNORM_RRF_DIR,
     ingredient_resolution: bool = True,
+    pottr_trial_ids: set[str] | None = None,
     llm_review: bool = False,
     llm_model: str | None = None,
     llm_limit: int | None = None,
@@ -1062,7 +1072,13 @@ def extract_drugs_to_csv(
 ) -> Path:
     input_csv = Path(input_csv)
     output_csv = Path(output_csv)
-    input_xlsx = Path(input_xlsx)
+    input_xlsx_arg: Path | list[Path]
+    if input_xlsx is None:
+        input_xlsx_arg = default_anzctr_input_files()
+    elif isinstance(input_xlsx, (str, Path)):
+        input_xlsx_arg = Path(input_xlsx)
+    else:
+        input_xlsx_arg = [Path(path) for path in input_xlsx]
     rxnorm_rrf_dir = Path(rxnorm_rrf_dir)
 
     existing_llm_reviews: pd.DataFrame | None = None
@@ -1095,14 +1111,17 @@ def extract_drugs_to_csv(
             read_input_csv = Path(temp_dir.name) / "anzctr_field_extractions_base.csv"
         logger.info(
             "Creating ANZCTR field extraction rows from %s",
-            input_xlsx,
+            input_xlsx_arg,
         )
-        extract_fields_to_csv(input_xlsx, read_input_csv)
+        extract_fields_to_csv(
+            input_xlsx_arg, read_input_csv, pottr_trial_ids=pottr_trial_ids
+        )
     else:
         ensure_input_csv(
             input_csv,
-            input_xlsx=input_xlsx,
+            input_xlsx=input_xlsx_arg,
             create_input_csv=False,
+            pottr_trial_ids=pottr_trial_ids,
         )
 
     rxnorm_rrf_dir = resolve_rxnorm_rrf_dir(
@@ -1183,11 +1202,13 @@ def main() -> None:
     parser.add_argument(
         "--input_xlsx",
         type=Path,
-        default=DEFAULT_INPUT_XLSX,
+        nargs="+",
+        default=None,
         help=(
             "Raw ANZCTR workbook used with --create_input_csv or "
             "--refresh_input_csv. "
-            f"Default: {DEFAULT_INPUT_XLSX}"
+            "Defaults to the newest data/trial_inputs/anzctr/input_trials/"
+            "version_<ddmmyyyy> files."
         ),
     )
     parser.add_argument(
@@ -1295,6 +1316,7 @@ def main() -> None:
         refresh_input_csv=args.refresh_input_csv,
         rxnorm_rrf_dir=args.rxnorm_rrf_dir,
         ingredient_resolution=not args.no_ingredient_resolution,
+        pottr_trial_ids=load_pottr_trial_ids_best_effort(registry="anzctr"),
         llm_review=args.llm_review,
         llm_model=args.llm_model,
         llm_limit=args.llm_limit,

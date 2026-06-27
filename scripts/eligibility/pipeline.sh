@@ -38,6 +38,8 @@ ELIGIBILITY_LLM_WORKERS="${ELIGIBILITY_LLM_WORKERS:-10}"
 ELIGIBILITY_LLM_MAX_RETRIES="${ELIGIBILITY_LLM_MAX_RETRIES:-10}"
 ELIGIBILITY_LLM_RETRY_INITIAL_DELAY="${ELIGIBILITY_LLM_RETRY_INITIAL_DELAY:-2}"
 ELIGIBILITY_LLM_RETRY_MAX_DELAY="${ELIGIBILITY_LLM_RETRY_MAX_DELAY:-60}"
+ELIGIBILITY_ANZCTR_TIMEOUT_MS="${ELIGIBILITY_ANZCTR_TIMEOUT_MS:-120000}"
+ELIGIBILITY_ANZCTR_SEARCH_RETRIES="${ELIGIBILITY_ANZCTR_SEARCH_RETRIES:-3}"
 
 CTGOV_INTERMEDIATE_DIR="${CTGOV_INTERMEDIATE_DIR:-data/eligibility_path/exports/intermediates/ctgov}"
 ANZCTR_INTERMEDIATE_DIR="${ANZCTR_INTERMEDIATE_DIR:-data/eligibility_path/exports/intermediates/anzctr}"
@@ -76,34 +78,10 @@ run_ctgov_trial_extraction() {
 
 run_anzctr_trial_extraction() {
   log_step "ANZCTR: extracting drug-intervention trials and annotating RxNorm drugs"
-  run_module aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs \
+  run_module aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
     --refresh_input_csv \
     --rxnorm_rrf_dir "${ANZCTR_RXNORM_RRF_DIR}" \
     --log_level "${ELIGIBILITY_LOG_LEVEL}"
-}
-
-run_anzctr_trial_extraction_with_llm_review() {
-  local llm_args=(
-    --refresh_input_csv
-    --rxnorm_rrf_dir "${ANZCTR_RXNORM_RRF_DIR}"
-    --llm_review
-    --llm_workers "${ELIGIBILITY_LLM_WORKERS}"
-    --llm_max_retries "${ELIGIBILITY_LLM_MAX_RETRIES}"
-    --llm_retry_initial_delay "${ELIGIBILITY_LLM_RETRY_INITIAL_DELAY}"
-    --llm_retry_max_delay "${ELIGIBILITY_LLM_RETRY_MAX_DELAY}"
-    --log_level "${ELIGIBILITY_LOG_LEVEL}"
-  )
-
-  if [[ -n "${ELIGIBILITY_LLM_LIMIT:-}" ]]; then
-    llm_args+=(--llm_limit "${ELIGIBILITY_LLM_LIMIT}")
-  fi
-  if [[ -n "${ELIGIBILITY_LLM_MODEL:-}" ]]; then
-    llm_args+=(--llm_model "${ELIGIBILITY_LLM_MODEL}")
-  fi
-
-  log_step "ANZCTR: extracting drug-intervention trials and annotating RxNorm drugs with LLM review"
-  run_module aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs \
-    "${llm_args[@]}"
 }
 
 run_registry_processing() {
@@ -179,11 +157,44 @@ run_registry_exports() {
     --log_level "${ELIGIBILITY_LOG_LEVEL}"
 }
 
-run_combined_trial_resource_export() {
-  log_step "Combined: eligibility trial/cohort resource export"
-  run_module aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export \
-    --export_date "${ELIGIBILITY_EXPORT_DATE}" \
+run_all_trials_download() {
+  local workflow_args=(
+    --export_date "${ELIGIBILITY_EXPORT_DATE}"
+    --python_bin "${PYTHON_BIN}"
+    --output_format "${ELIGIBILITY_OUTPUT_FORMAT}"
+    --rxnorm_rrf_dir "${ANZCTR_RXNORM_RRF_DIR}"
+    --anzctr_timeout_ms "${ELIGIBILITY_ANZCTR_TIMEOUT_MS}"
+    --anzctr_search_retries "${ELIGIBILITY_ANZCTR_SEARCH_RETRIES}"    --log_level "${ELIGIBILITY_LOG_LEVEL}"
+  )
+  log_step "Recursive CTGov/ANZCTR eligibility workflow with fresh trial downloads and POTTR append convergence"
+  run_module aus_trial_universe.eligibility_path.shared.workflow.recursive_end_to_end_workflow \
+    "${workflow_args[@]}"
+}
+
+run_all_trials_download_with_llm_review() {
+  local llm_args=(
+    --export_date "${ELIGIBILITY_EXPORT_DATE}"
+    --python_bin "${PYTHON_BIN}"
+    --output_format "${ELIGIBILITY_OUTPUT_FORMAT}"
+    --rxnorm_rrf_dir "${ANZCTR_RXNORM_RRF_DIR}"
+    --anzctr_timeout_ms "${ELIGIBILITY_ANZCTR_TIMEOUT_MS}"
+    --anzctr_search_retries "${ELIGIBILITY_ANZCTR_SEARCH_RETRIES}"    --llm_review
+    --llm_workers "${ELIGIBILITY_LLM_WORKERS}"
+    --llm_max_retries "${ELIGIBILITY_LLM_MAX_RETRIES}"
+    --llm_retry_initial_delay "${ELIGIBILITY_LLM_RETRY_INITIAL_DELAY}"
+    --llm_retry_max_delay "${ELIGIBILITY_LLM_RETRY_MAX_DELAY}"
     --log_level "${ELIGIBILITY_LOG_LEVEL}"
+  )
+
+  if [[ -n "${ELIGIBILITY_LLM_LIMIT:-}" ]]; then
+    llm_args+=(--llm_limit "${ELIGIBILITY_LLM_LIMIT}")
+  fi
+  if [[ -n "${ELIGIBILITY_LLM_MODEL:-}" ]]; then
+    llm_args+=(--llm_model "${ELIGIBILITY_LLM_MODEL}")
+  fi
+  log_step "Recursive CTGov/ANZCTR eligibility workflow with fresh trial downloads, ANZCTR LLM drug review, and POTTR append convergence"
+  run_module aus_trial_universe.eligibility_path.shared.workflow.recursive_end_to_end_workflow \
+    "${llm_args[@]}"
 }
 
 run_ctgov() {
@@ -200,33 +211,52 @@ run_anzctr() {
   run_registry_exports anzctr
 }
 
-run_anzctr_with_llm_review() {
-  run_anzctr_trial_extraction_with_llm_review
-  run_registry_processing anzctr "${ANZCTR_INTERMEDIATE_DIR}"
-  run_registry_qa anzctr
-  run_registry_exports anzctr
-}
-
 run_all() {
-  run_ctgov
-  run_anzctr
-  run_combined_trial_resource_export
+  local workflow_args=(
+    --export_date "${ELIGIBILITY_EXPORT_DATE}"
+    --python_bin "${PYTHON_BIN}"
+    --skip_initial_downloads
+    --output_format "${ELIGIBILITY_OUTPUT_FORMAT}"
+    --rxnorm_rrf_dir "${ANZCTR_RXNORM_RRF_DIR}"
+    --anzctr_timeout_ms "${ELIGIBILITY_ANZCTR_TIMEOUT_MS}"
+    --anzctr_search_retries "${ELIGIBILITY_ANZCTR_SEARCH_RETRIES}"    --log_level "${ELIGIBILITY_LOG_LEVEL}"
+  )
+  log_step "Recursive CTGov/ANZCTR eligibility workflow using latest existing trial inputs"
+  run_module aus_trial_universe.eligibility_path.shared.workflow.recursive_end_to_end_workflow \
+    "${workflow_args[@]}"
 }
 
-run_all_with_llm_review() {
-  run_ctgov
-  run_anzctr_with_llm_review
-  run_combined_trial_resource_export
+run_resource_accretion() {
+  log_step "Accreting filled resource fill-ready templates into new resource versions"
+  run_module aus_trial_universe.eligibility_path.shared.resource_curation.audit \
+    --phase accrete \
+    --export_date "${ELIGIBILITY_EXPORT_DATE}" \
+    --log_level "${ELIGIBILITY_LOG_LEVEL}"
+}
+
+run_resource_report() {
+  log_step "Flagging hand-curated resource coverage gaps and refreshing fill-ready templates"
+  run_module aus_trial_universe.eligibility_path.shared.resource_curation.audit \
+    --phase report \
+    --log_level "${ELIGIBILITY_LOG_LEVEL}"
+}
+
+run_resource_audit() {
+  log_step "Auditing hand-curated resource coverage (accrete + report)"
+  run_module aus_trial_universe.eligibility_path.shared.resource_curation.audit \
+    --phase all \
+    --export_date "${ELIGIBILITY_EXPORT_DATE}" \
+    --log_level "${ELIGIBILITY_LOG_LEVEL}"
 }
 
 validate_command() {
   case "$1" in
-    ctgov|anzctr|all|all-w-llm|tests)
+    ctgov|anzctr|all-trials-download-w-llm|all-trials-download|all|resource-audit|tests)
       return 0
       ;;
     *)
       printf 'Unknown eligibility pipeline command: %s\n' "$1" >&2
-      printf 'Expected one of: ctgov, anzctr, all, all-w-llm, tests\n' >&2
+      printf 'Expected one of: ctgov, anzctr, all-trials-download-w-llm, all-trials-download, all, resource-audit, tests\n' >&2
       return 2
       ;;
   esac
@@ -236,7 +266,24 @@ main() {
   local command="${1:-all}"
 
   validate_command "${command}"
+
+  # Tee the entire run (unit tests + workflow) to a timestamped log so failures
+  # deep in the pipeline can be diagnosed after the fact.
+  local log_dir="${ELIGIBILITY_LOG_DIR:-${REPO_ROOT}/data/eligibility_path/logs}"
+  mkdir -p "${log_dir}"
+  local run_log="${log_dir}/eligibility_${command}_$(date +%Y%m%d_%H%M%S).log"
+  exec > >(tee -a "${run_log}") 2>&1
+  printf '==> Logging this run to %s\n' "${run_log}"
+
   run_eligibility_tests
+
+  # Pre-processing: graduate filled fill-ready templates into new resource
+  # versions so this run's processing uses the curator's latest fills.
+  case "${command}" in
+    ctgov|anzctr|all|all-trials-download|all-trials-download-w-llm)
+      run_resource_accretion
+      ;;
+  esac
 
   case "${command}" in
     ctgov)
@@ -245,13 +292,27 @@ main() {
     anzctr)
       run_anzctr
       ;;
+    all-trials-download)
+      run_all_trials_download
+      ;;
+    all-trials-download-w-llm)
+      run_all_trials_download_with_llm_review
+      ;;
     all)
       run_all
       ;;
-    all-w-llm)
-      run_all_with_llm_review
+    resource-audit)
+      run_resource_audit
       ;;
     tests)
+      ;;
+  esac
+
+  # Post-processing: flag remaining coverage gaps and refresh the fill-ready
+  # templates from the freshly-generated intermediates.
+  case "${command}" in
+    ctgov|anzctr|all|all-trials-download|all-trials-download-w-llm)
+      run_resource_report
       ;;
   esac
 }

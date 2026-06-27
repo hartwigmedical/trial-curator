@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 
 from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility import (
-    ii_extract_drugs as drug_module,
+    iii_extract_drugs as drug_module,
 )
-from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.ii_extract_drugs import (
+from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs import (
     LLM_DRUGS_TO_ADD_COLUMN,
     LLM_DRUGS_TO_CORRECT_COLUMN,
     LLM_DRUG_TO_REMOVE_COLUMN,
@@ -483,7 +483,9 @@ def test_ensure_input_csv_creates_from_workbook_when_requested(
     input_xlsx = tmp_path / "anzctr_input.xlsx"
     calls: list[tuple[Path, Path]] = []
 
-    def fake_extract_fields_to_csv(xlsx: str | Path, output: str | Path) -> Path:
+    def fake_extract_fields_to_csv(
+        xlsx: str | Path, output: str | Path, pottr_trial_ids=None
+    ) -> Path:
         xlsx_path = Path(xlsx)
         output_path = Path(output)
         calls.append((xlsx_path, output_path))
@@ -493,7 +495,7 @@ def test_ensure_input_csv_creates_from_workbook_when_requested(
 
     monkeypatch.setattr(
         "aus_trial_universe.eligibility_path.anzctr."
-        "i_download_trials_and_extract_eligibility.ii_extract_drugs."
+        "i_download_trials_and_extract_eligibility.iii_extract_drugs."
         "extract_fields_to_csv",
         fake_extract_fields_to_csv,
     )
@@ -532,7 +534,9 @@ def test_extract_drugs_refreshes_canonical_csv_without_losing_llm_reviews(
 
     created_base_paths: list[Path] = []
 
-    def fake_extract_fields_to_csv(xlsx: str | Path, output: str | Path) -> Path:
+    def fake_extract_fields_to_csv(
+        xlsx: str | Path, output: str | Path, pottr_trial_ids=None
+    ) -> Path:
         output_path = Path(output)
         created_base_paths.append(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -631,7 +635,7 @@ def test_resolve_rxnorm_rrf_dir_missing_files_raises_helpful_error(
 ):
     monkeypatch.setattr(
         "aus_trial_universe.eligibility_path.anzctr."
-        "i_download_trials_and_extract_eligibility.ii_extract_drugs."
+        "i_download_trials_and_extract_eligibility.iii_extract_drugs."
         "RXNORM_RRF_ROOT_CANDIDATES",
         (),
     )
