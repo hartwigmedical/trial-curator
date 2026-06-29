@@ -344,16 +344,45 @@ def download_one_trial_from_ctgov(session: requests.Session, nct_id: str) -> dic
 def download_trials_by_nct_ids(
     session: requests.Session,
     nct_ids: list[str],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Download each requested trial, returning ``(trials, aliases)``.
+
+    ClinicalTrials.gov resolves a requested NCT id to its canonical record, which
+    for a merged/duplicate registration can carry a *different* nctId. ``aliases``
+    maps each requested id to the canonical id of the study it returned, but only
+    where they differ — so callers can record that, e.g., a POTTR-listed
+    ``NCT03816254`` is really served as ``NCT03783403``.
+    """
     trials: list[dict[str, Any]] = []
+    aliases: dict[str, str] = {}
     seen: set[str] = set()
     for nct_id in nct_ids:
         normalized_nct_id = nct_id.strip().upper()
         if not normalized_nct_id or normalized_nct_id in seen:
             continue
         seen.add(normalized_nct_id)
-        trials.append(download_one_trial_from_ctgov(session, normalized_nct_id))
-    return trials
+        study = download_one_trial_from_ctgov(session, normalized_nct_id)
+        trials.append(study)
+        canonical = (_extract_nct_id(study) or "").strip().upper()
+        if canonical and canonical != normalized_nct_id:
+            aliases[normalized_nct_id] = canonical
+    return trials, aliases
+
+
+def _write_pottr_alias_table(path: Path, aliases: dict[str, str]) -> None:
+    """Write the requested→canonical POTTR id-alias table (overwriting).
+
+    Always written (even when empty) so the file reflects the current append's
+    aliases rather than a stale earlier set.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"requested_id": requested, "canonical_id": canonical}
+        for requested, canonical in sorted(aliases.items())
+    ]
+    pd.DataFrame(rows, columns=["requested_id", "canonical_id"]).to_csv(
+        path, sep="\t", index=False
+    )
 
 
 def read_nct_ids(path: Path) -> list[str]:
@@ -686,6 +715,7 @@ def main():
     delta_path = output_dir / "ctgov_trials_delta.json"
     initial_search_path = output_dir / "01_initial_search_ctgov_input.json"
     pottr_append_path = output_dir / "02_pottr_append_ctgov_input.json"
+    pottr_alias_path = output_dir / "02b_pottr_id_aliases_ctgov.tsv"
     merged_output_path = output_dir / "03_merged_ctgov_input.json"
 
     # Persistent state files
@@ -709,8 +739,15 @@ def main():
 
     if args.trial_ids:
         nct_ids = read_nct_ids(args.trial_ids)
-        trials = download_trials_by_nct_ids(session=session, nct_ids=nct_ids)
+        trials, pottr_aliases = download_trials_by_nct_ids(session=session, nct_ids=nct_ids)
         _write_json_atomic(pottr_append_path, trials)
+        _write_pottr_alias_table(pottr_alias_path, pottr_aliases)
+        if pottr_aliases:
+            logger.info(
+                "POTTR id aliases (requested -> canonical) written to %s: %s",
+                pottr_alias_path,
+                ", ".join(f"{req}->{can}" for req, can in sorted(pottr_aliases.items())),
+            )
 
         # Regenerate the merged input as (initial-search cohort) ∪ (02 pottr-append)
         # so 03_merged is always the authoritative union that downstream reads.

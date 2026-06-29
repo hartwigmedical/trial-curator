@@ -195,6 +195,41 @@ def test_expire_stale_curations_uses_merged_and_exempts_pottr(tmp_path, monkeypa
     assert (curated / "expired_trials" / "NCT00000003.py").exists()
 
 
+def test_expire_stale_curations_exempts_pottr_alias_canonical(tmp_path, monkeypatch):
+    # A POTTR id (NCT03816254) is served by CT.gov as canonical NCT03783403, which
+    # lands in the curated set. It is neither in the initial download nor in the
+    # POTTR id list, so without alias-awareness it would be expired then
+    # re-downloaded every run. The alias map must keep it exempt.
+    config = workflow.RecursiveWorkflowConfig(
+        export_date="29062026",
+        repo_root=tmp_path,
+        ctgov_input_root=tmp_path / "ctgov/input_trials",
+        anzctr_input_root=tmp_path / "anzctr/input_trials",  # no merged -> anzctr skipped
+        ctgov_curated_dir=tmp_path / "ctgov/eligibility_curations",
+        anzctr_curated_dir=tmp_path / "anzctr/eligibility_curations",
+    )
+    version = config.ctgov_input_root / "version_29062026"
+    _ctgov_merged(version, ["NCT00000001"])
+    (version / workflow.CTGOV_POTTR_ALIAS_FILENAME).write_text(
+        "requested_id\tcanonical_id\nNCT03816254\tNCT03783403\n", encoding="utf-8"
+    )
+    _write_curation(config.ctgov_curated_dir, "NCT00000001")  # downloaded -> keep
+    _write_curation(config.ctgov_curated_dir, "NCT03783403")  # alias canonical -> keep
+    _write_curation(config.ctgov_curated_dir, "NCT00000003")  # genuinely stale -> move
+
+    monkeypatch.setattr(
+        workflow, "load_pottr_trial_ids_best_effort", lambda *, registry: set()
+    )
+
+    workflow.expire_stale_curations(config)
+
+    curated = config.ctgov_curated_dir
+    assert (curated / "NCT00000001.py").exists()
+    assert (curated / "NCT03783403.py").exists()  # exempt via alias, not churned
+    assert not (curated / "NCT00000003.py").exists()
+    assert (curated / "expired_trials" / "NCT00000003.py").exists()
+
+
 def test_expire_stale_curations_skips_when_no_merged_input(tmp_path, monkeypatch):
     config = workflow.RecursiveWorkflowConfig(
         export_date="26062026",

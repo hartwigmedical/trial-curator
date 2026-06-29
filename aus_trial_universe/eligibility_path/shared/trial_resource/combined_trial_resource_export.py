@@ -341,12 +341,36 @@ def build_pottr_trial_index(
     )
 
 
+def load_pottr_id_aliases(path: str | Path) -> dict[str, str]:
+    """Load the requested→canonical POTTR id-alias map written at download time.
+
+    ClinicalTrials.gov can serve a requested (POTTR-listed) NCT id under a
+    different canonical nctId for a merged/duplicate registration. The map lets
+    coverage and expiry treat the POTTR id and its canonical as the same trial.
+    Returns an empty map when the file is absent.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    frame = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    aliases: dict[str, str] = {}
+    for _, row in frame.iterrows():
+        requested = normalize_trial_id(row.get("requested_id", ""))
+        canonical = normalize_trial_id(row.get("canonical_id", ""))
+        if requested and canonical:
+            aliases[requested] = canonical
+    return aliases
+
+
 def build_missing_pottr_trials(
     trial_resource: pd.DataFrame,
     cohort_resource: pd.DataFrame,
     pottr_trial_eligibility: pd.DataFrame,
     pottr_trial_registry: pd.DataFrame,
+    *,
+    aliases: dict[str, str] | None = None,
 ) -> pd.DataFrame:
+    aliases = aliases or {}
     resource_trial_ids = set()
     for frame in (trial_resource, cohort_resource):
         if TRIAL_ID_COLUMN not in frame.columns:
@@ -360,9 +384,15 @@ def build_missing_pottr_trials(
         pottr_trial_eligibility,
         pottr_trial_registry,
     )
-    return pottr_trials.loc[
-        ~pottr_trials["trial_id"].isin(resource_trial_ids)
-    ].reset_index(drop=True)
+
+    def _is_covered(trial_id: object) -> bool:
+        # A POTTR id is covered when it — or the canonical id CT.gov resolved it
+        # to (alias) — is present in the final resource.
+        normalized = normalize_trial_id(trial_id)
+        return normalized in resource_trial_ids or aliases.get(normalized, "") in resource_trial_ids
+
+    covered = pottr_trials["trial_id"].map(_is_covered)
+    return pottr_trials.loc[~covered].reset_index(drop=True)
 
 
 def build_missing_pottr_trials_from_sources(
@@ -371,6 +401,7 @@ def build_missing_pottr_trials_from_sources(
     *,
     pottr_trial_eligibility_file: str | Path,
     pottr_trial_registry_file: str | Path,
+    aliases: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     return build_missing_pottr_trials(
         trial_resource,
@@ -383,6 +414,7 @@ def build_missing_pottr_trials_from_sources(
             pottr_trial_registry_file,
             label="trial registry",
         ),
+        aliases=aliases,
     )
 
 
@@ -692,6 +724,8 @@ def validate_pipeline_inputs(inputs: CombinedEligibilityResourceInputs) -> None:
 
 def run_combined_trial_resource_export(
     inputs: CombinedEligibilityResourceInputs,
+    *,
+    pottr_id_aliases: dict[str, str] | None = None,
 ) -> CombinedEligibilityResourceOutputs:
     trial_combined = combine_trial_resource_tables(
         [
@@ -711,6 +745,7 @@ def run_combined_trial_resource_export(
     missing_pottr_trials = build_missing_pottr_trials_from_sources(
         trial_combined,
         cohort_combined,
+        aliases=pottr_id_aliases,
         pottr_trial_eligibility_file=inputs.pottr_trial_eligibility_file,
         pottr_trial_registry_file=inputs.pottr_trial_registry_file,
     )

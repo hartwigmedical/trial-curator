@@ -89,3 +89,46 @@ def test_default_anzctr_input_files_prefers_merged(tmp_path):
     ):
         (vdir / name).write_text("stub", encoding="utf-8")
     assert default_anzctr_input_files(tmp_path) == [vdir / "03_merged_anzctr_input.xlsx"]
+
+
+# --- POTTR id-alias capture (CT.gov duplicate-registration handling) ----------
+
+def _study(nct_id):
+    return {"protocolSection": {"identificationModule": {"nctId": nct_id}}}
+
+
+def test_download_trials_by_nct_ids_records_canonical_id_aliases(monkeypatch):
+    from aus_trial_universe.eligibility_path.ctgov.i_download_trials_and_extract_eligibility import (
+        i_api_download as api,
+    )
+
+    # CT.gov serves the requested NCT03816254 under its canonical duplicate NCT03783403.
+    served = {"NCT00000001": "NCT00000001", "NCT03816254": "NCT03783403"}
+    monkeypatch.setattr(
+        api, "download_one_trial_from_ctgov", lambda session, nct_id: _study(served[nct_id])
+    )
+
+    trials, aliases = api.download_trials_by_nct_ids(
+        session=None, nct_ids=["NCT00000001", "NCT03816254"]
+    )
+
+    returned = [s["protocolSection"]["identificationModule"]["nctId"] for s in trials]
+    assert returned == ["NCT00000001", "NCT03783403"]
+    # Only the id whose canonical differs is recorded.
+    assert aliases == {"NCT03816254": "NCT03783403"}
+
+
+def test_write_pottr_alias_table_roundtrips_via_loader(tmp_path):
+    from aus_trial_universe.eligibility_path.ctgov.i_download_trials_and_extract_eligibility import (
+        i_api_download as api,
+    )
+    from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
+        load_pottr_id_aliases,
+    )
+
+    path = tmp_path / "02b_pottr_id_aliases_ctgov.tsv"
+    api._write_pottr_alias_table(path, {"NCT03816254": "NCT03783403"})
+    assert load_pottr_id_aliases(path) == {"NCT03816254": "NCT03783403"}
+    # Empty rewrite clears stale aliases (header only -> {}).
+    api._write_pottr_alias_table(path, {})
+    assert load_pottr_id_aliases(path) == {}

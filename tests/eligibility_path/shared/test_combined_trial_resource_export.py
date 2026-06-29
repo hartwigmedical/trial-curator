@@ -12,6 +12,7 @@ from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_re
     combine_trial_resource_tables,
     derive_ctgov_location_fields,
     discover_pipeline_inputs,
+    load_pottr_id_aliases,
     load_pottr_trial_ids,
     run_combined_trial_resource_export,
 )
@@ -248,6 +249,42 @@ def test_build_missing_pottr_trials_uses_eligibility_and_registry_union():
     assert missing["in_pottr_trial_registry"].tolist() == [True, True]
     assert missing.loc[0, "eligibility_criteria"] == "missing eligibility"
     assert missing.loc[0, "studytitle"] == "Missing ANZCTR"
+
+
+def test_build_missing_pottr_trials_treats_alias_canonical_as_covered():
+    # POTTR lists NCT03816254, but CT.gov serves it as canonical NCT03783403,
+    # which IS in the final resource. With the alias, the POTTR id is covered.
+    trial_resource = pd.DataFrame({"trialId": ["NCT03783403"], "registry": ["ctgov"]})
+    cohort_resource = pd.DataFrame({"trialId": ["NCT03783403"], "cohort": ["(general)"]})
+    pottr_eligibility = pd.DataFrame(
+        {"trial_id": ["NCT03816254"], "eligibility_criteria": ["x"]}
+    )
+    pottr_registry = pd.DataFrame({"trial_id": ["NCT03816254"], "studytitle": ["t"]})
+
+    # Without the alias the POTTR id reads as missing.
+    no_alias = build_missing_pottr_trials(
+        trial_resource, cohort_resource, pottr_eligibility, pottr_registry
+    )
+    assert no_alias["trial_id"].tolist() == ["NCT03816254"]
+
+    # With the alias it is covered by its canonical, so nothing is missing.
+    with_alias = build_missing_pottr_trials(
+        trial_resource,
+        cohort_resource,
+        pottr_eligibility,
+        pottr_registry,
+        aliases={"NCT03816254": "NCT03783403"},
+    )
+    assert with_alias.empty
+
+
+def test_load_pottr_id_aliases_reads_requested_to_canonical(tmp_path: Path):
+    path = write(
+        tmp_path / "02b_pottr_id_aliases_ctgov.tsv",
+        "requested_id\tcanonical_id\nNCT03816254\tNCT03783403\n",
+    )
+    assert load_pottr_id_aliases(path) == {"NCT03816254": "NCT03783403"}
+    assert load_pottr_id_aliases(tmp_path / "absent.tsv") == {}
 
 
 def test_load_pottr_trial_ids_unions_sources_and_filters_by_registry(tmp_path: Path):

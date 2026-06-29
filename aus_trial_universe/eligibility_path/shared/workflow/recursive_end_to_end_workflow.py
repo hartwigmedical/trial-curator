@@ -15,10 +15,15 @@ import pandas as pd
 from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
     DEFAULT_ELIGIBILITY_DATA_DIR,
     discover_pipeline_inputs,
+    load_pottr_id_aliases,
     load_pottr_trial_ids_best_effort,
     run_combined_trial_resource_export,
 )
-from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import latest_version_dir
+from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
+    VERSION_DIR_RE,
+    latest_version_dir,
+    version_dir_sort_key,
+)
 from aus_trial_universe.eligibility_path.shared.curated_expiry import move_expired_curations
 from aus_trial_universe.eligibility_path.shared.cohorts import (
     normalize_anzctr_trial_id,
@@ -43,6 +48,7 @@ DEFAULT_RXNORM_RRF_DIR = Path("data/drug_utility_path/drug_ontology/raw_inputs/R
 
 CTGOV_INITIAL_FILENAME = "01_initial_search_ctgov_input.json"
 CTGOV_POTTR_APPEND_FILENAME = "02_pottr_append_ctgov_input.json"
+CTGOV_POTTR_ALIAS_FILENAME = "02b_pottr_id_aliases_ctgov.tsv"
 CTGOV_MERGED_FILENAME = "03_merged_ctgov_input.json"
 ANZCTR_INITIAL_FILENAME = "01_initial_search_anzctr_input.xlsx"
 ANZCTR_POTTR_APPEND_FILENAME = "02_pottr_append_anzctr_input.xlsx"
@@ -131,6 +137,30 @@ def anzctr_acquisition_files(config: RecursiveWorkflowConfig) -> list[Path]:
             root / ANZCTR_POTTR_APPEND_FILENAME,
         ]
     )
+
+
+def load_latest_ctgov_pottr_aliases(config: RecursiveWorkflowConfig) -> dict[str, str]:
+    """Newest available ctgov POTTR id-alias map across input version dirs.
+
+    The map (requested→canonical NCT id) is written by the POTTR-append download.
+    Expiry runs before this run's append, and a new day's version dir has no
+    alias file yet, so the most recent prior map is used — keeping alias-resolved
+    trials covered (in the missing computation) and exempt (in expiry) across
+    runs and across days.
+    """
+    root = config.ctgov_input_root
+    if not root.exists():
+        return {}
+    version_dirs = sorted(
+        (path for path in root.iterdir() if path.is_dir() and VERSION_DIR_RE.match(path.name)),
+        key=version_dir_sort_key,
+        reverse=True,
+    )
+    for version in version_dirs:
+        alias_path = version / CTGOV_POTTR_ALIAS_FILENAME
+        if alias_path.is_file():
+            return load_pottr_id_aliases(alias_path)
+    return {}
 
 
 def py_module(config: RecursiveWorkflowConfig, module: str, *args: object) -> list[str]:
@@ -251,6 +281,11 @@ def expire_stale_curations(config: RecursiveWorkflowConfig) -> None:
             _anzctr_current_trial_ids,
         ),
     )
+    # Canonical ids of POTTR trials CT.gov serves under a different nctId (alias);
+    # they land in the ctgov curated set as the canonical id and must be exempt so
+    # they are not expired-then-re-downloaded every run.
+    alias_canonicals = set(load_latest_ctgov_pottr_aliases(config).values())
+
     for registry, merged_path, curated_dir, prefix, normalize, current_ids_fn in registries:
         if not merged_path.exists():
             LOGGER.info(
@@ -265,6 +300,8 @@ def expire_stale_curations(config: RecursiveWorkflowConfig) -> None:
 
         current_ids = current_ids_fn(merged_path)
         pottr_ids = load_pottr_trial_ids_best_effort(registry=registry)
+        if registry == "ctgov" and alias_canonicals:
+            pottr_ids = set(pottr_ids) | alias_canonicals
         if not pottr_ids:
             LOGGER.warning(
                 "%s POTTR exemption list is empty (source unreachable?); expiry "
@@ -439,7 +476,10 @@ def run_combined_export_and_get_missing(
         cohort_output_file=None,
         export_date=config.export_date,
     )
-    return run_combined_trial_resource_export(inputs).missing_pottr_trials
+    aliases = load_latest_ctgov_pottr_aliases(config)
+    return run_combined_trial_resource_export(
+        inputs, pottr_id_aliases=aliases
+    ).missing_pottr_trials
 
 
 def run_pottr_append_downloads(
