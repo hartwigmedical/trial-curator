@@ -77,11 +77,18 @@ The trial-ID file can be a plain text file or a CSV/TSV with `trial_id`,
 This writes, by default:
 
 ```text
-data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/03_merged_anzctr_input.xlsx
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/anzctr_download_manifest_<ddmmyyyy>.tsv
 data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/anzctr_all_trials.zip
 ```
+
+The POTTR-append run writes two input workbooks: `02_pottr_append_anzctr_input.xlsx`
+holds only the appended trials (the delta: just the appended trials' rows across
+all workbook sheets), and `03_merged_anzctr_input.xlsx` is the union of the
+existing `01_initial_search_anzctr_input.xlsx` cohort and the `02` delta. `03`
+is the single authoritative input the select/extract step reads. (`02` is now the
+delta only; it is no longer a superset of `01`.)
 
 The only raw output is the cached whole-registry export
 `anzctr_all_trials.zip`; no per-trial HTML pages are produced.
@@ -91,15 +98,19 @@ fails (it raises `AnzctrCloudflareChallengeError`) and the run must be retried
 later. The download attempts are bounded by `ELIGIBILITY_ANZCTR_SEARCH_RETRIES`
 and each request honours `ELIGIBILITY_ANZCTR_TIMEOUT_MS`.
 
-Then refresh the canonical extracted-trials CSV from that appended workbook:
+Then refresh the canonical extracted-trials CSV from the merged input workbook
+(`03_merged` is the union of `01` and `02`):
 
 ```bash
 /Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
   --refresh_input_csv \
   --input_xlsx \
-    data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx \
-    data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
+    data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/03_merged_anzctr_input.xlsx
 ```
+
+When `--input_xlsx` is omitted, the command resolves the newest version folder
+and prefers `03_merged_anzctr_input.xlsx`, falling back to `01`+`02` for older
+version folders without a merged file.
 
 Extract drug-intervention trials and annotate them with RxNorm-matched drugs:
 

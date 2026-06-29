@@ -8,18 +8,37 @@ eligibility-path folders.
 ```text
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/03_merged_anzctr_input.xlsx
 data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv
 data/trial_inputs/anzctr/eligibility_curations/ACTRN*.py
 ```
 
 ANZCTR trial downloads are written under
 `data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>`. The dated folder
-keeps separate `01_initial_search` and `02_pottr_append` workbooks. When
-multiple version folders exist, default extraction uses the newest version
-folder. The extracted trial CSV is generated from one or both selected workbooks
-and includes the deterministic drug columns. The `ACTRN*.py` files are pydantic
-curator outputs and are treated as source inputs for downstream eligibility
-processing.
+holds three workbooks:
+
+- `01_initial_search_anzctr_input.xlsx` — the initial advanced-search cohort only.
+- `02_pottr_append_anzctr_input.xlsx` — only the POTTR-appended trials (the
+  delta: just the appended trials' rows across all workbook sheets). This
+  changed: `02` used to be a superset of `01` (initial plus appended); it is now
+  the delta only.
+- `03_merged_anzctr_input.xlsx` — the union of `01` and `02`. This is the single
+  authoritative input the select/extract step reads. It is regenerated after each
+  download phase: an initial download sets `03` equal to `01`, and a POTTR-append
+  download sets `03` equal to `01 ∪ 02`.
+
+When multiple version folders exist, default extraction uses the newest version
+folder and prefers `03_merged_anzctr_input.xlsx`, falling back to `01`+`02` for
+older version folders without a merged file. The extracted trial CSV is
+generated from the selected workbook(s) and includes the deterministic drug
+columns. The `ACTRN*.py` files are pydantic curator outputs and are treated as
+source inputs for downstream eligibility processing.
+
+After a fresh download, any `ACTRN*.py` curation whose trial id is no longer in
+the latest download (the `03_merged` set) is moved into an
+`eligibility_curations/expired_trials/` subfolder, which excludes it from all
+downstream processing (the curated-file glob is non-recursive). Files are moved,
+not deleted, and POTTR-listed trials are never expired.
 
 The cached whole-registry export and the download manifest are kept alongside
 the dated input version:

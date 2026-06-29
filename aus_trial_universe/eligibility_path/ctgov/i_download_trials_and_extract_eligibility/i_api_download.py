@@ -647,6 +647,16 @@ def _write_meta(meta_path: Path, merged_trials: list[dict[str, Any]]) -> None:
     _write_json_atomic(meta_path, payload)
 
 
+def _prune_meta_snapshots(state_dir: Path, pattern: str, *, keep: int = 1) -> None:
+    """Keep only the newest ``keep`` meta snapshots matching ``pattern``."""
+    snapshots = sorted(
+        state_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True
+    )
+    for stale in snapshots[keep:]:
+        stale.unlink()
+        logger.info("Pruned stale meta snapshot: %s", stale)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download Australian and New Zealand cancer trials from ClinicalTrials.gov (full coverage or incremental delta).")
 
@@ -676,7 +686,7 @@ def main():
     delta_path = output_dir / "ctgov_trials_delta.json"
     initial_search_path = output_dir / "01_initial_search_ctgov_input.json"
     pottr_append_path = output_dir / "02_pottr_append_ctgov_input.json"
-    merged_output_path = output_dir / "ctgov_trials_merged.json"
+    merged_output_path = output_dir / "03_merged_ctgov_input.json"
 
     # Persistent state files
     persistent_cache_path = state_dir / "ctgov_trials_latest.json"
@@ -701,10 +711,22 @@ def main():
         nct_ids = read_nct_ids(args.trial_ids)
         trials = download_trials_by_nct_ids(session=session, nct_ids=nct_ids)
         _write_json_atomic(pottr_append_path, trials)
+
+        # Regenerate the merged input as (01 initial-search) ∪ (02 pottr-append) so
+        # 03_merged is always the authoritative union that downstream reads.
+        initial_trials = (
+            _load_trials_json(initial_search_path) if initial_search_path.exists() else []
+        )
+        merged_trials = _merge_trials_by_nct_id(initial_trials, trials)
+        _write_json_atomic(merged_output_path, merged_trials)
+
         logger.info(
             "Completed --trial_ids | POTTR append trials written to: %s count=%d",
             pottr_append_path,
             len(trials),
+        )
+        logger.info(
+            "Merged input regenerated: %s count=%d", merged_output_path, len(merged_trials)
         )
         return
 
@@ -721,6 +743,7 @@ def main():
         # Write new meta
         meta_path = _new_meta_path()
         _write_meta(meta_path, merged_trials=all_trials_unique)
+        _prune_meta_snapshots(state_dir, meta_glob)
 
         logger.info("Completed --all | Initial search written to: %s", initial_search_path)
         logger.info("Completed --all | Snapshot written to: %s", merged_output_path)
@@ -768,6 +791,7 @@ def main():
     # Write new meta
     new_meta = _new_meta_path()
     _write_meta(new_meta, merged_trials)
+    _prune_meta_snapshots(state_dir, meta_glob)
 
     logger.info("Merged snapshot written to: %s", merged_output_path)
     logger.info("Persistent cache updated: %s", persistent_cache_path)

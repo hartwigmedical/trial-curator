@@ -34,17 +34,36 @@ Static/source inputs:
 ```text
 data/trial_inputs/ctgov/input_trials/version_<ddmmyyyy>/01_initial_search_ctgov_input.json
 data/trial_inputs/ctgov/input_trials/version_<ddmmyyyy>/02_pottr_append_ctgov_input.json
+data/trial_inputs/ctgov/input_trials/version_<ddmmyyyy>/03_merged_ctgov_input.json
+data/trial_inputs/ctgov/download_state/ctgov_trials_latest.json
+data/trial_inputs/ctgov/download_state/ctgov_trials_meta_<timestamp>.json
 data/trial_inputs/ctgov/extracted_trials/ctgov_field_extractions.csv
 data/trial_inputs/ctgov/eligibility_curations/NCT*.py
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
+data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/03_merged_anzctr_input.xlsx
 data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv
 data/trial_inputs/anzctr/eligibility_curations/ACTRN*.py
 data/eligibility_path/resources
 ```
 
+Each `version_<ddmmyyyy>` folder uses the same three-file input contract for
+both registries: `01_initial_search_<registry>_input` is the initial
+advanced-search cohort only, `02_pottr_append_<registry>_input` is only the
+POTTR-appended trials (the delta), and `03_merged_<registry>_input` is the union
+of `01` and `02`. `03_merged` is the single authoritative input the extract
+steps read (it replaces the older `ctgov_trials_merged.json` name); it is
+regenerated after each download phase (initial download sets `03` = `01`;
+POTTR-append download sets `03` = `01 ∪ 02`).
+
 When input paths are omitted, extraction commands use the newest
-`version_<ddmmyyyy>` folder under each registry's `input_trials` directory.
+`version_<ddmmyyyy>` folder under each registry's `input_trials` directory,
+preferring `03_merged` and falling back to `01`+`02` for older version folders.
+
+`data/trial_inputs/ctgov/download_state` holds the persistent CTGov cache
+(`ctgov_trials_latest.json`, unchanged across runs). Only the newest
+`ctgov_trials_meta_*.json` snapshot is retained; older snapshots are pruned
+automatically after each `--all`/`--incremental` download.
 
 Generated outputs:
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import subprocess
 import sys
@@ -14,9 +15,15 @@ import pandas as pd
 from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
     DEFAULT_ELIGIBILITY_DATA_DIR,
     discover_pipeline_inputs,
+    load_pottr_trial_ids_best_effort,
     run_combined_trial_resource_export,
 )
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import latest_version_dir
+from aus_trial_universe.eligibility_path.shared.curated_expiry import move_expired_curations
+from aus_trial_universe.eligibility_path.shared.cohorts import (
+    normalize_anzctr_trial_id,
+    normalize_nct_id,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,8 +43,10 @@ DEFAULT_RXNORM_RRF_DIR = Path("data/drug_utility_path/drug_ontology/raw_inputs/R
 
 CTGOV_INITIAL_FILENAME = "01_initial_search_ctgov_input.json"
 CTGOV_POTTR_APPEND_FILENAME = "02_pottr_append_ctgov_input.json"
+CTGOV_MERGED_FILENAME = "03_merged_ctgov_input.json"
 ANZCTR_INITIAL_FILENAME = "01_initial_search_anzctr_input.xlsx"
 ANZCTR_POTTR_APPEND_FILENAME = "02_pottr_append_anzctr_input.xlsx"
+ANZCTR_MERGED_FILENAME = "03_merged_anzctr_input.xlsx"
 
 CommandRunner = Callable[[Sequence[str]], None]
 
@@ -93,6 +102,11 @@ def existing_paths(paths: Sequence[Path]) -> list[Path]:
 
 def ctgov_acquisition_files(config: RecursiveWorkflowConfig) -> list[Path]:
     root = input_version_dir(config.ctgov_input_root, config)
+    # Downstream reads the merged input (01 ∪ 02); fall back to the staged
+    # 01/02 files for older version directories without a merged file.
+    merged = existing_paths([root / CTGOV_MERGED_FILENAME])
+    if merged:
+        return merged
     return existing_paths(
         [
             root / CTGOV_INITIAL_FILENAME,
@@ -103,6 +117,9 @@ def ctgov_acquisition_files(config: RecursiveWorkflowConfig) -> list[Path]:
 
 def anzctr_acquisition_files(config: RecursiveWorkflowConfig) -> list[Path]:
     root = input_version_dir(config.anzctr_input_root, config)
+    merged = existing_paths([root / ANZCTR_MERGED_FILENAME])
+    if merged:
+        return merged
     return existing_paths(
         [
             root / ANZCTR_INITIAL_FILENAME,
@@ -182,6 +199,87 @@ def run_initial_downloads(
             config.log_level,
         )
     )
+
+
+def _ctgov_current_trial_ids(merged_json: Path) -> set[str]:
+    data = json.loads(merged_json.read_text(encoding="utf-8"))
+    ids: set[str] = set()
+    for study in data:
+        nct = (
+            study.get("protocolSection", {})
+            .get("identificationModule", {})
+            .get("nctId")
+        )
+        if nct:
+            ids.add(str(nct))
+    return ids
+
+
+def _anzctr_current_trial_ids(merged_xlsx: Path) -> set[str]:
+    frame = pd.read_excel(merged_xlsx, sheet_name="TRIAL", dtype=str)
+    column = frame["ACTRN"] if "ACTRN" in frame.columns else pd.Series(dtype=str)
+    return {str(value) for value in column.tolist() if str(value).strip()}
+
+
+def expire_stale_curations(config: RecursiveWorkflowConfig) -> None:
+    """Move curated `.py` files whose trial is no longer in the latest download
+    (the merged ``03`` input) into an ``expired_trials/`` subfolder.
+
+    POTTR-listed trials are never expired.  Each registry is skipped when its
+    merged input or curated directory is absent (e.g. before a real download).
+    """
+    registries = (
+        (
+            "ctgov",
+            input_version_dir(config.ctgov_input_root, config) / CTGOV_MERGED_FILENAME,
+            config.ctgov_curated_dir,
+            "NCT",
+            normalize_nct_id,
+            _ctgov_current_trial_ids,
+        ),
+        (
+            "anzctr",
+            input_version_dir(config.anzctr_input_root, config) / ANZCTR_MERGED_FILENAME,
+            config.anzctr_curated_dir,
+            "ACTRN",
+            normalize_anzctr_trial_id,
+            _anzctr_current_trial_ids,
+        ),
+    )
+    for registry, merged_path, curated_dir, prefix, normalize, current_ids_fn in registries:
+        if not merged_path.exists():
+            LOGGER.info(
+                "Skipping %s curation expiry: no merged input at %s", registry, merged_path
+            )
+            continue
+        if not curated_dir.exists():
+            LOGGER.info(
+                "Skipping %s curation expiry: no curated dir at %s", registry, curated_dir
+            )
+            continue
+
+        current_ids = current_ids_fn(merged_path)
+        pottr_ids = load_pottr_trial_ids_best_effort(registry=registry)
+        if not pottr_ids:
+            LOGGER.warning(
+                "%s POTTR exemption list is empty (source unreachable?); expiry "
+                "proceeds without POTTR exemption.",
+                registry,
+            )
+        result = move_expired_curations(
+            curated_dir=curated_dir,
+            current_trial_ids=current_ids,
+            pottr_exempt_ids=pottr_ids,
+            normalize_trial_id=normalize,
+            trial_id_prefix=prefix,
+        )
+        LOGGER.info(
+            "%s curation expiry: moved %d stale curation(s) to %s; retained %d POTTR-exempt.",
+            registry,
+            len(result.moved),
+            result.expired_dir,
+            len(result.retained_pottr),
+        )
 
 
 def run_registry_processing_commands(
@@ -390,6 +488,8 @@ def run_recursive_workflow(
 ) -> pd.DataFrame:
     if initial_downloads:
         run_initial_downloads(config, run_command)
+        # After a fresh download, retire curations whose trial dropped out of it.
+        expire_stale_curations(config)
 
     pottr_append_ids: dict[str, set[str]] = {"ctgov": set(), "anzctr": set()}
     final_missing = pd.DataFrame()

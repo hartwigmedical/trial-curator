@@ -39,6 +39,7 @@ DRUG_INTERVENTION_CODE = "Treatment: Drugs"
 
 INTERVENTION_CODES_OUTPUT_COLUMN = "anzctr_intervention_codes"
 DEFAULT_ANZCTR_INPUT_FILENAMES = (
+    "03_merged_anzctr_input.xlsx",
     "01_initial_search_anzctr_input.xlsx",
     "02_pottr_append_anzctr_input.xlsx",
     "anzctr_input.xlsx",
@@ -214,6 +215,12 @@ def default_anzctr_input_files(input_root: Path = DEFAULT_INPUT_ROOT) -> list[Pa
         version_dir = latest_version_dir(input_root)
     except FileNotFoundError:
         return [DEFAULT_INPUT_XLSX]
+
+    # The merged input (01 ∪ 02) is the single authoritative source downstream
+    # reads; fall back to the staged 01/02 files for older version directories.
+    merged = existing_files([version_dir / "03_merged_anzctr_input.xlsx"])
+    if merged:
+        return merged
 
     staged = existing_files(
         [

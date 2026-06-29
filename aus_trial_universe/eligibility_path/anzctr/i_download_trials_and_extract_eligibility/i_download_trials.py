@@ -41,6 +41,7 @@ DEFAULT_SEARCH_RETRIES = 3
 DEFAULT_BULK_DOWNLOAD_TIMEOUT_S = 600
 INITIAL_SEARCH_INPUT_FILENAME = "01_initial_search_anzctr_input.xlsx"
 POTTR_APPEND_INPUT_FILENAME = "02_pottr_append_anzctr_input.xlsx"
+MERGED_INPUT_FILENAME = "03_merged_anzctr_input.xlsx"
 # Whole-registry export cached in the raw dir so the POTTR-append run can reuse
 # the initial-search download instead of pulling ~90 MB again.
 ALL_TRIALS_CACHE_FILENAME = "anzctr_all_trials.zip"
@@ -644,6 +645,7 @@ def download_initial_search_workbook(
     search_parameters: AnzctrSearchParameters = DEFAULT_INITIAL_SEARCH_PARAMETERS,
     *,
     output_xlsx: Path,
+    merged_xlsx: Path | None = None,
     raw_dir: Path,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     retries: int = DEFAULT_SEARCH_RETRIES,
@@ -676,6 +678,9 @@ def download_initial_search_workbook(
             _validate_filtered_count(frames, matched, reported_count, first_page_actrns)
             filtered = filter_workbook_to_trial_ids(frames, matched)
             write_workbook(filtered, output_xlsx)
+            # With no POTTR delta yet, the merged input equals the initial search.
+            if merged_xlsx is not None:
+                write_workbook(filtered, merged_xlsx)
 
             manifest = pd.DataFrame(
                 [
@@ -836,7 +841,14 @@ def append_trials_to_workbook(
     output_xlsx: Path,
     parsed_trials: Sequence[ParsedAnzctrTrial],
     replace_existing: bool = True,
+    delta_output_xlsx: Path | None = None,
 ) -> Path:
+    """Write the merged input workbook (base ∪ appended trials) to ``output_xlsx``.
+
+    When ``delta_output_xlsx`` is given, also write a delta-only workbook there
+    containing just the appended trials' rows across all sheets (same sheet
+    structure as the base), so 02 is the POTTR delta and 03 is the merged union.
+    """
     frames = load_workbook_frames(base_input_xlsx)
     trial_frame = frames[TRIAL_SHEET].copy()
     existing_by_actrn = {
@@ -879,6 +891,21 @@ def append_trials_to_workbook(
             for code in parsed.intervention_codes
         )
 
+    # Delta-only workbook (02): just the appended trials' rows, same sheet structure.
+    if delta_output_xlsx is not None:
+        delta_frames = {sheet: frame.iloc[0:0].copy() for sheet, frame in frames.items()}
+        delta_frames[TRIAL_SHEET] = append_rows(delta_frames[TRIAL_SHEET], trial_rows)
+        delta_frames[HEALTH_CONDITION_SHEET] = append_rows(
+            delta_frames[HEALTH_CONDITION_SHEET],
+            health_rows,
+        )
+        delta_frames[INTERVENTION_CODE_SHEET] = append_rows(
+            delta_frames[INTERVENTION_CODE_SHEET],
+            intervention_code_rows,
+        )
+        write_workbook(delta_frames, delta_output_xlsx)
+
+    # Merged workbook (03): base ∪ delta (replacing existing ACTRN rows when requested).
     if trial_ids_to_replace:
         for sheet, frame in list(frames.items()):
             if TRIAL_ID_COLUMN in frame.columns:
@@ -896,10 +923,7 @@ def append_trials_to_workbook(
         intervention_code_rows,
     )
 
-    output_xlsx.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(output_xlsx, engine="openpyxl") as writer:
-        for sheet, frame in frames.items():
-            frame.to_excel(writer, sheet_name=sheet, index=False)
+    write_workbook(frames, output_xlsx)
     return output_xlsx
 
 
@@ -944,8 +968,9 @@ def download_trials_to_input_workbook(
     *,
     trial_ids: Sequence[str],
     base_input_xlsx: Path,
-    output_xlsx: Path,
+    merged_output_xlsx: Path,
     raw_dir: Path,
+    delta_output_xlsx: Path | None = None,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     replace_existing: bool = True,
     all_trials_frames: Mapping[str, pd.DataFrame] | None = None,
@@ -984,11 +1009,12 @@ def download_trials_to_input_workbook(
 
     append_trials_to_workbook(
         base_input_xlsx=base_input_xlsx,
-        output_xlsx=output_xlsx,
+        output_xlsx=merged_output_xlsx,
         parsed_trials=parsed_trials,
         replace_existing=replace_existing,
+        delta_output_xlsx=delta_output_xlsx,
     )
-    return output_xlsx, pd.DataFrame(manifest_rows)
+    return merged_output_xlsx, pd.DataFrame(manifest_rows)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -1083,31 +1109,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         export_date=args.export_date,
     )
     raw_dir = args.raw_dir or default_version_dir(DEFAULT_RAW_ROOT, export_date=args.export_date)
-    default_output_filename = (
-        INITIAL_SEARCH_INPUT_FILENAME
-        if args.initial_search
-        else POTTR_APPEND_INPUT_FILENAME
-    )
-    output_xlsx = args.output_xlsx or output_dir / default_output_filename
+    merged_xlsx = output_dir / MERGED_INPUT_FILENAME
     manifest_path = (
         output_dir
         / f"{DEFAULT_MANIFEST_STEM}_{output_dir.name.removeprefix('version_')}.tsv"
     )
 
     if args.initial_search:
+        initial_xlsx = args.output_xlsx or output_dir / INITIAL_SEARCH_INPUT_FILENAME
         output_xlsx, manifest = download_initial_search_workbook(
             DEFAULT_INITIAL_SEARCH_PARAMETERS,
-            output_xlsx=output_xlsx,
+            output_xlsx=initial_xlsx,
+            merged_xlsx=merged_xlsx,
             raw_dir=raw_dir,
             timeout_ms=args.timeout_ms,
             retries=args.search_retries,
         )
     else:
         trial_ids = read_trial_ids(args.trial_ids, trial_id_column=args.trial_id_column)
+        delta_xlsx = args.output_xlsx or output_dir / POTTR_APPEND_INPUT_FILENAME
         output_xlsx, manifest = download_trials_to_input_workbook(
             trial_ids=trial_ids,
             base_input_xlsx=args.base_input_xlsx or default_base_input_xlsx(),
-            output_xlsx=output_xlsx,
+            merged_output_xlsx=merged_xlsx,
+            delta_output_xlsx=delta_xlsx,
             raw_dir=raw_dir,
             timeout_ms=args.timeout_ms,
             replace_existing=not args.keep_existing,

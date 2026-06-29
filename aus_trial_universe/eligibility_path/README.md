@@ -18,9 +18,13 @@ aus_trial_universe/eligibility_path/
 The data layout is:
 
 ```text
-data/trial_inputs/<registry>/input_trials
+data/trial_inputs/<registry>/input_trials/version_<ddmmyyyy>/01_initial_search_<registry>_input.{json|xlsx}
+data/trial_inputs/<registry>/input_trials/version_<ddmmyyyy>/02_pottr_append_<registry>_input.{json|xlsx}
+data/trial_inputs/<registry>/input_trials/version_<ddmmyyyy>/03_merged_<registry>_input.{json|xlsx}
+data/trial_inputs/ctgov/download_state
 data/trial_inputs/<registry>/extracted_trials
 data/trial_inputs/<registry>/eligibility_curations
+data/trial_inputs/<registry>/eligibility_curations/expired_trials
 data/eligibility_path/resources
 data/eligibility_path/exports/intermediates/<registry>
 data/eligibility_path/exports/final/<registry>
@@ -30,6 +34,28 @@ data/eligibility_path/exports/final/eligibility_cohort_resource_<ddmmyyyy>.tsv
 
 `data/trial_inputs` and `data/eligibility_path/resources` are inputs. The
 `data/eligibility_path/exports` tree is generated.
+
+Each `version_<ddmmyyyy>` input folder follows the same three-file contract for
+both registries (CTGov uses `.json`, ANZCTR uses `.xlsx`):
+
+- `01_initial_search_<registry>_input` — the initial advanced-search cohort only.
+- `02_pottr_append_<registry>_input` — only the POTTR-appended trials (the delta).
+- `03_merged_<registry>_input` — the union of `01` and `02`. This is the single
+  authoritative input the extract/curation steps read. It is regenerated after
+  each download phase: an initial download sets `03` equal to `01`, and a
+  POTTR-append download sets `03` equal to `01 ∪ 02`. Extraction prefers
+  `03_merged` and falls back to `01`+`02` for older version folders.
+
+`data/trial_inputs/ctgov/download_state` holds the persistent CTGov cache
+(`ctgov_trials_latest.json`) and the dated meta snapshot. Only the newest
+`ctgov_trials_meta_*.json` snapshot is retained; older ones are pruned
+automatically after each `--all`/`--incremental` download.
+
+After a fresh download, any curated `.py` file whose trial id is no longer in
+the latest download (the `03_merged` set) is moved into an
+`eligibility_curations/expired_trials/` subfolder, which excludes it from all
+downstream processing (the curated-file glob is non-recursive). Files are moved,
+not deleted, and POTTR-listed trials are never expired.
 
 ## Dependencies
 

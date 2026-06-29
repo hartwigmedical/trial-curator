@@ -107,6 +107,8 @@ def test_fresh_recursive_workflow_downloads_initial_inputs_then_processes(
         ctgov_input_root=tmp_path / "ctgov/input_trials",
         ctgov_state_dir=tmp_path / "ctgov/state",
         anzctr_input_root=tmp_path / "anzctr/input_trials",
+        ctgov_curated_dir=tmp_path / "ctgov/eligibility_curations",
+        anzctr_curated_dir=tmp_path / "anzctr/eligibility_curations",
     )
     missing_frames = iter(
         [

@@ -10,6 +10,7 @@ from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_el
 )
 from aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_download_trials import (
     DEFAULT_INITIAL_SEARCH_PARAMETERS,
+    MERGED_INPUT_FILENAME,
     POTTR_APPEND_INPUT_FILENAME,
     ParsedAnzctrTrial,
     append_trials_to_workbook,
@@ -569,21 +570,28 @@ def test_append_trials_to_workbook_replaces_existing_actrn(tmp_path: Path):
 
 def test_download_trials_to_input_workbook_appends_from_export(tmp_path: Path):
     base_input = tmp_path / "base.xlsx"
-    output = tmp_path / "input_trials" / "version_26062026" / "anzctr_input.xlsx"
+    version_dir = tmp_path / "input_trials" / "version_26062026"
+    merged = version_dir / "03_merged_anzctr_input.xlsx"
+    delta = version_dir / "02_pottr_append_anzctr_input.xlsx"
     raw_dir = tmp_path / "raw_trials" / "version_26062026"
     write_base_workbook(base_input)
 
     output_path, manifest = download_trials_to_input_workbook(
         trial_ids=["ACTRN12600000000002", "ACTRN12699999999999"],
         base_input_xlsx=base_input,
-        output_xlsx=output,
+        merged_output_xlsx=merged,
+        delta_output_xlsx=delta,
         raw_dir=raw_dir,
         all_trials_frames=build_all_trials_frames(),
     )
 
-    trial_frame = pd.read_excel(output_path, sheet_name="TRIAL", dtype=str).fillna("")
-    assert output_path == output
-    assert trial_frame["ACTRN"].tolist() == ["12623000000000", "12600000000002"]
+    assert output_path == merged
+    # 03 merged = base ∪ appended.
+    merged_frame = pd.read_excel(merged, sheet_name="TRIAL", dtype=str).fillna("")
+    assert merged_frame["ACTRN"].tolist() == ["12623000000000", "12600000000002"]
+    # 02 holds only the appended delta, not the base superset.
+    delta_frame = pd.read_excel(delta, sheet_name="TRIAL", dtype=str).fillna("")
+    assert delta_frame["ACTRN"].tolist() == ["12600000000002"]
     assert manifest[["trial_id", "status"]].to_dict("records") == [
         {"trial_id": "ACTRN12600000000002", "status": "downloaded"},
         {"trial_id": "ACTRN12699999999999", "status": "missing_from_export"},
@@ -609,9 +617,10 @@ def test_main_accepts_explicit_output_dir_for_pottr_append(
 
     def fake_download_trials_to_input_workbook(**kwargs):
         calls.update(kwargs)
-        kwargs["output_xlsx"].parent.mkdir(parents=True, exist_ok=True)
-        kwargs["output_xlsx"].write_text("workbook", encoding="utf-8")
-        return kwargs["output_xlsx"], pd.DataFrame(
+        merged = kwargs["merged_output_xlsx"]
+        merged.parent.mkdir(parents=True, exist_ok=True)
+        merged.write_text("workbook", encoding="utf-8")
+        return merged, pd.DataFrame(
             [{"trial_id": "ACTRN12624000000000", "status": "downloaded"}]
         )
 
@@ -634,6 +643,7 @@ def test_main_accepts_explicit_output_dir_for_pottr_append(
         ]
     ) == 0
 
-    assert calls["output_xlsx"] == output_dir / POTTR_APPEND_INPUT_FILENAME
+    assert calls["delta_output_xlsx"] == output_dir / POTTR_APPEND_INPUT_FILENAME
+    assert calls["merged_output_xlsx"] == output_dir / MERGED_INPUT_FILENAME
     assert calls["raw_dir"] == raw_dir
     assert (output_dir / "anzctr_download_manifest_25062026.tsv").exists()

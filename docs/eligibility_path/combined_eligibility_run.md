@@ -43,6 +43,14 @@ This runs:
 6. Final combined trial/cohort resource exports.
 7. POTTR AU missing-trial coverage check.
 
+The fresh-download workflows additionally, immediately after the initial
+download, retire stale curations: any curated `.py` file whose trial id is no
+longer in the latest download (the `03_merged` set) is moved into an
+`eligibility_curations/expired_trials/` subfolder, which excludes it from all
+downstream processing. Files are moved, not deleted, and POTTR-listed trials are
+never expired. `make eligibility-path-run-all` reuses existing inputs and does
+not run this expiry step.
+
 The final cross-registry outputs are:
 
 ```text
@@ -82,11 +90,19 @@ and filters it locally into `01_initial_search_anzctr_input.xlsx`. If ANZCTR
 serves a Cloudflare challenge instead of the search form, the download fails
 (it raises `AnzctrCloudflareChallengeError`) and the run must be retried later.
 `make eligibility-path-run-all` instead uses the newest existing
-`version_<ddmmyyyy>` folder for each registry. All three workflows run
-extraction and pydantic curator only for trials without existing `.py`
-curations, write final combined resources, compute and log missing POTTR
-trials, download those trials into `02_pottr_append` inputs, and repeat until no
-new missing POTTR trials remain.
+`version_<ddmmyyyy>` folder for each registry.
+
+Each `version_<ddmmyyyy>` folder uses the same three-file input contract for
+both registries: `01_initial_search_<registry>_input` is the initial cohort
+only, `02_pottr_append_<registry>_input` is only the POTTR-appended trials (the
+delta), and `03_merged_<registry>_input` is the union of `01` and `02`.
+`03_merged` is the single authoritative input the extract/select steps read; it
+is regenerated after each download phase (initial download sets `03` = `01`;
+POTTR-append download sets `03` = `01 ∪ 02`). All three workflows run extraction
+and pydantic curator only for trials without existing `.py` curations, write
+final combined resources, compute and log missing POTTR trials, download those
+trials as the `02_pottr_append` delta (refreshing `03_merged`), and repeat until
+no new missing POTTR trials remain.
 
 ## Combined Schema
 

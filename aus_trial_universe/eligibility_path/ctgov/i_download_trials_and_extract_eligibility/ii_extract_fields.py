@@ -24,10 +24,10 @@ DEFAULT_CT_GOV_INPUT_JSON = Path(
 )
 DEFAULT_CT_GOV_INPUT_ROOT = Path("data/trial_inputs/ctgov/input_trials")
 DEFAULT_CTGOV_INPUT_FILENAMES = (
+    "03_merged_ctgov_input.json",
     "01_initial_search_ctgov_input.json",
     "02_pottr_append_ctgov_input.json",
     "ctgov_input.json",
-    "ctgov_trials_merged.json",
 )
 DEFAULT_OUTPUT_DIR = Path("data/trial_inputs/ctgov/extracted_trials")
 
@@ -228,6 +228,12 @@ def default_ctgov_input_files(
         version_dir = latest_version_dir(input_root)
     except FileNotFoundError:
         return [DEFAULT_CT_GOV_INPUT_JSON]
+
+    # The merged input (01 ∪ 02) is the single authoritative source downstream
+    # reads; fall back to the staged 01/02 files for older version directories.
+    merged = existing_files([version_dir / "03_merged_ctgov_input.json"])
+    if merged:
+        return merged
 
     staged = existing_files(
         [
