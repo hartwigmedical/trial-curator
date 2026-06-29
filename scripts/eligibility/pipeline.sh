@@ -235,9 +235,10 @@ run_resource_accretion() {
 }
 
 run_resource_report() {
-  log_step "Flagging hand-curated resource coverage gaps and refreshing fill-ready templates"
+  log_step "Flagging hand-curated resource coverage gaps and writing dated fill-ready gap templates"
   run_module aus_trial_universe.eligibility_path.shared.resource_curation.audit \
     --phase report \
+    --export_date "${ELIGIBILITY_EXPORT_DATE}" \
     --log_level "${ELIGIBILITY_LOG_LEVEL}"
 }
 

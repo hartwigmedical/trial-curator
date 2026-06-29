@@ -1053,12 +1053,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--output_xlsx",
+        "--initial_output_xlsx",
         type=Path,
         default=None,
         help=(
-            "Output workbook. Defaults to "
-            "data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/anzctr_input.xlsx."
+            "Staging workbook for --initial_search (the 01 initial-search file). "
+            "Defaults to <output_dir>/01_initial_search_anzctr_input.xlsx. The "
+            "authoritative merged 03 workbook always follows --output_dir."
+        ),
+    )
+    parser.add_argument(
+        "--delta_output_xlsx",
+        type=Path,
+        default=None,
+        help=(
+            "Staging workbook for the POTTR-append delta (the 02 file). Defaults "
+            "to <output_dir>/02_pottr_append_anzctr_input.xlsx. The authoritative "
+            "merged 03 workbook always follows --output_dir."
         ),
     )
     parser.add_argument(
@@ -1116,7 +1127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     if args.initial_search:
-        initial_xlsx = args.output_xlsx or output_dir / INITIAL_SEARCH_INPUT_FILENAME
+        initial_xlsx = args.initial_output_xlsx or output_dir / INITIAL_SEARCH_INPUT_FILENAME
         output_xlsx, manifest = download_initial_search_workbook(
             DEFAULT_INITIAL_SEARCH_PARAMETERS,
             output_xlsx=initial_xlsx,
@@ -1127,7 +1138,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     else:
         trial_ids = read_trial_ids(args.trial_ids, trial_id_column=args.trial_id_column)
-        delta_xlsx = args.output_xlsx or output_dir / POTTR_APPEND_INPUT_FILENAME
+        delta_xlsx = args.delta_output_xlsx or output_dir / POTTR_APPEND_INPUT_FILENAME
         output_xlsx, manifest = download_trials_to_input_workbook(
             trial_ids=trial_ids,
             base_input_xlsx=args.base_input_xlsx or default_base_input_xlsx(),

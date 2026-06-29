@@ -5,16 +5,16 @@ For each hand-curated resource (e.g. the cancer-type ``manual_overwrite`` file,
 the gene-alteration / molecular-signature mapping resources) the pipeline can:
 
 * **report coverage** (A): which generated rows/keys have no entry in the
-  resource (``uncovered``) and which resource entries no longer match anything
-  generated (``stale``). The uncovered rows are written as a *fill-ready
+  resource (``uncovered``). The uncovered rows are written as a *fill-ready
   template* — the resource's own columns with the value column(s) left blank —
-  so a curator just fills the blanks. The template is persistent and preserves
-  in-progress fills across runs.
+  so a curator just fills the blanks. Templates live under a date-stamped
+  ``resource_gaps/version_<ddmmyyyy>/`` folder in the exports tree; each run
+  writes a fresh template into the run's version folder.
 
-* **accrete fills** (B): on a later run, the filled rows in the template are
-  merged into the resource and written as a NEW timestamped version. The
-  original resource file is never overwritten; resource selection is
-  latest-by-mtime, so the new version is picked up automatically.
+* **accrete fills** (B): on a later run, the filled rows in the latest gap
+  template are merged into the resource and written as a NEW timestamped
+  version. The original resource file is never overwritten; resource selection
+  is latest-by-mtime, so the new version is picked up automatically.
 
 Two key notions are kept separate so a resource can be gapped at a coarser grain
 than it is keyed:
@@ -31,22 +31,23 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Callable, Sequence
 
 import pandas as pd
 
+from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
+    VERSION_DIR_RE,
+    version_dir_sort_key,
+)
 from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import (
     blank_safe_str,
 )
 
 logger = logging.getLogger(__name__)
 
-COVERAGE_STATUS_COL = "coverage_status"
-UNCOVERED = "uncovered"
-STALE = "stale"
 _KEY_SEP = "\x1f"
 
 
@@ -61,28 +62,36 @@ class CoverageSpec:
     resource_tokens: tuple[tuple[str, ...], ...]  # token groups identifying the resource file
     coverage_key_cols: tuple[str, ...]
     value_cols: tuple[str, ...]
+    gap_filename: str  # clean filename for the fill-ready gap template, e.g. "cancer_type_gaps.csv"
     resource_key_cols: tuple[str, ...] = ()  # defaults to coverage_key_cols
     context_cols: tuple[str, ...] = ()  # extra columns surfaced in the template for the curator
 
     def keys_for_resource(self) -> tuple[str, ...]:
         return self.resource_key_cols or self.coverage_key_cols
 
-    @property
-    def template_path(self) -> Path:
-        # A `gaps/` subdir keeps the editable template from being mistaken for a
-        # resource version by latest-by-token resource discovery (non-recursive).
-        return self.resource_dir / "gaps" / f"{self.resource_stem}_to_fill.csv"
+
+def gap_template_path(gaps_root: Path, spec: CoverageSpec, today_str: str) -> Path:
+    """Write path for this run's fill-ready template: a dated version folder."""
+    return gaps_root / f"version_{today_str}" / spec.gap_filename
 
 
-@dataclass(frozen=True)
-class CoverageResult:
-    spec_name: str
-    generated_rows: int
-    uncovered_rows: int
-    uncovered_keys: int
-    stale_rows: int
-    gap_report_path: Path | None
-    template_path: Path | None
+def latest_gap_file(gaps_root: Path, spec: CoverageSpec) -> Path | None:
+    """Newest ``version_<ddmmyyyy>`` gap file for ``spec``, or None if none exist."""
+    if not gaps_root.exists():
+        return None
+    version_dirs = sorted(
+        (
+            path
+            for path in gaps_root.iterdir()
+            if path.is_dir()
+            and VERSION_DIR_RE.match(path.name)
+            and (path / spec.gap_filename).is_file()
+        ),
+        key=version_dir_sort_key,
+    )
+    if not version_dirs:
+        return None
+    return version_dirs[-1] / spec.gap_filename
 
 
 def normalize_key_value(value: object) -> str:
@@ -137,6 +146,11 @@ def build_fill_ready_template(uncovered_df: pd.DataFrame, spec: CoverageSpec) ->
 
     available = [col for col in columns if col in uncovered_df.columns]
     template = uncovered_df[available].copy()
+    # Back-fill any missing columns BEFORE the dedup, which keys on every
+    # resource_key col (a missing one would otherwise raise KeyError).
+    for col in columns:
+        if col not in template.columns:
+            template[col] = ""
     # Collapse to one row per resource key (uncovered generated data can repeat a key).
     template = template.loc[
         ~coverage_key_series(template, resource_keys).duplicated(keep="first")
@@ -231,69 +245,27 @@ def timestamped_version_path(spec: CoverageSpec, today_str: str) -> Path:
 # ---------------------------------------------------------------------------
 # High-level entry points
 # ---------------------------------------------------------------------------
-def report_coverage(
-    spec: CoverageSpec,
-    generated_df: pd.DataFrame,
-    *,
-    diagnostics_dir: Path,
-    resource_df: pd.DataFrame | None = None,
-) -> CoverageResult:
-    """Write the gap report + refresh the fill-ready template (no resource writes)."""
-    if resource_df is None:
-        resource_path = latest_resource_path(spec)
-        resource_df = read_table(resource_path) if resource_path is not None else pd.DataFrame()
-
-    uncovered, stale = split_coverage(generated_df, resource_df, spec.coverage_key_cols)
-    uncovered_keys = int(coverage_key_series(uncovered, spec.coverage_key_cols).nunique())
-
-    gap_report_path = diagnostics_dir / f"{spec.resource_stem}_coverage_gaps.tsv"
-    diagnostics_dir.mkdir(parents=True, exist_ok=True)
-    report = pd.concat(
-        [
-            uncovered.assign(**{COVERAGE_STATUS_COL: UNCOVERED}),
-            stale.assign(**{COVERAGE_STATUS_COL: STALE}),
-        ],
-        ignore_index=True,
-    )
-    write_table(report, gap_report_path)
-
-    logger.info(
-        "Coverage[%s]: %d/%d generated rows uncovered (%d distinct keys), %d stale resource rows. "
-        "Gap report: %s",
-        spec.name,
-        len(uncovered),
-        len(generated_df),
-        uncovered_keys,
-        len(stale),
-        gap_report_path,
-    )
-    return CoverageResult(
-        spec_name=spec.name,
-        generated_rows=len(generated_df),
-        uncovered_rows=len(uncovered),
-        uncovered_keys=uncovered_keys,
-        stale_rows=len(stale),
-        gap_report_path=gap_report_path,
-        template_path=None,
-    )
-
-
 def accrete_filled_template(
     spec: CoverageSpec,
+    gaps_root: Path,
     *,
     today_str: str | None = None,
     transform: "Callable[[pd.DataFrame], pd.DataFrame] | None" = None,
 ) -> Path | None:
-    """Merge the template's filled rows into a NEW timestamped resource version.
+    """Merge the latest gap template's filled rows into a NEW resource version.
 
-    Returns the new resource path, or ``None`` when there is nothing to accrete.
-    Never overwrites an existing resource file. ``transform`` runs on the merged
-    resource before it is written — used to populate derived columns (e.g. the
-    gene-alteration ``Mapping_args``, regenerated from the filled curation cols).
+    Reads the newest ``version_<ddmmyyyy>`` gap file for the spec under
+    ``gaps_root``. Returns the new resource path, or ``None`` when there is
+    nothing to accrete. Never overwrites a *prior-dated* resource version; a
+    same-date re-run replaces today's version (idempotently, by key).
+    ``transform`` runs on the merged resource before it is written — used to
+    populate derived columns (e.g. the gene-alteration ``Mapping_args``,
+    regenerated from the filled curation cols).
     """
-    if not spec.template_path.exists():
+    gap_path = latest_gap_file(gaps_root, spec)
+    if gap_path is None:
         return None
-    template_df = read_table(spec.template_path)
+    template_df = read_table(gap_path)
     filled = filled_template_rows(template_df, spec.value_cols)
     if filled.empty:
         logger.info("Coverage[%s]: no filled template rows to accrete.", spec.name)
@@ -321,51 +293,42 @@ def accrete_filled_template(
 def refresh_coverage(
     spec: CoverageSpec,
     generated_df: pd.DataFrame,
+    gaps_root: Path,
     *,
-    diagnostics_dir: Path | None = None,
+    today_str: str | None = None,
     resource_df: pd.DataFrame | None = None,
 ) -> dict[str, object]:
-    """Recompute coverage and rebuild the fill-ready template (no accretion).
+    """Recompute coverage and write the fill-ready gap template (no accretion).
 
-    Run this AFTER processing (it needs the generated intermediates). The gap
-    diagnostic and refreshed template reflect the latest resource version.
+    Run this AFTER processing (it needs the generated intermediates). The
+    refreshed template is written into this run's ``version_<today_str>`` folder
+    under ``gaps_root`` and reflects the latest resource version.
     """
     if resource_df is None:
         resource_path = latest_resource_path(spec)
         resource_df = read_table(resource_path) if resource_path is not None else pd.DataFrame()
 
-    uncovered, stale = split_coverage(generated_df, resource_df, spec.coverage_key_cols)
+    uncovered, _stale = split_coverage(generated_df, resource_df, spec.coverage_key_cols)
     uncovered_keys = (
         int(coverage_key_series(uncovered, spec.coverage_key_cols).nunique())
         if not uncovered.empty
         else 0
     )
 
-    if diagnostics_dir is not None:
-        diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        report = pd.concat(
-            [
-                uncovered.assign(**{COVERAGE_STATUS_COL: UNCOVERED}),
-                stale.assign(**{COVERAGE_STATUS_COL: STALE}),
-            ],
-            ignore_index=True,
-        )
-        write_table(report, diagnostics_dir / f"{spec.resource_stem}_coverage_gaps.tsv")
-
+    today_str = today_str or date.today().strftime("%d%m%Y")
     template = build_fill_ready_template(uncovered, spec)
-    write_table(template, spec.template_path)
+    template_path = gap_template_path(gaps_root, spec, today_str)
+    write_table(template, template_path)
     logger.info(
-        "Coverage[%s]: %d generated rows, %d uncovered keys, %d stale | template -> %s",
+        "Coverage[%s]: %d generated rows, %d uncovered keys | gap template -> %s",
         spec.name,
         len(generated_df),
         uncovered_keys,
-        len(stale),
-        spec.template_path,
+        template_path,
     )
     return {
         "spec": spec.name,
         "uncovered_keys": uncovered_keys,
-        "stale_rows": len(stale),
         "remaining_gaps": len(template),
     }
 
@@ -373,22 +336,25 @@ def refresh_coverage(
 def audit_resource(
     spec: CoverageSpec,
     generated_df: pd.DataFrame,
+    gaps_root: Path,
     *,
-    diagnostics_dir: Path | None = None,
     today_str: str | None = None,
     transform: "Callable[[pd.DataFrame], pd.DataFrame] | None" = None,
 ) -> dict[str, object]:
-    """Full lifecycle for one resource: accrete filled template -> new version,
-    then recompute coverage + rebuild the template. Used by the standalone audit;
-    the pipeline splits this into pre-processing accretion + post-processing
-    reporting so curator fills take effect the same run.
+    """Full lifecycle for one resource: accrete the latest filled gap template
+    into a new version, then recompute coverage + write a fresh gap template.
+    Used by the standalone audit; the pipeline splits this into pre-processing
+    accretion + post-processing reporting so curator fills take effect the same
+    run.
     """
-    new_resource_path = accrete_filled_template(spec, today_str=today_str, transform=transform)
+    new_resource_path = accrete_filled_template(
+        spec, gaps_root, today_str=today_str, transform=transform
+    )
     resource_path = new_resource_path or latest_resource_path(spec)
     resource_df = read_table(resource_path) if resource_path is not None else pd.DataFrame()
 
     summary = refresh_coverage(
-        spec, generated_df, diagnostics_dir=diagnostics_dir, resource_df=resource_df
+        spec, generated_df, gaps_root, today_str=today_str, resource_df=resource_df
     )
     summary["resource"] = str(resource_path) if resource_path else ""
     summary["new_version"] = str(new_resource_path) if new_resource_path else ""

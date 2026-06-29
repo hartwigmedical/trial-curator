@@ -2,11 +2,13 @@
 entry point).
 
 For each hand-curated resource it:
-  * accretes any rows a curator filled in the fill-ready template into a NEW
-    timestamped resource version (never overwriting the existing files),
+  * accretes any rows a curator filled in the latest fill-ready gap template
+    into a NEW timestamped resource version (never overwriting the existing
+    files),
   * recomputes coverage of the latest generated data (unioned across CTGov and
     ANZCTR) against that resource,
-  * writes a gap diagnostic and refreshes the fill-ready template.
+  * writes a fresh fill-ready gap template into a date-stamped
+    ``resource_gaps/version_<ddmmyyyy>/`` folder under the intermediates tree.
 
 Generated data is read from the registry intermediate exports the processing
 steps already write, so this can run any time after a pipeline run.
@@ -30,8 +32,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RESOURCES_ROOT = Path("data/eligibility_path/resources")
 DEFAULT_INTERMEDIATES_ROOT = Path("data/eligibility_path/exports/intermediates")
+DEFAULT_GAPS_ROOT = DEFAULT_INTERMEDIATES_ROOT / "resource_gaps"
 DEFAULT_REGISTRIES = ("ctgov", "anzctr")
 _GENERATED_SUFFIXES = (".tsv", ".csv", ".xlsx")
+_TRIAL_ID_SOURCES = ("nct_id", "trial_id")
 
 
 def _populate_gene_alteration_mapping_args(resource_df: pd.DataFrame) -> pd.DataFrame:
@@ -69,6 +73,9 @@ class AuditEntry:
     # Path (without suffix) of the generated table within each registry's
     # intermediate dir, e.g. "cancer_type/02_primary_vs_conditions".
     generated_rel_path: str
+    # Per-registry overrides for registries that name the same table differently
+    # (CTGov writes "02_primary_vs_conditions", ANZCTR "02_primary_vs_health_condition").
+    generated_rel_path_by_registry: dict[str, str] = field(default_factory=dict)
     # Value-mapping pipelines mark unmapped rows with a status column; keep only
     # those rows as the gap, and rename the generated key columns to the
     # resource's key column names so coverage can be computed.
@@ -94,9 +101,19 @@ def cancer_type_entry(resources_root: Path) -> AuditEntry:
             "conditions_original",
         ),
         value_cols=("manual_overwrite",),
-        context_cols=("primary_vs_conditions_relation",),
+        gap_filename="cancer_type_gaps.csv",
+        context_cols=("trial_id", "primary_vs_conditions_relation"),
     )
-    return AuditEntry(spec=spec, generated_rel_path="cancer_type/02_primary_vs_conditions")
+    return AuditEntry(
+        spec=spec,
+        generated_rel_path="cancer_type/02_primary_vs_conditions",
+        # ANZCTR's cancer-type table is named differently and carries trial_id
+        # (not nct_id); load_generated_union back-fills nct_id from it so these
+        # rows are gap-checked against the nct_id-keyed manual_overwrite resource.
+        generated_rel_path_by_registry={
+            "anzctr": "cancer_type/02_primary_vs_health_condition"
+        },
+    )
 
 
 def gene_alteration_entry(resources_root: Path) -> AuditEntry:
@@ -119,7 +136,8 @@ def gene_alteration_entry(resources_root: Path) -> AuditEntry:
             "Fusion_FivePrime",
             "Fusion_ThreePrime",
         ),
-        context_cols=("input_text", "description_input"),
+        gap_filename="gene_alteration_gaps.csv",
+        context_cols=("trial_id", "input_text", "description_input"),
     )
     return AuditEntry(
         spec=spec,
@@ -147,7 +165,8 @@ def molecular_signature_entry(resources_root: Path) -> AuditEntry:
         ),
         coverage_key_cols=("Signature_lookup",),
         value_cols=("Findings_curation", "Move_to"),
-        context_cols=("description_input",),
+        gap_filename="molecular_signature_gaps.csv",
+        context_cols=("trial_id", "description_input"),
     )
     return AuditEntry(
         spec=spec,
@@ -174,6 +193,38 @@ def _resolve_generated_file(base_without_suffix: Path) -> Path | None:
     return None
 
 
+def _add_trial_id(frame: pd.DataFrame, *, id_key_cols: tuple[str, ...] = ()) -> pd.DataFrame:
+    """Add a coalesced ``trial_id`` column and back-fill blank id key columns.
+
+    CTGov mapped intermediates carry ``nct_id``; ANZCTR carries ``trial_id``.
+    Per row, take the first non-blank value across the known id sources so every
+    gap row has a representative trial id surfaced to the curator.
+
+    Resources keyed on a specific id column (the cancer-type ``manual_overwrite``
+    keys on ``nct_id``) need that column populated for every registry. Any
+    ``id_key_cols`` entry that is an id source is back-filled from the coalesced
+    value where blank, so ANZCTR rows (``trial_id`` only) line up with the
+    ``nct_id``-keyed resource.
+    """
+    coalesced = pd.Series("", index=frame.index, dtype="object")
+    for col in _TRIAL_ID_SOURCES:
+        if col in frame.columns:
+            values = frame[col].fillna("").astype(str)
+            coalesced = coalesced.where(coalesced.str.strip() != "", values)
+    frame = frame.copy()
+    frame["trial_id"] = coalesced
+    for col in id_key_cols:
+        if col not in _TRIAL_ID_SOURCES:
+            continue
+        existing = (
+            frame[col].fillna("").astype(str)
+            if col in frame.columns
+            else pd.Series("", index=frame.index, dtype="object")
+        )
+        frame[col] = existing.where(existing.str.strip() != "", coalesced)
+    return frame
+
+
 def load_generated_union(
     entry: AuditEntry,
     *,
@@ -182,7 +233,10 @@ def load_generated_union(
 ) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     for registry in registries:
-        base = intermediates_root / registry / entry.generated_rel_path
+        rel_path = entry.generated_rel_path_by_registry.get(
+            registry, entry.generated_rel_path
+        )
+        base = intermediates_root / registry / rel_path
         path = _resolve_generated_file(base)
         if path is None:
             logger.info(
@@ -196,6 +250,7 @@ def load_generated_union(
             frame = frame.loc[frame[entry.status_col].isin(entry.status_keep)]
         if entry.rename:
             frame = frame.rename(columns=entry.rename)
+        frame = _add_trial_id(frame, id_key_cols=entry.spec.keys_for_resource())
         frames.append(frame.reset_index(drop=True))
         logger.info(
             "Coverage audit[%s]: loaded %s generated gap rows from %s.",
@@ -211,6 +266,7 @@ def load_generated_union(
 def run_accretion(
     entries: list[AuditEntry],
     *,
+    gaps_root: Path = DEFAULT_GAPS_ROOT,
     today_str: str | None = None,
 ) -> list[Path]:
     """Pre-processing phase: graduate filled fill-ready templates into new
@@ -220,7 +276,7 @@ def run_accretion(
     new_versions: list[Path] = []
     for entry in entries:
         new_path = coverage.accrete_filled_template(
-            entry.spec, today_str=today_str, transform=entry.accretion_transform
+            entry.spec, gaps_root, today_str=today_str, transform=entry.accretion_transform
         )
         if new_path is not None:
             new_versions.append(new_path)
@@ -231,11 +287,12 @@ def run_report(
     entries: list[AuditEntry],
     *,
     intermediates_root: Path = DEFAULT_INTERMEDIATES_ROOT,
+    gaps_root: Path = DEFAULT_GAPS_ROOT,
     registries: tuple[str, ...] = DEFAULT_REGISTRIES,
+    today_str: str | None = None,
 ) -> list[dict[str, object]]:
     """Post-processing phase: recompute coverage from the generated intermediates
-    and rebuild the fill-ready templates."""
-    diagnostics_dir = intermediates_root / "resource_audit"
+    and write a fresh fill-ready gap template into this run's version folder."""
     summaries: list[dict[str, object]] = []
     for entry in entries:
         generated = load_generated_union(
@@ -248,7 +305,9 @@ def run_report(
             )
             continue
         summaries.append(
-            coverage.refresh_coverage(entry.spec, generated, diagnostics_dir=diagnostics_dir)
+            coverage.refresh_coverage(
+                entry.spec, generated, gaps_root, today_str=today_str
+            )
         )
     return summaries
 
@@ -257,12 +316,19 @@ def run_audit(
     entries: list[AuditEntry],
     *,
     intermediates_root: Path = DEFAULT_INTERMEDIATES_ROOT,
+    gaps_root: Path = DEFAULT_GAPS_ROOT,
     registries: tuple[str, ...] = DEFAULT_REGISTRIES,
     today_str: str | None = None,
 ) -> list[dict[str, object]]:
     """Standalone full audit: accrete fills, then report gaps."""
-    run_accretion(entries, today_str=today_str)
-    return run_report(entries, intermediates_root=intermediates_root, registries=registries)
+    run_accretion(entries, gaps_root=gaps_root, today_str=today_str)
+    return run_report(
+        entries,
+        intermediates_root=intermediates_root,
+        gaps_root=gaps_root,
+        registries=registries,
+        today_str=today_str,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -296,13 +362,19 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     today_str = args.export_date or date.today().strftime("%d%m%Y")
+    gaps_root = args.intermediates_root / "resource_gaps"
     entries = default_entries(args.resources_root)
 
     if args.phase in ("accrete", "all"):
-        for path in run_accretion(entries, today_str=today_str):
+        for path in run_accretion(entries, gaps_root=gaps_root, today_str=today_str):
             logger.info("Accreted new resource version: %s", path)
     if args.phase in ("report", "all"):
-        for summary in run_report(entries, intermediates_root=args.intermediates_root):
+        for summary in run_report(
+            entries,
+            intermediates_root=args.intermediates_root,
+            gaps_root=gaps_root,
+            today_str=today_str,
+        ):
             logger.info(
                 "Resource %s: %s gap(s) remaining", summary["spec"], summary["remaining_gaps"]
             )

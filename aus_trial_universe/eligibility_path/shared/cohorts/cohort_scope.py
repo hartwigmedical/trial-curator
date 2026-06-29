@@ -105,9 +105,20 @@ def normalize_anzctr_trial_id(value: object) -> str:
     if trailing_zero:
         text = trailing_zero.group(1)
 
-    embedded = _ANZCTR_TRIAL_ID_RE.search(text)
+    embedded = _ANZCTR_TRIAL_ID_RE.findall(text)
     if embedded:
-        return embedded.group(0)
+        distinct = list(dict.fromkeys(embedded))
+        if len(distinct) > 1:
+            # The normaliser must return a single canonical id; surface the
+            # ambiguity instead of silently dropping the rest.
+            logger.warning(
+                "normalize_anzctr_trial_id: %d distinct ANZCTR ids in %r; "
+                "using the first (%s).",
+                len(distinct),
+                value,
+                distinct[0],
+            )
+        return distinct[0]
     if text.startswith("ACTRN"):
         return text
     return f"ACTRN{text}"

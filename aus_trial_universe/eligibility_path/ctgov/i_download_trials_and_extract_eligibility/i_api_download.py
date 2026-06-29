@@ -712,12 +712,18 @@ def main():
         trials = download_trials_by_nct_ids(session=session, nct_ids=nct_ids)
         _write_json_atomic(pottr_append_path, trials)
 
-        # Regenerate the merged input as (01 initial-search) ∪ (02 pottr-append) so
-        # 03_merged is always the authoritative union that downstream reads.
-        initial_trials = (
-            _load_trials_json(initial_search_path) if initial_search_path.exists() else []
-        )
-        merged_trials = _merge_trials_by_nct_id(initial_trials, trials)
+        # Regenerate the merged input as (initial-search cohort) ∪ (02 pottr-append)
+        # so 03_merged is always the authoritative union that downstream reads.
+        # Prefer 01; if it's absent (e.g. this version dir came from --incremental,
+        # which writes 03_merged but no 01), fall back to the existing 03_merged so
+        # the pottr append is added to the cohort rather than replacing it.
+        if initial_search_path.exists():
+            base_trials = _load_trials_json(initial_search_path)
+        elif merged_output_path.exists():
+            base_trials = _load_trials_json(merged_output_path)
+        else:
+            base_trials = []
+        merged_trials = _merge_trials_by_nct_id(base_trials, trials)
         _write_json_atomic(merged_output_path, merged_trials)
 
         logger.info(

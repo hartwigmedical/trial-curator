@@ -13,10 +13,10 @@ import pydantic_curator.pydantic_curator as curator
 
 logger = logging.getLogger(__name__)
 
-# Third-party / curator-internal loggers that flood the shared run log (especially
-# at DEBUG): the OpenAI client's HTTP traffic and the curator library internals.
-# Capped to WARNING so only this module's per-trial "<id> curated. Saved as <path>."
-# status lines remain in the log.
+# Third-party / curator-internal loggers that flood the shared run log: the OpenAI
+# SDK's HTTP traffic and the curator library internals. Capped to WARNING so only
+# this module's concise per-trial "Trial <id> processed ... saved in <path>" status
+# lines remain. (The OpenaiClient wrapper logs prompts/responses at DEBUG.)
 _NOISY_CURATOR_LOGGERS = (
     "pydantic_curator",
     "openai",
@@ -266,26 +266,27 @@ def run_batch(
             try:
                 status, returned_trial_id = future.result()
                 if status == "skipped":
-                    logger.info("%s.py exists. Skipping.", returned_trial_id)
-                    logger.info("%d/%d examined.", examined, trials_count)
+                    logger.info(
+                        "[%d/%d] Trial %s already curated; skipped.",
+                        examined, trials_count, returned_trial_id,
+                    )
                     skipped += 1
                 elif status == "completed":
                     output_filepath = out_dir / f"{returned_trial_id}.py"
                     logger.info(
-                        "%s curated. Saved as %s.",
-                        returned_trial_id,
-                        output_filepath,
+                        "[%d/%d] Trial %s processed by Pydantic curator and saved in %s",
+                        examined, trials_count, returned_trial_id, output_filepath,
                     )
-                    logger.info("%d/%d examined.", examined, trials_count)
                     completed += 1
                 else:
-                    logger.error("%s returned unknown status: %s", returned_trial_id, status)
-                    logger.info("%d/%d examined.", examined, trials_count)
+                    logger.error(
+                        "[%d/%d] %s returned unknown status: %s",
+                        examined, trials_count, returned_trial_id, status,
+                    )
                     failed += 1
 
             except Exception:
-                logger.exception("%s failed.", trial_id_for_log)
-                logger.info("%d/%d examined.", examined, trials_count)
+                logger.exception("[%d/%d] Trial %s failed.", examined, trials_count, trial_id_for_log)
                 failed += 1
 
     logger.info(

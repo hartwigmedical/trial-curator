@@ -460,7 +460,10 @@ def build_gene_alteration_conflict_report(mapped_df: pd.DataFrame) -> pd.DataFra
     out = pd.DataFrame(rows)
     out = _ensure_output_columns(out, output_columns)
 
-    LOGGER.info(
+    # DEBUG, not INFO: this builder is called once per (trial, cohort) group in the
+    # cohort-level stage, so an INFO line here floods the log. The per-stage summary
+    # is logged once at INFO where the report file is written.
+    LOGGER.debug(
         "Built gene alteration conflict report: conflict_groups=%d rows=%d trials=%d",
         int(out["conflict_group_id"].nunique()) if not out.empty else 0,
         len(out),

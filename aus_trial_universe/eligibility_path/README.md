@@ -136,6 +136,15 @@ data/eligibility_path/exports/intermediates
 data/eligibility_path/exports/final
 ```
 
+**Exception — do NOT delete** `data/eligibility_path/exports/intermediates/resource_gaps/`.
+This holds the curator-filled resource gap templates (`version_<ddmmyyyy>/{cancer_type,gene_alteration,molecular_signature}_gaps.csv`):
+a curator fills the blank curation columns, and on the next run the pre-processing
+accrete step merges those filled rows into a new dated resource version under
+`data/eligibility_path/resources/`. `make eligibility-path-clean` preserves this
+folder automatically — it removes only generated `.tsv` files and prunes
+`resource_gaps/`. (A manual `rm -rf exports/intermediates` would destroy
+in-progress fills, so don't.)
+
 Intermediate TSV filenames are stage-numbered. Distinct stages use `01_`,
 `02_`, and so on; paired trial/cohort outputs share the same number with
 `a` for trial level and `b` for cohort level, for example

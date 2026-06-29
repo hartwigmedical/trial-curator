@@ -48,6 +48,11 @@ ANZCTR_INITIAL_FILENAME = "01_initial_search_anzctr_input.xlsx"
 ANZCTR_POTTR_APPEND_FILENAME = "02_pottr_append_anzctr_input.xlsx"
 ANZCTR_MERGED_FILENAME = "03_merged_anzctr_input.xlsx"
 
+# Skip curation expiry when more than this fraction of a registry's active
+# curations would expire in one run — almost always a partial/failed download
+# rather than genuine churn. Self-heals on the next complete download.
+EXPIRY_SAFETY_FRACTION = 0.5
+
 CommandRunner = Callable[[Sequence[str]], None]
 
 
@@ -272,12 +277,21 @@ def expire_stale_curations(config: RecursiveWorkflowConfig) -> None:
             pottr_exempt_ids=pottr_ids,
             normalize_trial_id=normalize,
             trial_id_prefix=prefix,
+            max_expiry_fraction=EXPIRY_SAFETY_FRACTION,
         )
+        if result.guarded:
+            LOGGER.warning(
+                "%s curation expiry guarded: latest download looked incomplete; "
+                "no curations expired this run.",
+                registry,
+            )
         LOGGER.info(
-            "%s curation expiry: moved %d stale curation(s) to %s; retained %d POTTR-exempt.",
+            "%s curation expiry: moved %d stale curation(s) to %s; "
+            "restored %d re-appeared; retained %d POTTR-exempt.",
             registry,
             len(result.moved),
             result.expired_dir,
+            len(result.restored),
             len(result.retained_pottr),
         )
 

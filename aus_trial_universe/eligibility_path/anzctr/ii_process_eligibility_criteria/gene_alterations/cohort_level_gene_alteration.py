@@ -195,6 +195,7 @@ def _expand_mapped_criteria_to_effective_cohorts(
         trial_id_col="trial_id",
         cohorts_col="cohorts",
         cohort_col="cohort",
+        normalize_trial_id=normalize_anzctr_trial_id,
     )
 
 

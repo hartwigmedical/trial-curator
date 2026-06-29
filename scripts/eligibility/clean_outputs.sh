@@ -19,6 +19,10 @@ This includes dated final resources such as:
   eligibility_trial_resource_<ddmmyyyy>.tsv
   eligibility_cohort_resource_<ddmmyyyy>.tsv
 
+Curator-filled gap templates under
+  data/eligibility_path/exports/intermediates/resource_gaps/
+are PRESERVED (they are human input, not generated output).
+
 Options:
   --dry-run   Print files that would be removed, without deleting them.
   --yes, -y   Delete without prompting.
@@ -59,7 +63,9 @@ while IFS= read -r file; do
 done < <(
   for dir in "${TARGET_DIRS[@]}"; do
     if [[ -d "$dir" ]]; then
-      find "$dir" -type f -name "*.tsv"
+      # Preserve curator-filled gap templates; they are human input, not
+      # generated output, even though they live under exports/intermediates.
+      find "$dir" -path '*/resource_gaps/*' -prune -o -type f -name "*.tsv" -print
     fi
   done | sort
 )

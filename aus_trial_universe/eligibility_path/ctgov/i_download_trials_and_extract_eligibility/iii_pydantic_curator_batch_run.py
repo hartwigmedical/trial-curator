@@ -14,10 +14,10 @@ from aus_trial_universe.eligibility_path.ctgov.i_download_trials_and_extract_eli
 
 logger = logging.getLogger(__name__)
 
-# Third-party / curator-internal loggers that flood the shared run log (especially
-# at DEBUG): the OpenAI client's HTTP traffic and the curator library internals.
-# Capped to WARNING so only this module's per-trial "<id> curated. Saved as <path>."
-# status lines remain in the log.
+# Third-party / curator-internal loggers that flood the shared run log: the OpenAI
+# SDK's HTTP traffic and the curator library internals. Capped to WARNING so only
+# this module's concise per-trial "Trial <id> processed ... saved in <path>" status
+# lines remain. (The OpenaiClient wrapper logs prompts/responses at DEBUG.)
 _NOISY_CURATOR_LOGGERS = (
     "pydantic_curator",
     "openai",
@@ -213,22 +213,21 @@ def main():
                 status, returned_trial_id = future.result()
 
                 if status == "skipped":
-                    logger.info(f"{returned_trial_id}.py exists. Skipping.")
-                    logger.info(f"{examined}/{trials_count} examined.")
+                    logger.info(f"[{examined}/{trials_count}] Trial {returned_trial_id} already curated; skipped.")
                     skipped += 1
                 elif status == "completed":
                     output_filepath = out_dir / f"{returned_trial_id}.py"
-                    logger.info(f"{returned_trial_id} curated. Saved as {output_filepath}.")
-                    logger.info(f"{examined}/{trials_count} examined.")
+                    logger.info(
+                        f"[{examined}/{trials_count}] Trial {returned_trial_id} processed by "
+                        f"Pydantic curator and saved in {output_filepath}"
+                    )
                     completed += 1
                 else:
-                    logger.error(f"{returned_trial_id} returned unknown status: {status}")
-                    logger.info(f"{examined}/{trials_count} examined.")
+                    logger.error(f"[{examined}/{trials_count}] {returned_trial_id} returned unknown status: {status}")
                     failed += 1
 
             except Exception:
-                logger.exception(f"{trial_id} failed.")
-                logger.info(f"{examined}/{trials_count} examined.")
+                logger.exception(f"[{examined}/{trials_count}] Trial {trial_id} failed.")
                 failed += 1
 
     logger.info(f"Finished. total={trials_count}, of which completed={completed}, skipped={skipped}, failed={failed}")

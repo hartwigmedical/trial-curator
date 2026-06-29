@@ -205,6 +205,11 @@ data/eligibility_path/exports/intermediates
 data/eligibility_path/exports/final
 ```
 
+Exception: `data/eligibility_path/exports/intermediates/resource_gaps/` holds
+curator-filled gap templates (human input that accretes into new resource
+versions) and must be preserved. `make eligibility-path-clean` skips it
+automatically; do not `rm -rf exports/intermediates`.
+
 Intermediate TSVs use numbered stage prefixes. Distinct stages use `01_`,
 `02_`, and so on; paired trial/cohort outputs share the same number and use
 `a` for trial level and `b` for cohort level, for example

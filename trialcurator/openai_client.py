@@ -43,7 +43,8 @@ class OpenaiClient(LlmClient):
         """
         Send a prompt to the OpenAI language model and return the generated response.
 
-        The method logs the prompt and the response at the INFO level for debugging.
+        The method logs the prompt and the response at the DEBUG level for
+        debugging (kept off INFO so batch runs do not flood the shared log).
 
         Parameters:
             system_prompt (str) (optional): The text prompt that sets the context/role the llm is to take on. E.g. An expert curator to interpret the rules or an assistant to simplify the language of the eligibility criteria
@@ -57,18 +58,18 @@ class OpenaiClient(LlmClient):
         if system_prompt is not None:
             messages.append({"role": "system", "content": system_prompt})
             for line in system_prompt.splitlines():
-                logging.info(f'system prompt: {line}')
+                logger.debug(f'system prompt: {line}')
 
         messages.append({"role": "user", "content": user_prompt})
         for line in user_prompt.splitlines():
-            logging.info(f'prompt: {line}')
+            logger.debug(f'prompt: {line}')
 
         completion = self._create_chat_completion(messages)
 
         # log the response
         response = self._completion_text(completion)
         for line in response.splitlines():
-            logging.info(f'response: {line}')
+            logger.debug(f'response: {line}')
 
         return response
 

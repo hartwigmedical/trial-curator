@@ -65,6 +65,94 @@ def test_move_expired_curations_overwrites_existing_expired_copy(tmp_path):
     assert (curated / "expired_trials" / "NCT00000009.py").read_text() == "rules = []\n"
 
 
+# --- restore ------------------------------------------------------------------
+
+def test_restores_reappeared_expired_curation(tmp_path):
+    curated = tmp_path / "eligibility_curations"
+    expired = curated / "expired_trials"
+    expired.mkdir(parents=True)
+    (expired / "NCT00000003.py").write_text("rules = []\n", encoding="utf-8")
+
+    result = move_expired_curations(
+        curated_dir=curated,
+        current_trial_ids={"NCT00000003"},  # back in the latest download
+        pottr_exempt_ids=set(),
+        normalize_trial_id=normalize_nct_id,
+        trial_id_prefix="NCT",
+    )
+
+    assert result.restored == ["NCT00000003"]
+    assert result.moved == []
+    assert (curated / "NCT00000003.py").exists()
+    assert not (expired / "NCT00000003.py").exists()
+
+
+def test_restore_skips_when_active_copy_exists(tmp_path):
+    curated = tmp_path / "eligibility_curations"
+    _write_curation(curated, "NCT00000003")  # active copy
+    expired = curated / "expired_trials"
+    expired.mkdir(parents=True)
+    (expired / "NCT00000003.py").write_text("stale", encoding="utf-8")
+
+    result = move_expired_curations(
+        curated_dir=curated,
+        current_trial_ids={"NCT00000003"},
+        pottr_exempt_ids=set(),
+        normalize_trial_id=normalize_nct_id,
+        trial_id_prefix="NCT",
+    )
+
+    assert result.restored == []
+    # Active copy untouched; expired copy left where it was.
+    assert (curated / "NCT00000003.py").read_text() == "rules = []\n"
+    assert (expired / "NCT00000003.py").read_text() == "stale"
+
+
+# --- safety guard -------------------------------------------------------------
+
+def test_safety_guard_skips_expiry_when_fraction_exceeded(tmp_path):
+    curated = tmp_path / "eligibility_curations"
+    _write_curation(curated, "NCT00000001")
+    _write_curation(curated, "NCT00000002")
+    _write_curation(curated, "NCT00000003")
+
+    # Empty current set -> all 3 would expire (100% > 50%) -> guarded.
+    result = move_expired_curations(
+        curated_dir=curated,
+        current_trial_ids=set(),
+        pottr_exempt_ids=set(),
+        normalize_trial_id=normalize_nct_id,
+        trial_id_prefix="NCT",
+        max_expiry_fraction=0.5,
+    )
+
+    assert result.guarded is True
+    assert result.moved == []
+    for trial_id in ("NCT00000001", "NCT00000002", "NCT00000003"):
+        assert (curated / f"{trial_id}.py").exists()
+    assert not (curated / "expired_trials").exists()
+
+
+def test_safety_guard_allows_expiry_below_threshold(tmp_path):
+    curated = tmp_path / "eligibility_curations"
+    _write_curation(curated, "NCT00000001")  # kept
+    _write_curation(curated, "NCT00000002")  # kept
+    _write_curation(curated, "NCT00000003")  # stale (1/3 ~ 33% < 50%)
+
+    result = move_expired_curations(
+        curated_dir=curated,
+        current_trial_ids={"NCT00000001", "NCT00000002"},
+        pottr_exempt_ids=set(),
+        normalize_trial_id=normalize_nct_id,
+        trial_id_prefix="NCT",
+        max_expiry_fraction=0.5,
+    )
+
+    assert result.guarded is False
+    assert result.moved == ["NCT00000003"]
+    assert (curated / "expired_trials" / "NCT00000003.py").exists()
+
+
 # --- workflow hook ------------------------------------------------------------
 
 def _ctgov_merged(version_dir, nct_ids):

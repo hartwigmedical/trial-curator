@@ -43,3 +43,19 @@ def test_normalize_anzctr_trial_id(value, expected):
 def test_normalize_anzctr_trial_id_is_idempotent():
     once = normalize_anzctr_trial_id("12605000123456")
     assert normalize_anzctr_trial_id(once) == once
+
+
+def test_multiple_embedded_ids_returns_first_and_warns(caplog):
+    text = "ACTRN12605000123456 / ACTRN12605000999999"
+    with caplog.at_level("WARNING"):
+        result = normalize_anzctr_trial_id(text)
+    assert result == "ACTRN12605000123456"
+    assert any("distinct ANZCTR ids" in record.message for record in caplog.records)
+
+
+def test_repeated_same_id_returns_it_without_warning(caplog):
+    text = "ACTRN12605000123456 (ACTRN12605000123456)"
+    with caplog.at_level("WARNING"):
+        result = normalize_anzctr_trial_id(text)
+    assert result == "ACTRN12605000123456"
+    assert not any("distinct ANZCTR ids" in record.message for record in caplog.records)
