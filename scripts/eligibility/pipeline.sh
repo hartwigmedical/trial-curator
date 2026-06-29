@@ -32,7 +32,6 @@ load_env_file "${REPO_ROOT}/.env.local"
 ELIGIBILITY_LOG_LEVEL="${ELIGIBILITY_LOG_LEVEL:-INFO}"
 ELIGIBILITY_OUTPUT_FORMAT="${ELIGIBILITY_OUTPUT_FORMAT:-tsv}"
 ELIGIBILITY_EXPORT_DATE="${ELIGIBILITY_EXPORT_DATE:-$(date +%d%m%Y)}"
-ELIGIBILITY_RUN_QA_DIFFS="${ELIGIBILITY_RUN_QA_DIFFS:-0}"
 ELIGIBILITY_SKIP_TESTS="${ELIGIBILITY_SKIP_TESTS:-0}"
 ELIGIBILITY_LLM_WORKERS="${ELIGIBILITY_LLM_WORKERS:-10}"
 ELIGIBILITY_LLM_MAX_RETRIES="${ELIGIBILITY_LLM_MAX_RETRIES:-10}"
@@ -125,24 +124,6 @@ run_registry_processing() {
     --log_level "${ELIGIBILITY_LOG_LEVEL}"
 }
 
-run_registry_qa() {
-  local registry="$1"
-  if [[ "${ELIGIBILITY_RUN_QA_DIFFS}" != "1" ]]; then
-    return 0
-  fi
-
-  log_step "${registry}: QA diffs"
-  run_module aus_trial_universe.eligibility_path.qa.cancer_type_output_diff \
-    --registry "${registry}" \
-    --log_level "${ELIGIBILITY_LOG_LEVEL}"
-  run_module aus_trial_universe.eligibility_path.qa.gene_alteration_output_diff \
-    --registry "${registry}" \
-    --log_level "${ELIGIBILITY_LOG_LEVEL}"
-  run_module aus_trial_universe.eligibility_path.qa.molecular_signature_output_diff \
-    --registry "${registry}" \
-    --log_level "${ELIGIBILITY_LOG_LEVEL}"
-}
-
 run_registry_exports() {
   local registry="$1"
 
@@ -200,14 +181,12 @@ run_all_trials_download_with_llm_review() {
 run_ctgov() {
   run_ctgov_trial_extraction
   run_registry_processing ctgov "${CTGOV_INTERMEDIATE_DIR}"
-  run_registry_qa ctgov
   run_registry_exports ctgov
 }
 
 run_anzctr() {
   run_anzctr_trial_extraction
   run_registry_processing anzctr "${ANZCTR_INTERMEDIATE_DIR}"
-  run_registry_qa anzctr
   run_registry_exports anzctr
 }
 
@@ -268,13 +247,17 @@ main() {
 
   validate_command "${command}"
 
-  # Tee the entire run (unit tests + workflow) to a timestamped log so failures
-  # deep in the pipeline can be diagnosed after the fact.
-  local log_dir="${ELIGIBILITY_LOG_DIR:-${REPO_ROOT}/data/eligibility_path/logs}"
-  mkdir -p "${log_dir}"
-  local run_log="${log_dir}/eligibility_${command}_$(date +%Y%m%d_%H%M%S).log"
-  exec > >(tee -a "${run_log}") 2>&1
-  printf '==> Logging this run to %s\n' "${run_log}"
+  # Tee the entire run (preflight unit tests + workflow) to a single timestamped
+  # log so failures deep in the pipeline can be diagnosed after the fact. The
+  # standalone `tests` command is only the preflight suite — already captured at
+  # the top of every real run's log — so it gets no separate log file.
+  if [[ "${command}" != "tests" ]]; then
+    local log_dir="${ELIGIBILITY_LOG_DIR:-${REPO_ROOT}/data/eligibility_path/logs}"
+    mkdir -p "${log_dir}"
+    local run_log="${log_dir}/eligibility_${command}_$(date +%Y%m%d_%H%M%S).log"
+    exec > >(tee -a "${run_log}") 2>&1
+    printf '==> Logging this run to %s\n' "${run_log}"
+  fi
 
   run_eligibility_tests
 

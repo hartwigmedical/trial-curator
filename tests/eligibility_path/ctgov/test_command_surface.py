@@ -14,9 +14,7 @@ PIPELINE_MODULES = [
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.gene_alterations.cohort_level_gene_alteration",
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.molecular_signature.molecular_signature_pipeline",
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.molecular_signature.cohort_level_molecular_signature",
-    "aus_trial_universe.eligibility_path.qa.cancer_type_output_diff",
-    "aus_trial_universe.eligibility_path.qa.gene_alteration_output_diff",
-    "aus_trial_universe.eligibility_path.qa.molecular_signature_output_diff",
+    "aus_trial_universe.eligibility_path.qa.final_resource_diff",
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.trial_resource.trial_level_resource_pipeline",
     "aus_trial_universe.eligibility_path.ctgov.ii_process_eligibility_criteria.trial_resource.cohort_level_resource_pipeline",
     "aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export",
@@ -165,18 +163,19 @@ def test_eligibility_clean_script_only_targets_generated_tsv_exports():
     assert "rm --" in script
 
 
-def test_eligibility_extract_criteria_includes_resource_exports_and_optional_qa():
+def test_eligibility_pipeline_includes_resource_exports_and_no_intermediate_qa():
     script = Path("scripts/eligibility/pipeline.sh").read_text(encoding="utf-8")
 
-    assert "cancer_type_output_diff" in script
-    assert "gene_alteration_output_diff" in script
     assert "trial_level_resource_pipeline" in script
     assert "cohort_level_resource_pipeline" in script
     assert "recursive_end_to_end_workflow" in script
     assert "all-trials-download-w-llm" in script
     assert "all-w-llm" not in script
     assert "ELIGIBILITY_EXPORT_DATE" in script
-    assert "ELIGIBILITY_RUN_QA_DIFFS" in script
+    # The per-intermediate QA diffs were removed; the only diff is the automatic
+    # final-resource run-to-run diff, wired into the workflow (not the script).
+    assert "output_diff" not in script
+    assert "ELIGIBILITY_RUN_QA_DIFFS" not in script
 
 
 def test_eligibility_secret_files_are_ignored_and_documented():

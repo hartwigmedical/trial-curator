@@ -732,9 +732,9 @@ def run_combined_trial_resource_export(
         len(missing_pottr_trials.columns),
     )
     if not missing_pottr_trials.empty:
+        missing_ids = sorted(missing_pottr_trials["trial_id"].astype(str).unique())
         LOGGER.info(
-            "Missing POTTR trials:\n%s",
-            missing_pottr_trials.to_csv(sep="\t", index=False).strip(),
+            "Missing POTTR trial ids (%d): %s", len(missing_ids), ", ".join(missing_ids)
         )
     return CombinedEligibilityResourceOutputs(
         trial_output_file=inputs.trial_output_file,

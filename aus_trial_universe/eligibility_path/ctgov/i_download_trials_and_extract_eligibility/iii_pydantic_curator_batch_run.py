@@ -213,7 +213,7 @@ def main():
                 status, returned_trial_id = future.result()
 
                 if status == "skipped":
-                    logger.info(f"[{examined}/{trials_count}] Trial {returned_trial_id} already curated; skipped.")
+                    logger.debug(f"[{examined}/{trials_count}] Trial {returned_trial_id} already curated; skipped.")
                     skipped += 1
                 elif status == "completed":
                     output_filepath = out_dir / f"{returned_trial_id}.py"

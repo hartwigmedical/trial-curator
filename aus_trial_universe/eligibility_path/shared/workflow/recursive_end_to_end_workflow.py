@@ -607,6 +607,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         config,
         initial_downloads=not args.skip_initial_downloads,
     )
+
+    # Run-to-run diff of the final resources vs the previous dated run. Best
+    # effort: a diff failure must never fail an otherwise-successful run.
+    try:
+        from aus_trial_universe.eligibility_path.qa.final_resource_diff import (
+            diff_final_resources,
+        )
+
+        diff_final_resources(config.eligibility_data_dir / "exports" / "final")
+    except Exception:
+        LOGGER.warning("Final resource run-to-run diff failed; continuing.", exc_info=True)
     return 0
 
 

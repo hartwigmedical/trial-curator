@@ -173,10 +173,14 @@ Skip the preflight unit tests only when intentionally debugging:
 ELIGIBILITY_SKIP_TESTS=1 make eligibility-path-run-all
 ```
 
-Run QA diffs after generating intermediates:
+Every run that rebuilds the final resources snapshots them (minute-stamped) under
+`data/eligibility_path/exports/final/history/` and diffs the two most recent
+snapshots, writing `data/eligibility_path/exports/final/final_resource_diff.tsv`
+(trials added/removed and cells changed). Because the snapshots carry the hour
+and minute, two runs on the same day are still comparable. Regenerate on demand:
 
 ```bash
-ELIGIBILITY_RUN_QA_DIFFS=1 make eligibility-path-run-all
+python -m aus_trial_universe.eligibility_path.qa.final_resource_diff
 ```
 
 Tune the ANZCTR download if the registry is slow or you need more attempts:

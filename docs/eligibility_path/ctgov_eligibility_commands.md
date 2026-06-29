@@ -20,7 +20,6 @@ OPENAI_API_KEY=API_123
 ELIGIBILITY_LOG_LEVEL=INFO
 ELIGIBILITY_OUTPUT_FORMAT=tsv
 ELIGIBILITY_EXPORT_DATE=
-ELIGIBILITY_RUN_QA_DIFFS=0
 ELIGIBILITY_SKIP_TESTS=0
 ```
 
@@ -129,10 +128,14 @@ Skip the preflight tests:
 ELIGIBILITY_SKIP_TESTS=1 make eligibility-path-run-all
 ```
 
-Run QA diffs after generating intermediates:
+Every run that rebuilds the final resources snapshots them (minute-stamped) under
+`data/eligibility_path/exports/final/history/` and diffs the two most recent
+snapshots, writing `data/eligibility_path/exports/final/final_resource_diff.tsv`
+(trials added/removed and cells changed). Because the snapshots carry the hour
+and minute, two runs on the same day are still comparable. Regenerate on demand:
 
 ```bash
-ELIGIBILITY_RUN_QA_DIFFS=1 make eligibility-path-run-all
+python -m aus_trial_universe.eligibility_path.qa.final_resource_diff
 ```
 
 Audit hand-curated resource coverage (accrete filled fill-ready templates into

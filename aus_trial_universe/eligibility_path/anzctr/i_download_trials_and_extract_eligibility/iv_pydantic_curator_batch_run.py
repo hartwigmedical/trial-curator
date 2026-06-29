@@ -266,7 +266,7 @@ def run_batch(
             try:
                 status, returned_trial_id = future.result()
                 if status == "skipped":
-                    logger.info(
+                    logger.debug(
                         "[%d/%d] Trial %s already curated; skipped.",
                         examined, trials_count, returned_trial_id,
                     )
