@@ -72,11 +72,15 @@ as the leading identifier columns. CTGov `nctId` values are normalized into
 The cohort file uses the same schema with `cohort` added after `registry`.
 
 The fresh-download workflows download CTGov and ANZCTR initial-search inputs
-into `version_<ddmmyyyy>` folders. ANZCTR initial acquisition opens the registry
-search page, clicks `DOWNLOAD`, keeps the raw `TrialDetails.zip`, and imports
-the xlsx inside it as `01_initial_search_anzctr_input.xlsx`. If ANZCTR blocks
-automation with Cloudflare, the same command can wait for a manually downloaded
-zip/xlsx in the watched downloads folder and import it automatically.
+into `version_<ddmmyyyy>` folders. ANZCTR initial acquisition is a pure
+`curl_cffi` HTTP flow (no browser): it impersonates a current Chrome TLS
+fingerprint to clear Cloudflare, replays the ASP.NET advanced-search POST,
+triggers the results-page `DOWNLOAD` control for the whole-registry Excel
+export, caches it once as
+`data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/anzctr_all_trials.zip`,
+and filters it locally into `01_initial_search_anzctr_input.xlsx`. If ANZCTR
+serves a Cloudflare challenge instead of the search form, the download fails
+(it raises `AnzctrCloudflareChallengeError`) and the run must be retried later.
 `make eligibility-path-run-all` instead uses the newest existing
 `version_<ddmmyyyy>` folder for each registry. All three workflows run
 extraction and pydantic curator only for trials without existing `.py`
@@ -159,35 +163,22 @@ Run QA diffs after generating intermediates:
 ELIGIBILITY_RUN_QA_DIFFS=1 make eligibility-path-run-all
 ```
 
-Tune ANZCTR browser download settings if the registry is slow or you want to
-debug the browser visibly:
+Tune the ANZCTR download if the registry is slow or you need more attempts:
 
 ```text
 ELIGIBILITY_ANZCTR_TIMEOUT_MS=120000
 ELIGIBILITY_ANZCTR_SEARCH_RETRIES=3
-ELIGIBILITY_ANZCTR_HEADED=0
 ```
 
-If ANZCTR blocks automation with Cloudflare, the workflow relaunches in headed
-mode. Once a visible browser is opened after Cloudflare, complete the ANZCTR
-search manually in that browser and click `DOWNLOAD`; the script stops trying to
-click `SEARCH` itself and only watches for the downloaded file.
+`ELIGIBILITY_ANZCTR_TIMEOUT_MS` bounds each HTTP request and
+`ELIGIBILITY_ANZCTR_SEARCH_RETRIES` bounds the number of advanced-search +
+export attempts. If ANZCTR serves a Cloudflare challenge instead of the search
+form, the download fails (it raises `AnzctrCloudflareChallengeError`) and the
+run must be retried later; there is no manual-download or browser fallback.
 
-```bash
-ELIGIBILITY_ANZCTR_HEADED=1 ELIGIBILITY_ANZCTR_SEARCH_RETRIES=1 make eligibility-path-run-all-trials-download
-```
-
-The workflow watches `${HOME}/Downloads` for a new ANZCTR zip/xlsx and imports
-it automatically. Override that watch folder or wait time with:
-
-```text
-ELIGIBILITY_ANZCTR_MANUAL_DOWNLOAD_DIR=/path/to/downloads
-ELIGIBILITY_ANZCTR_MANUAL_DOWNLOAD_WAIT_MS=600000
-```
-
-The workflow imports the workbook from the zip as
-`01_initial_search_anzctr_input.xlsx`, then continues with extraction,
-POTTR append, and final resource generation.
+On success the workflow caches the whole-registry export as
+`anzctr_all_trials.zip`, filters it into `01_initial_search_anzctr_input.xlsx`,
+then continues with extraction, POTTR append, and final resource generation.
 
 ## Clean-Run Inputs
 

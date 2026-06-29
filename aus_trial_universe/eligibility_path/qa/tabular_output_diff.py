@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 import pandas as pd
 
@@ -317,3 +318,60 @@ def create_snapshot_and_diffs(
     write_tsv(summary_df, snapshot_dir / "diff_summary.tsv")
     LOGGER.info("Wrote diff summary: %s", snapshot_dir / "diff_summary.tsv")
     return summary_df
+
+
+def run_diff_cli(
+    *,
+    description: str,
+    resolve_files: Callable[[str], Sequence[str]],
+    key_columns_by_file: Mapping[str, Sequence[str]],
+    default_processed_dir: Callable[[str], Path],
+    registry_choices: Sequence[str] = ("anzctr", "ctgov"),
+    fallback_key_columns: Sequence[Sequence[str]] = (
+        ("trial_id",),
+        ("nct_id",),
+        ("ACTRN",),
+        ("trialId",),
+    ),
+    argv: Optional[List[str]] = None,
+) -> int:
+    """Shared argparse entry point for the per-category QA diff tools.
+
+    Each category wrapper supplies only what differs: the help text, the file
+    list (which may depend on the registry), the per-file key columns, and the
+    default processed-output directory.
+    """
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--registry", choices=sorted(registry_choices), default="ctgov")
+    parser.add_argument("--processed_dir", type=Path, default=None)
+    parser.add_argument("--baseline_dir", type=Path, default=None)
+    parser.add_argument("--snapshot_dir", type=Path, default=None)
+    parser.add_argument("--snapshot_label", default=None)
+    parser.add_argument(
+        "--log_level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    )
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+
+    processed_dir = args.processed_dir or default_processed_dir(args.registry)
+    snapshot_dir = args.snapshot_dir or default_snapshot_dir(processed_dir, args.snapshot_label)
+
+    summary_df = create_snapshot_and_diffs(
+        processed_dir=processed_dir,
+        baseline_dir=args.baseline_dir,
+        snapshot_dir=snapshot_dir,
+        files=resolve_files(args.registry),
+        key_columns_by_file=key_columns_by_file,
+        fallback_key_columns=fallback_key_columns,
+    )
+
+    LOGGER.info("QA diff complete.")
+    LOGGER.info("snapshot_dir: %s", snapshot_dir)
+    LOGGER.info("\n%s", summary_df.to_string(index=False))
+    return 0

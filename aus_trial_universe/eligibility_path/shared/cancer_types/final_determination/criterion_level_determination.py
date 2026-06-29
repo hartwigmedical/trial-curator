@@ -8,20 +8,15 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import pandas as pd
 
+from aus_trial_universe.eligibility_path.shared.utils import (
+    normalize_string as _normalize_string,
+)
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     read_tabular_file as _read_tabular_file,
     write_tabular_file as _write_tabular_file,
 )
 
 logger = logging.getLogger(__name__)
-
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-    if pd.isna(value):
-        return ""
-    return str(value).strip()
-
 
 REPLACEMENTS = {
     "na√Øve": "naïve",

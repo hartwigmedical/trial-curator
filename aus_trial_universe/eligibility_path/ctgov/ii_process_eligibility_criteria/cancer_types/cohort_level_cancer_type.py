@@ -14,6 +14,9 @@ from aus_trial_universe.eligibility_path.shared.cohorts import (
     normalize_cohort_label,
     normalize_nct_id,
 )
+from aus_trial_universe.eligibility_path.shared.utils import (
+    normalize_string as _normalize_string,
+)
 from aus_trial_universe.eligibility_path.shared.utils.curated_files import (
     has_curated_py_files,
 )
@@ -97,17 +100,6 @@ def _require_columns(
     missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"{label} missing required columns: {missing}")
-
-
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
 
 
 def _empty_cohort_level_table() -> pd.DataFrame:

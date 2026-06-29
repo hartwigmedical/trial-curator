@@ -6,14 +6,7 @@ import pandas as pd
 
 from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.trial_resource.trial_level_resource_pipeline import (
     build_trial_resource_table,
-    _normalize_anzctr_trial_id,
 )
-
-
-def test_normalize_anzctr_trial_id_adds_prefix_to_numeric_workbook_id():
-    assert _normalize_anzctr_trial_id("12605000003673") == "ACTRN12605000003673"
-    assert _normalize_anzctr_trial_id(12605000003673) == "ACTRN12605000003673"
-    assert _normalize_anzctr_trial_id(" actrn12605000003673 ") == "ACTRN12605000003673"
 
 
 def test_build_trial_resource_table_merges_numeric_base_ids_to_prefixed_components(

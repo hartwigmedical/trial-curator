@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterable as IterableABC
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Sequence
@@ -73,6 +74,45 @@ def normalize_nct_id(value: object) -> str:
     return _display_cell(value).upper()
 
 
+_ANZCTR_TRIAL_ID_RE = re.compile(r"ACTRN\d+", flags=re.IGNORECASE)
+_TRAILING_FLOAT_ZERO_RE = re.compile(r"^(\d+)\.0+$")
+
+
+def normalize_anzctr_trial_id(value: object) -> str:
+    """Return a stable uppercase ANZCTR identifier (``ACTRN``-prefixed), or blank.
+
+    This is the canonical ANZCTR join key, the counterpart to
+    :func:`normalize_nct_id` for CT.gov.  It accepts already-prefixed ids
+    (``ACTRN12605000123456``), bare numeric ids (``12605000123456``), pandas
+    float coercions (``12605000123456.0``) and ids embedded in surrounding
+    text, and always returns an uppercase ``ACTRN``-prefixed value.
+
+    It is intentionally distinct from the select-stage cleaner
+    (``normalise_trial_id``), which does not add a prefix, and from the
+    curator's filename builder (``normalise_actrn``), which also sanitises the
+    result for filesystem use.
+    """
+    if isinstance(value, float) and value.is_integer():
+        text = str(int(value))
+    else:
+        text = _display_cell(value)
+
+    if not text or text.casefold() == "nan":
+        return ""
+
+    text = text.upper()
+    trailing_zero = _TRAILING_FLOAT_ZERO_RE.match(text)
+    if trailing_zero:
+        text = trailing_zero.group(1)
+
+    embedded = _ANZCTR_TRIAL_ID_RE.search(text)
+    if embedded:
+        return embedded.group(0)
+    if text.startswith("ACTRN"):
+        return text
+    return f"ACTRN{text}"
+
+
 def normalize_cohort_label(value: object) -> str:
     """Return the display label used in cohort-level outputs."""
     return _display_cell(value)
@@ -117,11 +157,6 @@ def coerce_cohorts(value: object) -> List[str]:
 def rule_cohorts(rule: Any) -> List[str]:
     """Return the curated cohort labels attached to a Rule, if any."""
     return coerce_cohorts(getattr(rule, "cohorts", None))
-
-
-def serialize_cohorts(cohorts: object) -> str:
-    """Serialize raw cohort labels for row-level / mapped-criteria tables."""
-    return COHORT_DELIMITER.join(coerce_cohorts(cohorts))
 
 
 def serialize_rule_cohorts(rule: Any) -> str:

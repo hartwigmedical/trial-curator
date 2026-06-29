@@ -22,12 +22,15 @@ from aus_trial_universe.eligibility_path.shared.cohorts import (
 )
 from aus_trial_universe.eligibility_path.shared.utils import (
     clean_cell_str,
-    is_effectively_empty,
+    normalize_string as _normalize_string,
+    safe_bool as _safe_bool,
 )
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     read_tabular_file as _read_tabular_file,
     write_tabular_file as _write_tabular_file,
 )
+
+_display_cell = clean_cell_str
 
 LOGGER = logging.getLogger(__name__)
 
@@ -111,23 +114,6 @@ class GeneAlterationCriterionRecord:
 # =============================================================================
 
 
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
-
-
-def _display_cell(value: object) -> str:
-    if value is None or is_effectively_empty(value):
-        return ""
-    return clean_cell_str(value)
-
-
 def _normalize_key_text(value: object) -> str:
     text = _display_cell(value)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -145,13 +131,6 @@ def _find_column_case_insensitive(columns: Sequence[str], target: str) -> str:
         if str(column).strip().casefold() == target_norm:
             return str(column)
     raise ValueError(f"Could not find column {target!r}. Found columns: {list(columns)}")
-
-
-def _safe_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    text = _normalize_string(value).casefold()
-    return text in {"true", "1", "yes", "y"}
 
 
 def _type_name(obj: Any) -> str:

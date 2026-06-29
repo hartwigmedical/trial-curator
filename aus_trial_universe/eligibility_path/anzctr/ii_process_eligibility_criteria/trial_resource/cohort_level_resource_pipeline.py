@@ -15,6 +15,10 @@ from aus_trial_universe.eligibility_path.shared.cohorts import (
     build_cohort_base_from_curated_rules,
     normalize_cohort_label,
 )
+from aus_trial_universe.eligibility_path.shared.utils import (
+    dedupe_preserve_order as _dedupe_preserve_order,
+    normalize_string as _normalize_string,
+)
 from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.trial_resource.trial_level_resource_pipeline import (
     DEFAULT_ELIGIBILITY_DATA_DIR,
     DEFAULT_TRIALS_FILE,
@@ -90,17 +94,6 @@ def _default_export_file(
         )
 
     return eligibility_dir / DEFAULT_EXPORT_DIR / f"{DEFAULT_EXPORT_STEM}_{export_date}.tsv"
-
-
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
 
 
 def _find_column_case_insensitive(
@@ -514,20 +507,6 @@ def _split_component_terms(value: object, delimiter: str) -> List[str]:
         return []
 
     return [part.strip() for part in text.split(delimiter) if part.strip()]
-
-
-def _dedupe_preserve_order(values: Iterable[str]) -> List[str]:
-    seen: set[str] = set()
-    out: List[str] = []
-
-    for value in values:
-        text = _normalize_string(value)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        out.append(text)
-
-    return out
 
 
 def _join_component_terms(values: Iterable[str], delimiter: str) -> str:

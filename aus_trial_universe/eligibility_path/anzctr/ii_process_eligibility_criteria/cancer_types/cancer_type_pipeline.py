@@ -48,6 +48,7 @@ from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     write_tabular_file as _write_tabular_file,
 )
 from aus_trial_universe.eligibility_path.shared.oncotree.traverse_oncotree import OncoTree
+from aus_trial_universe.eligibility_path.shared.cohorts import normalize_anzctr_trial_id
 
 logger = logging.getLogger(__name__)
 
@@ -97,16 +98,6 @@ class AnzctrCancerTypePipelineOutputs:
     primary_vs_health_condition_file: Path
     row_level_cancer_type_file: Path
     trial_level_cancer_type_file: Path
-
-
-def normalize_anzctr_trial_id(value: object) -> str:
-    text = "" if value is None else str(value).strip()
-    if not text or text.lower() == "nan":
-        return ""
-    text = text.upper()
-    if text.startswith("ACTRN"):
-        return text
-    return f"ACTRN{text}"
 
 
 def _read_anzctr_input_with_trial_id(input_csv: Path) -> pd.DataFrame:

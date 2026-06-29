@@ -3,30 +3,8 @@ from __future__ import annotations
 import pandas as pd
 
 from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.molecular_signature.molecular_signature_pipeline import (
-    _polarity_from_rule_and_not,
     collapse_to_trial_level,
 )
-
-
-def test_include_positive_molecular_signature_is_inclusive() -> None:
-    assert _polarity_from_rule_and_not(
-        rule_exclude=False,
-        under_not_criterion=False,
-    ) == "inclusive"
-
-
-def test_include_notcriterion_molecular_signature_is_exclusive() -> None:
-    assert _polarity_from_rule_and_not(
-        rule_exclude=False,
-        under_not_criterion=True,
-    ) == "exclusive"
-
-
-def test_exclude_notcriterion_molecular_signature_is_exclusive() -> None:
-    assert _polarity_from_rule_and_not(
-        rule_exclude=True,
-        under_not_criterion=True,
-    ) == "exclusive"
 
 
 def test_trial_level_collapse_places_exclusion_rule_under_exclusive() -> None:

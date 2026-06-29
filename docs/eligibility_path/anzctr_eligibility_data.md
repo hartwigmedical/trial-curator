@@ -21,11 +21,11 @@ and includes the deterministic drug columns. The `ACTRN*.py` files are pydantic
 curator outputs and are treated as source inputs for downstream eligibility
 processing.
 
-Downloaded trial review pages and their manifest are kept alongside the dated
-input version:
+The cached whole-registry export and the download manifest are kept alongside
+the dated input version:
 
 ```text
-data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/ACTRN*.html
+data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/anzctr_all_trials.zip
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/anzctr_download_manifest_<ddmmyyyy>.tsv
 ```
 

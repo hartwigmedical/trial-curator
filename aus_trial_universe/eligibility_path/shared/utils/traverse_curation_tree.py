@@ -4,30 +4,43 @@ from typing import Any, Callable, Iterable, List, Optional
 logger = logging.getLogger(__name__)
 
 
+CHILD_ATTRS: tuple[str, ...] = (
+    "criteria",
+    "criterion",
+    "condition",
+    "then",
+    "else_",
+)
+
+
 def iter_children(node: Any) -> List[Any]:
     """
-    Return all children nodes from a node.
+    Return all child nodes of a curation-tree node.
 
-    Children are any nodes found in attributes:
-        - `criteria`  (a list of nodes)
+    Children are collected from every attribute that can hold sub-nodes:
+        - `criteria`  (a list of nodes, e.g. on logic nodes)
         - `criterion` (single child node)
-        - `condition` (single child node)
+        - `condition` (the test of an If node)
+        - `then`      (the "then" branch of an If node)
+        - `else_`     (the "else" branch of an If node)
 
-    If it is a leaf node (no children), returns [].
+    Any of these may be a single node or a list/tuple of nodes; missing or
+    None attributes contribute nothing.  Leaf nodes return [].
+
+    This is the single, general curation-tree child enumerator: it includes the
+    If-branches (`then`/`else_`) so callers never silently skip nodes nested
+    inside conditional logic.
     """
     children: List[Any] = []
 
-    multi = getattr(node, "criteria", None)
-    if multi is not None:
-        if isinstance(multi, (list, tuple)):
-            children.extend(list(multi))
+    for attr_name in CHILD_ATTRS:
+        value = getattr(node, attr_name, None)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            children.extend(value)
         else:
-            children.append(multi)
-
-    for attr_name in ("criterion", "condition"):
-        child = getattr(node, attr_name, None)
-        if child is not None:
-            children.append(child)
+            children.append(value)
 
     return children
 

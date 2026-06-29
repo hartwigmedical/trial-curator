@@ -6,10 +6,10 @@ from .cohort_scope import (
     coerce_cohorts,
     effective_cohorts_for_rule,
     expand_to_effective_cohort_rows,
+    normalize_anzctr_trial_id,
     normalize_cohort_label,
     normalize_nct_id,
     parse_cohorts,
     rule_cohorts,
-    serialize_cohorts,
     serialize_rule_cohorts,
 )

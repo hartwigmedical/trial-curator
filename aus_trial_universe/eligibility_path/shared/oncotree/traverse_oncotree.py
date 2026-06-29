@@ -113,17 +113,6 @@ class OncoTree:
     def get(self, code: str) -> Optional[OncoTreeNode]:
         return self.nodes_by_code.get(code)
 
-    def lift_to_level(self, code: str, target_level: int) -> Optional[OncoTreeNode]:
-        node = self.get(code)
-        if node is None:
-            return None
-        cur = node
-        while cur is not None and cur.level > target_level:
-            cur = cur.parent
-        if cur is None or cur.level != target_level:
-            return None
-        return cur
-
     def ancestors(self, code: str) -> List[OncoTreeNode]:
         node = self.get(code)
         if node is None:
@@ -135,33 +124,3 @@ class OncoTree:
             cur = cur.parent
         path.reverse()
         return path
-
-    def ancestors_by_level(self, code: str) -> Dict[int, OncoTreeNode]:
-        return {n.level: n for n in self.ancestors(code)}
-
-    def descendants(self, code: str) -> List[OncoTreeNode]:
-        node = self.get(code)
-        if node is None:
-            return []
-        out: List[OncoTreeNode] = []
-        stack: List[OncoTreeNode] = list(node.children.values())
-        while stack:
-            cur = stack.pop()
-            out.append(cur)
-            stack.extend(cur.children.values())
-        return out
-
-    def leaf_descendants(self, code: str) -> List[OncoTreeNode]:
-        node = self.get(code)
-        if node is None:
-            return []
-        leaves: List[OncoTreeNode] = []
-        stack: List[OncoTreeNode] = [node]
-        while stack:
-            cur = stack.pop()
-            if not cur.children:
-                if cur is not node:
-                    leaves.append(cur)
-                continue
-            stack.extend(cur.children.values())
-        return leaves

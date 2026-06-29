@@ -82,3 +82,41 @@ def clean_cell_str(x: Any) -> str:
     if is_effectively_empty(x):
         return ""
     return fix_mojibake_str(str(x)).strip()
+
+
+def blank_safe_str(x: Any) -> str:
+    """Return ``str(x)`` with None / pandas-NA coerced to an empty string.
+
+    Unlike :func:`clean_cell_str`, this performs no stripping, casefolding,
+    mojibake repair, or empty-token collapsing — callers add exactly the
+    normalisation they need.  It exists to share the None/NA guard that several
+    cell/key normalisers would otherwise each reimplement.
+    """
+    if x is None:
+        return ""
+    try:
+        if pd.isna(x):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(x)
+
+
+def normalize_string(value: Any) -> str:
+    """Return a whitespace-stripped string, with None / pandas-NA as ``""``.
+
+    The canonical form of the ``_normalize_string`` helper that the pipeline
+    modules each used to define locally.
+    """
+    return blank_safe_str(value).strip()
+
+
+_TRUTHY_TOKENS = {"true", "1", "yes", "y"}
+
+
+def safe_bool(value: Any) -> bool:
+    """Coerce a cell value to bool: real bools pass through; otherwise a
+    truthy token (``true``/``1``/``yes``/``y``, case-insensitive) is True."""
+    if isinstance(value, bool):
+        return value
+    return normalize_string(value).casefold() in _TRUTHY_TOKENS

@@ -15,6 +15,9 @@ from aus_trial_universe.eligibility_path.shared.utils import (
     resolve_path as _resolve_path,
     write_tabular_file as _write_tabular_file,
 )
+from aus_trial_universe.eligibility_path.shared.cohorts import (
+    normalize_anzctr_trial_id as _normalize_anzctr_trial_id,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,8 +33,6 @@ DEFAULT_MOLECULAR_SIGNATURE_FILE = Path(
 DEFAULT_EXPORT_DIR = Path("exports/final/anzctr")
 DEFAULT_EXPORT_STEM = "trial_resource"
 DEFAULT_EXPORT_SUFFIX_FORMAT = "%d%m%Y"
-
-TRIAL_ID_RE = re.compile(r"ACTRN\d+", flags=re.IGNORECASE)
 
 TRIAL_ID_COLUMN_CANDIDATES: Sequence[str] = (
     "ACTRN",
@@ -88,24 +89,6 @@ def _default_export_file(
 
 def _normalize_header(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value).casefold())
-
-
-def _normalize_anzctr_trial_id(value: object) -> str:
-    if value is None:
-        return ""
-
-    text = str(value).strip()
-    if not text or text.lower() == "nan":
-        return ""
-
-    match = TRIAL_ID_RE.search(text)
-    if match:
-        return match.group(0).upper()
-
-    if re.fullmatch(r"\d+", text):
-        return f"ACTRN{text}"
-
-    return text.upper()
 
 
 def _find_trial_id_column(df: pd.DataFrame, explicit_column: Optional[str] = None) -> str:

@@ -51,9 +51,13 @@ make eligibility-path-run-all-trials-download-w-llm
 ## Direct Modules
 
 Run the standard ANZCTR initial search from the reviewed advanced-search
-parameters. The browser opens `TrialSearch.aspx`, expands advanced search,
-submits the filters, clicks `DOWNLOAD`, saves the official `TrialDetails.zip`,
-and imports the xlsx inside it as the canonical input workbook:
+parameters. This is a pure HTTP flow built on `curl_cffi` (no browser): it
+impersonates a current Chrome TLS fingerprint to clear the registry's Cloudflare
+challenge, replays the ASP.NET advanced-search POST against `TrialSearch.aspx`,
+and triggers the results-page `DOWNLOAD` control for the whole-registry Excel
+export. The export is cached once as `anzctr_all_trials.zip` (so the POTTR-append
+run can reuse it instead of pulling ~90 MB again) and is filtered locally to the
+advanced-search cohort, which becomes the canonical input workbook:
 
 ```bash
 /Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.i_download_trials \
@@ -76,24 +80,16 @@ This writes, by default:
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/01_initial_search_anzctr_input.xlsx
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/02_pottr_append_anzctr_input.xlsx
 data/trial_inputs/anzctr/input_trials/version_<ddmmyyyy>/anzctr_download_manifest_<ddmmyyyy>.tsv
-data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/01_initial_search_TrialDetails.zip
-data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/ACTRN*.html
+data/trial_inputs/anzctr/raw_trials/version_<ddmmyyyy>/anzctr_all_trials.zip
 ```
 
-If ANZCTR blocks automation with Cloudflare, the workflow relaunches in headed
-mode. Once a visible browser is opened after Cloudflare, complete the ANZCTR
-search manually in that browser and click `DOWNLOAD`; the script stops trying to
-click `SEARCH` itself and only watches for the downloaded file.
+The only raw output is the cached whole-registry export
+`anzctr_all_trials.zip`; no per-trial HTML pages are produced.
 
-```bash
-ELIGIBILITY_ANZCTR_HEADED=1 ELIGIBILITY_ANZCTR_SEARCH_RETRIES=1 make eligibility-path-run-all-trials-download
-```
-
-The workflow watches `${HOME}/Downloads` for a new ANZCTR zip/xlsx and imports
-it automatically.
-
-To debug the live browser download, set `ELIGIBILITY_ANZCTR_HEADED=1` and lower
-`ELIGIBILITY_ANZCTR_SEARCH_RETRIES` while checking Cloudflare behavior.
+If ANZCTR serves a Cloudflare challenge instead of the search form, the download
+fails (it raises `AnzctrCloudflareChallengeError`) and the run must be retried
+later. The download attempts are bounded by `ELIGIBILITY_ANZCTR_SEARCH_RETRIES`
+and each request honours `ELIGIBILITY_ANZCTR_TIMEOUT_MS`.
 
 Then refresh the canonical extracted-trials CSV from that appended workbook:
 
@@ -119,6 +115,15 @@ data/drug_utility_path/drug_ontology/raw_inputs/RxNorm
 ```
 
 Override that root or a concrete version directory with `--rxnorm_rrf_dir`.
+
+Pass `--no_ingredient_resolution` to skip RXNREL ingredient resolution and
+output the best matched RxNorm names instead:
+
+```bash
+/Users/junrancao/anaconda3/bin/python -m aus_trial_universe.eligibility_path.anzctr.i_download_trials_and_extract_eligibility.iii_extract_drugs \
+  --refresh_input_csv \
+  --no_ingredient_resolution
+```
 
 Optionally run the LLM drug review:
 

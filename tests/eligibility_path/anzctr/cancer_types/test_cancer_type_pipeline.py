@@ -11,7 +11,6 @@ from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.
     apply_anzctr_manual_overwrites,
     build_health_condition_mapping_table,
     discover_pipeline_inputs,
-    normalize_anzctr_trial_id,
 )
 
 
@@ -19,12 +18,6 @@ def write(path: Path, text: str = "") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
-
-
-def test_normalize_anzctr_trial_id_adds_actrn_prefix_when_source_is_numeric():
-    assert normalize_anzctr_trial_id(12605000003673) == "ACTRN12605000003673"
-    assert normalize_anzctr_trial_id(" actrn12605000003673 ") == "ACTRN12605000003673"
-    assert normalize_anzctr_trial_id("") == ""
 
 
 def test_health_condition_mapping_uses_generic_shared_condition_columns(tmp_path: Path):

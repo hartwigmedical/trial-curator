@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import pandas as pd
 
@@ -23,6 +23,9 @@ from aus_trial_universe.eligibility_path.shared.cancer_types import (
 from aus_trial_universe.eligibility_path.shared.cohorts import (
     serialize_rule_cohorts,
 )
+from aus_trial_universe.eligibility_path.shared.utils import (
+    normalize_string as _normalize_string,
+)
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     read_tabular_file as _read_tabular_file,
     write_tabular_file as _write_tabular_file,
@@ -32,19 +35,12 @@ from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import 
     is_effectively_empty,
 )
 from aus_trial_universe.eligibility_path.shared.utils.traverse_curation_tree import (
+    iter_children,
     normalise_forest_into_list,
 )
 from aus_trial_universe.eligibility_path.shared.oncotree.traverse_oncotree import OncoTree
 
 logger = logging.getLogger(__name__)
-
-CHILD_ATTRS: Sequence[str] = (
-    "criteria",
-    "criterion",
-    "condition",
-    "then",
-    "else_",
-)
 
 BASE_CSV_COLUMNS: Sequence[str] = (
     "nct_id",
@@ -134,14 +130,6 @@ def _find_mapping_resource(resources_dir: Path, token: str) -> Path:
             f"Could not find mapping resource containing '{token}' in {resources_dir}"
         )
     return _pick_most_recent(matches)
-
-
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-    if pd.isna(value):
-        return ""
-    return str(value).strip()
 
 
 def _blank_if_empty(value: Any) -> str:
@@ -261,35 +249,9 @@ def get_nct_id(py_path: Path) -> str:
 # Tree helpers
 # ---------------------------
 
-def _is_criterion_node(obj: Any) -> bool:
-    return obj is not None and type(obj).__name__.endswith("Criterion")
-
-
-def _iter_nodes(value: Any) -> Iterator[Any]:
-    if _is_criterion_node(value):
-        yield value
-        return
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            if _is_criterion_node(item):
-                yield item
-
-
-def get_immediate_children(node: Any) -> List[Any]:
-    children: List[Any] = []
-    for attr in CHILD_ATTRS:
-        children.extend(_iter_nodes(getattr(node, attr, None)))
-    return children
-
-
-def iter_children(node: Any) -> Iterator[Any]:
-    for attr in CHILD_ATTRS:
-        yield from _iter_nodes(getattr(node, attr, None))
-
-
 def summarise_node(node: Any) -> str:
     node_type = _node_type_name(node)
-    children = get_immediate_children(node)
+    children = iter_children(node)
     if not children:
         return node_type
     return f"{node_type}[{', '.join(summarise_node(child) for child in children)}]"
@@ -302,7 +264,7 @@ def build_ancestor_chain(ancestors: Sequence[Any]) -> str:
 def build_siblings_summary(node: Any, parent: Optional[Any]) -> str:
     if parent is None:
         return ""
-    siblings = [child for child in get_immediate_children(parent) if child is not node]
+    siblings = [child for child in iter_children(parent) if child is not node]
     return " | ".join(summarise_node(sibling) for sibling in siblings)
 
 

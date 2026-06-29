@@ -9,6 +9,10 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
+from aus_trial_universe.eligibility_path.shared.utils import (
+    dedupe_preserve_order as _dedupe_preserve_order,
+    normalize_string as _normalize_string,
+)
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     read_tabular_file as _read_tabular_file,
     write_tabular_file as _write_tabular_file,
@@ -72,19 +76,6 @@ class ConflictGroup:
 # =============================================================================
 
 
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-
-    return str(value).strip()
-
-
 def _ensure_required_columns(df: pd.DataFrame, required: Sequence[str]) -> None:
     missing = [column for column in required if column not in df.columns]
     if missing:
@@ -117,22 +108,6 @@ def _ensure_output_columns(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataF
             out[column] = ""
 
     return out.loc[:, list(columns)]
-
-
-def _dedupe_preserve_order(values: Iterable[object]) -> List[str]:
-    seen: set[str] = set()
-    out: List[str] = []
-
-    for value in values:
-        text = _normalize_string(value)
-        if not text:
-            continue
-        if text in seen:
-            continue
-        seen.add(text)
-        out.append(text)
-
-    return out
 
 
 def _join_unique(values: Iterable[object], *, sep: str = " || ") -> str:

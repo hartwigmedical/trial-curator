@@ -116,6 +116,17 @@ Run QA diffs after generating intermediates:
 ELIGIBILITY_RUN_QA_DIFFS=1 make eligibility-path-run-all
 ```
 
+Audit hand-curated resource coverage (accrete filled fill-ready templates into
+new resource versions, then flag remaining gaps and refresh the templates):
+
+```bash
+make eligibility-path-resource-audit
+```
+
+This audit also runs automatically on every `ctgov`, `anzctr`, and run-all
+pipeline invocation: accretion happens before processing and gap reporting
+happens after, so the standalone target is mainly for an on-demand audit.
+
 Preview or remove generated eligibility-path TSV outputs:
 
 ```bash

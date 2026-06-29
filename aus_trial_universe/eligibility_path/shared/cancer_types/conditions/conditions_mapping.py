@@ -9,6 +9,10 @@ from typing import Dict, Iterable, List, Literal, Mapping, Optional, Sequence, T
 
 import pandas as pd
 
+from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import (
+    blank_safe_str,
+)
+
 logger = logging.getLogger(__name__)
 
 ConditionParser = Literal["auto", "python_list", "pipe"]
@@ -24,14 +28,7 @@ OUTPUT_COLUMNS: Sequence[str] = (
 
 
 def normalize_cell(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
+    return blank_safe_str(value).strip()
 
 
 def normalize_key(value: object) -> str:

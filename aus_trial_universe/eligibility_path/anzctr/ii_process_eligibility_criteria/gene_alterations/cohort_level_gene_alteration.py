@@ -11,10 +11,11 @@ import pandas as pd
 from aus_trial_universe.eligibility_path.shared.cohorts import (
     build_cohort_base_from_curated_rules,
     expand_to_effective_cohort_rows,
+    normalize_anzctr_trial_id,
     normalize_cohort_label,
 )
-from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.cancer_types.cancer_type_pipeline import (
-    normalize_anzctr_trial_id,
+from aus_trial_universe.eligibility_path.shared.utils import (
+    normalize_string as _normalize_string,
 )
 from aus_trial_universe.eligibility_path.anzctr.ii_process_eligibility_criteria.gene_alterations.gene_alteration_pipeline import (
     DEFAULT_CURATED_DIR,
@@ -99,17 +100,6 @@ def _require_columns(
     missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"{label} missing required columns: {missing}")
-
-
-def _normalize_string(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
 
 
 def _empty_cohort_level_table() -> pd.DataFrame:

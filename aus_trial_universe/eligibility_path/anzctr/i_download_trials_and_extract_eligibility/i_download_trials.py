@@ -18,6 +18,9 @@ from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     existing_files,
     latest_version_dir,
 )
+from aus_trial_universe.eligibility_path.shared.cohorts import (
+    normalize_anzctr_trial_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,17 +152,6 @@ def clean_text(value: object) -> str:
     except (TypeError, ValueError):
         pass
     return re.sub(r"\s+", " ", str(value)).strip()
-
-
-def normalize_anzctr_trial_id(value: object) -> str:
-    text = clean_text(value).upper()
-    if not text:
-        return ""
-    if text.startswith("ACTRN"):
-        return text
-    if re.fullmatch(r"\d+", text):
-        return f"ACTRN{text}"
-    return text
 
 
 def bare_anzctr_trial_id(value: object) -> str:

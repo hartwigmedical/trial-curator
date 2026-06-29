@@ -38,6 +38,10 @@ from typing import Callable, Sequence
 
 import pandas as pd
 
+from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import (
+    blank_safe_str,
+)
+
 logger = logging.getLogger(__name__)
 
 COVERAGE_STATUS_COL = "coverage_status"
@@ -82,14 +86,7 @@ class CoverageResult:
 
 
 def normalize_key_value(value: object) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return re.sub(r"\s+", " ", str(value)).strip().casefold()
+    return re.sub(r"\s+", " ", blank_safe_str(value)).strip().casefold()
 
 
 def coverage_key_series(frame: pd.DataFrame, key_cols: Sequence[str]) -> pd.Series:

@@ -73,9 +73,12 @@ data/eligibility_path/exports/final/eligibility_trial_resource_<ddmmyyyy>.tsv
 data/eligibility_path/exports/final/eligibility_cohort_resource_<ddmmyyyy>.tsv
 ```
 
-The combined export computes missing POTTR AU trials in memory and logs them.
-`make eligibility-path-run-all` downloads those missing trials as
-`02_pottr_append` inputs and reruns until no new missing POTTR trials remain.
+The combined export only computes missing POTTR AU trials in memory and logs
+them. The recursive workflow
+(`shared/workflow/recursive_end_to_end_workflow.py`) drives the convergence
+loop: it takes that missing set, downloads those trials as `02_pottr_append`
+inputs, and reruns the combined export until no new missing POTTR trials remain.
+All `make eligibility-path-run-all*` targets run through this workflow.
 
 POTTR-listed trials must always appear in the final output, so the extract/select
 steps exempt them from the cohort (drug-intervention) filter that otherwise keeps
