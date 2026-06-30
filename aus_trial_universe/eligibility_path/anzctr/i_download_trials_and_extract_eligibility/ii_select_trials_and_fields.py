@@ -17,7 +17,9 @@ from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
 )
 from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
     load_pottr_trial_ids_best_effort,
-    normalize_trial_id as normalize_pottr_trial_id,
+)
+from aus_trial_universe.eligibility_path.shared.cohorts.cohort_scope import (
+    normalize_anzctr_trial_id,
 )
 
 logger = logging.getLogger(__name__)
@@ -305,8 +307,12 @@ def extract_drug_intervention_trials(
 
         # POTTR-listed trials must always reach the final output, so they are
         # exempt from the drug-intervention cohort filter. POTTR keys by ACTRN,
-        # not the internal "TRIAL ID" used for drug-code matching.
-        is_pottr = normalize_pottr_trial_id(output_row.get("ACTRN")) in pottr_ids
+        # not the internal "TRIAL ID" used for drug-code matching. The workbook
+        # ACTRN column is bare (e.g. "12624000110583") while POTTR (and the rest
+        # of the pipeline) key on the ACTRN-prefixed id, so the comparison must
+        # use the canonical prefixed key -- otherwise the exemption never matches
+        # and non-drug ANZCTR POTTR trials are silently dropped here.
+        is_pottr = normalize_anzctr_trial_id(output_row.get("ACTRN")) in pottr_ids
         if trial_id not in drug_trial_ids:
             if is_pottr:
                 pottr_exempt += 1

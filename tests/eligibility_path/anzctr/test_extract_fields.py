@@ -109,6 +109,30 @@ def test_extract_drug_intervention_trials_keeps_non_drug_pottr_trials():
     assert extracted["ACTRN"].tolist() == ["ACTRN1", "ACTRN2", "ACTRN3"]
 
 
+def test_pottr_exemption_matches_bare_workbook_actrn_against_prefixed_pottr_id():
+    # Regression: real ANZCTR workbooks store the ACTRN as a bare number
+    # ("12624000110583"), while POTTR keys on the ACTRN-prefixed id. The
+    # exemption must canonicalise across that format gap; otherwise non-drug
+    # ANZCTR POTTR trials are silently dropped (they never matched the
+    # exemption set before the prefix-aware comparison was introduced).
+    trials = trial_rows()
+    trials["ACTRN"] = ["12600000000001", "12600000000002", "12600000000003"]
+    extracted = extract_drug_intervention_trials(
+        trials,
+        health_condition_rows(),
+        intervention_code_rows(),
+        pottr_trial_ids={"ACTRN12600000000002"},  # prefixed, as POTTR provides it
+    )
+
+    # Trial 2 ("Prevention: Drugs") is non-drug and would normally be dropped;
+    # the prefixed POTTR id must still exempt the bare workbook ACTRN.
+    assert extracted["ACTRN"].tolist() == [
+        "12600000000001",
+        "12600000000002",
+        "12600000000003",
+    ]
+
+
 def test_pottr_exemption_overrides_manual_removal(monkeypatch):
     # POTTR-listed trials override both the drug filter and the manual-removal
     # list, so a removal-listed POTTR trial (ACTRN3) is still retained.
