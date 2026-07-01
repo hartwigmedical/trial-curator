@@ -155,6 +155,12 @@ resource, POTTR snapshot, and CTGov POTTR-id alias table (no dates to edit) and 
 data/eligibility_path/analysis/eligibility_vs_pottr_comparison_<ddmmyyyy>.tsv
 ```
 
+The POTTR eligibility snapshot it compares against
+(`data/eligibility_path/analysis/pottr_trial_eligibility.AU_snapshot_<ddmmyyyy>.tsv`) is refreshed
+automatically by the **fresh-download** workflow — `make eligibility-path-run-all-trials-download[-w-llm]`
+saves a verbatim copy of POTTR's `trial_eligibility.AU.tsv` alongside the trial downloads. `run-all`
+(reprocess, no download) leaves it untouched, so the comparison then reuses the last downloaded snapshot.
+
 To do a full refresh and then the comparison in one go, chain the two targets. `make` runs
 them left to right and stops if the download run fails, so the comparison only runs on a
 good rebuild — this is preferred over a bespoke combined target (no duplicated recipe, and

@@ -126,6 +126,14 @@ def test_fresh_recursive_workflow_downloads_initial_inputs_then_processes(
         "run_combined_export_and_get_missing",
         lambda _config: next(missing_frames),
     )
+    # Fresh-download runs also refresh the POTTR eligibility snapshot; stub it so the test
+    # stays hermetic (no network) and assert it fired.
+    snapshot_calls: list = []
+    monkeypatch.setattr(
+        workflow,
+        "snapshot_pottr_eligibility",
+        lambda _config: snapshot_calls.append(_config),
+    )
 
     def capture_command(command):
         commands.append(list(command))
@@ -150,6 +158,8 @@ def test_fresh_recursive_workflow_downloads_initial_inputs_then_processes(
         run_command=capture_command,
         initial_downloads=True,
     )
+
+    assert len(snapshot_calls) == 1
 
     command_text = "\n".join(" ".join(command) for command in commands)
     assert "i_api_download --all" in command_text
@@ -200,6 +210,13 @@ def test_recursive_workflow_can_use_latest_existing_input_versions(
         "run_combined_export_and_get_missing",
         lambda _config: next(missing_frames),
     )
+    # run-all (reprocess, no download) must NOT refresh the POTTR snapshot — keeps it drift-free.
+    snapshot_calls: list = []
+    monkeypatch.setattr(
+        workflow,
+        "snapshot_pottr_eligibility",
+        lambda _config: snapshot_calls.append(_config),
+    )
     commands: list[list[str]] = []
 
     workflow.run_recursive_workflow(
@@ -211,6 +228,7 @@ def test_recursive_workflow_can_use_latest_existing_input_versions(
     command_text = "\n".join(" ".join(command) for command in commands)
     assert "version_25062026" in command_text
     assert "version_24062026" not in command_text
+    assert snapshot_calls == []
 
     anzctr_append_command = next(
         command for command in commands if command[2].endswith(".i_download_trials")

@@ -9,8 +9,8 @@ Run from the repo root with a pandas-enabled interpreter (the repo `python` lack
 
     ~/anaconda3/bin/python aus_trial_universe/eligibility_path/analysis/pottr_comparison.py
 
-Inputs are auto-selected by newest mtime (no dates to edit): the newest final trial resource, the newest
-pinned POTTR snapshot, and the newest ctgov POTTR-id alias table. Output is
+Inputs are auto-selected by the newest ddmmyyyy date in the filename (no dates to edit): the newest final
+trial resource, the newest pinned POTTR snapshot, and the newest ctgov POTTR-id alias table. Output is
 data/eligibility_path/analysis/eligibility_vs_pottr_comparison_<resource-date>.tsv. Re-run after the
 pipeline (`make eligibility-path-run-all`) regenerates the final resource, or after editing the conditions
 resource. See analysis/README.md for the verdict vocabulary and reconciliation rules.
@@ -18,18 +18,33 @@ resource. See analysis/README.md for the verdict vocabulary and reconciliation r
 from __future__ import annotations
 import csv, re, os, glob
 from collections import defaultdict
+from datetime import datetime
 import pandas as pd
 
 ONCO = "data/eligibility_path/resources/oncotree/oncotree_expanded/oncotree_expanded.csv"
 
+def _path_date(path):
+    """The ddmmyyyy date embedded in a path (filename or a version_<ddmmyyyy> parent), parsed."""
+    m = re.search(r"\d{8}", os.path.basename(path)) or re.search(r"\d{8}", path)
+    if m:
+        try:
+            return datetime.strptime(m.group(0), "%d%m%Y")
+        except ValueError:
+            pass
+    return datetime.min
+
 def _latest(pattern):
+    """Newest dated file matching `pattern`, chosen by the parsed ddmmyyyy date (mtime only as a
+    tiebreak) — matching `version_dir_sort_key` / `final_resource_diff`. NB ddmmyyyy cannot be
+    sorted as text (30062026 > 01072026 lexically but is the earlier date), and mtime alone would
+    be fooled by a re-touched older-dated file."""
     hits = glob.glob(pattern)
     if not hits:
         raise FileNotFoundError(f"no files match {pattern}")
-    return max(hits, key=os.path.getmtime)
+    return max(hits, key=lambda p: (_path_date(p), os.path.getmtime(p)))
 
 # Newest dated inputs. MINE (final resource) advances every pipeline run; the POTTR snapshot and the
-# ctgov alias table advance only on a download run -- picking each by newest mtime handles that.
+# ctgov alias table advance only on a download run -- picking each by newest dated file handles that.
 MINE = _latest("data/eligibility_path/exports/final/eligibility_trial_resource_*.tsv")
 POTTR = _latest("data/eligibility_path/analysis/pottr_trial_eligibility.AU_snapshot_*.tsv")
 ALIAS = _latest("data/trial_inputs/ctgov/input_trials/version_*/02b_pottr_id_aliases_ctgov.tsv")
@@ -377,7 +392,14 @@ def cover_va(a, b):       # variant_alteration "GENE:desc": a covers b?
     if ga != gb:
         return False
     # generic "mutation" covers any specific point-mutation variant (not amp/del/fusion)
-    return da == "mutation" and db not in NON_MUT_DESCS and db != "mutation"
+    if da == "mutation" and db not in NON_MUT_DESCS and db != "mutation":
+        return True
+    # protein-impact wildcard: hartwig `V600X` (X = any residue at that codon) covers a
+    # specific substitution at the same codon, e.g. `V600E`/`V600K` (POTTR gives the exact AA).
+    m = re.match(r"([A-Za-z]+\d+)X$", da)
+    if m and re.match(rf"{re.escape(m.group(1))}[A-Za-z*]", db):
+        return True
+    return False
 
 # ---------------------------------------------------------------- verdict
 def verdict(mine, pottr, covers, fmt=lambda s: ", ".join(sorted(s)),

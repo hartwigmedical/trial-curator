@@ -30,15 +30,19 @@ Or run the module directly:
 Re-run after a pipeline run regenerates the final resource, or after editing the conditions resource.
 It prints per-column verdict counts and writes the output TSV.
 
-### Inputs (auto-selected by newest mtime — no dates to edit)
+### Inputs (auto-selected by the newest ddmmyyyy date in the filename — no dates to edit)
 - **Hartwig resource** — newest `data/eligibility_path/exports/final/eligibility_trial_resource_*.tsv`
-- **POTTR snapshot** — newest `data/eligibility_path/analysis/pottr_trial_eligibility.AU_snapshot_*.tsv`
+- **POTTR snapshot** — newest `data/eligibility_path/analysis/pottr_trial_eligibility.AU_snapshot_*.tsv`,
+  a verbatim copy of POTTR's `trial_eligibility.AU.tsv` refreshed by the fresh-download workflow (see below)
 - **CTGov POTTR-id aliases** — newest `data/trial_inputs/ctgov/input_trials/version_*/02b_pottr_id_aliases_ctgov.tsv`
   (lets an aliased POTTR NCT id resolve to the id the resource actually carries)
 - **OncoTree** — `data/eligibility_path/resources/oncotree/oncotree_expanded/oncotree_expanded.csv`
 
 The final resource advances every pipeline run; the POTTR snapshot and alias table advance only on a
-*download* run — picking each by newest mtime handles the different cadences automatically.
+fresh-**download** run (`make eligibility-path-run-all-trials-download[-w-llm]`) — `run-all` reprocesses
+without touching them, so it stays drift-free. Each is picked by the newest parsed `ddmmyyyy` date (not
+mtime, which a re-touched older file would fool; not text order, since `ddmmyyyy` doesn't sort as text),
+matching `version_dir_sort_key` / `final_resource_diff` elsewhere.
 
 ### Output
 `data/eligibility_path/analysis/eligibility_vs_pottr_comparison_<resource-date>.tsv` — 252 trials
@@ -85,7 +89,9 @@ The comparison is **POTTR-centric**: if POTTR is silent for a criterion+polarity
   granularity conflict, ancestor-of / out-of-scope, or an unmatched extra Hartwig exclusion). Multi-note verdicts
   use one category prefix with notes joined by `;\n`.
 - **Gene / variant** — generic ⊃ specific (POTTR `KRAS:oncogenic_mutation` covers Hartwig `KRAS:G12C`);
-  gene-family aliases `IDH`→IDH1/2, `BRCA`→BRCA1/2. `variant_alteration` is compared **only when the gene-level
+  gene-family aliases `IDH`→IDH1/2, `BRCA`→BRCA1/2. A Hartwig **codon wildcard** covers a specific
+  substitution at that codon — `BRAF:V600X` (X = any residue) covers POTTR `BRAF:V600E`/`V600K` (directional:
+  the specific does not cover the wildcard). `variant_alteration` is compared **only when the gene-level
   verdict is `identical`** (else blank — a gene-level diff makes specific-variant detail moot).
 - **Molecular signature** — MSI/MSS are complementary states of one axis (`NOT MSI == MSS`), folded onto the
   inclusive side. `POTTR ⊆ hartwig` (exact match within Hartwig's set) is reported as `identical`.

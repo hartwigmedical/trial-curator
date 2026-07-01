@@ -14,9 +14,12 @@ import pandas as pd
 
 from aus_trial_universe.eligibility_path.shared.trial_resource.combined_trial_resource_export import (
     DEFAULT_ELIGIBILITY_DATA_DIR,
+    DEFAULT_POTTR_TRIAL_ELIGIBILITY_URL,
     discover_pipeline_inputs,
     load_pottr_id_aliases,
     load_pottr_trial_ids_best_effort,
+    read_pottr_tsv_source,
+    resolve_source_path_or_url,
     run_combined_trial_resource_export,
 )
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
@@ -45,6 +48,8 @@ DEFAULT_ANZCTR_CURATED_DIR = Path("data/trial_inputs/anzctr/eligibility_curation
 DEFAULT_CTGOV_INTERMEDIATE_DIR = Path("data/eligibility_path/exports/intermediates/ctgov")
 DEFAULT_ANZCTR_INTERMEDIATE_DIR = Path("data/eligibility_path/exports/intermediates/anzctr")
 DEFAULT_RXNORM_RRF_DIR = Path("data/drug_utility_path/drug_ontology/raw_inputs/RxNorm")
+# Dated snapshot of POTTR's trial_eligibility.AU.tsv that the POTTR-comparison analysis reads.
+POTTR_ELIGIBILITY_SNAPSHOT_DIR = Path("data/eligibility_path/analysis")
 
 CTGOV_INITIAL_FILENAME = "01_initial_search_ctgov_input.json"
 CTGOV_POTTR_APPEND_FILENAME = "02_pottr_append_ctgov_input.json"
@@ -534,6 +539,35 @@ def run_pottr_append_downloads(
             )
 
 
+def snapshot_pottr_eligibility(config: RecursiveWorkflowConfig) -> None:
+    """Persist a fresh copy of POTTR's ``trial_eligibility.AU.tsv`` as the dated snapshot the
+    POTTR-comparison analysis reads (kept verbatim, incl. multiple rows per trial).
+
+    Called only on fresh-download runs, alongside the trial downloads, so ``run-all`` (reprocess,
+    no drift) never mutates the pinned POTTR data. Best-effort: a fetch failure logs a warning and
+    keeps the previous snapshot rather than blocking the workflow.
+    """
+    source = resolve_source_path_or_url(DEFAULT_POTTR_TRIAL_ELIGIBILITY_URL, config.repo_root)
+    dest = (
+        config.repo_root
+        / POTTR_ELIGIBILITY_SNAPSHOT_DIR
+        / f"pottr_trial_eligibility.AU_snapshot_{config.export_date}.tsv"
+    )
+    try:
+        frame = read_pottr_tsv_source(source)
+    except Exception as error:  # noqa: BLE001 - best-effort snapshot, must not block downloads
+        LOGGER.warning(
+            "Could not refresh POTTR eligibility snapshot from %s (%s); keeping the previous "
+            "snapshot for the comparison analysis.",
+            source,
+            error,
+        )
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(dest, sep="\t", index=False)
+    LOGGER.info("Wrote POTTR eligibility snapshot: %s (rows=%d)", dest, len(frame))
+
+
 def run_recursive_workflow(
     config: RecursiveWorkflowConfig,
     *,
@@ -542,6 +576,9 @@ def run_recursive_workflow(
 ) -> pd.DataFrame:
     if initial_downloads:
         run_initial_downloads(config, run_command)
+        # Refresh the POTTR eligibility snapshot the comparison analysis reads (fresh-download
+        # runs only, so run-all stays drift-free).
+        snapshot_pottr_eligibility(config)
         # After a fresh download, retire curations whose trial dropped out of it.
         expire_stale_curations(config)
 
