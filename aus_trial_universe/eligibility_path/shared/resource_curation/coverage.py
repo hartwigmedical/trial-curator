@@ -40,6 +40,7 @@ import pandas as pd
 
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
     VERSION_DIR_RE,
+    dated_file_sort_key,
     version_dir_sort_key,
 )
 from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import (
@@ -235,7 +236,7 @@ def latest_resource_path(spec: CoverageSpec) -> Path | None:
     ]
     if not candidates:
         return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+    return max(candidates, key=dated_file_sort_key)
 
 
 def timestamped_version_path(spec: CoverageSpec, today_str: str) -> Path:

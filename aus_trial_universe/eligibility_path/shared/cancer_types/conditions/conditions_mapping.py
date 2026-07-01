@@ -9,6 +9,9 @@ from typing import Dict, Iterable, List, Literal, Mapping, Optional, Sequence, T
 
 import pandas as pd
 
+from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
+    dated_file_sort_key,
+)
 from aus_trial_universe.eligibility_path.shared.utils.text_normalisation import (
     blank_safe_str,
 )
@@ -78,7 +81,7 @@ def find_conditions_mapping_file(mapping_dir: Path) -> Path:
     if not matches:
         raise FileNotFoundError(f"Could not find conditions mapping file in {mapping_dir}")
 
-    return max(matches, key=lambda path: path.stat().st_mtime)
+    return max(matches, key=dated_file_sort_key)
 
 
 def load_mapping(mapping_file: Path) -> Tuple[Dict[str, str], Dict[str, str]]:

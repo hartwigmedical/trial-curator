@@ -172,18 +172,20 @@ def test_accrete_resource_appends_and_prefers_filled_value(tmp_path: Path):
     assert len(merged) == 2  # no fan-out
 
 
-def test_latest_resource_path_picks_newest_by_mtime(tmp_path: Path):
+def test_latest_resource_path_picks_newest_by_date(tmp_path: Path):
     import os
 
     spec = _mapping_spec(tmp_path)
-    old = tmp_path / "MolecularSignatureCurationResource_13042026.csv"
-    new = tmp_path / "MolecularSignatureCurationResource_27062026.csv"
-    pd.DataFrame({"Signature_lookup": ["a"], "Findings_curation": ["x"]}).to_csv(old, index=False)
-    pd.DataFrame({"Signature_lookup": ["b"], "Findings_curation": ["y"]}).to_csv(new, index=False)
-    os.utime(old, (1.0, 1.0))
-    os.utime(new, (2.0, 2.0))
+    earlier_date = tmp_path / "MolecularSignatureCurationResource_13042026.csv"
+    later_date = tmp_path / "MolecularSignatureCurationResource_27062026.csv"
+    pd.DataFrame({"Signature_lookup": ["a"], "Findings_curation": ["x"]}).to_csv(earlier_date, index=False)
+    pd.DataFrame({"Signature_lookup": ["b"], "Findings_curation": ["y"]}).to_csv(later_date, index=False)
+    # Give the EARLIER-dated file the NEWER mtime; date-based selection must still pick the later
+    # date (mtime alone would be fooled into picking the earlier-dated file).
+    os.utime(later_date, (1.0, 1.0))
+    os.utime(earlier_date, (2.0, 2.0))
 
-    assert cov.latest_resource_path(spec) == new
+    assert cov.latest_resource_path(spec) == later_date
 
 
 def test_latest_gap_file_picks_newest_version_dir(tmp_path: Path):

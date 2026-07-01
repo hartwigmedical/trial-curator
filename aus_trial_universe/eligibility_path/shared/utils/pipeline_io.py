@@ -82,7 +82,7 @@ def find_best_file(
     matches = sorted(
         matches,
         key=lambda path: (
-            path.stat().st_mtime,
+            *dated_file_sort_key(path),   # newest ddmmyyyy date (mtime tiebreak); undated -> mtime
             -len(path.name),
         ),
         reverse=True,
@@ -159,6 +159,31 @@ def version_dir_sort_key(path: Path) -> tuple[int, str, str]:
     except ValueError:
         return (0, "", path.name)
     return (1, version_date.isoformat(), path.name)
+
+
+_DDMMYYYY_RE = re.compile(r"\d{8}")
+
+
+def dated_file_sort_key(path: Path) -> tuple[datetime, float]:
+    """Sort key for choosing the newest dated file (e.g. ``ConditionsCurationResource_<ddmmyyyy>.xlsx``).
+
+    Selects primarily by the ``ddmmyyyy`` date parsed from the filename, with mtime as a tiebreak
+    (and the sole key when a filename carries no parseable date). ``ddmmyyyy`` must be *parsed*, not
+    compared as text (``30062026`` > ``01072026`` lexically but is the earlier date), and mtime alone
+    is fooled by a re-touched/rewritten older-dated file (e.g. after ``git checkout``).
+    """
+    match = _DDMMYYYY_RE.search(path.name)
+    parsed = datetime.min
+    if match:
+        try:
+            parsed = datetime.strptime(match.group(0), "%d%m%Y")
+        except ValueError:
+            parsed = datetime.min
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (parsed, mtime)
 
 
 def latest_version_dir(root: Path) -> Path:

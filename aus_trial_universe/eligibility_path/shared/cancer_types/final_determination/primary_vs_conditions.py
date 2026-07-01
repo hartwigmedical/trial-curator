@@ -27,6 +27,7 @@ from aus_trial_universe.eligibility_path.shared.utils import (
     normalize_string as _normalize_string,
 )
 from aus_trial_universe.eligibility_path.shared.utils.pipeline_io import (
+    dated_file_sort_key as _dated_file_sort_key,
     read_tabular_file as _read_tabular_file,
     write_tabular_file as _write_tabular_file,
 )
@@ -112,7 +113,7 @@ class PrimaryTumorOccurrenceRow:
 def _pick_most_recent(paths: Sequence[Path]) -> Path:
     if not paths:
         raise ValueError("Internal error: _pick_most_recent called with empty paths")
-    return max(paths, key=lambda p: p.stat().st_mtime)
+    return max(paths, key=_dated_file_sort_key)
 
 
 def _find_mapping_resource(resources_dir: Path, token: str) -> Path:
