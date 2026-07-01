@@ -89,10 +89,18 @@ The comparison is **POTTR-centric**: if POTTR is silent for a criterion+polarity
   granularity conflict, ancestor-of / out-of-scope, or an unmatched extra Hartwig exclusion). Multi-note verdicts
   use one category prefix with notes joined by `;\n`.
 - **Gene / variant** — generic ⊃ specific (POTTR `KRAS:oncogenic_mutation` covers Hartwig `KRAS:G12C`);
-  gene-family aliases `IDH`→IDH1/2, `BRCA`→BRCA1/2. A Hartwig **codon wildcard** covers a specific
-  substitution at that codon — `BRAF:V600X` (X = any residue) covers POTTR `BRAF:V600E`/`V600K` (directional:
-  the specific does not cover the wildcard). `variant_alteration` is compared **only when the gene-level
-  verdict is `identical`** (else blank — a gene-level diff makes specific-variant detail moot).
+  gene-family aliases `IDH`→IDH1/2, `BRCA`→BRCA1/2. Hartwig's `SmallVariant` syntax is normalised to POTTR's
+  descriptor vocabulary: `affectedExon=N & effects=INFRAME_INSERTION|DELETION` → `exon_N_insertion` /
+  `exon_N_deletion`; `affectedExon` alone → `exon_N`; `effects` alone → `inframe_insertion`/`inframe_deletion`;
+  `hgvsProteinImpact=p.X` → the protein change. Coverage relationships (directional — the broader form
+  covers the specific, not vice versa):
+  - **codon wildcard** covers specific substitutions at that codon: Hartwig `V600X` (X = any) or a POTTR
+    bare codon `R132`/`G12`/`V600` covers `V600E` / `R132C` etc.;
+  - **exon-generic** covers exon-specific: `exon_20` covers `exon_20_insertion`/`exon_20_deletion`;
+  - **gene-wide inframe** covers the exon-scoped indel: `inframe_insertion` covers `exon_20_insertion`.
+
+  `variant_alteration` is compared **only when the gene-level verdict is `identical`** (else blank — a
+  gene-level diff makes specific-variant detail moot).
 - **Molecular signature** — MSI/MSS are complementary states of one axis (`NOT MSI == MSS`), folded onto the
   inclusive side. `POTTR ⊆ hartwig` (exact match within Hartwig's set) is reported as `identical`.
 - **Polarity** — POTTR non-`NOT` → inclusive, `NOT …` → exclusive. Hartwig uses the literal column, **except

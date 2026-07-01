@@ -324,7 +324,25 @@ def hartwig_gene_tokens(incl, excl):
             if kind == "SmallVariant":
                 var = re.search(r"hgvsProteinImpact=p\.([A-Za-z0-9_]+)", body)
                 exon = re.search(r"affectedExon=(\d+)", body)
-                desc = var.group(1) if var else (f"exon{exon.group(1)}" if exon else "mutation")
+                effect = re.search(r"effects=([A-Za-z_,]+)", body)
+                eff = effect.group(1).upper() if effect else ""
+                # Align with POTTR's descriptor vocabulary. affectedExon + effects INFRAME_INSERTION/
+                # DELETION is POTTR's `exon_<N>_insertion`/`exon_<N>_deletion`; exon alone stays exon-
+                # level generic; effects alone is a gene-wide inframe indel.
+                if var:
+                    desc = var.group(1)                        # protein change, e.g. V600X / L858R / T790M
+                elif exon and "INSERTION" in eff:
+                    desc = f"exon_{exon.group(1)}_insertion"
+                elif exon and "DELETION" in eff:
+                    desc = f"exon_{exon.group(1)}_deletion"
+                elif exon:
+                    desc = f"exon_{exon.group(1)}"             # exon known, effect unspecified
+                elif "INSERTION" in eff:
+                    desc = "inframe_insertion"
+                elif "DELETION" in eff:
+                    desc = "inframe_deletion"
+                else:
+                    desc = "mutation"
                 for g in genes: out.append((g, desc, sign))
             elif kind == "Fusion":
                 for g in genes: out.append((g, "fusion", sign))
@@ -394,10 +412,20 @@ def cover_va(a, b):       # variant_alteration "GENE:desc": a covers b?
     # generic "mutation" covers any specific point-mutation variant (not amp/del/fusion)
     if da == "mutation" and db not in NON_MUT_DESCS and db != "mutation":
         return True
-    # protein-impact wildcard: hartwig `V600X` (X = any residue at that codon) covers a
-    # specific substitution at the same codon, e.g. `V600E`/`V600K` (POTTR gives the exact AA).
-    m = re.match(r"([A-Za-z]+\d+)X$", da)
+    # codon wildcard: a codon named without a specific residue covers any specific substitution
+    # there -- hartwig's `V600X` (X = any) or POTTR's bare codon `R132`/`V600`/`G12` both cover
+    # `V600E` / `R132C` etc. (the `[A-Za-z*]` guard stops `G12` matching a different codon `G127*`).
+    m = re.match(r"([A-Za-z]+\d+)X?$", da)
     if m and re.match(rf"{re.escape(m.group(1))}[A-Za-z*]", db):
+        return True
+    # exon-level generic covers exon-level specific: `exon_20` covers `exon_20_insertion`/`_deletion`
+    if re.fullmatch(r"exon_\d+", da) and db.startswith(da + "_"):
+        return True
+    # gene-wide inframe indel covers the same indel scoped to an exon: `inframe_insertion` covers
+    # `exon_20_insertion` (POTTR names the exon; hartwig left it gene-wide).
+    if da == "inframe_insertion" and db.endswith("_insertion"):
+        return True
+    if da == "inframe_deletion" and db.endswith("_deletion"):
         return True
     return False
 
