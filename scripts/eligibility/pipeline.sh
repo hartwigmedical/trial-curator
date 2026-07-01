@@ -229,14 +229,19 @@ run_resource_audit() {
     --log_level "${ELIGIBILITY_LOG_LEVEL}"
 }
 
+run_pottr_comparison() {
+  log_step "POTTR vs Hartwig eligibility comparison"
+  run_module aus_trial_universe.eligibility_path.analysis.pottr_comparison
+}
+
 validate_command() {
   case "$1" in
-    ctgov|anzctr|all-trials-download-w-llm|all-trials-download|all|resource-audit|tests)
+    ctgov|anzctr|all-trials-download-w-llm|all-trials-download|all|resource-audit|pottr-comparison|tests)
       return 0
       ;;
     *)
       printf 'Unknown eligibility pipeline command: %s\n' "$1" >&2
-      printf 'Expected one of: ctgov, anzctr, all-trials-download-w-llm, all-trials-download, all, resource-audit, tests\n' >&2
+      printf 'Expected one of: ctgov, anzctr, all-trials-download-w-llm, all-trials-download, all, resource-audit, pottr-comparison, tests\n' >&2
       return 2
       ;;
   esac
@@ -259,7 +264,11 @@ main() {
     printf '==> Logging this run to %s\n' "${run_log}"
   fi
 
-  run_eligibility_tests
+  # pottr-comparison is a read-only analysis over existing outputs: skip the preflight
+  # unit tests and the resource accrete/report steps.
+  if [[ "${command}" != "pottr-comparison" ]]; then
+    run_eligibility_tests
+  fi
 
   # Pre-processing: graduate filled fill-ready templates into new resource
   # versions so this run's processing uses the curator's latest fills.
@@ -287,6 +296,9 @@ main() {
       ;;
     resource-audit)
       run_resource_audit
+      ;;
+    pottr-comparison)
+      run_pottr_comparison
       ;;
     tests)
       ;;

@@ -28,24 +28,20 @@ def test_anzctr_eligibility_pipeline_modules_import_and_expose_main():
 
 
 def test_anzctr_docs_use_current_module_paths():
+    # The registry-only anzctr command doc was removed; the surviving docs must not
+    # reference the stale module path.
     docs = [
-        Path("docs/eligibility_path/anzctr_eligibility_commands.md"),
         Path("aus_trial_universe/eligibility_path/README.md"),
+        Path("docs/eligibility_path/combined_eligibility_run.md"),
     ]
 
     for path in docs:
         text = path.read_text(encoding="utf-8")
         assert "aus_trial_universe.eligibility_path.anzctr.eligibility" not in text
 
-    command_doc = docs[0].read_text(encoding="utf-8")
-    assert (
-        "aus_trial_universe.eligibility_path.anzctr."
-        "i_download_trials_and_extract_eligibility"
-    ) in command_doc
-
 
 def test_anzctr_docs_warn_not_to_delete_completed_llm_drug_reviews():
-    doc = Path("docs/eligibility_path/anzctr_eligibility_data.md").read_text(
+    doc = Path("docs/eligibility_path/combined_eligibility_run.md").read_text(
         encoding="utf-8"
     )
 
@@ -56,11 +52,11 @@ def test_anzctr_docs_warn_not_to_delete_completed_llm_drug_reviews():
 
 def test_anzctr_pipeline_uses_single_canonical_extracted_trials_file():
     script = Path("scripts/eligibility/pipeline.sh").read_text(encoding="utf-8")
-    command_doc = Path("docs/eligibility_path/anzctr_eligibility_commands.md").read_text(
+    doc = Path("docs/eligibility_path/combined_eligibility_run.md").read_text(
         encoding="utf-8"
     )
 
     assert "anzctr_field_extractions_w_drugs.csv" not in script
-    assert "anzctr_field_extractions_w_drugs.csv" not in command_doc
+    assert "anzctr_field_extractions_w_drugs.csv" not in doc
     assert "--refresh_input_csv" in script
     assert "i_select_trials_and_fields \\" not in script

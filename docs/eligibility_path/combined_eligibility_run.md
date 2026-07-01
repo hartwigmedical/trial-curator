@@ -3,6 +3,23 @@
 This is the main eligibility-path workflow for producing the cross-registry
 trial resource across CTGov and ANZCTR.
 
+## Make Commands
+
+Every eligibility-path `make` target (run from the repo root; details in the sections below):
+
+| Command | Purpose |
+| --- | --- |
+| `make eligibility-path-run-all-trials-download` | Fresh CTGov + ANZCTR download, then the recursive no-LLM workflow to the combined resources. |
+| `make eligibility-path-run-all-trials-download-w-llm` | As above, plus ANZCTR LLM drug review. |
+| `make eligibility-path-run-all` | Recursive workflow from the newest existing inputs (no download). |
+| `make eligibility-path-pottr-comparison` | POTTR ↔ Hartwig eligibility comparison over the newest outputs (read-only). |
+| `make eligibility-path-resource-audit` | Accrete filled gap templates into new resource versions, then report remaining coverage gaps. |
+| `make eligibility-path-tests` | Run the eligibility-path unit tests. |
+| `make eligibility-path-clean-dry-run` | Preview the generated TSVs that a clean would remove. |
+| `make eligibility-path-clean` | Remove generated TSV outputs (preserves inputs and `resource_gaps/`). |
+| `make eligibility-path-ctgov` | CTGov-only end-to-end run. Rarely needed — prefer the combined targets above. |
+| `make eligibility-path-anzctr` | ANZCTR-only end-to-end run. Rarely needed — prefer the combined targets above. |
+
 Run from the repository root:
 
 ```bash
@@ -10,6 +27,23 @@ cd /Users/junrancao/WorkProjects/trial-curator_repo
 conda activate trial_curator
 export PYTHONPATH="$PWD"
 ```
+
+## Environment and API keys
+
+Most runs reuse existing pydantic-curator `.py` files and do not call the OpenAI API. If you run
+curator commands or the ANZCTR LLM drug review (`-w-llm`), put keys and settings in `.env.local`
+(ignored by git, loaded automatically by `scripts/eligibility/pipeline.sh`):
+
+```text
+OPENAI_API_KEY=API_123
+
+ELIGIBILITY_LOG_LEVEL=INFO
+ELIGIBILITY_OUTPUT_FORMAT=tsv
+ELIGIBILITY_EXPORT_DATE=
+ELIGIBILITY_SKIP_TESTS=0
+```
+
+Replace `API_123` with your real key.
 
 ## Standard Run
 
@@ -103,6 +137,36 @@ and pydantic curator only for trials without existing `.py` curations, write
 final combined resources, compute and log missing POTTR trials, download those
 trials as the `02_pottr_append` delta (refreshing `03_merged`), and repeat until
 no new missing POTTR trials remain.
+
+## POTTR Comparison Analysis
+
+After a run rebuilds the final trial resource, compare Hartwig's curated eligibility
+criteria against the POTTR AU eligibility file, per trial and per criterion:
+
+```bash
+make eligibility-path-pottr-comparison
+```
+
+This is a read-only analysis over the newest existing outputs, so it skips the preflight
+unit tests and the resource accrete/report steps. It auto-selects the newest final trial
+resource, POTTR snapshot, and CTGov POTTR-id alias table (no dates to edit) and writes:
+
+```text
+data/eligibility_path/analysis/eligibility_vs_pottr_comparison_<ddmmyyyy>.tsv
+```
+
+To do a full refresh and then the comparison in one go, chain the two targets. `make` runs
+them left to right and stops if the download run fails, so the comparison only runs on a
+good rebuild — this is preferred over a bespoke combined target (no duplicated recipe, and
+the comparison target stays reusable after any run):
+
+```bash
+make eligibility-path-run-all-trials-download eligibility-path-pottr-comparison
+```
+
+The output is a two-header-row TSV (read with `skiprows=1` in pandas). See
+`aus_trial_universe/eligibility_path/analysis/README.md` for the column layout, verdict
+vocabulary, and reconciliation rules.
 
 ## Combined Schema
 

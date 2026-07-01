@@ -13,6 +13,7 @@ aus_trial_universe/eligibility_path/
   anzctr/    # ANZCTR-specific input adaptation and resource exports
   shared/    # Registry-independent eligibility logic
   qa/        # Optional output-diff/audit utilities
+  analysis/  # Ad-hoc analyses over the outputs (POTTR-vs-Hartwig comparison; see analysis/README.md)
 ```
 
 The data layout is:

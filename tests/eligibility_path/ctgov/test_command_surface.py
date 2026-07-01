@@ -27,6 +27,7 @@ MAKE_TARGETS = [
     "eligibility-path-run-all-trials-download-w-llm",
     "eligibility-path-run-all-trials-download",
     "eligibility-path-run-all",
+    "eligibility-path-pottr-comparison",
     "eligibility-path-clean",
     "eligibility-path-clean-dry-run",
     "eligibility-path-tests",
@@ -88,13 +89,25 @@ def test_makefile_does_not_expose_old_eligibility_targets():
         assert target not in make_targets
 
 
-def test_eligibility_commands_doc_lists_make_targets():
-    doc = Path("docs/eligibility_path/ctgov_eligibility_commands.md").read_text(
+def _eligibility_make_targets() -> set[str]:
+    makefile = Path("Makefile").read_text(encoding="utf-8")
+    targets = {
+        line.split(":", 1)[0]
+        for line in makefile.splitlines()
+        if line and not line.startswith("\t") and ":" in line
+    }
+    return {t for t in targets if t.startswith("eligibility-path-")}
+
+
+def test_combined_run_doc_documents_every_eligibility_make_target():
+    # No eligibility-path make target may be undocumented: combined_eligibility_run.md is
+    # the single command reference and must list every one of them.
+    doc = Path("docs/eligibility_path/combined_eligibility_run.md").read_text(
         encoding="utf-8"
     )
 
-    for target in MAKE_TARGETS:
-        assert f"make {target}" in doc
+    for target in sorted(_eligibility_make_targets()):
+        assert f"make {target}" in doc, f"{target} is not documented in combined_eligibility_run.md"
 
 
 def test_combined_run_doc_lists_public_workflows_and_output():
@@ -180,7 +193,7 @@ def test_eligibility_pipeline_includes_resource_exports_and_no_intermediate_qa()
 
 def test_eligibility_secret_files_are_ignored_and_documented():
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
-    doc = Path("docs/eligibility_path/ctgov_eligibility_commands.md").read_text(
+    doc = Path("docs/eligibility_path/combined_eligibility_run.md").read_text(
         encoding="utf-8"
     )
 
@@ -196,7 +209,7 @@ def test_eligibility_secret_files_are_ignored_and_documented():
 
 def test_docs_and_scripts_do_not_contain_openai_api_keys():
     paths = [
-        Path("docs/eligibility_path/ctgov_eligibility_commands.md"),
+        Path("docs/eligibility_path/combined_eligibility_run.md"),
         Path("scripts/eligibility/pipeline.sh"),
     ]
 
