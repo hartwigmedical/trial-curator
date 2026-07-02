@@ -83,11 +83,20 @@ The comparison is **POTTR-centric**: if POTTR is silent for a criterion+polarity
 - **Cancer free-text short-circuit** — if the normalised POTTR `catype:` free-text set equals the normalised
   Hartwig original-condition set, output `identical (text match)` (handles same-cancer/different-code-granularity,
   e.g. `Mesothelioma`→PLMESO vs PEMESO|PLMESO, `Neuroendocrine tumour`≈`Neuroendocrine Tumors`).
-- **cancer_type_exclusive — three categories** (`cancer_excl_verdict`): `identical (oncotree match)`;
-  `coverage too broad - hartwig <broadest ancestor> missing NOT(<pe>)` (POTTR excludes a strict descendant of a
-  broader Hartwig-included umbrella, no competing exclusion); `wrong curation - …` (any hard mismatch: same-
-  granularity conflict, ancestor-of / out-of-scope, or an unmatched extra Hartwig exclusion). Multi-note verdicts
-  use one category prefix with notes joined by `;\n`.
+- **cancer_type_exclusive — three categories** (`cancer_excl_verdict`), POTTR-centric. First, any POTTR
+  exclusion that also appears on POTTR's **own inclusive** side is dropped — that's a multi-cohort flattening
+  artifact (cohort A includes X, cohort B excludes X → X is eligible somewhere, so Hartwig including X is not
+  an error). Then each remaining POTTR exclusion `X` is classified against Hartwig:
+  - `identical (oncotree match)` — every `X` is **honoured**: Hartwig either excludes it too, or includes
+    nothing inside `X`'s subtree (all Hartwig inclusions are *unrelated* to `X`, so the exclusion cannot bite —
+    e.g. Hartwig heme-only vs POTTR `NOT Solid tumour`, or Hartwig skin-`MEL` vs POTTR `NOT Uveal melanoma`).
+  - `coverage too broad - hartwig <broadest ancestor> missing NOT(<X>)` — `X` is a strict **descendant** of a
+    broader Hartwig-included umbrella (e.g. `Pan-cancer`), with no competing exclusion → Hartwig just needs to
+    carve it out.
+  - `wrong curation - …` — a hard mismatch: Hartwig **includes** `X` (or a sub-type of `X`) at the same or finer
+    granularity, so it lets in a cancer POTTR bars; or Hartwig has an unmatched extra exclusion.
+
+  Multi-note verdicts use one category prefix with notes joined by `;\n`.
 - **Gene / variant** — generic ⊃ specific (POTTR `KRAS:oncogenic_mutation` covers Hartwig `KRAS:G12C`);
   gene-family aliases `IDH`→IDH1/2, `BRCA`→BRCA1/2. Hartwig's `SmallVariant` syntax is normalised to POTTR's
   descriptor vocabulary: `affectedExon=N & effects=INFRAME_INSERTION|DELETION` → `exon_N_insertion` /
@@ -103,8 +112,12 @@ The comparison is **POTTR-centric**: if POTTR is silent for a criterion+polarity
   gene-level diff makes specific-variant detail moot).
 - **Molecular signature** — MSI/MSS are complementary states of one axis (`NOT MSI == MSS`), folded onto the
   inclusive side. `POTTR ⊆ hartwig` (exact match within Hartwig's set) is reported as `identical`.
-- **Polarity** — POTTR non-`NOT` → inclusive, `NOT …` → exclusive. Hartwig uses the literal column, **except
-  `Wildtype[X]`**, routed to the exclusive side so it matches POTTR `NOT GENE:oncogenic_mutation`.
+- **Polarity** — POTTR non-`NOT` → inclusive, `NOT …` → exclusive. All POTTR splitting goes through one
+  helper (`iter_pottr_atoms`) that distributes a whole-clause `NOT (A OR B)` across the OR group by De Morgan
+  (`NOT(A OR B) == NOT A AND NOT B`), so **every** disjunct inside inherits the exclusion — without this the
+  OR-split strands the `(` on the first disjunct (dropping it) and loses the `NOT` from the rest (flipping them
+  to inclusive). A bare `(A OR B)` (no `NOT`) yields each disjunct as an independent inclusion. Hartwig uses the
+  literal column, **except `Wildtype[X]`**, routed to the exclusive side so it matches POTTR `NOT GENE:oncogenic_mutation`.
 
 ## Cancer-type curation fixes (companion workflow)
 

@@ -106,7 +106,7 @@ CATYPE = {
  "hepatocellular carcinoma":"HCC","cytotoxic_chemotherapy":None,
  "high-grade serous ovarian cancer":"HGSOC","low-grade glioma":"LGGNOS","lung squamous cell carcinoma":"LUSC",
  "mantle cell lymphoma":"MCL","marginal zone lymphoma":"MZL","melanoma":"MEL","mesenchymal chondrosarcoma":"MCHS",
- "mesothelioma":"PLMESO","mucosal melanoma":"MEL","multiple myeloma":"PCM","myxoid chondrosarcoma":"MYCHS",
+ "mesothelioma":"PLMESO","mucosal melanoma":None,"multiple myeloma":"PCM","myxoid chondrosarcoma":"MYCHS",
  "neuroblastoma":"NBL","neuroendocrine carcinoma":"NECNOS","neuroendocrine tumour":"NETNOS",
  "non-melanoma skin cancer":"SKIN","non-small cell lung cancer":"NSCLC","non-small-cell lung cancer":"NSCLC",
  "oesophageal carcinoma":"ESCA","ovarian carcinosarcoma":"OCS","ovarian clear cell carcinoma":"CCOV",
@@ -238,6 +238,34 @@ def is_gene_symbol(ent):
     if "_" in ent: return False
     return any(c.isupper() for c in ent)
 
+def iter_pottr_atoms(row):
+    """Yield (atom, sign) for every POTTR atom in a cohort row -- the single source of truth for
+    splitting POTTR's `;`(AND) / `OR` / `NOT` / `(...)` syntax (used by every POTTR parser below).
+    A part that is a whole `NOT (...)` group distributes its exclusion across the OR group via
+    De Morgan (NOT(A OR B) == NOT A AND NOT B), so each disjunct inside inherits the EXCLUDE; a bare
+    `(A OR B)` (no NOT) yields each disjunct as an independent INCLUDE. Handling the group first is
+    what stops the OR-split from stranding the `(` on the first disjunct and dropping the `NOT` from
+    the rest (which would silently lose one term and flip the others to inclusive)."""
+    for part in re.split(r';', row):
+        part = part.strip().lstrip("*").strip()
+        if not part:
+            continue
+        gm = re.match(r'NOT\s*\((.*)\)\s*$', part, re.I | re.S)   # whole-part NOT(...) group
+        group_excl = bool(gm)
+        inner = gm.group(1) if gm else part
+        for atom in re.split(r'\bOR\b', inner):
+            atom = atom.strip().lstrip("*").strip().strip("()").strip()
+            if not atom:
+                continue
+            if group_excl:
+                yield atom, EXCLUDE
+                continue
+            m = re.match(r'NOT\s+(.*)$', atom, re.I)              # atom-level NOT (e.g. NOT prior_therapy:X)
+            if m:
+                yield m.group(1).strip(), EXCLUDE
+            else:
+                yield atom, INCLUDE
+
 def pottr_features(rows):
     """Parse all cohort rows of a trial. Returns a dict of categorised criteria so that every
     POTTR token is accounted for: the reconcilable dimensions (cancer/gene/signature) plus the
@@ -248,48 +276,39 @@ def pottr_features(rows):
     expression, prior_therapy, other_clinical, status_flags = [], [], [], []
     def sgn(s, txt): return f"{'NOT ' if s==EXCLUDE else ''}{txt}"
     for row in rows:
-        # split on ; (AND). Parentheses group ORs but we treat each atom independently.
-        for part in re.split(r';', row):
-            part = part.strip().lstrip("*").strip()
-            if not part: continue
-            for atom in re.split(r'\bOR\b', part):
-                atom = atom.strip().lstrip("*").strip().strip("()").strip()
-                if not atom: continue
-                sign = INCLUDE
-                m = re.match(r'NOT\s+(.*)$', atom, re.I)
-                if m: atom = m.group(1).strip(); sign = EXCLUDE
-                cm = re.match(r'catype:\s*(.+)$', atom, re.I)
-                if cm:
-                    name = cm.group(1).strip(); code = map_catype(name)
-                    if code is None:
-                        if name.lower() not in CATYPE: unmapped.append(name)
-                    else:
-                        (c_excl if sign == EXCLUDE else c_incl).add(code)
-                    continue
-                gm = re.match(r'([A-Za-z0-9_]+):\s*(.+)$', atom)
-                if gm:
-                    ent, alt = gm.group(1), gm.group(2).strip()
-                    el = ent.lower()
-                    if el in SIG_GENES:
-                        sig_toks.add((f"{SIG_GENES[el]}:high" if SIG_GENES[el]=="TMB" else "MSI:MSI", SIG, sign)); continue
-                    if el in THERAPY_PREDS:
-                        prior_therapy.append(sgn(sign, f"{ent}:{alt}")); continue
-                    if not is_gene_symbol(ent):     # snake_case clinical predicate (ki67_index, sensitive_to, ...)
-                        other_clinical.append(sgn(sign, f"{ent}:{alt}")); continue
-                    b = pottr_bucket(alt)
-                    if b == EXPR:
-                        expression.append(sgn(sign, f"{ent}:{alt}")); continue
-                    for g in POTTR_GENE_ALIASES.get(ent, [ent]):
-                        gene_toks.add((g, b, sign))
-                    continue
-                # no colon: a bare cancer name (catype: omitted) or a status flag
-                code = map_catype(atom)
-                if code is not None:
-                    (c_excl if sign == EXCLUDE else c_incl).add(code)
-                elif atom.lower() in CATYPE:
-                    pass  # known non-cancer term mapped to None
+        for atom, sign in iter_pottr_atoms(row):
+            cm = re.match(r'catype:\s*(.+)$', atom, re.I)
+            if cm:
+                name = cm.group(1).strip(); code = map_catype(name)
+                if code is None:
+                    if name.lower() not in CATYPE: unmapped.append(name)
                 else:
-                    status_flags.append(sgn(sign, atom))
+                    (c_excl if sign == EXCLUDE else c_incl).add(code)
+                continue
+            gm = re.match(r'([A-Za-z0-9_]+):\s*(.+)$', atom)
+            if gm:
+                ent, alt = gm.group(1), gm.group(2).strip()
+                el = ent.lower()
+                if el in SIG_GENES:
+                    sig_toks.add((f"{SIG_GENES[el]}:high" if SIG_GENES[el]=="TMB" else "MSI:MSI", SIG, sign)); continue
+                if el in THERAPY_PREDS:
+                    prior_therapy.append(sgn(sign, f"{ent}:{alt}")); continue
+                if not is_gene_symbol(ent):     # snake_case clinical predicate (ki67_index, sensitive_to, ...)
+                    other_clinical.append(sgn(sign, f"{ent}:{alt}")); continue
+                b = pottr_bucket(alt)
+                if b == EXPR:
+                    expression.append(sgn(sign, f"{ent}:{alt}")); continue
+                for g in POTTR_GENE_ALIASES.get(ent, [ent]):
+                    gene_toks.add((g, b, sign))
+                continue
+            # no colon: a bare cancer name (catype: omitted) or a status flag
+            code = map_catype(atom)
+            if code is not None:
+                (c_excl if sign == EXCLUDE else c_incl).add(code)
+            elif atom.lower() in CATYPE:
+                pass  # known non-cancer term mapped to None
+            else:
+                status_flags.append(sgn(sign, atom))
     return {"c_incl":c_incl,"c_excl":c_excl,"unmapped":unmapped,"gene":gene_toks,"sig":sig_toks,
             "expression":expression,"prior_therapy":prior_therapy,"other_clinical":other_clinical,
             "status_flags":status_flags}
@@ -361,39 +380,28 @@ def pottr_gene_tokens(rows):
     """-> list of (gene, descriptor, sign) from POTTR gene:alteration atoms (excl expression/sig/predicates)."""
     out = []
     for row in rows:
-        for part in re.split(r";", row):
-            part = part.strip().lstrip("*").strip()
-            if not part:
+        for atom, sign in iter_pottr_atoms(row):
+            gm = re.match(r"([A-Za-z0-9_]+):\s*(.+)$", atom)
+            if not gm:
                 continue
-            for atom in re.split(r"\bOR\b", part):
-                atom = atom.strip().lstrip("*").strip().strip("()").strip()
-                if not atom:
-                    continue
-                sign = INCL
-                m = re.match(r"NOT\s+(.*)$", atom, re.I)
-                if m:
-                    atom = m.group(1).strip(); sign = EXCL
-                gm = re.match(r"([A-Za-z0-9_]+):\s*(.+)$", atom)
-                if not gm:
-                    continue
-                ent, alt = gm.group(1), gm.group(2).strip()
-                if ent.lower() in SIG_GENES or not is_gene_symbol(ent):
-                    continue
-                if pottr_bucket(alt) == EXPR:
-                    continue
-                al = alt.lower()
-                if al in GENERIC_MUT:
-                    desc = "mutation"
-                elif al in ("amplification", "amp", "copy_number_gain", "gain"):
-                    desc = "amplification"
-                elif al in ("deletion", "loss", "homozygous_deletion", "copy_number_loss"):
-                    desc = "deletion"
-                elif al == "fusion" or al.endswith("_fusion"):
-                    desc = "fusion"
-                else:
-                    desc = alt  # specific variant (G12C, V600E, exon_20_insertion, ...)
-                for g in POTTR_GENE_ALIASES.get(ent, [ent]):
-                    out.append((g, desc, sign))
+            ent, alt = gm.group(1), gm.group(2).strip()
+            if ent.lower() in SIG_GENES or not is_gene_symbol(ent):
+                continue
+            if pottr_bucket(alt) == EXPR:
+                continue
+            al = alt.lower()
+            if al in GENERIC_MUT:
+                desc = "mutation"
+            elif al in ("amplification", "amp", "copy_number_gain", "gain"):
+                desc = "amplification"
+            elif al in ("deletion", "loss", "homozygous_deletion", "copy_number_loss"):
+                desc = "deletion"
+            elif al == "fusion" or al.endswith("_fusion"):
+                desc = "fusion"
+            else:
+                desc = alt  # specific variant (G12C, V600E, exon_20_insertion, ...)
+            for g in POTTR_GENE_ALIASES.get(ent, [ent]):
+                out.append((g, desc, sign))
     return out
 
 # ---------------------------------------------------------------- coverage relations
@@ -506,21 +514,12 @@ def pottr_catype_texts(rows):
     pottr_features so the display + the free-text short-circuit see every cancer atom."""
     inc, exc = set(), set()
     for row in rows:
-        for part in re.split(r";", row):
-            part = part.strip().lstrip("*").strip()
-            for atom in re.split(r"\bOR\b", part):
-                atom = atom.strip().lstrip("*").strip().strip("()").strip()
-                if not atom:
-                    continue
-                sign = INCL
-                m = re.match(r"NOT\s+(.*)$", atom, re.I)
-                if m:
-                    atom = m.group(1).strip(); sign = EXCL
-                cm = re.match(r"catype:\s*(.+)$", atom, re.I)
-                if cm:
-                    (exc if sign == EXCL else inc).add(cm.group(1).strip())
-                elif ":" not in atom and map_catype(atom) is not None:
-                    (exc if sign == EXCL else inc).add(atom)   # bare cancer name (maps to a code)
+        for atom, sign in iter_pottr_atoms(row):
+            cm = re.match(r"catype:\s*(.+)$", atom, re.I)
+            if cm:
+                (exc if sign == EXCL else inc).add(cm.group(1).strip())
+            elif ":" not in atom and map_catype(atom) is not None:
+                (exc if sign == EXCL else inc).add(atom)   # bare cancer name (maps to a code)
     return inc, exc
 
 def disp_code(c):
@@ -541,28 +540,34 @@ def cancer_incl_verdict(mine_codes, pottr_codes, hartwig_texts, pottr_incl_texts
     return verdict(mine_codes, pottr_codes, cover_cancer, fmt=cancer_fmt,
                    identical_label="identical (oncotree match)")
 
-def cancer_excl_verdict(hi, he, pe):
+def cancer_excl_verdict(hi, he, pe, p_incl=frozenset()):
     """Cancer *exclusive* verdict, POTTR-centric. Exactly three categories (+ blank), each followed
     by explanatory note(s) joined by ';\\n' (one category prefix, notes left-aligned):
-      identical (oncotree match) -- hartwig's exclusions cover POTTR's exactly (no unmatched either side)
+      identical (oncotree match) -- every POTTR exclusion is honoured: hartwig either excludes it too,
+                                    or includes nothing inside its subtree (so the exclusion cannot bite)
       coverage too broad         -- every uncovered POTTR exclusion is a strict descendant of a BROADER
                                     hartwig-included term (umbrella e.g. Pan-cancer), and hartwig has no
                                     competing exclusion -> hartwig just needs to carve it out
-      wrong curation             -- any hard mismatch: POTTR excludes a term hartwig includes at the SAME
-                                    granularity (no broader ancestor), or an ancestor-of / out-of-scope
-                                    term, or hartwig has an unmatched extra exclusion
-    hi/he = hartwig inclusive/exclusive codes; pe = POTTR excluded codes."""
+      wrong curation             -- any hard mismatch: POTTR excludes a term hartwig INCLUDES at the same
+                                    granularity or as a sub-type (hartwig lets in a cancer POTTR bars), or
+                                    hartwig has an unmatched extra exclusion
+    A POTTR code that also appears on POTTR's OWN inclusive side (p_incl) is a multi-cohort flattening
+    artifact (cohort A includes X, cohort B excludes X -> nets to eligible somewhere) and is dropped
+    before classifying. hi/he = hartwig inclusive/exclusive codes; pe/p_incl = POTTR excluded/included."""
+    pe = {x for x in pe if x not in p_incl}                    # drop POTTR self-overlap (cohort artifact)
     if not pe:
-        return ""                                              # POTTR has no cancer exclusion -> blank
+        return ""                                              # no net POTTR cancer exclusion -> blank
     broad_gap, mismatch = [], []                               # broad_gap: (pe_code, broadest ancestor); mismatch: pe_code
     for x in sorted(pe):
         if any(cover_cancer(h, x) for h in he):
             continue                                           # hartwig already excludes x -> matched
+        if any(rel(h, x) in ("EXACT", "HARTWIG_NARROWER") for h in hi):
+            mismatch.append(x); continue                       # hartwig includes x (or a sub-type of it) -> real conflict
         strict = [h for h in hi if rel(h, x) == "HARTWIG_BROADER"]
         if strict:
             broad_gap.append((x, max(strict, key=lambda h: len(DESC.get(h, ())))))   # broadest included ancestor
-        else:
-            mismatch.append(x)                                 # exact-only conflict / ancestor-of / out-of-scope
+        # else: x is unrelated to every hartwig inclusion -> hartwig includes nothing in x's subtree,
+        #       so the exclusion is already honoured (moot) -> neither a coverage gap nor a conflict
     he_extra = sorted({h for h in he if not any(cover_cancer(h, x) for x in pe)})
     if not broad_gap and not mismatch and not he_extra:
         return f"identical (oncotree match) [pottr excl: {cancer_fmt(pe)}]"
@@ -692,7 +697,7 @@ def main():
             "hartwig_cancer_type_exclusive": m["cancer_type_exclusive"],
             "pottr_cancer_type": signed_disp(p_cat_i, p_cat_e),
             "cancer_type_inclusive_comparison": cancer_incl_verdict(c_inc, P["c_incl"], h_cond_texts, p_cat_i),
-            "cancer_type_exclusive_comparison": cancer_excl_verdict(c_inc, c_exc, P["c_excl"]),
+            "cancer_type_exclusive_comparison": cancer_excl_verdict(c_inc, c_exc, P["c_excl"], P["c_incl"]),
             # -- gene_alteration (gene = symbol-level, variant = specific change)
             "hartwig_gene_alteration_inclusive": m["gene_alteration_inclusive"],
             "hartwig_gene_alteration_exclusive": m["gene_alteration_exclusive"],
