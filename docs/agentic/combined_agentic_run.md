@@ -5,8 +5,7 @@ takes a trial from free text all the way to a fully-enriched DNF resource table.
 
 - **Pipeline:** extract → map (OncoTree + finding-model) → drug enrichment, in **one streamed pass**.
 - **One run = one output + one log.** No intermediate files.
-- Design detail lives in `docs/v2_agentic_pipeline_spec.md`, `docs/v2_field_source_audit.md`, and the
-  diagram `docs/v2_workflow_diagram.html`.
+- Design detail lives in `docs/v2_agentic_pipeline_spec.md` (single spec) and the diagram `docs/v2_workflow_diagram.html`.
 
 ---
 
@@ -116,7 +115,7 @@ that trial's cohort rows); `arm_type` and `drug` are per cohort.
 
 ## Testing
 ```bash
-make agentic-tests        # 48 unit tests, no API, all fake-client
+make agentic-tests        # 53 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 

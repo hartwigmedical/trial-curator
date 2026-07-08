@@ -77,6 +77,49 @@ def test_disk_cache_gives_cross_instance_hits(tmp_path):
     assert fake2.calls == 0
 
 
+class _FakeResearchOpenAI:
+    """Stand-in exposing responses.parse (Responses API + web_search path)."""
+
+    def __init__(self, outputs):
+        self._outputs = list(outputs)
+        self.calls = 0
+        self.responses = SimpleNamespace(parse=self._parse)
+
+    def _parse(self, **kwargs):
+        self.calls += 1
+        item = self._outputs.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _fake_research_response(parsed, *, usage=None):
+    return SimpleNamespace(output_parsed=parsed, output_text=parsed.model_dump_json(), usage=usage)
+
+
+def test_research_returns_validated_object():
+    out = _Out(label="Approved (2015)", score=1)
+    fake = _FakeResearchOpenAI([_fake_research_response(out)])
+    result = LlmClient(openai_client=fake).research(_Out, instructions="sys", user_input="is X TGA-approved?")
+    assert result.parsed == out and result.cache_hit is False and result.attempts == 1
+    assert fake.calls == 1
+
+
+def test_research_is_cached():
+    out = _Out(label="Approved (2015)", score=1)
+    fake = _FakeResearchOpenAI([_fake_research_response(out)])
+    client = LlmClient(openai_client=fake)
+    first = client.research(_Out, instructions="s", user_input="u")
+    second = client.research(_Out, instructions="s", user_input="u")
+    assert first.cache_hit is False and second.cache_hit is True and fake.calls == 1
+
+
+def test_research_missing_parsed_raises():
+    fake = _FakeResearchOpenAI([SimpleNamespace(output_parsed=None, output_text="", usage=None)])
+    with pytest.raises(LlmParseError):
+        LlmClient(openai_client=fake).research(_Out, instructions="s", user_input="u")
+
+
 def test_refusal_raises():
     fake = _FakeOpenAI([_fake_response(None, refusal="cannot help")])
     with pytest.raises(LlmParseError):

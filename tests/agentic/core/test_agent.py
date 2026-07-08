@@ -22,6 +22,7 @@ class _FakeClient:
               temperature=None, seed=None, max_completion_tokens=None):
         self.calls.append(
             {
+                "mode": "parse",
                 "schema": output_schema,
                 "instructions": instructions,
                 "user_input": user_input,
@@ -30,6 +31,10 @@ class _FakeClient:
                 "seed": seed,
             }
         )
+        return LlmResult(self._parsed, model or "fake", "{}", cache_hit=False, attempts=1)
+
+    def research(self, output_schema, *, instructions, user_input, model=None, max_completion_tokens=None):
+        self.calls.append({"mode": "research", "schema": output_schema, "user_input": user_input, "model": model})
         return LlmResult(self._parsed, model or "fake", "{}", cache_hit=False, attempts=1)
 
 
@@ -65,4 +70,16 @@ def test_model_and_params_forwarded():
     client = _FakeClient(_Out(value="x"))
     _agent(client, model="gpt-x", temperature=0.0, seed=7)("hi")
     call = client.calls[0]
-    assert call["model"] == "gpt-x" and call["temperature"] == 0.0 and call["seed"] == 7
+    assert call["mode"] == "parse" and call["model"] == "gpt-x" and call["temperature"] == 0.0 and call["seed"] == 7
+
+
+def test_web_search_routes_to_research():
+    client = _FakeClient(_Out(value="x"))
+    _agent(client, web_search=True)("hi")
+    assert client.calls[0]["mode"] == "research"  # web_search agents use client.research(), not parse()
+
+
+def test_default_agent_uses_parse():
+    client = _FakeClient(_Out(value="x"))
+    _agent(client)("hi")
+    assert client.calls[0]["mode"] == "parse"

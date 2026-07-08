@@ -1,4 +1,4 @@
-"""Eligibility-extraction workflow (spec §6; audit doc §2-§3).
+"""Extraction workflow (see docs/v2_agentic_pipeline_spec.md §7).
 
 Deterministic orchestrator; the LLM only fills the agent steps. Per trial:
 

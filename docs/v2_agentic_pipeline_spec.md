@@ -1,185 +1,216 @@
-# Trial Curator v2 — Agentic Free-Text Pipeline Spec
+# Trial Curator v2 — Agentic Pipeline Spec
 
-- **Status:** initial spec, locked for the first build slice. Living document.
-- **Branch:** `AUS-328-Aus-trial-universe-v2`
-- **Fallback:** tag `aus-trial-eligibility-path-resource-generation-v1` freezes the pre-rewrite state; old branch `AUS-328-Aus-trial-universe` untouched.
-- **LLM provider:** OpenAI only (no Claude API access in this org).
+Single source of truth for the v2 agentic pipeline (`aus_trial_universe/agentic/`): why it exists, how it's
+built, the field sources, and the output schema. For **how to run it**, see `docs/agentic/combined_agentic_run.md`.
 
-> Provisional names are marked **[TBD]**. The v2 runtime + tasks live in a new subfolder `aus_trial_universe/agentic/` **[TBD]** (see §9) — rename freely.
+- **Status:** built and verified end-to-end (ctgov + anzctr). Living document.
+- **Branch:** `AUS-328-Aus-trial-universe-v2`. **Fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only).
+- **LLM provider:** OpenAI only (no Claude API access in this org). SDK `openai>=2.x` (Responses API `web_search`).
 
 ---
 
-## 1. Context & motivation
+## 1. Motivation
 
-Every hard problem in this pipeline — both the eligibility path and the drug-utility path — is really the same problem: turning **large, messy free text** into structured, normalized data. Today that's handled by a scatter of bespoke LLM scripts and structured `.py` curations (`pydantic_curator`), plus separate client layers (`trialcurator`, `trial_drug_curation/llm`) and a one-off agentic loop (`oncotree_agentic_workflow`).
+Every hard problem here — eligibility and drug-utility alike — is the same problem: turning **large, messy free
+text into structured, normalized data**. v2 replaces the old scatter of bespoke LLM scripts + `.py` curations +
+separate client layers with **one reusable agentic machinery**. The behaviour we want is a Claude-Code-style
+session (analyse → dispatch specialists → consolidate → check → loop on error), but reproduced with a
+**deterministic, code-driven orchestrator** rather than an autonomous LLM planner — so it is testable,
+reproducible, cheap, and debuggable across thousands of trials.
 
-v2 replaces all of that with **one reusable agentic machinery** for free-text tasks. The behavior we want is the one you get by handing a task to Claude Code: analyze → dispatch specialists → consolidate → check → loop on error. The insight (see §3) is that we replicate that *behavior* with a **deterministic, code-driven orchestrator** rather than an autonomous LLM planner — so it is testable, reproducible, cheap, and debuggable across thousands of trials.
+## 2. Principles
 
-## 2. Principles (locked)
+1. **Clean slate.** Nothing from the old setup is a fixed point; legacy is mined for *learnings* only. Agentic
+   owns copies of anything it reuses (e.g. `pipeline_io.py`, resource reads) — never import from `eligibility_path`.
+2. **Schema-first.** Every agent pins its exact pydantic output schema; the framework never negotiates shape.
+   This makes each step unit-testable with a fake client, independent of the LLM.
+3. **Deterministic orchestration (pattern B).** Control flow is plain Python. LLMs power the *stages*, never the *plan*.
+4. **One agent per independent task.** Split work into a separate agent only when the sub-tasks are genuinely
+   independent; keep jointly-decided outputs in one agent (see §3). This governs the whole agent inventory.
+5. **Doer → reviewer.** Each generative step is paired with an adversarial reviewer on a bounded refine loop
+   (evaluator–optimizer). Verification is an easier task than generation, so a reviewer catches what the doer missed.
+6. **Determinism via cache.** The response cache is the deterministic layer (identical request → identical output).
+   `temperature`/`seed` are omitted by default (current reasoning models reject `temperature`).
+7. **Model-agnostic.** One client; the model is configuration, swappable per agent.
 
-1. **Clean slate.** Nothing from the current setup is a fixed point. Old modules are mined for *learnings only*, never preserved or extended.
-2. **Schema-first.** The caller *always* pins the exact output structure (the table). The framework never infers or negotiates output shape. This is the core contract and makes every task unit-testable against its schema, independent of the LLM.
-3. **Deterministic orchestration (pattern B).** Control flow is Python. LLMs power the *stages*, never the *plan*.
-4. **OpenAI, model-agnostic.** One client; the model is configuration, swappable per agent.
-5. **Determinism knobs on by default.** `temperature=0` + seed + response caching baked in from day one (keeps the door open for whatever replaces the old run-to-run diff).
-6. **One workflow, both paths.** The same machinery is meant to serve eligibility *and* drug-utility tasks. If it succeeds, the `eligibility_path` / `drug_utility_path` split dissolves into a single task catalog on one runtime (see §9). This is a hypothesis, validated incrementally — eligibility first.
+## 3. Architecture
 
-## 3. Architecture overview
+Two layers. The orchestrator is **code, not an LLM**.
 
-Two layers. The orchestrator is **code, not an LLM** — this is the whole point of pattern B.
+|                | What it is | Decides what runs next? | Deterministic? |
+|----------------|------------|-------------------------|----------------|
+| **Orchestrator** (`agentic/run.py` + task workflows) | plain Python | **Yes** — fixed steps | Yes |
+| **Agent** (a specialist) | one OpenAI call + pinned schema | No — does its one job | No (cache tightens) |
 
-|                | What it is                          | Decides *what runs next*? | Deterministic? |
-|----------------|-------------------------------------|---------------------------|----------------|
-| **Orchestrator** (a Workflow) | plain Python                        | **Yes** — fixed steps     | Yes            |
-| **Agent** (a specialist)      | one OpenAI call + required schema   | No — does its one job     | No (temp=0 tightens) |
+**Guiding principle — one agent per *independent* task.** Split by independence, not by field count:
+- **Keep jointly-decided outputs in one agent.** A DNF row is a conjunction *across* columns (which cancer type
+  co-occurs with which gene), so one **extractor** emits whole rows — splitting per column would lose the pairing.
+- **Split genuinely-independent checks into separate agents.** Faithfulness of each column is independent, so
+  **review** is a parallel panel of focused reviewers.
+- **Deterministic work gets zero agents** (e.g. CTGov cohort/drug read straight from JSON).
 
-Intelligence lives *inside* agents (parsing messy text). Control flow — which agents run, in what order, how results merge, when to retry — lives in code. We copy the *shape* of a Claude Code session and freeze it into Python; no model chooses the plan.
+## 4. Runtime — `agentic/core/` + `agentic/tools/`
 
-## 4. Primitives layer — unified `client.py`
+- **`client.py` (`LlmClient`)** — the single door to OpenAI.
+  - `.parse(schema, …)` → validated pydantic via `chat.completions.parse` (retries, response cache, tracing).
+  - `.research(schema, …)` → same, but via the **Responses API `web_search` tool** for live-web research (TGA/PBS).
+- **`agent.py` (`Agent`)** — `prompt + output schema + model (+ web_search flag)` bound to the client; `__call__`
+  returns the validated object. `web_search=True` routes to `.research()`.
+- **`workflow.py`** — generic `fan_out()` (parallel) + `refine()` (bounded check→repair loop; `max_attempts≈3`).
+- **`tools/`** — reference data + validators agents lean on: `oncotree.py` (code vocab + validator),
+  `finding_model.py` (grammar + syntax validator).
 
-Replaces `trialcurator/{openai_client,drug_openai_client,llm_client}` and `trial_drug_curation/llm/client.py` with **one** client. Responsibilities:
+## 5. The pipeline (one command, one output)
 
-- **Structured output:** given a pydantic output schema, return a *validated* object (OpenAI strict JSON-schema / SDK pydantic parsing). Retries on schema-mismatch.
-- **Reliability:** retries + backoff; rate-limited concurrency (async).
-- **Determinism:** `temperature=0`, seed, and a **response cache** keyed on (model, prompt, schema, params) → identical inputs return identical outputs.
-- **Model-agnostic:** model + params passed via config; swapping models is a config change, not a code change.
-- **Tracing:** per-call log of input/output/tokens for debugging agentic loops.
-
-## 5. Agent & Workflow layer
-
-- **Agent** = `prompt template + input schema + output schema + model config + optional tools`. One well-scoped LLM job. May use tools (e.g. an OncoTree lookup) and self-loop *within* its bounded job, but never decides the overall workflow.
-- **Workflow** = code-defined composition:
-  - **fan-out** — dispatch specialist agents on sub-aspects (often one per output column).
-  - **consolidate** — merge/dedup into the target rows (code, or an LLM *synthesizer* agent if needed).
-  - **check** — schema validation + rule checks + optional LLM/adversarial judge.
-  - **loop** — bounded evaluator–optimizer: feed check failures back to the offending agent, re-run, cap at `MAX_ATTEMPTS`.
-
-Reference shape (eligibility extraction):
-
-```python
-def extract_eligibility(trial_free_text):            # orchestrator = plain Python
-    # FAN-OUT: each specialist = one schema-validated LLM call
-    cancer = cancer_type_agent(trial_free_text)        # -> {oncotree_name, oncotree_code}
-    genes  = gene_alteration_agent(trial_free_text)    # -> [{gene, alteration_desc}, ...]
-    # ... more column specialists
-
-    rows = build_dnf_rows(cancer, genes, ...)          # CONSOLIDATE (code)
-    problems = validate(rows)                          # CHECK (schema + rules [+ LLM judge])
-
-    attempts = 0                                       # LOOP (bounded)
-    while problems and attempts < MAX_ATTEMPTS:
-        rows = repair(rows, problems)                  # re-run only the failing agent w/ feedback
-        problems = validate(rows)
-        attempts += 1
-    return rows
-```
-
-Every task in §7 is one such Workflow reusing this machinery.
-
-## 6. Eligibility path — first concrete application
-
-**Output = a table the user pins**, e.g.:
+`make agentic-run` runs, per trial, in **one streamed pass** (partial results survive an interrupt); one output
+TSV + one log per run. No intermediate files.
 
 ```
-trialId | cohort | cancer_type | gene_alteration | molecular_signature | prior_therapy | ...
+SELECT/ASSEMBLE ─▶ COHORTS ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ stream one row-set
+   loaders          §7.3       §7 (LLM)         §7.5                       §8.1-2   §8.3
 ```
 
-### 6.0 Input — ALL relevant trial sections
-The extractor **and** the faithfulness judge receive **all relevant sections of the trial input, not just the eligibility criteria** — cancer type and molecular selection are often stated in the title, conditions, or description. Extractor and judge must see the *same* assembled text (else the judge flags title/description-derived facts as "invented").
-- **CTGov (structured):** brief title, official title, brief + detailed description, conditions, keywords, eligibility criteria.
-- **ANZCTR (from `anzctr_field_extractions.csv`):** study title, scientific title, health condition, inclusion criteria.
-Assembly is per-source; the workflow takes one `source_text` blob per (trial, cohort).
+Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Output name: single → `trial_resource_<id>.tsv`;
+multiple/all → `trial_resource_<YYYYMMDD_HHMMSS>.tsv`, under `data/agentic/output/`.
 
-### 6.1 Combination logic — Disjunctive Normal Form (DNF)
-- **One row = one satisfiable conjunction** (all its cells ANDed). Rows sharing a `(trialId, cohort)` are **ORed**.
-- **Conditionals become co-occurrence.** "if cancer A then mutation X; if cancer B then mutation Y" →
-  ```
-  T1 | C1 | A | X
-  T1 | C1 | B | Y
-  ```
-- **`group_id`** curbs combinatorial blow-up when independent OR-dimensions AND together (share common criteria instead of full cross-product).
-- **Inclusion vs exclusion** handled by negation (a `negate`/exclusion mechanism per cell/row). *(exact mechanism finalized when we spec the columns)*
-- **Rationale:** keeps the flat table, makes downstream matching trivial ("patient satisfies any row"), stays readable for the human curator. Escalate to a normalized criteria table only if real trials produce genuine blow-up.
+## 6. The DNF model
 
-### 6.2 Cell contents & the curation boundary
-Two consumers, in sequence: **human curator first, then the automated matching engine.** So there are two representations with a curation boundary between them:
+- **One row = one satisfiable conjunction** (cells ANDed). Rows sharing a `(trialId, cohort)` are **ORed**.
+- **Conditionals become co-occurrence:** "if cancer A then mutation X; if cancer B then mutation Y" → two rows.
+- **Exclusions are inline `NOT(...)`.** A cell holds the full requirement for its criterion in that row (several
+  ANDed terms allowed, e.g. `solid tumour AND NOT(melanoma)`); only genuine OR-alternatives split into rows, so
+  every row stays a pure conjunction. (This is the human-readable, pre-curation layer; the finding-model columns
+  are the matcher-encoded form alongside it.)
+- **Provenance:** every extracted cell = `value [SRC1; SRC2]` — all contributing source sections, `;`-delimited.
 
-```
-free text ─[extract WF]─▶ human-readable DNF table ─[human curates]─▶ ─[convert WF]─▶ matcher-encoded table
-                          cells = NORMALIZED terms                     cells = finding-model syntax / codes
-```
+## 7. Extraction stage (Stage I)
 
-- **Normalization sits PRE-curation** (what the human sees & edits): `cancer_type` = OncoTree name (+ code); `gene_alteration` = normalized human description. The curator verifies *meaning*.
-- **Finding-model syntax conversion is a SEPARATE downstream Workflow** run on the curated table (term → e.g. `SmallVariant[gene=EGFR]`). The finding-model syntax is **term-level only (no booleans)** — all boolean logic stays in the DNF rows.
-- **Consequence:** with one curation pass on the human-readable table, the conversion step's output is not human-reviewed → its check/adversarial-judge must carry more weight.
+### 7.1 Input assembly — all relevant sections
+The extractor and reviewers see the **same** assembled document (title/conditions/description are where cancer
+type + molecular selection often live). Assembly is per-source.
 
-## 7. Task catalog (each = one Workflow)
+**CTGov raw field inventory** (`protocolSection.<module>.<field>`):
 
-| Task | Input → Output | Notes |
-|------|----------------|-------|
-| **Eligibility extraction** | free text → DNF table (normalized cells) | first slice |
-| **Cohort alignment** | free text cohorts ↔ structured cohort data | slice 2 (hardest; separable) |
-| **Finding-model conversion** | curated term → finding-model syntax string | post-curation; pull grammar from [finding-datamodel](https://github.com/hartwigmedical/hmftools/tree/master/finding-datamodel) when building |
-| **Cancer-type → OncoTree** | free text → OncoTree name + code | used as the `cancer_type` specialist |
+| Field | Used as / note |
+|---|---|
+| `identificationModule.briefTitle` / `officialTitle` | TITLE / OFFICIAL TITLE |
+| `conditionsModule.conditions` / `keywords` | CONDITIONS / KEYWORDS |
+| `descriptionModule.briefSummary` / `detailedDescription` | BRIEF SUMMARY / DETAILED DESCRIPTION (~half of trials) |
+| `eligibilityModule.eligibilityCriteria` | ELIGIBILITY CRITERIA (incl + excl in one field) |
+| `armsInterventionsModule.interventions[]` | `.type` (DRUG/BIOLOGICAL/…), `.name`, `.otherNames`, `.description` |
+| `armsInterventionsModule.armGroups[]` | `.label`, `.type`, `.interventionNames` — the cohort/arm structure |
+| `eligibilityModule.sex/minimumAge/…`, `designModule.phases/studyType`, `statusModule.overallStatus`, `contactsLocationsModule` | out of extraction scope (gates / housekeeping) |
 
-## 8. First build slice (thin, end-to-end)
+**ANZCTR** (`anzctr_field_extractions.csv`): `STUDY TITLE`, `SCIENTIFIC TITLE`, `HEALTH CONDITION`, `INTERVENTIONS`,
+`INCLUSIVE CRITERIA` → INCLUSION CRITERIA, `EXCLUSIVE CRITERIA` → EXCLUSION CRITERIA. (`ACTRN` stored as bare digits;
+display id is `ACTRN`-prefixed. `COMPARATOR`/`CONTROL`, age/phase/status/geography = gates/housekeeping.)
 
-1. Scaffold `aus_trial_universe/agentic/` **[TBD]** (see §9 layout).
-2. **`client.py`** — §4 (structured outputs, retries, temp=0/seed/cache, tracing).
-3. **Workflow engine** — generic fan-out / consolidate / check / bounded-loop.
-4. **One eligibility-extraction Workflow** with **2 specialist agents** (`cancer_type`→OncoTree, `gene_alteration`) to prove the spine; `cohort` treated as given/single; emit a DNF table with pre-curation normalized cells.
-5. **Check** = schema/grammar validation + an LLM faithfulness judge (does the DNF cover the source without hallucination); loop cap ~2–3.
+### 7.2 The five eligibility columns + taxonomy
+Definitions mirror `pydantic_curator/criterion_schema.py`:
 
-More columns = more specialist agents, added incrementally. Tools start minimal (reference data provided inline; function-calling added once the spine works).
+| Column | Captures | Examples |
+|---|---|---|
+| `cancer_type` | tumour type/site/histology/stage under study (holistic) | "metastatic NSCLC" |
+| `gene_alteration` | specific gene + alteration (DNA/mRNA) | "EGFR exon 19 deletion", "KRAS G12C" |
+| `molecular_signature` | composite/genomic signature (not one gene's variant) | "MSI-H", "TMB-high", "HRD" |
+| `molecular_biomarker` | expression-based, protein/IHC | "PD-L1 ≥1% (IHC)", "HER2 IHC 3+", "ER+" |
+| `prior_therapy` | required/excluded prior treatment (not permissive) | "≥1 prior platinum line", "NOT(prior anti-PD-1)" |
 
-## 9. Repo layout & module retirement schedule
+Edge rules baked into prompts: HER2/ERBB2 — expression→biomarker, amplification→gene_alteration; MMR — dMMR/pMMR
+IHC→biomarker, MSI-H→signature; histology folds into `cancer_type`; permitted (non-restricting) prior therapies are
+omitted; out-of-scope criteria (age/labs/PS/comorbidity/other-malignancy/reproductive) ignored.
 
-Everything stays under `aus_trial_universe/` (still AU/NZ trials). The v2 runtime **and** its tasks live in one new sibling subfolder — provisionally `aus_trial_universe/agentic/` **[TBD]** — deliberately *not* split by path, because the same machinery serves both:
+**Per-criterion source sections** (which assembled sections feed each): `cancer_type` — all sections
+(titles/conditions/keywords/summary/description/eligibility). `gene_alteration` / `molecular_signature` /
+`molecular_biomarker` / `prior_therapy` — the same set, chiefly the eligibility/inclusion+exclusion criteria.
+
+### 7.3 Cohorts
+One cohort per arm. **CTGov:** deterministic from `armGroups` (`label`, `type` → `arm_type`, `interventionNames`
+→ drug). **ANZCTR:** a conservative **cohort-detection agent** (default single cohort; only splits on explicit
+distinct-eligibility groups) + an **LLM drug agent** (from `INTERVENTIONS`). The extractor is **cohort-aware**: it
+assigns each criterion to a specific cohort or "trial-wide"; a cohort's effective eligibility =
+`trial-wide ∧ cohort-specific` (cross-product distribution), so each output row is self-contained with its own drug.
+
+### 7.4 Provenance vocabulary (the `[source]` tags)
+- **CTGov:** `TITLE`, `OFFICIAL TITLE`, `CONDITIONS`, `KEYWORDS`, `BRIEF SUMMARY`, `DETAILED DESCRIPTION`, `ELIGIBILITY CRITERIA`, `INTERVENTIONS MODULE`.
+- **ANZCTR:** `STUDY TITLE`, `SCIENTIFIC TITLE`, `HEALTH CONDITION`, `INCLUSION CRITERIA`, `EXCLUSION CRITERIA`, `INTERVENTIONS`.
+
+Cite all sections a value came from, `;`-delimited (CTGov bundles incl+excl in one `ELIGIBILITY CRITERIA` field;
+ANZCTR keeps them separate, so a negated criterion may cite `EXCLUSION CRITERIA`).
+
+### 7.5 Review panel
+One cohort-aware **extractor** (whole rows) checked by a rule-check then a **5-agent parallel panel**:
+`cancer_type` (strengthened: reject false-positive tumours seen only in prior-therapy/history/exclusion context),
+`molecular` (faithfulness + correct column per taxonomy), `prior_therapy`, `structural` (DNF integrity + cohort
+scope), and `drug` (**advisory** — doesn't gate). The bounded refine loop re-runs the extractor on the four gating
+reviewers' feedback (max ~3 attempts); the drug reviewer is reported but non-blocking.
+
+## 8. Mapping stage (Stage II)
+
+Enriches the DNF rows. Every procedure is an LLM **mapper/curator → reviewer** (§2.5), grounded in the legacy
+resources per the hold-out rule (§8.4).
+
+### 8.1 cancer_type → OncoTree
+Mapper → `oncotree_name` + `oncotree_code`, preserving AND/NOT; grounded in the OncoTree ontology
+(`tools/oncotree.py`). A deterministic validator rejects invalid codes, `[None]` noise, and any code that is both
+included and excluded, before the reviewer.
+
+### 8.2 gene_alteration / molecular_signature → finding-model syntax
+Mapper → Hartwig finding-model syntax (`tools/finding_model.py` grammar): `SmallVariant[gene=… & …]`,
+`GainDeletion[… & type=GAIN|HOM_DEL|HET_DEL]`, `Fusion[geneStart/geneEnd]`, `Disruption`, `Arm[…]`, `Wildtype`,
+`MicrosatelliteStability[…]`, `homologousRecombination[…]`, `tumorMutationBurden/Load[…]`. A syntax validator
+(balanced brackets, known classes, gene-scoped `SmallVariant`) runs before the reviewer.
+
+### 8.3 Drug enrichment (trial-level, one web-search curator → reviewer)
+Sources: CTGov `interventions[].name/otherNames/description`; ANZCTR `INTERVENTIONS` (RxNorm cross-check
+**shelved**). One web-search curator produces, for the trial:
+- `main_drugs` / `auxiliary_drugs` — investigational drug(s)/regimen (listed first) vs comparators/backbone/supportive;
+- `pottr_drug_class` — POTTR class hierarchy of the main drug(s); `drug_class` — general (non-POTTR) class (web search);
+- `tga_status` — TGA/ARTG approval of the main drug(s), `Approved (YYYY)` / `Not approved` / `Unclear`;
+- `pbs_status` — PBS reimbursement of the main drug(s), with details.
+
+### 8.4 Hold-out / anti-overfitting rule
+Prompts teach **grammar/ontology + a few (~8–12) diverse examples only**. The hand-curated resources
+(`ConditionsCurationResource`, `GeneAlterationCurationResource`, `MolecularSignatureCurationResource`, manual
+overwrites) are **held-out verification data**, checked **manually** later (esp. `gene_alteration`) against the
+legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would degenerate into a mechanical vlookup).
+The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
+
+## 9. Output schema (19 columns)
+`trialId, cohort, arm_type, cancer_type, oncotree_name, oncotree_code, gene_alteration,
+gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
+prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status`.
+`arm_type` + `drug` are per cohort; `main_drugs`/classes/regulatory are trial-level (repeated across the trial's rows).
+
+## 10. Repo layout & retirement
 
 ```
 aus_trial_universe/
-  eligibility_path/      # legacy — reference; retired as v2 supersedes it
-  drug_utility_path/     # legacy — reference; retired as v2 supersedes it
-  agentic/               # [TBD] the v2 approach (unifies both)
-    core/                # runtime: client.py, agent.py, workflow.py, cache + tracing
-    tasks/               # one Workflow per task: extraction/, cohort_alignment/,
-                         #   finding_model_conversion/, oncotree_mapping/, drug_curation/, ...
-    tools/               # reference-data lookups agents can call (OncoTree, finding-model vocab, ...)
+  eligibility_path/  drug_utility_path/   # legacy — reference (resource source) until superseded
+  agentic/
+    run.py                               # pipeline orchestrator
+    core/    client.py agent.py workflow.py pipeline_io.py
+    tasks/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
+    tools/   oncotree.py  finding_model.py
 ```
+Shared identity/reference code belongs in `agentic/tools/` (do not reintroduce the old drug_utility→eligibility
+RxNorm coupling). `ui/` deleted. `actin_curator/`, `pydantic_curator/`, `trialcurator/`, `qa/` retire as v2
+supersedes each (legacy still supplies resources + is imported by the old paths).
 
-- **`client.py`** lives in `agentic/core/`; hoist to a more shared location only if something outside `aus_trial_universe/` ever needs it (unlikely).
-- **Unification:** eligibility and drug-utility tasks are just entries in one `tasks/` catalog on one runtime — no path split inside `agentic/`.
-- **Cross-path coupling learning:** the RxNorm identity code physically lives in `drug_utility_path` but is imported by the eligibility path — do **not** reintroduce this; shared identity/reference code belongs in `agentic/tools/`.
+## 11. Verification
+- **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (53 tests).
+- **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
+- **Mapping accuracy:** **manual** hold-out comparison against the legacy trial-resource + curated resources
+  (a 10-trial complex review set is written to `data/agentic/analysis/review_trials_ids.txt`). An automated
+  run-comparison method is deferred (§12).
 
-| Module | Action |
-|--------|--------|
-| `ui/` | ✅ deleted (staged) |
-| `actin_curator/` | retire **with** the Dockerfile/README rewrite (it's the Docker `ENTRYPOINT` + README subject) once v2 has an entrypoint |
-| `pydantic_curator/` | keep as *learnings* reference → delete when v2 extraction supersedes it (imported by batch-run steps + `load_curated_rules`) |
-| `trialcurator/` | keep as client reference → delete when unified `client.py` lands (imported by `iii_extract_drugs`) |
-| `qa/` (run-to-run diff) | keep → delete when the new run-comparison is specced (imported by `recursive_end_to_end_workflow`) |
+## 12. Open / deferred
+- **Run-comparison method** — replacement for `qa/final_resource_diff.py`; how it treats residual LLM variance is TBD.
+- **RxNorm cross-check** for ANZCTR drugs (currently LLM-only) — shelved; may return as a validation layer.
+- **OncoTree granularity** — occasional over-strict "unfaithful" on subtype-heavy trials; tune against the manual review.
+- **Stage-I ingestion** (download → drug-filter + POTTR-append → retire-missing) is not yet in agentic; the pipeline
+  currently reads the versioned inputs the legacy path produces.
 
-> Note: `eligibility_path/` and `drug_utility_path/` themselves become retirement candidates once their tasks are re-implemented as Workflows under `agentic/` — validated incrementally, eligibility first.
-
-## 10. Open / deferred decisions
-
-- **Run-comparison method** — replacement for `qa/final_resource_diff.py`; deferred, in scope later.
-- **Reproducibility final stance** — determinism knobs are baked, but how the new comparison treats residual LLM variance is TBD.
-- **Cohort alignment** — full free-text ↔ structured design (slice 2).
-- **Finding-model grammar** — pulled from the finding-datamodel repo when we build the conversion Workflow; not needed for slice 1.
-- **Exclusion/negation mechanism** in the DNF table — finalized with the column spec.
-- **Model tier defaults** — per-agent model config; pick concrete OpenAI models (cheap default + escalation) when wiring, from the current model list.
-- **Package name** — `agentflow/` is provisional.
-
-## 11. Verification approach
-
-- **Orchestration/consolidate/check code:** unit-testable with mocked agents — no LLM needed (deterministic Python).
-- **Agents:** schema-conformance tests (mocked) + a small "external" suite hitting the real model on sample trials.
-- **Slice acceptance:** run the thin eligibility Workflow end-to-end on a handful of real trials; inspect the DNF table for faithfulness and schema validity.
-
-## 12. Non-goals
-
-- No autonomous LLM orchestrator (pattern A).
-- No structured `.py` curation output (the old `pydantic_curator` format).
-- No preservation of the `qa/` run-to-run diff.
-- No new cross-path coupling.
+## 13. Non-goals
+- No autonomous LLM orchestrator (pattern A). No `pydantic_curator`-style `.py` curation output.
+- No preservation of the old `qa/` run-to-run diff. No new cross-path coupling.

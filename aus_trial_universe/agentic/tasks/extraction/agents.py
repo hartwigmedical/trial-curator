@@ -1,4 +1,4 @@
-"""Specialist agents for the extraction task (spec §6; audit doc §2-§3).
+"""Specialist agents for the extraction task (see docs/v2_agentic_pipeline_spec.md §7).
 
 Extraction agents (source-dependent):
 - extractor:        relevant trial text + COHORTS list -> scoped DNF rows (5 eligibility columns).

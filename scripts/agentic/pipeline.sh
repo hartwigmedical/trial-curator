@@ -6,7 +6,7 @@
 # Subcommands:
 #   run     Full pipeline: Stage I extract -> Stage II map (OncoTree). Runs the unit
 #           tests first (aborts on failure) and tees a combined timestamped log.
-#           Vars: ID=<id> [SOURCE=ctgov|anzctr] | SELECTED=<N>
+#           Vars: ID=<id> (one) | IDS=<a,b,c> (a set) | none = ALL trials
 #                 optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1
 #   tests   Run the agentic unit-test suite (no API calls).
 #   clean   Delete all run outputs under data/agentic/ (output/, log/, cache/).

@@ -1,4 +1,4 @@
-"""Output schemas for the extraction task (spec §6; audit doc §2-§3).
+"""Output schemas for the extraction task (see docs/v2_agentic_pipeline_spec.md §7).
 
 The product is a DNF table: one row = one satisfiable conjunction; rows sharing a
 (trialId, cohort) are ORed. Cells hold pre-curation *normalized human descriptions*
