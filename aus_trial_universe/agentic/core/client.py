@@ -5,9 +5,10 @@ back a *validated* object. It also owns reliability (retries + backoff), a
 response cache, and per-call tracing.
 
 Structured outputs go through the Chat Completions parse helper
-(`client.chat.completions.parse` if present, else `client.beta.chat.completions.parse`) —
-the installed SDK (openai 1.60.1) predates the Responses API, and the beta parse
-helper is the stable structured-output path there.
+(`client.chat.completions.parse`, falling back to `client.beta.chat.completions.parse`
+on older SDKs). Targets openai >= 2.x, where `chat.completions.parse` is stable. The
+Responses API is also available at 2.x, but Chat Completions parse is proven and
+sufficient here, so the client stays on it.
 
 Design notes
 ------------
@@ -203,6 +204,87 @@ class LlmClient:
         self._emit_trace(key, result, latency_ms=latency_ms)
         return result
 
+    def research(
+        self,
+        output_schema: type[T],
+        *,
+        instructions: str,
+        user_input: str,
+        model: str | None = None,
+        max_completion_tokens: int | None = None,
+    ) -> LlmResult[T]:
+        """Like parse(), but answers via the Responses API with the web_search tool.
+
+        For research tasks (e.g. TGA/PBS regulatory status) that need live web lookups.
+        Cached on (mode, model, instructions, input, schema) for run-to-run reproducibility.
+        """
+        model = model or self.model
+        key = _fingerprint(
+            {
+                "mode": "research:web_search",
+                "model": model,
+                "instructions": instructions,
+                "input": user_input,
+                "schema": output_schema.model_json_schema(),
+                "max_completion_tokens": max_completion_tokens,
+            }
+        )
+        cached = self.cache.get(key)
+        if cached is not None:
+            try:
+                parsed = output_schema.model_validate_json(cached)
+                result = LlmResult(parsed, model, cached, cache_hit=True, attempts=0)
+                self._emit_trace(key, result, latency_ms=0.0)
+                return result
+            except ValidationError:
+                logger.warning("Cached research %s failed validation; recomputing", key[:12])
+
+        start = time.monotonic()
+        parsed, raw_text, usage, attempts = self._research_with_retries(
+            output_schema=output_schema, model=model, instructions=instructions,
+            user_input=user_input, max_completion_tokens=max_completion_tokens,
+        )
+        latency_ms = (time.monotonic() - start) * 1000
+        self.cache.set(key, raw_text)
+        result = LlmResult(parsed, model, raw_text, cache_hit=False, attempts=attempts, usage=usage)
+        self._emit_trace(key, result, latency_ms=latency_ms)
+        return result
+
+    def _research_with_retries(
+        self, *, output_schema: type[T], model: str, instructions: str,
+        user_input: str, max_completion_tokens: int | None,
+    ) -> tuple[T, str, dict[str, Any] | None, int]:
+        client = self._ensure_client()
+        transient = _transient_errors()
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "instructions": instructions,
+            "input": user_input,
+            "tools": [{"type": "web_search"}],
+            "text_format": output_schema,
+        }
+        if max_completion_tokens is not None:
+            kwargs["max_output_tokens"] = max_completion_tokens
+
+        delay = self.initial_delay
+        last_err: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = client.responses.parse(**kwargs)
+            except transient as err:  # rate limit / timeout / connection / 5xx
+                last_err = err
+                logger.warning("Transient research error (attempt %d/%d): %s", attempt, self.max_retries, err)
+                if attempt < self.max_retries:
+                    self._sleep(min(delay, self.max_delay))
+                    delay *= 2
+                continue
+            parsed = getattr(response, "output_parsed", None)
+            if parsed is None:
+                raw = getattr(response, "output_text", "") or ""
+                raise LlmParseError(f"No parsable research output for {output_schema.__name__}: {raw[:200]!r}")
+            return parsed, parsed.model_dump_json(), _usage_dict(response), attempt
+        raise LlmError(f"Research call failed after {self.max_retries} attempts") from last_err
+
     def _call_with_retries(
         self,
         *,
@@ -317,7 +399,7 @@ def _resolve_parse(client: Any) -> Callable[..., Any]:
         return beta_parse
     raise LlmError(
         "The installed openai SDK exposes no chat.completions.parse "
-        "(need openai>=1.40 for structured outputs)."
+        "(need openai>=2.0 for structured outputs)."
     )
 
 

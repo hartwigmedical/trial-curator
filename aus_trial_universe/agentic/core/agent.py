@@ -34,6 +34,7 @@ class Agent(Generic[TOut]):
         seed: int | None = None,
         max_completion_tokens: int | None = None,
         render_input: Callable[[Any], str] = str,
+        web_search: bool = False,
     ) -> None:
         self.name = name
         self.instructions = instructions
@@ -44,10 +45,19 @@ class Agent(Generic[TOut]):
         self.seed = seed
         self.max_completion_tokens = max_completion_tokens
         self.render_input = render_input
+        self.web_search = web_search  # research via the Responses API web_search tool
 
     def run(self, input_data: Any) -> LlmResult[TOut]:
         """Run the agent and return the full LlmResult (parsed object + metadata)."""
         user_input = input_data if isinstance(input_data, str) else self.render_input(input_data)
+        if self.web_search:
+            return self.client.research(
+                self.output_schema,
+                instructions=self.instructions,
+                user_input=user_input,
+                model=self.model,
+                max_completion_tokens=self.max_completion_tokens,
+            )
         return self.client.parse(
             self.output_schema,
             instructions=self.instructions,

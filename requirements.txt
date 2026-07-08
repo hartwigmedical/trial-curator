@@ -6,6 +6,6 @@ pandas
 requests         # ClinicalTrials.gov API download
 
 # v2 agentic pipeline (LLM workflows) — see docs/v2_agentic_pipeline_spec.md
-openai>=1.50           # structured outputs via (beta.)chat.completions.parse(response_format=<pydantic>)
+openai>=2.0            # structured outputs via chat.completions.parse(response_format=<pydantic>)
 pydantic>=2.7          # schema-first output models
 python-dotenv>=1.0     # load OPENAI_API_KEY from .env

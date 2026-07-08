@@ -142,7 +142,7 @@ aus_trial_universe/
   drug_utility_path/     # legacy — reference; retired as v2 supersedes it
   agentic/               # [TBD] the v2 approach (unifies both)
     core/                # runtime: client.py, agent.py, workflow.py, cache + tracing
-    tasks/               # one Workflow per task: eligibility_extraction/, cohort_alignment/,
+    tasks/               # one Workflow per task: extraction/, cohort_alignment/,
                          #   finding_model_conversion/, oncotree_mapping/, drug_curation/, ...
     tools/               # reference-data lookups agents can call (OncoTree, finding-model vocab, ...)
 ```

@@ -1,0 +1,327 @@
+<title>Trial Extraction &mdash; Workflow</title>
+<style>
+  :root {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7;
+    --ink: #16212e; --ink-soft: #4d5e70; --ink-faint: #7b8a9a;
+    --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2;      /* deterministic code */
+    --gen: #b0741d; --gen-bg: #f6ecd9;         /* LLM &middot; extract / generate */
+    --rev: #b0453f; --rev-bg: #f6e2df;         /* LLM &middot; review / verify */
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 20px rgba(20,35,55,.05);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825;
+      --ink: #dde7f1; --ink-soft: #9fb0c1; --ink-faint: #6d7f91;
+      --border: #26333f; --border-strong: #364857;
+      --code: #4fc2cf; --code-bg: #10312f;
+      --gen: #e0a53f; --gen-bg: #3a2e17;
+      --rev: #e08079; --rev-bg: #3a201d;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7;
+    --ink: #16212e; --ink-soft: #4d5e70; --ink-faint: #7b8a9a;
+    --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2;
+    --gen: #b0741d; --gen-bg: #f6ecd9;
+    --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 20px rgba(20,35,55,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825;
+    --ink: #dde7f1; --ink-soft: #9fb0c1; --ink-faint: #6d7f91;
+    --border: #26333f; --border-strong: #364857;
+    --code: #4fc2cf; --code-bg: #10312f;
+    --gen: #e0a53f; --gen-bg: #3a2e17;
+    --rev: #e08079; --rev-bg: #3a201d;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 44px 24px 64px; }
+
+  .date { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px; }
+  h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -.01em; text-wrap: balance; }
+  .thesis { font-size: 17px; color: var(--ink-soft); max-width: 66ch; margin: 0; }
+  .thesis b { color: var(--ink); font-weight: 600; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 26px 0 30px; padding: 14px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .legend .item { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--ink-soft); }
+  .dot { width: 13px; height: 13px; border-radius: 4px; flex: none; }
+  .dot.code { background: var(--code); } .dot.gen { background: var(--gen); } .dot.rev { background: var(--rev); }
+
+  .spine { display: flex; flex-direction: column; gap: 0; }
+  .stage { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 15px 18px 15px 20px; box-shadow: var(--shadow); }
+  .stage .rail { position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 4px; background: var(--code); }
+  .stage .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .tag { font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--code); font-weight: 600; }
+  .stage h3 { font-size: 16px; margin: 0; font-weight: 650; }
+  .badge { margin-left: auto; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: none; }
+  .badge.code { color: var(--code); background: var(--code-bg); }
+  .badge.mix { color: var(--gen); background: var(--gen-bg); }
+  .stage p { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-soft); max-width: 74ch; }
+  .inline-code { font-family: var(--mono); font-size: .88em; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; color: var(--ink); }
+
+  .conn { height: 20px; width: 2px; background: var(--border-strong); margin: 0 auto; position: relative; }
+  .conn::after { content: ""; position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--border-strong); }
+
+  /* field-source map under Assemble */
+  .srcmap-wrap { overflow-x: auto; margin-top: 11px; }
+  .srcmap { display: grid; grid-template-columns: 210px 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; min-width: 640px; }
+  .srcmap > span { background: var(--panel); padding: 8px 11px; font-size: 12px; color: var(--ink-soft); }
+  .srcmap .hc { background: var(--panel-2); font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); }
+  .srcmap .crit { font-family: var(--mono); font-size: 11.5px; color: var(--code); font-weight: 600; line-height: 1.5; }
+  .note { font-size: 12.5px; color: var(--ink-faint); margin-top: 8px; }
+
+  /* cohort branch */
+  .branch { display: flex; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+  .branch .b { flex: 1 1 260px; border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+  .branch .b .src { font-family: var(--mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; }
+  .branch .b.ct .src { color: var(--code); } .branch .b.an .src { color: var(--gen); }
+  .branch .b p { margin: 5px 0 0; font-size: 12.5px; }
+  .branch .b b { color: var(--gen); font-weight: 700; }
+
+  /* the loop */
+  .loop { border: 2px solid color-mix(in srgb, var(--gen) 40%, var(--border)); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); padding: 18px; }
+  .loop-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .loop-title .t { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--gen); font-weight: 700; }
+  .loop-title .s { font-size: 13px; color: var(--ink-faint); }
+  .loop-sub { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 16px; max-width: 82ch; }
+  .loop-sub b { color: var(--ink); }
+
+  .loop-grid { display: grid; grid-template-columns: 1fr 118px 1fr; gap: 12px; align-items: stretch; }
+  @media (max-width: 800px) { .loop-grid { grid-template-columns: 1fr; } }
+
+  .agent { border: 1.5px solid var(--border); border-radius: 12px; padding: 14px; background: var(--panel-2); }
+  .agent.extract { border-color: color-mix(in srgb, var(--gen) 55%, var(--border)); }
+  .agent.review  { border-color: color-mix(in srgb, var(--rev) 55%, var(--border)); }
+  .agent .a-head { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; margin-bottom: 3px; }
+  .agent.extract .a-head { color: var(--gen); }
+  .agent.review .a-head { color: var(--rev); }
+  .agent .a-lead { font-size: 12.5px; color: var(--ink-soft); margin: 0 0 10px; }
+  .tasks-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); margin: 12px 0 6px; }
+  .agent ul { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+  .agent li { font-size: 12.5px; color: var(--ink); padding-left: 15px; position: relative; }
+  .agent li::before { content: ">"; position: absolute; left: 0; color: var(--gen); font-weight: 700; }
+  .agent.review li::before { content: none; }
+
+  .examples { display: flex; flex-direction: column; gap: 6px; }
+  .examples code { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; overflow-x: auto; white-space: nowrap; }
+  .examples code b { color: var(--gen); font-weight: 700; }
+
+  .reviewers { gap: 9px !important; }
+  .rv { display: flex; gap: 9px; align-items: baseline; }
+  .rv .k { font-family: var(--mono); font-size: 11px; font-weight: 700; flex: none; min-width: 92px; }
+  .rv.gate .k { color: var(--rev); } .rv.adv .k { color: var(--ink-faint); }
+  .rv .d { font-size: 12px; color: var(--ink-soft); }
+  .pill { display: inline-block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; padding: 1px 6px; border-radius: 999px; }
+  .pill.gate { color: var(--rev); background: var(--rev-bg); }
+  .pill.adv { color: var(--ink-faint); background: var(--panel); border: 1px dashed var(--border-strong); }
+
+  .cycle { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; text-align: center; }
+  @media (max-width: 800px) { .cycle { flex-direction: row; padding: 6px 0; } }
+  .cycle .flow { font-size: 10.5px; font-family: var(--mono); color: var(--ink-soft); line-height: 1.3; }
+  .cycle .flow .lab { display: block; font-size: 9.5px; letter-spacing: .04em; color: var(--ink-faint); }
+  .cycle .arrow { font-size: 19px; line-height: 1; }
+  .cycle .arrow.fwd { color: var(--gen); } .cycle .arrow.back { color: var(--rev); }
+  .cycle .refine { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--rev); background: var(--rev-bg); border: 1px solid var(--rev); border-radius: 999px; padding: 4px 9px; white-space: nowrap; }
+
+  .loop-exits { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 16px; }
+  .exit { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); font-size: 12.5px; color: var(--ink-soft); }
+  .exit .n { font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 3px; }
+  .exit.pass .n { color: var(--code); } .exit.loop .n { color: var(--rev); } .exit.stop .n { color: var(--ink-faint); }
+  .exit b { color: var(--ink); }
+
+  .layers { margin-top: 40px; }
+  .layers h2 { font-size: 13px; font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 14px; }
+  .layer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .layer { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .layer .name { font-family: var(--mono); font-size: 13px; color: var(--code); font-weight: 600; }
+  .layer p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* stage II &mdash; mapping band */
+  .stage2-band { border: 2px solid color-mix(in srgb, var(--code) 35%, var(--border)); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); padding: 18px; }
+  .stage2-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .stage2-title .t { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--code); font-weight: 700; }
+  .stage2-title .s { font-size: 13px; color: var(--ink-faint); }
+  .procs { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 12px; margin-top: 14px; }
+  .proc { border: 1.5px solid var(--border); border-radius: 12px; padding: 13px; background: var(--panel-2); }
+  .proc .ph { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .proc h4 { margin: 0; font-size: 13.5px; }
+  .proc .st { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; flex: none; }
+  .proc .st.built { color: var(--code); background: var(--code-bg); }
+  .proc .st.next { color: var(--ink-faint); background: var(--panel); border: 1px dashed var(--border-strong); }
+  .proc .role { font-size: 12px; margin: 7px 0 0; color: var(--ink-soft); }
+  .proc .role b.map { color: var(--gen); } .proc .role b.rev { color: var(--rev); } .proc .role b.chk { color: var(--code); }
+  .proc .ground { font-size: 10.5px; color: var(--ink-faint); margin-top: 8px; font-style: italic; }
+</style>
+
+<div class="wrap">
+  <p class="date">8 July 2026</p>
+  <h1>Trial extraction &mdash; how the modules interact</h1>
+  <p class="thesis">Deterministic code owns the control flow; the LLM fills only <b>two kinds of slot</b> &mdash;
+    extract and review &mdash; wired into an <b>evaluator&ndash;optimizer loop</b>. Everything runs once per trial.</p>
+
+  <div class="legend">
+    <div class="item"><span class="dot code"></span> Deterministic code</div>
+    <div class="item"><span class="dot gen"></span> LLM &middot; extract / generate</div>
+    <div class="item"><span class="dot rev"></span> LLM &middot; review / verify</div>
+  </div>
+
+  <div class="spine">
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Select &amp; load</span><h3>Pick the trials &amp; input files</h3><span class="badge code">code</span></div>
+      <p><span class="inline-code">--id</span> (source auto-detected) or <span class="inline-code">--selected N</span>; reads the newest versioned CTGov JSON / ANZCTR CSV.</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Assemble</span><h3>Which fields feed each criterion</h3><span class="badge code">code</span></div>
+      <p>Every criterion is sought in specific source sections; the section label becomes the <span class="inline-code">[provenance]</span> tag on the extracted cell.</p>
+      <div class="srcmap-wrap">
+        <div class="srcmap">
+          <span class="hc">Criterion</span><span class="hc">CTGov sections</span><span class="hc">ANZCTR sections</span>
+          <span class="crit">cancer_type</span>
+          <span>title &middot; official title &middot; conditions &middot; keywords &middot; brief summary &middot; detailed description &middot; eligibility criteria</span>
+          <span>study title &middot; scientific title &middot; health condition &middot; inclusion criteria &middot; exclusion criteria</span>
+          <span class="crit">gene_alteration<br>molecular_signature<br>molecular_biomarker<br>prior_therapy</span>
+          <span>same sections &mdash; chiefly <b style="color:var(--code)">eligibility criteria</b></span>
+          <span>same sections &mdash; chiefly <b style="color:var(--code)">inclusion + exclusion criteria</b></span>
+        </div>
+      </div>
+      <p class="note">drug &amp; cohort come from different fields and are resolved in the next stage &darr;</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Cohorts &amp; drug</span><h3>Split by registry &mdash; the sources differ a lot</h3><span class="badge mix">code + llm</span></div>
+      <div class="branch">
+        <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
+          <p>read <span class="inline-code">armGroups</span> &rarr; one cohort per arm; drug = that arm's <span class="inline-code">interventionNames</span>. No LLM.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; 2 LLM agents</span>
+          <p><b>cohort-detection</b> &mdash; find distinct-eligibility groups; default to a single cohort (conservative).<br>
+             <b>drug</b> &mdash; extract raw intervention names from the <span class="inline-code">INTERVENTIONS</span> free text.</p></div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <!-- ===== THE LOOP ===== -->
+    <section class="loop">
+      <div class="loop-title"><span class="t">Extract &rarr; check &rarr; refine</span><span class="s">the heart of the workflow &middot; same extractor &amp; panel for both registries</span></div>
+      <p class="loop-sub">One agent <b>generates</b> the candidate table; a panel <b>verifies</b> it. Verification is an easier task than
+        generation and runs on a fresh pass with the finished table in view &mdash; so it catches omissions the generator missed.
+        Failures are fed back and the extractor <b>redoes</b> the work, up to 3 attempts.</p>
+
+      <div class="loop-grid">
+        <div class="agent extract">
+          <div class="a-head">&#9312; Extract &middot; 1 LLM agent</div>
+          <p class="a-lead">Reads the assembled document + cohort list &rarr; the candidate DNF table.</p>
+          <div class="tasks-label">Essential tasks</div>
+          <ul>
+            <li>emit whole rows &mdash; one ANDed conjunction each; OR-alternatives &rarr; separate rows</li>
+            <li>fill the 5 columns; leave <span class="inline-code">""</span> when a criterion isn't required</li>
+            <li>wrap exclusions in <span class="inline-code">NOT()</span>; keep same-column carve-outs in one cell</li>
+            <li>tag every value with its source section <span class="inline-code">[a; b]</span></li>
+            <li>assign each row a cohort scope: <span class="inline-code">C1</span>&hellip; or <span class="inline-code">trial-wide</span></li>
+          </ul>
+          <div class="tasks-label">Examples</div>
+          <div class="examples">
+            <code>[<b>trial-wide</b>] cancer_type = "ES-SCLC AND NOT(complex SCLC) [TITLE; ELIGIBILITY CRITERIA]"</code>
+            <code>[<b>trial-wide</b>] gene_alteration = "EGFR exon 19 deletion [ELIGIBILITY CRITERIA]"</code>
+            <code>[<b>C1</b>] molecular_biomarker = "HR+ AND HER2- [ELIGIBILITY CRITERIA]"</code>
+            <code>[<b>trial-wide</b>] prior_therapy = "NOT(prior anti-PD-1) [EXCLUSION CRITERIA]"</code>
+          </div>
+        </div>
+
+        <div class="cycle">
+          <div class="arrow fwd">&#9654;</div>
+          <div class="flow"><span class="lab">candidate</span>table</div>
+          <div class="refine">&#8634; REFINE &le;3</div>
+          <div class="flow"><span class="lab">gating</span>problems</div>
+          <div class="arrow back">&#9664;</div>
+        </div>
+
+        <div class="agent review">
+          <div class="a-head">&#9313; Check &middot; rule-check (code), then 5 reviewers (parallel)</div>
+          <p class="a-lead">Each reviewer sees the whole candidate table + source and judges ONE dimension &rarr; faithful? + problems.</p>
+          <div class="tasks-label">Essential task per reviewer</div>
+          <ul class="reviewers">
+            <li class="rv gate"><span class="k">cancer_type</span><span class="d">is it the tumour <b style="color:var(--ink)">under study</b>? reject a tumour seen only in a prior-therapy / history / exclusion line &mdash; e.g. drop "melanoma" from a lung trial. <span class="pill gate">gates</span></span></li>
+            <li class="rv gate"><span class="k">molecular</span><span class="d">faithful + <b style="color:var(--ink)">right column</b>: HER2 IHC &rarr; biomarker, ERBB2 amp &rarr; gene, MSI-H &rarr; signature. <span class="pill gate">gates</span></span></li>
+            <li class="rv gate"><span class="k">prior_therapy</span><span class="d">required / excluded only; omit merely-permitted; exclusions must be <span class="inline-code">NOT()</span>. <span class="pill gate">gates</span></span></li>
+            <li class="rv gate"><span class="k">structural</span><span class="d">conjunctions &amp; OR-rows correct; each row's cohort scope right. <span class="pill gate">gates</span></span></li>
+            <li class="rv adv"><span class="k">drug</span><span class="d">each cohort's drug matches its arm's intervention. <span class="pill adv">advisory</span></span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="loop-exits">
+        <div class="exit pass"><span class="n">&#10003; pass</span>rules pass <b>and</b> all four gating reviewers are faithful &rarr; leave the loop.</div>
+        <div class="exit loop"><span class="n">&#8634; redo</span>any gating reviewer fails &rarr; its problems are appended to the prompt; the extractor <b>re-extracts</b>, then re-checks.</div>
+        <div class="exit stop"><span class="n">&#9632; stop</span>after 3 attempts, exit as <b>faithful=False</b> &mdash; best effort, written &amp; logged for the curator.</div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Consolidate</span><h3>Distribute across cohorts</h3><span class="badge code">code</span></div>
+      <p>Per cohort: <b>trial-wide criteria AND cohort-specific criteria</b> (cross-product); each row self-contained and carrying its cohort's drug.</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Write</span><h3>Render the DNF table</h3><span class="badge code">code</span></div>
+      <p>Cells rendered <span class="inline-code">value [source]</span>; one TSV row per satisfiable conjunction.</p>
+    </section>
+
+  </div>
+
+  <div class="conn"></div>
+
+  <section class="stage2-band">
+    <div class="stage2-title"><span class="t">Stage II &mdash; mapping</span><span class="s">runs on the extracted DNF table &middot; every procedure is an LLM mapper &rarr; reviewer (same refine loop)</span></div>
+    <p class="loop-sub">Each normalized cell is mapped to a controlled representation, then reviewed. The legacy curation
+      resources ground the prompts, few-shot examples, and tests &mdash; so deviations from the previous workflow stay marginal.</p>
+    <div class="procs">
+      <div class="proc">
+        <div class="ph"><h4>cancer_type &rarr; OncoTree</h4><span class="st built">built</span></div>
+        <p class="role"><b class="map">mapper</b>: expression &rarr; OncoTree name + code (e.g. "metastatic NSCLC" &rarr; NSCLC), AND/NOT preserved.</p>
+        <p class="role"><b class="chk">code check</b>: reject invalid codes &middot; <b class="rev">reviewer</b>: right node, granularity, structure.</p>
+        <p class="ground">grounds: 865-code OncoTree vocab (tools/oncotree.py) + ConditionsCurationResource examples</p>
+      </div>
+      <div class="proc">
+        <div class="ph"><h4>gene / signature &rarr; finding-model</h4><span class="st next">next</span></div>
+        <p class="role"><b class="map">mapper</b>: &rarr; finding-model syntax, e.g. <span class="inline-code">SmallVariant[gene=BRAF &amp; &hellip;=p.V600E]</span>, <span class="inline-code">Fusion[geneEnd=ALK]</span>, <span class="inline-code">MicrosatelliteStability[&hellip;=MSI]</span>.</p>
+        <p class="role"><b class="rev">reviewer</b>: faithful + valid grammar (strict, since not human-curated).</p>
+        <p class="ground">grounds: GeneAlteration / MolecularSignature curation resources</p>
+      </div>
+      <div class="proc">
+        <div class="ph"><h4>drug &rarr; class / TGA / PBS</h4><span class="st next">next</span></div>
+        <p class="role"><b class="map">researcher</b> (web search): POTTR class hierarchy, TGA approval (+year), PBS reimbursement.</p>
+        <p class="role"><b class="rev">reviewer</b>: verify against the retrieved sources.</p>
+        <p class="ground">grounds: POTTR dataset + live web research</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="layers">
+    <h2>Supporting layers &middot; core/ &mdash; the LLM stages rest on these</h2>
+    <div class="layer-grid">
+      <div class="layer"><span class="name">client.py</span><p>The one door to OpenAI: schema-validated output, retries, response cache, tracing.</p></div>
+      <div class="layer"><span class="name">agent.py</span><p>An Agent = prompt + output schema + model, bound to the client.</p></div>
+      <div class="layer"><span class="name">workflow.py</span><p>Generic engine: <span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;repair loop).</p></div>
+      <div class="layer"><span class="name">schema.py</span><p>Pinned pydantic shapes for every input/output &mdash; the testable contract.</p></div>
+    </div>
+  </div>
+</div>

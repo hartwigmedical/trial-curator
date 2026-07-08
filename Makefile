@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-eligibility-extract agentic-tests
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-clean
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -37,14 +37,21 @@ eligibility-path-tests:
 	scripts/eligibility/pipeline.sh tests
 
 # --- v2 agentic pipeline (aus_trial_universe/agentic) ---
-# Extract a DNF eligibility table (ctgov or anzctr). Runs unit tests first and
-# writes a timestamped log under data/agentic/logs/.
-#   make agentic-eligibility-extract ID=NCT06881784               # one ctgov trial (default)
-#   make agentic-eligibility-extract ID=ACTRN12625... SOURCE=anzctr
-#   make agentic-eligibility-extract SELECTED=6                   # 3 ctgov + 3 anzctr
-#   optional: MODEL=<name> NO_JUDGE=1
-agentic-eligibility-extract:
-	ID="$(ID)" SELECTED="$(SELECTED)" SOURCE="$(SOURCE)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" scripts/agentic/pipeline.sh eligibility-extract
+# Full pipeline (extract -> map), one streamed output + one log per run. Runs unit tests first.
+#   make agentic-run ID=NCT06881784          # one trial (source auto-detected)
+#   make agentic-run IDS=NCT1,ACTRN2,NCT3    # a specific set of trials
+#   make agentic-run                         # ALL trials (ctgov + anzctr)
+#   optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1
+agentic-run:
+	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" scripts/agentic/pipeline.sh run
+
+# Wipe run artifacts under data/agentic/{output,log,cache} (handy between test runs).
+agentic-clean:
+	scripts/agentic/pipeline.sh clean
 
 agentic-tests:
 	scripts/agentic/pipeline.sh tests
+
+# Clear all run outputs under data/agentic/ (output/, log/, cache/). Handy between test runs.
+agentic-clean:
+	scripts/agentic/pipeline.sh clean

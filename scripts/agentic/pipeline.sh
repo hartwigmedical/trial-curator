@@ -1,20 +1,38 @@
 #!/usr/bin/env bash
 #
 # Driver for the v2 agentic pipeline (aus_trial_universe/agentic).
-# Mirrors scripts/eligibility/pipeline.sh: sets PYTHONPATH, picks a Python that
-# has the v2 deps, loads .env, then dispatches a subcommand.
+# Sets PYTHONPATH, picks a Python that has the v2 deps, loads .env, dispatches.
 #
 # Subcommands:
-#   eligibility-extract   Extract a DNF eligibility table. Runs the unit tests first
-#                         (aborts on failure) and tees output to a timestamped log.
-#                         Vars: ID=<id> [SOURCE=ctgov|anzctr] | SELECTED=<N>  [MODEL=<name>] [NO_JUDGE=1]
-#   tests                 Run the agentic unit-test suite (no API calls).
+#   run     Full pipeline: Stage I extract -> Stage II map (OncoTree). Runs the unit
+#           tests first (aborts on failure) and tees a combined timestamped log.
+#           Vars: ID=<id> [SOURCE=ctgov|anzctr] | SELECTED=<N>
+#                 optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1
+#   tests   Run the agentic unit-test suite (no API calls).
+#   clean   Delete all run outputs under data/agentic/ (output/, log/, cache/).
+#           No API/Python needed; handy for clearing test runs.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LOG_DIR="${REPO_ROOT}/data/agentic/logs"
+AGENTIC_DATA="${REPO_ROOT}/data/agentic"
+LOG_DIR="${AGENTIC_DATA}/log"
+
+# `clean` needs neither Python nor .env; handle it before the interpreter pick.
+# Scoped strictly to data/agentic/{output,log,cache} so it can never touch other data.
+if [[ "${1:-}" == "clean" ]]; then
+  for sub in output log cache; do
+    dir="${AGENTIC_DATA}/${sub}"
+    if [[ -d "${dir}" ]]; then
+      echo "removing ${dir}" >&2
+      rm -rf "${dir}"
+    fi
+  done
+  mkdir -p "${AGENTIC_DATA}/output" "${AGENTIC_DATA}/log"
+  echo "cleaned: data/agentic/{output,log,cache}" >&2
+  exit 0
+fi
 
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
@@ -54,44 +72,40 @@ load_env_file "${REPO_ROOT}/.env.local"
 
 cd "${REPO_ROOT}"
 
-RUN_MODULE="aus_trial_universe.agentic.tasks.eligibility_extraction.run"
+PIPELINE_MODULE="aus_trial_universe.agentic.run"
 CMD="${1:-}"
 shift || true
 
 case "${CMD}" in
-  eligibility-extract)
+  run)
     # (a) Always run the unit tests first; set -e aborts the run if they fail.
     printf '\n==> agentic unit tests (preflight)\n' >&2
     "${PYTHON_BIN}" -m pytest tests/agentic -q
 
-    SOURCE="${SOURCE:-ctgov}"
+    # Modes: ID=<id> (one) | IDS=<a,b,c> (a set) | neither = ALL trials.
+    args=()
     if [[ -n "${ID:-}" ]]; then
-      set -- --source "${SOURCE}" --id "${ID}"
-      label="${SOURCE}_${ID}"
-    elif [[ -n "${SELECTED:-}" ]]; then
-      set -- --selected "${SELECTED}"
-      label="selected${SELECTED}"
+      args=(--id "${ID}"); label="${ID}"
+    elif [[ -n "${IDS:-}" ]]; then
+      args=(--ids "${IDS}"); label="ids"
     else
-      echo "Usage: make agentic-eligibility-extract ID=NCT06881784              (ctgov, default)" >&2
-      echo "       make agentic-eligibility-extract ID=ACTRN12625... SOURCE=anzctr" >&2
-      echo "       make agentic-eligibility-extract SELECTED=6                  (3 ctgov + 3 anzctr)" >&2
-      echo "       optional: MODEL=<name> NO_JUDGE=1" >&2
-      exit 2
+      args=(); label="all"
     fi
-    if [[ -n "${MODEL:-}" ]]; then set -- "$@" --model "${MODEL}"; fi
-    if [[ -n "${NO_JUDGE:-}" ]]; then set -- "$@" --no-judge; fi
+    if [[ -n "${MODEL:-}" ]]; then args+=(--model "${MODEL}"); fi
+    if [[ -n "${NO_JUDGE:-}" ]]; then args+=(--no-judge); fi
+    if [[ -n "${NO_REVIEW:-}" ]]; then args+=(--no-review); fi
 
-    # (b) Run the extraction, teeing all output to a timestamped log.
+    # (b) One process (extract -> map), streamed to one output; teed to one log.
     mkdir -p "${LOG_DIR}"
-    log_file="${LOG_DIR}/agentic_eligibility_${label}_$(date +%Y%m%d_%H%M%S).log"
-    printf '\n==> extracting (logging to %s)\n' "${log_file}" >&2
-    "${PYTHON_BIN}" -m "${RUN_MODULE}" "$@" 2>&1 | tee "${log_file}"
+    log_file="${LOG_DIR}/agentic_run_${label}_$(date +%Y%m%d_%H%M%S).log"
+    printf '\n==> run (logging to %s)\n' "${log_file}" >&2
+    "${PYTHON_BIN}" -m "${PIPELINE_MODULE}" "${args[@]}" 2>&1 | tee "${log_file}"
     ;;
   tests)
     exec "${PYTHON_BIN}" -m pytest tests/agentic -q
     ;;
   *)
-    echo "Unknown command: '${CMD}'. Use one of: eligibility-extract | tests" >&2
+    echo "Unknown command: '${CMD}'. Use one of: run | tests" >&2
     exit 2
     ;;
 esac

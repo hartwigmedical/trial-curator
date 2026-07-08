@@ -1,9 +1,23 @@
 # v2 Agentic Pipeline — Handover
 
-- **As of:** 2026-07-03 (Fri). **Resume:** Mon 2026-07-06.
+- **As of:** 2026-07-06 (Mon).
 - **Branch:** `AUS-328-Aus-trial-universe-v2`
 - **Pre-rewrite fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only — NOT data).
-- **Full design:** `docs/v2_agentic_pipeline_spec.md` (read this for the "why").
+- **Full design:** `docs/v2_agentic_pipeline_spec.md` (the "why"); **field/column spec of record:** `docs/v2_field_source_audit.md`.
+
+## Locked decisions — stage-II extraction rework (2026-07-06)
+Full detail in `docs/v2_field_source_audit.md` + memory `v2-stage2-extraction-decisions`. Summary:
+- **Scope = extraction only.** No OncoTree mapping, no finding-model conversion (later stages). The slice-1 `oncotree_name`/`oncotree_code` columns + OncoTree agent are **removed**.
+- **Six columns:** `cancer_type`, `gene_alteration`, `molecular_signature`, `molecular_biomarker`, `prior_therapy`, `drug`. Definitions from `pydantic_curator/criterion_schema.py` (see audit §2 + memory for the taxonomy + edge rules: HER2/MMR, histology-in-cancer_type, out-of-scope criteria ignored).
+- **Provenance:** every cell = `value [SRC1; SRC2]` — cite ALL sources, `;`-delimited (audit §3 vocab; CTGov adds `INTERVENTIONS MODULE`, ANZCTR adds `EXCLUSION CRITERIA` + `INTERVENTIONS`).
+- **Negation = inline `NOT(...)`**; same-column carve-outs become one ANDed cell (`solid tumour AND NOT(melanoma)`); only OR-alternatives split rows (DNF stays pure conjunctions).
+- **Cohort = Option A, cohort-AWARE extraction:** CTGov cohorts from `armGroups` (deterministic); ANZCTR via a conservative **cohort-detection agent** (default single; only splits on explicit distinct-eligibility groups). The extractor **assigns each criterion to a cohort or "trial-wide"**; a cohort's effective eligibility = trial-wide ∧ cohort-specific (cross-product distribution, representation A). Each output row is self-contained and carries its cohort's drug.
+- **Drug:** RAW names, **no normalization** yet. CTGov = deterministic arm `interventionNames`. **ANZCTR = LLM drug agent** (reads `INTERVENTIONS` text).
+- **Reviewer = 5-agent parallel panel** (cancer_type [strengthened: reject false-positive tumours mentioned only in prior-therapy/history/exclusion context], molecular [+ correct column per taxonomy], prior_therapy, drug [advisory], structural [DNF + cohort assignment]). Refine gates on the 4 eligibility/structural reviewers (what re-extraction can fix); drug reviewer is advisory.
+- **Agent inventory:** CTGov extraction = 1 (eligibility); ANZCTR extraction = 3 (eligibility · drug · cohort-detection); + shared 5-reviewer panel.
+
+## Shelved for later review
+- **ANZCTR `DRUG_rxnorm_matched` (+ `llm_drugs_*`) columns** — the pre-computed RxNorm drug approach is shelved; ANZCTR drug is now LLM-extracted from `INTERVENTIONS`. Revisit whether to fold RxNorm back in (e.g. as a cross-check or the normalization stage).
 
 ## TL;DR
 Slice 1 of the v2 rewrite is **built and verified**: a reusable agentic runtime (unified OpenAI client + Agent + Workflow engine) with one task on it — **eligibility extraction → a DNF table**, working for **both ctgov and anzctr**. 19 unit tests pass; live runs confirmed end-to-end. Everything is in the working tree, **uncommitted** (you commit). Nothing from the old eligibility path was changed except the already-committed `ui/` deletion.
@@ -18,7 +32,7 @@ make agentic-eligibility-extract SELECTED=6                       # 3 ctgov + 3 
 make agentic-tests                                                # unit tests only (no API)
 #   options: NO_JUDGE=1 (cheaper) · MODEL=<name>
 ```
-Every extract run: **runs unit tests first** → extracts → writes a **timestamped log** to `data/agentic/logs/` → writes the DNF TSV to `data/agentic/eligibility_extraction/eligibility_dnf_<source>_<id> | _selected<N>.tsv`.
+Every extract run: **runs unit tests first** → extracts → writes a **timestamped log** to `data/agentic/log/` → streams the DNF TSV (per-trial) to `data/agentic/output/eligibility_dnf_<source>_<id> | _selected<N>.tsv`.
 
 ## What's built (slice 1)
 ```
@@ -28,7 +42,7 @@ aus_trial_universe/agentic/
     agent.py        # Agent = prompt + output schema + model config + client (one LLM job)
     workflow.py     # fan_out() + refine() (bounded check→repair loop). Orchestrator is plain Python.
     pipeline_io.py  # COPIED from eligibility_path (dated-file/version-dir selection standard)
-  tasks/eligibility_extraction/
+  tasks/extraction/
     schema.py       # DnfRow + agent I/O schemas
     agents.py       # extractor, cancer_type→OncoTree, faithfulness judge (prompts)
     workflow.py     # extract_eligibility(): extractor → fan-out OncoTree → consolidate → check+judge → refine
@@ -60,7 +74,7 @@ Already committed: `a69dc69` (ui/ deletion). Working tree:
 - **Deferred design (spec §10)** — the new run-comparison method (replaces old `qa/`) and the final reproducibility stance.
 
 ## Key decisions & gotchas (don't re-learn these)
-- **SDK:** `openai 1.60.1` predates the Responses API → the client uses `beta.chat.completions.parse(response_format=<pydantic>)`. `client.chat.completions.parse` does NOT exist at this version.
+- **SDK:** targets `openai >= 2.x` (env has 2.44.0). The client uses the stable `chat.completions.parse(response_format=<pydantic>)`, falling back to `beta.chat.completions.parse` on older SDKs. The Responses API is available at 2.x but the client deliberately stays on Chat Completions parse (proven, sufficient).
 - **Env:** run/verify in conda `trial_curator` (`/opt/anaconda3/envs/trial_curator/bin/python`); the default shell `python3` lacks openai/pydantic.
 - **Determinism:** the response **cache** is the deterministic layer; `temperature`/`seed` are omitted by default (gpt-5.x is a reasoning model and rejects `temperature`).
 - **Copy, don't import** from `eligibility_path` — it will be removed; agentic owns copies (e.g. `pipeline_io.py`).

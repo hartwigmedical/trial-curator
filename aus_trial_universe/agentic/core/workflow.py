@@ -76,7 +76,7 @@ def refine(
     result = check(value)
     attempts = 1
     while not result.ok and attempts < max_attempts:
-        logger.info(
+        logger.debug(
             "refine attempt %d/%d failed (%d problem(s)); repairing",
             attempts,
             max_attempts,
