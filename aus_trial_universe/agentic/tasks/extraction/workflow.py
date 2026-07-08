@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass, field
 
 from aus_trial_universe.agentic.core.client import LlmClient
+from aus_trial_universe.agentic.core.logfmt import FAIL, OK, WARN, cont, role
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.extraction.agents import (
     build_cohort_detector_agent,
@@ -91,8 +92,8 @@ def extract_trial(
     """
     cohorts = _resolve_cohorts(client, source_text, cohorts)
     cohort_index = {f"C{i + 1}": c for i, c in enumerate(cohorts)}
-    logger.info("  COHORTS     %d: %s", len(cohorts),
-                " | ".join(f"{cid}={c.label}" for cid, c in cohort_index.items()))
+    logger.info(role("cohorts", f"{len(cohorts)} · "
+                     + " | ".join(f"{cid}={c.label}" for cid, c in cohort_index.items())))
     extractor = build_extractor_agent(client)
     reviewers = build_reviewer_agents(client) if use_judge else []
     extractor_input = f"{source_text}\n\n{_cohorts_section(cohort_index)}"
@@ -104,37 +105,37 @@ def extract_trial(
         prompt = extractor_input
         if feedback:
             prompt = f"{extractor_input}\n\n[Reviewer feedback — fix these issues]:\n{feedback}"
-            logger.info("  REFINE      attempt %d - re-extracting with reviewer feedback", attempt["n"])
         extraction: EligibilityExtraction = extractor(prompt)
         eligs = [_to_raw(r, cohort_index) for r in extraction.rows]
-        logger.info("  EXTRACT     attempt %d -> %d eligibility row(s):", attempt["n"], len(eligs))
+        refined = " (refined on reviewer feedback)" if feedback else ""
+        logger.info(role("doer", f"attempt {attempt['n']} · {len(eligs)} row(s){refined}"))
         for e in eligs:
-            logger.info("                %s", _fmt_elig(e))
+            logger.info(cont(_fmt_elig(e)))
         return eligs
 
     def check(eligs: list[_EligRaw]) -> CheckResult:
         problems = _rule_problems(eligs)
         if problems:
-            logger.info("  RULE-CHECK  FAILED: %s", "; ".join(problems))
+            logger.info(role("rules", f"{FAIL} " + "; ".join(problems)))
             return CheckResult(ok=False, problems=problems)
         if not reviewers:
-            logger.info("  REVIEW      skipped (--no-judge)")
+            logger.info(role("reviewer", "skipped (--no-judge)"))
             return CheckResult(ok=True)
         review_input = _review_input(source_text, cohort_index, eligs)
         verdicts = fan_out([(lambda a=agent: a(review_input)) for _, agent in reviewers])
         symbols, gating = [], []
         advisory.clear()
         for (spec, _), verdict in zip(reviewers, verdicts):
-            mark = "OK" if verdict.faithful else ("!" if not spec.gating else "X")
+            mark = OK if verdict.faithful else (WARN if not spec.gating else FAIL)
             symbols.append(f"{spec.key} {mark}")
             if not verdict.faithful:
                 for p in (verdict.problems or ["flagged (no detail)"]):
                     (gating if spec.gating else advisory).append(f"[{spec.key}] {p}")
-        logger.info("  REVIEW      %s", "  |  ".join(symbols))
+        logger.info(role("reviewer", " · ".join(symbols)))
         for g in gating:
-            logger.info("                X  %s", g)
+            logger.info(cont(f"{FAIL} {g}"))
         for a in advisory:
-            logger.info("                !  %s (advisory)", a)
+            logger.info(cont(f"{WARN} {a} (advisory)"))
         return CheckResult(ok=not gating, problems=gating)
 
     result = refine(
@@ -146,9 +147,9 @@ def extract_trial(
 
     rows = _distribute(result.value, cohort_index, trial_id)
     all_problems = list(result.problems) + advisory
-    logger.info("  CONSOLIDATE %d cohort(s) -> %d DNF row(s)", len(cohort_index), len(rows))
-    logger.info("  RESULT      faithful=%s | attempts=%d%s", result.ok, result.attempts,
-                f" | {len(advisory)} advisory drug note(s)" if advisory else "")
+    adv = f" · {len(advisory)} advisory drug note(s)" if advisory else ""
+    logger.info(role("result", f"faithful={result.ok} · attempts={result.attempts} · "
+                     f"{len(cohort_index)} cohort(s) → {len(rows)} DNF row(s){adv}"))
     return ExtractionResult(rows=rows, faithful=result.ok, attempts=result.attempts, problems=all_problems)
 
 
@@ -162,8 +163,8 @@ def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] 
     detection = build_cohort_detector_agent(client)(source_text)
     drug_res = build_drug_agent(client)(source_text)
     drug = "; ".join(dict.fromkeys(d.strip() for d in drug_res.drugs if d and d.strip()))
-    logger.info("  COHORTS     ANZCTR detection -> %d group(s) | drug (LLM): %s",
-                len(detection.cohorts), drug or "(none)")
+    logger.info(role("cohorts", f"ANZCTR detection → {len(detection.cohorts)} group(s) · "
+                     f"drug (LLM): {drug or '(none)'}"))
     if detection.cohorts:
         return [Cohort(label=c.label, description=c.description, drug=drug, drug_source="INTERVENTIONS")
                 for c in detection.cohorts]

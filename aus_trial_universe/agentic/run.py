@@ -57,12 +57,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-attempts", type=int, default=3)
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
-    for _noisy in ("httpx", "openai", "urllib3"):
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    for _noisy in ("httpx", "openai", "urllib3", "numexpr"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
     _load_openai_key()
 
     from aus_trial_universe.agentic.core.client import LlmClient
+    from aus_trial_universe.agentic.core.logfmt import FAIL, OK, stage
     from aus_trial_universe.agentic.tasks.extraction.loaders import load_trials
     from aus_trial_universe.agentic.tasks.extraction.workflow import TSV_COLUMNS, extract_trial
     from aus_trial_universe.agentic.tasks.mapping.workflow import (
@@ -92,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     client = LlmClient(model=args.model) if args.model else LlmClient()
     kw = dict(max_attempts=args.max_attempts, use_reviewer=not args.no_review)
     log = logging.getLogger("agentic.pipeline")
-    log.info("SELECT      %d trial(s) | judge=%s | review=%s -> %s",
+    log.info("run · %d trial(s) · judge=%s · review=%s → %s",
              len(trials), not args.no_judge, not args.no_review, out_path.name)
 
     total = 0
@@ -103,14 +104,18 @@ def main(argv: list[str] | None = None) -> int:
         fh.flush()
         for i, (source, trial_id, base_text, cohorts) in enumerate(trials, 1):
             log.info("")
-            log.info("=" * 70)
-            log.info("TRIAL %d/%d | [%s] %s | %d chars", i, len(trials), source, trial_id, len(base_text))
-            log.info("=" * 70)
-            # EXTRACT
+            log.info("═" * 70)
+            log.info("TRIAL %d/%d · %s · %s", i, len(trials), source, trial_id)
+            log.info("═" * 70)
+            # STAGE I: EXTRACTION
+            log.info("")
+            log.info(stage("EXTRACTION"))
             result = extract_trial(client, trial_id=trial_id, source_text=base_text, cohorts=cohorts,
                                    max_attempts=args.max_attempts, use_judge=not args.no_judge)
             rows = [{c: getattr(r, c) for c in TSV_COLUMNS} for r in result.rows]
-            # MAP this trial's cells
+            # STAGE II: MAPPING (this trial's cells)
+            log.info("")
+            log.info(stage("MAPPING"))
             onco = map_cancer_types(client, [r["cancer_type"] for r in rows], **kw)
             gene = map_gene_alterations(client, [r["gene_alteration"] for r in rows], **kw)
             sig = map_molecular_signatures(client, [r["molecular_signature"] for r in rows], **kw)
@@ -122,7 +127,9 @@ def main(argv: list[str] | None = None) -> int:
                 r["gene_alteration_findingmodel"] = g.finding_model if g else ""
                 s = sig.get(strip_provenance(r["molecular_signature"]))
                 r["molecular_signature_findingmodel"] = s.finding_model if s else ""
-            # DRUG enrichment (trial-level): main/auxiliary + POTTR/general class + TGA/PBS (web search)
+            # STAGE III: DRUG enrichment (trial-level): main/auxiliary + POTTR/general class + TGA/PBS (web search)
+            log.info("")
+            log.info(stage("DRUG"))
             drug_set: list[str] = []
             for r in rows:
                 for dn in strip_provenance(r["drug"]).split(";"):
@@ -141,13 +148,12 @@ def main(argv: list[str] | None = None) -> int:
             fh.flush()
             total += len(rows)
             summaries.append((source, trial_id, len(rows), result.faithful, result.attempts))
-            log.info("  DONE        [%s] %s -> +%d row(s) (running total %d)", source, trial_id, len(rows), total)
+            log.info("")
+            log.info("%s %s · +%d row(s) · total %d", OK, trial_id, len(rows), total)
 
-    log.info("")
-    log.info("WRITE       %d trial(s), %d row(s) -> %s", len(trials), total, out_path)
-    print(f"\npipeline: {len(trials)} trial(s), {total} row(s) -> {out_path}\n")
+    print(f"\n{'═' * 70}\n{len(trials)} trial(s) · {total} row(s) → {out_path}\n")
     for source, trial_id, n, faithful, attempts in summaries[:40]:
-        print(f"  [{source}] {trial_id}: rows={n} faithful={faithful} attempts={attempts}")
+        print(f"  {OK if faithful else FAIL} {trial_id} · rows={n} · attempts={attempts}")
     return 0
 
 

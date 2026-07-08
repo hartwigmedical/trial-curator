@@ -7,26 +7,13 @@
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`.
 
 ## Next up (start here)
-Two tasks, in priority order:
-
 1. **[BIG] Act on the user's review of the 10-complex-trial run.** The user is reviewing the output of the
    complex set (`data/agentic/analysis/review_trials_ids.txt`, 10 trials with hard cohort × cancer × gene
    combos) and will bring **specific feedback** into the next session. Wait for it; that feedback drives the
    next round of prompt/logic tuning. Re-run with
    `make agentic-run IDS=$(cat data/agentic/analysis/review_trials_ids.txt)`.
 
-2. **Rework the run log — clarity, no fluff.** The user's requirements: the log must clearly show (a) the
-   **stage** (EXTRACTION / MAPPING / DRUG), (b) the **trial** being processed, and (c) a clear attribution of
-   **what the doer agent said vs what the reviewer agent(s) said**. Strip anything not needed.
-   - **Where it's emitted:** `run.py:60` sets the format (`%(asctime)s %(levelname)s %(message)s` — the
-     per-line timestamp+level is likely the "fluff" to drop) and per-trial header logger `agentic.pipeline`
-     (`run.py:94`); final summary is `print()` at `run.py:148,150`. Stage lines come from
-     `tasks/extraction/workflow.py` (tags `COHORTS/EXTRACT/REVIEW/REFINE/RULE-CHECK/CONSOLIDATE/RESULT`) and
-     `tasks/mapping/workflow.py` (`ONCOTREE/DRUG` + finding-model). `core/client.py` `_emit_trace` is the
-     LLM-call tracer. `scripts/agentic/pipeline.sh:102` tees stdout+stderr to the one log file.
-   - **Gaps to close:** no top-level STAGE banner (tags are per-line, not grouped); doer vs reviewer isn't
-     visually distinct (EXTRACT = doer, REVIEW symbols = reviewer, but mapping shows only the mapper, not the
-     reviewer verdict); every line carries a redundant timestamp+LEVEL prefix. Keep it lean.
+   *(Run-log rework — clarity, no fluff — is done; see "Ticked off" below.)*
 
 ## TL;DR
 The v2 rewrite is a **complete two-stage agentic pipeline**, end-to-end verified on ctgov + anzctr:
@@ -98,6 +85,14 @@ See `combined_agentic_run.md` §Output Schema for per-column notes.
 
 ## Ticked off (2026-07-08)
 Former TODOs now closed:
+- **Run log reworked for clarity, no fluff.** Dropped the per-line `HH:MM:SS INFO` prefix (format is now
+  `%(message)s`) and the non-essential char-count; silenced the `NumExpr defaulting…` import line. Added
+  per-trial `▶ EXTRACTION / ▶ MAPPING / ▶ DRUG` stage banners and a fixed-width left **role gutter**
+  (`doer` / `reviewer` / `result` / `cohorts` / `rules`) so doer-vs-reviewer is scannable — including the
+  **mapping & drug reviewer verdicts** (✓/✗ per value + `↳ reason`), which were previously never shown.
+  Shared formatting lives in `agentic/core/logfmt.py` (`stage()` / `role()` / `cont()` + `OK/FAIL/WARN`
+  marks). Verdict marks: `✓` faithful · `✗` gating fail · `⚠` advisory. Touched `run.py` +
+  `tasks/{extraction,mapping}/workflow.py`; 53 tests still pass.
 - `--selected` retired → one unified `make agentic-run` (`ID` / `IDS` / all), **one output + one log**, streamed per trial.
 - All **5 eligibility columns** (was cancer_type + gene_alteration only) + **arm_type**.
 - **Cohort-aware extraction** (the former "cohort alignment / slice 2"): one cohort per arm, trial-wide ∧ cohort-specific.

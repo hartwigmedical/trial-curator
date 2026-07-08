@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 from aus_trial_universe.agentic.core.client import LlmClient
+from aus_trial_universe.agentic.core.logfmt import FAIL, OK, cont, role
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.mapping.agents import (
     build_drug_curator,
@@ -39,6 +40,11 @@ _PROVENANCE_RE = re.compile(r"\s*\[[^\]]*\]\s*$")
 def strip_provenance(cell: str) -> str:
     """'metastatic NSCLC [TITLE; ELIGIBILITY CRITERIA]' -> 'metastatic NSCLC'."""
     return _PROVENANCE_RE.sub("", cell or "").strip()
+
+
+def _short(value: str, limit: int) -> str:
+    value = (value or "").strip()
+    return value if len(value) <= limit else value[: limit - 1] + "…"
 
 
 @dataclass
@@ -110,14 +116,17 @@ def map_cancer_types(
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cancer_cells if strip_provenance(c)))
     if not distinct:
         return {}
-    logger.info("  ONCOTREE    mapping %d distinct cancer-type value(s)", len(distinct))
+    logger.info(role("oncotree", f"{len(distinct)} value(s)"))
     results = fan_out(
         [(lambda v=v: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)) for v in distinct]
     )
     out: dict[str, OncotreeResult] = {}
     for v, r in zip(distinct, results):
         out[v] = r
-        logger.info("    %-55s -> %s%s", v[:55], r.oncotree_code or "?", "" if r.faithful else "  (unfaithful)")
+        mark = OK if r.faithful else FAIL
+        logger.info(cont(f"{mark} {_short(v, 50):<50} → {r.oncotree_code or '?'}"))
+        if not r.faithful and r.problems:
+            logger.info(cont(f"  ↳ {_short(r.problems[0], 110)}"))
     return out
 
 
@@ -191,7 +200,7 @@ def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attem
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cells if strip_provenance(c)))
     if not distinct:
         return {}
-    logger.info("  %-11s mapping %d distinct value(s)", label, len(distinct))
+    logger.info(role(label, f"{len(distinct)} value(s)"))
     results = fan_out([
         (lambda v=v: _map_finding_model(client, v, build_mapper, build_reviewer,
                                         max_attempts=max_attempts, use_reviewer=use_reviewer))
@@ -200,18 +209,21 @@ def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attem
     out: dict[str, FindingModelResult] = {}
     for v, r in zip(distinct, results):
         out[v] = r
-        logger.info("    %-46s -> %s%s", v[:46], (r.finding_model or "?")[:66], "" if r.faithful else "  (unfaithful)")
+        mark = OK if r.faithful else FAIL
+        logger.info(cont(f"{mark} {_short(v, 44):<44} → {_short(r.finding_model or '?', 70)}"))
+        if not r.faithful and r.problems:
+            logger.info(cont(f"  ↳ {_short(r.problems[0], 110)}"))
     return out
 
 
 def map_gene_alterations(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True) -> dict[str, FindingModelResult]:
     return _map_column(client, cells, build_gene_alteration_mapper, build_gene_alteration_reviewer,
-                       "GENE->FM", max_attempts=max_attempts, use_reviewer=use_reviewer)
+                       "gene→fm", max_attempts=max_attempts, use_reviewer=use_reviewer)
 
 
 def map_molecular_signatures(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True) -> dict[str, FindingModelResult]:
     return _map_column(client, cells, build_molecular_signature_mapper, build_molecular_signature_reviewer,
-                       "SIG->FM", max_attempts=max_attempts, use_reviewer=use_reviewer)
+                       "sig→fm", max_attempts=max_attempts, use_reviewer=use_reviewer)
 
 
 # --------------------------------------------------------------------------- #
@@ -251,7 +263,7 @@ def curate_drugs(
     reviewer = build_drug_reviewer(client) if use_reviewer else None
     drug_line = "; ".join(dict.fromkeys(d for d in drugs if d.strip()))
     base = f"{trial_text}\n\nDrugs administered in this trial: {drug_line}"
-    logger.info("  DRUG        curating (web search) for %d drug(s): %s", len(drugs), drug_line[:80])
+    logger.info(role("doer", f"web search · {len(drugs)} drug(s): {_short(drug_line, 80)}"))
 
     def produce(feedback: str = "") -> DrugCuration:
         prompt = base if not feedback else f"{base}\n\n[Reviewer feedback — fix these]:\n{feedback}"
@@ -278,7 +290,12 @@ def curate_drugs(
         max_attempts=max_attempts,
     )
     d = result.value
-    logger.info("    main=%s | tga=%s", d.main_drugs[:40], d.tga_status[:40])
+    if reviewer is not None:
+        mark = OK if result.ok else FAIL
+        logger.info(role("reviewer", f"{mark} " + ("faithful" if result.ok
+                                                    else _short("; ".join(result.problems) or "flagged", 110))))
+    logger.info(role("result", f"main={_short(d.main_drugs, 60)} · tga={_short(d.tga_status, 40)} · "
+                     f"pbs={_short(d.pbs_status, 40)}"))
     return DrugCurationResult(
         main_drugs=d.main_drugs.strip(), auxiliary_drugs=d.auxiliary_drugs.strip(),
         pottr_drug_class=d.pottr_drug_class.strip(), drug_class=d.drug_class.strip(),
