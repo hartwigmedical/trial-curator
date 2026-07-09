@@ -13,7 +13,7 @@ from aus_trial_universe.agentic.tasks.mapping.workflow import (
     map_oncotree,
     strip_provenance,
 )
-from aus_trial_universe.agentic.tools.oncotree import invalid_codes, oncotree_vocab, valid_codes
+from aus_trial_universe.agentic.tools.oncotree import invalid_codes, is_subcode, oncotree_vocab, valid_codes
 
 
 # --- tools/oncotree (real resource) ---------------------------------------- #
@@ -29,6 +29,14 @@ def test_invalid_codes_flags_only_hallucinations():
     assert invalid_codes("Pan-cancer") == []
     assert invalid_codes("NSCLC | FOOBAR") == ["FOOBAR"]
     assert "MEL" in valid_codes() and "Pan-cancer" in valid_codes()
+    assert "Haematological malignancy" in valid_codes()   # the third permitted sentinel
+    assert "[None]" not in valid_codes()                   # [None] removed
+
+
+def test_is_subcode_hierarchy():
+    assert is_subcode("LUAD", "NSCLC")        # lung adenocarcinoma is under NSCLC
+    assert not is_subcode("NSCLC", "NSCLC")   # not its own descendant
+    assert not is_subcode("NSCLC", "LUAD")    # parent is not a subtype of its child
 
 
 def test_strip_provenance():
@@ -83,11 +91,15 @@ def test_map_oncotree_invalid_code_refines_before_reviewer():
     assert client.reviewer_calls == 1  # reviewer only consulted once codes were valid
 
 
-def test_oncotree_logic_problems_catches_none_and_contradiction():
+def test_oncotree_logic_problems_catches_logic_errors():
     assert _oncotree_logic_problems("NSCLC") == []
-    assert _oncotree_logic_problems("Solid tumour AND NOT(MEL)") == []
+    assert _oncotree_logic_problems("Solid tumour AND NOT(MEL)") == []   # valid same-column carve-out
+    assert _oncotree_logic_problems("Solid tumour OR MEL") == []          # OR of broad+subtype is fine
     assert any("[None]" in p for p in _oncotree_logic_problems("GCT AND NOT([None])"))
     assert any("included and excluded" in p for p in _oncotree_logic_problems("SCLC AND NOT(SCLC)"))
+    assert any("duplicate" in p for p in _oncotree_logic_problems("NBL AND NBL"))            # X AND X
+    assert any("broad" in p for p in _oncotree_logic_problems("Solid tumour AND MEL"))       # sentinel AND specific
+    assert any("parent" in p for p in _oncotree_logic_problems("NSCLC AND LUAD"))            # subtype AND parent
 
 
 def test_map_oncotree_refines_on_contradiction():
@@ -123,7 +135,7 @@ class _SrcClient:
             for key, m in self._by_source.items():
                 if key in user_input:
                     return LlmResult(m, "fake", "{}", False, 1)
-            return LlmResult(OncotreeMapping(oncotree_name="", oncotree_code="[None]"), "fake", "{}", False, 1)
+            return LlmResult(OncotreeMapping(oncotree_name="", oncotree_code=""), "fake", "{}", False, 1)
         if output_schema is ReviewVerdict:
             return LlmResult(ReviewVerdict(faithful=True), "fake", "{}", False, 1)
         raise AssertionError(f"unexpected schema {output_schema}")

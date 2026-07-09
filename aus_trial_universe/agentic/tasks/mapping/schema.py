@@ -53,10 +53,21 @@ class DrugCuration(BaseModel):
         description="General (non-POTTR) drug class / mechanism of the main drug(s)/regimen (web search if needed)."
     )
     tga_status: str = Field(
-        description="Australian TGA/ARTG approval of the main drug(s): 'Approved (YYYY)' / 'Not approved' / 'Unclear'."
+        description="Per main drug, TGA/ARTG approval as 'drug: Approved' or 'drug: Not approved' "
+                    "('; '-joined across the main drugs). Do NOT count SAS / Authorised Prescriber / trial supply."
     )
     pbs_status: str = Field(
-        description="Australian PBS reimbursement status + details for the main drug(s); 'Unclear' if not determinable."
+        description="Per main drug, PBS listing as 'drug: Approved' or 'drug: Not approved' ('; '-joined)."
+    )
+    tga_detail: str = Field(
+        default="",
+        description="Evidence for tga_status, per main drug: year of ARTG approval + brief rationale + official "
+                    "source link (tga.gov.au / ARTG). 'Unclear' where not determinable.",
+    )
+    pbs_detail: str = Field(
+        default="",
+        description="Evidence for pbs_status, per main drug: year/indication of PBS listing + brief rationale + "
+                    "official source link (pbs.gov.au). 'Unclear' where not determinable.",
     )
 
 

@@ -1,21 +1,20 @@
 """Shared run-log formatting for the v2 agentic pipeline.
 
-One run -> one log. These helpers keep that log aligned and scannable across the
-orchestrator (run.py) and the task workflows, so a reviewer can see at a glance:
-the STAGE (via `stage()` banners), and within a stage WHO spoke — the doer agent
-vs the reviewer agent(s) — via a fixed-width left role gutter (`role()` / `cont()`).
+One run -> one log, written for a human to *review*. The log shows, per trial:
+the STAGE (via `stage()` banners), and within each stage WHO acted — the doer
+agent vs the reviewer agent(s) — as separate, blank-line-separated blocks, one
+field per line (never several fields crammed behind a `|`). Verdicts are spelled
+out (PASS / FAIL / ADVISORY), not symbols.
 
-Pure string helpers: the caller does the logging. Lean by design — only what a
-human needs to review a run belongs in the log.
+Pure string helpers; the caller does the logging (and the blank lines between
+blocks). Lean by design — only what a human needs to review a run.
 """
 from __future__ import annotations
 
-GUTTER = 10  # width of the left role column ("reviewer" is the widest label)
-
-# Verdict marks (doer/reviewer/validator outcomes).
-OK = "✓"      # faithful / passed
-FAIL = "✗"    # gating failure
-WARN = "⚠"    # advisory (non-gating) note
+# Verdict words — spelled out on purpose (clearer than symbols in a log).
+PASS = "PASS"
+FAIL = "FAIL"
+ADVISORY = "ADVISORY"
 
 
 def stage(name: str) -> str:
@@ -23,11 +22,16 @@ def stage(name: str) -> str:
     return f"▶ {name}"
 
 
-def role(label: str, content: str = "") -> str:
-    """A role line: fixed-width label gutter + content (e.g. 'doer', 'reviewer')."""
-    return f"{label:<{GUTTER}}{content}"
+def kv(label: str, value: str, *, indent: int = 8, pad: int = 17) -> str:
+    """A 'label   value' field line — one field per line."""
+    return f"{' ' * indent}{label:<{pad}}{value}"
 
 
-def cont(content: str) -> str:
-    """A continuation/detail line, indented under the role content column."""
-    return f"{'':<{GUTTER}}{content}"
+def bullet(text: str, *, indent: int = 8) -> str:
+    """A '- text' comment/issue line."""
+    return f"{' ' * indent}- {text}"
+
+
+def line(text: str, *, indent: int = 4) -> str:
+    """A plain indented line (list item under a section header)."""
+    return f"{' ' * indent}{text}"

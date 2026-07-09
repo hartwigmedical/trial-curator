@@ -19,10 +19,12 @@ ONCOTREE_CSV = REPO_ROOT / "data/eligibility_path/resources/oncotree/oncotree.cs
 _CODE_RE = re.compile(r"\(([^()]+)\)\s*$")   # trailing "(CODE)" in a "Name (CODE)" cell
 _LEVELS = [f"level_{i}" for i in range(1, 8)]
 
-PAN_CANCER = "Pan-cancer"       # any cancer (solid + haematological)
-SOLID_TUMOUR = "Solid tumour"   # any solid tumour
-NONE_SENTINEL = "[None]"        # non-cancer / not a tumour type
-SENTINELS = (PAN_CANCER, SOLID_TUMOUR, NONE_SENTINEL)
+PAN_CANCER = "Pan-cancer"                       # any cancer (solid + haematological)
+SOLID_TUMOUR = "Solid tumour"                   # any solid tumour
+HAEM_MALIGNANCY = "Haematological malignancy"   # any blood / lymphoid cancer
+# The ONLY three permitted non-OncoTree terms. (No "[None]": a non-cancer value must not
+# appear in cancer_type at all — leave it empty and let the extraction reviewer catch it.)
+SENTINELS = (PAN_CANCER, SOLID_TUMOUR, HAEM_MALIGNANCY)
 
 
 @functools.lru_cache(maxsize=1)
@@ -43,6 +45,28 @@ def oncotree_vocab() -> dict[str, str]:
 def valid_codes() -> frozenset[str]:
     """Every real OncoTree code plus the sentinels — the allowed code set."""
     return frozenset(oncotree_vocab()) | frozenset(SENTINELS)
+
+
+@functools.lru_cache(maxsize=1)
+def oncotree_ancestors() -> dict[str, frozenset[str]]:
+    """``{code: ancestor codes}`` from the OncoTree level hierarchy (level_1..level_7)."""
+    anc: dict[str, set[str]] = {}
+    with open(ONCOTREE_CSV, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            path: list[str] = []
+            for lvl in _LEVELS:
+                cell = (row.get(lvl) or "").strip()
+                m = _CODE_RE.search(cell)
+                if not m:
+                    continue
+                anc.setdefault(m.group(1), set()).update(path)
+                path.append(m.group(1))
+    return {code: frozenset(a) for code, a in anc.items()}
+
+
+def is_subcode(a: str, b: str) -> bool:
+    """True if OncoTree code ``a`` is a descendant (subtype) of code ``b``."""
+    return b in oncotree_ancestors().get(a, frozenset())
 
 
 @functools.lru_cache(maxsize=1)

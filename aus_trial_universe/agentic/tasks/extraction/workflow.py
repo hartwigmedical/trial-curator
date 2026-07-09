@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass, field
 
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.core.logfmt import FAIL, OK, WARN, cont, role
+from aus_trial_universe.agentic.core.logfmt import ADVISORY, FAIL, PASS, bullet, kv, line
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.extraction.agents import (
     build_cohort_detector_agent,
@@ -92,64 +92,96 @@ def extract_trial(
     """
     cohorts = _resolve_cohorts(client, source_text, cohorts)
     cohort_index = {f"C{i + 1}": c for i, c in enumerate(cohorts)}
-    logger.info(role("cohorts", f"{len(cohorts)} · "
-                     + " | ".join(f"{cid}={c.label}" for cid, c in cohort_index.items())))
+    logger.info("")
+    logger.info("cohorts (%d)", len(cohort_index))
+    for cid, c in cohort_index.items():
+        arm = f"  [{c.arm_type}]" if c.arm_type else ""
+        logger.info(line(f"{cid}  {c.label}{arm}"))
     extractor = build_extractor_agent(client)
     reviewers = build_reviewer_agents(client) if use_judge else []
     extractor_input = f"{source_text}\n\n{_cohorts_section(cohort_index)}"
     advisory: list[str] = []  # drug (non-gating) reviewer problems from the last check
     attempt = {"n": 0}
 
-    def produce(feedback: str = "") -> list[_EligRaw]:
+    def produce(feedback: str = "", prior: list[_EligRaw] | None = None) -> list[_EligRaw]:
         attempt["n"] += 1
         prompt = extractor_input
         if feedback:
-            prompt = f"{extractor_input}\n\n[Reviewer feedback — fix these issues]:\n{feedback}"
+            # Incremental repair: give the doer its OWN prior table + only the flagged
+            # issues, and tell it to keep everything unflagged verbatim. This preserves
+            # correct rows and lets the loop converge instead of re-deriving from scratch.
+            prior_table = _render_prior_table(prior) if prior else "(previous table unavailable)"
+            prompt = (
+                f"{extractor_input}\n\n"
+                f"[REVISION MODE] Your previous extraction produced this table:\n{prior_table}\n\n"
+                f"A reviewer flagged ONLY the following issues:\n{feedback}\n\n"
+                f"Return the FULL corrected table. KEEP every row and cell that was NOT flagged EXACTLY "
+                f"as-is (same values, same [SECTION] provenance); apply ONLY the fixes above (correct, add, "
+                f"split, re-scope, or move to the right column as each issue requires). Do not re-derive or "
+                f"re-word the rows that were already correct."
+            )
         extraction: EligibilityExtraction = extractor(prompt)
         eligs = [_to_raw(r, cohort_index) for r in extraction.rows]
-        refined = " (refined on reviewer feedback)" if feedback else ""
-        logger.info(role("doer", f"attempt {attempt['n']} · {len(eligs)} row(s){refined}"))
-        for e in eligs:
-            logger.info(cont(_fmt_elig(e)))
+        refined = " · refined on reviewer feedback" if feedback else ""
+        logger.info("")
+        logger.info("doer · attempt %d · %d row(s)%s", attempt["n"], len(eligs), refined)
+        for idx, e in enumerate(eligs, 1):
+            logger.info("")
+            logger.info(line(f"row {idx} · cohort {e.cohort}"))
+            for col in ELIGIBILITY_COLUMNS:
+                val = getattr(e, col).value.strip()
+                if val:
+                    logger.info(kv(col, val, pad=22))
         return eligs
 
     def check(eligs: list[_EligRaw]) -> CheckResult:
         problems = _rule_problems(eligs)
         if problems:
-            logger.info(role("rules", f"{FAIL} " + "; ".join(problems)))
+            logger.info("")
+            logger.info("rules · %s", FAIL)
+            for p in problems:
+                logger.info(bullet(p))
             return CheckResult(ok=False, problems=problems)
         if not reviewers:
-            logger.info(role("reviewer", "skipped (--no-judge)"))
+            logger.info("")
+            logger.info("reviewer · skipped (--no-judge)")
             return CheckResult(ok=True)
         review_input = _review_input(source_text, cohort_index, eligs)
         verdicts = fan_out([(lambda a=agent: a(review_input)) for _, agent in reviewers])
-        symbols, gating = [], []
+        gating: list[str] = []
         advisory.clear()
+        logger.info("")
+        logger.info("reviewer · panel of %d", len(reviewers))
         for (spec, _), verdict in zip(reviewers, verdicts):
-            mark = OK if verdict.faithful else (WARN if not spec.gating else FAIL)
-            symbols.append(f"{spec.key} {mark}")
-            if not verdict.faithful:
-                for p in (verdict.problems or ["flagged (no detail)"]):
-                    (gating if spec.gating else advisory).append(f"[{spec.key}] {p}")
-        logger.info(role("reviewer", " · ".join(symbols)))
-        for g in gating:
-            logger.info(cont(f"{FAIL} {g}"))
-        for a in advisory:
-            logger.info(cont(f"{WARN} {a} (advisory)"))
+            probs = [] if verdict.faithful else (verdict.problems or ["flagged (no detail)"])
+            if verdict.faithful:
+                verdict_word = PASS
+            elif spec.gating:
+                verdict_word = FAIL
+            else:
+                verdict_word = ADVISORY
+            count = f" · {len(probs)} issue(s)" if probs else ""
+            note = " (non-gating)" if (probs and not spec.gating) else ""
+            logger.info("")
+            logger.info(line(f"{spec.label}: {verdict_word}{count}{note}"))
+            for p in probs:
+                logger.info(bullet(p))
+                (gating if spec.gating else advisory).append(f"[{spec.key}] {p}")
         return CheckResult(ok=not gating, problems=gating)
 
     result = refine(
         produce=lambda: produce(""),
         check=check,
-        repair=lambda eligs, problems: produce("\n".join(f"- {p}" for p in problems)),
+        repair=lambda eligs, problems: produce("\n".join(f"- {p}" for p in problems), prior=eligs),
         max_attempts=max_attempts,
     )
 
     rows = _distribute(result.value, cohort_index, trial_id)
     all_problems = list(result.problems) + advisory
     adv = f" · {len(advisory)} advisory drug note(s)" if advisory else ""
-    logger.info(role("result", f"faithful={result.ok} · attempts={result.attempts} · "
-                     f"{len(cohort_index)} cohort(s) → {len(rows)} DNF row(s){adv}"))
+    logger.info("")
+    logger.info("result · faithful=%s · attempts=%d · %d cohort(s) → %d DNF row(s)%s",
+                result.ok, result.attempts, len(cohort_index), len(rows), adv)
     return ExtractionResult(rows=rows, faithful=result.ok, attempts=result.attempts, problems=all_problems)
 
 
@@ -163,8 +195,9 @@ def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] 
     detection = build_cohort_detector_agent(client)(source_text)
     drug_res = build_drug_agent(client)(source_text)
     drug = "; ".join(dict.fromkeys(d.strip() for d in drug_res.drugs if d and d.strip()))
-    logger.info(role("cohorts", f"ANZCTR detection → {len(detection.cohorts)} group(s) · "
-                     f"drug (LLM): {drug or '(none)'}"))
+    logger.info("")
+    logger.info("cohorts · ANZCTR detection → %d group(s) · drug (LLM): %s",
+                len(detection.cohorts), drug or "(none)")
     if detection.cohorts:
         return [Cohort(label=c.label, description=c.description, drug=drug, drug_source="INTERVENTIONS")
                 for c in detection.cohorts]
@@ -211,19 +244,17 @@ def _cohort_display(label: str) -> str:
     return "(all)" if label.strip().lower() == "all" else label
 
 
-def _short(value: str, limit: int = 72) -> str:
-    value = value.strip()
-    return value if len(value) <= limit else value[: limit - 3] + "..."
-
-
-def _fmt_elig(e: _EligRaw) -> str:
-    """Compact one-line render of an extracted row for the log (values truncated)."""
-    parts = [
-        f"{col}={_short(getattr(e, col).value)}"
-        for col in ELIGIBILITY_COLUMNS
-        if getattr(e, col).value.strip()
-    ]
-    return f"[{e.cohort}] " + "  |  ".join(parts) if parts else f"[{e.cohort}] (empty)"
+def _render_prior_table(eligs: list[_EligRaw]) -> str:
+    """Render the previous extraction as an editable numbered table for REVISION MODE."""
+    lines: list[str] = []
+    for i, e in enumerate(eligs, 1):
+        cells = "; ".join(
+            f"{col}={_with_sources(getattr(e, col).value, getattr(e, col).sources)}"
+            for col in ELIGIBILITY_COLUMNS
+            if getattr(e, col).value.strip()
+        ) or "(all columns empty)"
+        lines.append(f"{i}. [cohort={e.cohort}] {cells}")
+    return "\n".join(lines)
 
 
 def _with_sources(value: str, sources: list[str]) -> str:

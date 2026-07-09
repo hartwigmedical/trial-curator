@@ -18,6 +18,10 @@ def test_finding_model_validator():
     assert any("unbalanced" in p for p in finding_model_problems("SmallVariant[gene=EGFR"))
     assert any("unknown finding-model class" in p for p in finding_model_problems("Bogus[gene=X]"))
     assert any("gene=" in p for p in finding_model_problems("SmallVariant[inSpliceRegion]"))  # unscoped
+    # self-contradiction: the same term both required and excluded (must be split into rows upstream)
+    contradiction = ("SmallVariant[gene=H3 & transcriptImpact.hgvsProteinImpact=p.K27M] & "
+                     "NOT(SmallVariant[gene=H3 & transcriptImpact.hgvsProteinImpact=p.K27M])")
+    assert any("self-contradiction" in p for p in finding_model_problems(contradiction))
 
 
 # --- mapper -> validate + reviewer -> refine ------------------------------- #

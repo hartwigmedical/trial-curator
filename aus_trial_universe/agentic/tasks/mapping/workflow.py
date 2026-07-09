@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.core.logfmt import FAIL, OK, cont, role
+from aus_trial_universe.agentic.core.logfmt import FAIL, PASS, bullet, kv, line
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.mapping.agents import (
     build_drug_curator,
@@ -30,7 +30,7 @@ from aus_trial_universe.agentic.tasks.mapping.schema import (
     ReviewVerdict,
 )
 from aus_trial_universe.agentic.tools.finding_model import finding_model_problems
-from aus_trial_universe.agentic.tools.oncotree import invalid_codes
+from aus_trial_universe.agentic.tools.oncotree import invalid_codes, is_subcode
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,6 @@ _PROVENANCE_RE = re.compile(r"\s*\[[^\]]*\]\s*$")
 def strip_provenance(cell: str) -> str:
     """'metastatic NSCLC [TITLE; ELIGIBILITY CRITERIA]' -> 'metastatic NSCLC'."""
     return _PROVENANCE_RE.sub("", cell or "").strip()
-
-
-def _short(value: str, limit: int) -> str:
-    value = (value or "").strip()
-    return value if len(value) <= limit else value[: limit - 1] + "…"
 
 
 @dataclass
@@ -116,36 +111,68 @@ def map_cancer_types(
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cancer_cells if strip_provenance(c)))
     if not distinct:
         return {}
-    logger.info(role("oncotree", f"{len(distinct)} value(s)"))
+    logger.info("")
+    logger.info("oncotree · %d value(s)", len(distinct))
     results = fan_out(
         [(lambda v=v: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)) for v in distinct]
     )
-    out: dict[str, OncotreeResult] = {}
-    for v, r in zip(distinct, results):
-        out[v] = r
-        mark = OK if r.faithful else FAIL
-        logger.info(cont(f"{mark} {_short(v, 50):<50} → {r.oncotree_code or '?'}"))
-        if not r.faithful and r.problems:
-            logger.info(cont(f"  ↳ {_short(r.problems[0], 110)}"))
+    out = {v: r for v, r in zip(distinct, results)}
+    _log_doer_reviewer(distinct, results, use_reviewer=use_reviewer, render=lambda r: r.oncotree_code or "?")
     return out
+
+
+def _log_doer_reviewer(distinct, results, *, use_reviewer, render) -> None:
+    """Log a mapping procedure as doer (value → result) then reviewer (verdict per value)."""
+    logger.info("")
+    logger.info(line("doer"))
+    for v, r in zip(distinct, results):
+        logger.info(line(f"{v}  →  {render(r)}", indent=8))
+    logger.info("")
+    logger.info(line("reviewer" if use_reviewer else "reviewer · skipped (--no-review); validator only"))
+    for v, r in zip(distinct, results):
+        logger.info(line(f"{PASS if r.faithful else FAIL}  {v}", indent=8))
+        if not r.faithful and r.problems:
+            logger.info(bullet(r.problems[0], indent=12))
 
 
 _CODE_TOKEN_RE = re.compile(r"[A-Z][A-Z0-9_]+")
 _NOT_BODY_RE = re.compile(r"NOT\(([^)]*)\)")
+_OR_SPLIT_RE = re.compile(r"\bOR\b")
 _KW = {"AND", "OR", "NOT"}
+_SENTINEL_NAMES = ("Pan-cancer", "Solid tumour", "Haematological malignancy")
 
 
 def _oncotree_logic_problems(code_expr: str) -> list[str]:
-    """Catch the two OncoTree failure modes: [None] noise, and a code both included and excluded."""
+    """Catch OncoTree logic errors so a mapping is never self-contradictory or redundant.
+
+    Flags: any [None]; within each OR-alternative — a code both included and excluded (X AND NOT(X)),
+    a duplicated code (X AND X), a broad sentinel ANDed with a specific code, and a subtype ANDed with
+    its OncoTree parent. (A cancer_type conjunction is one OR-group; OR-alternatives are checked apart.)
+    """
     problems: list[str] = []
-    if "[None]" in code_expr and code_expr.strip() != "[None]":
-        problems.append("remove [None] terms — only a wholly non-cancer term may be [None]; drop subtype exclusions with no OncoTree node")
-    neg = {t for body in _NOT_BODY_RE.findall(code_expr) for t in _CODE_TOKEN_RE.findall(body)} - _KW
-    pos = set(_CODE_TOKEN_RE.findall(_NOT_BODY_RE.sub("", code_expr))) - _KW
-    both = sorted(neg & pos)
-    if both:
-        problems.append(f"code(s) both included and excluded: {', '.join(both)}")
-    return problems
+    expr = code_expr or ""
+    if "[None]" in expr:
+        problems.append("remove [None] — a non-cancer term is not allowed in cancer_type; leave the mapping empty instead")
+    for group in _OR_SPLIT_RE.split(expr):
+        neg = {t for body in _NOT_BODY_RE.findall(group) for t in _CODE_TOKEN_RE.findall(body)} - _KW
+        positive_text = _NOT_BODY_RE.sub("", group)
+        pos = [t for t in _CODE_TOKEN_RE.findall(positive_text) if t not in _KW]
+        pos_set = set(pos)
+        both = sorted(neg & pos_set)
+        if both:
+            problems.append(f"code(s) both included and excluded: {', '.join(both)} — a mapping cannot be self-contradictory (X AND NOT(X))")
+        dups = sorted({t for t in pos if pos.count(t) > 1})
+        if dups:
+            problems.append(f"duplicate code(s) in a conjunction: {', '.join(dups)} — X AND X = X, list each once")
+        pos_sentinels = [s for s in _SENTINEL_NAMES if s in positive_text]
+        if pos_sentinels and pos_set:
+            problems.append(
+                f"broad term(s) [{', '.join(pos_sentinels)}] ANDed with specific code(s) [{', '.join(sorted(pos_set))}] "
+                "— a broad type and its subtype are OR-alternatives, not AND; drop the broad term or use OR")
+        subset = sorted({f"{a}⊂{b}" for a in pos_set for b in pos_set if a != b and is_subcode(a, b)})
+        if subset:
+            problems.append(f"subtype ANDed with its parent ({', '.join(subset)}) — use OR or keep only the intended type, not AND")
+    return list(dict.fromkeys(problems))
 
 
 # --------------------------------------------------------------------------- #
@@ -200,19 +227,15 @@ def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attem
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cells if strip_provenance(c)))
     if not distinct:
         return {}
-    logger.info(role(label, f"{len(distinct)} value(s)"))
+    logger.info("")
+    logger.info("%s · %d value(s)", label, len(distinct))
     results = fan_out([
         (lambda v=v: _map_finding_model(client, v, build_mapper, build_reviewer,
                                         max_attempts=max_attempts, use_reviewer=use_reviewer))
         for v in distinct
     ])
-    out: dict[str, FindingModelResult] = {}
-    for v, r in zip(distinct, results):
-        out[v] = r
-        mark = OK if r.faithful else FAIL
-        logger.info(cont(f"{mark} {_short(v, 44):<44} → {_short(r.finding_model or '?', 70)}"))
-        if not r.faithful and r.problems:
-            logger.info(cont(f"  ↳ {_short(r.problems[0], 110)}"))
+    out = {v: r for v, r in zip(distinct, results)}
+    _log_doer_reviewer(distinct, results, use_reviewer=use_reviewer, render=lambda r: r.finding_model or "?")
     return out
 
 
@@ -237,6 +260,8 @@ class DrugCurationResult:
     drug_class: str = ""
     tga_status: str = ""
     pbs_status: str = ""
+    tga_detail: str = ""
+    pbs_detail: str = ""
     faithful: bool = True
     attempts: int = 0
     problems: list[str] = field(default_factory=list)
@@ -263,7 +288,9 @@ def curate_drugs(
     reviewer = build_drug_reviewer(client) if use_reviewer else None
     drug_line = "; ".join(dict.fromkeys(d for d in drugs if d.strip()))
     base = f"{trial_text}\n\nDrugs administered in this trial: {drug_line}"
-    logger.info(role("doer", f"web search · {len(drugs)} drug(s): {_short(drug_line, 80)}"))
+    logger.info("")
+    logger.info("doer")
+    logger.info(line(f"web search · {len(drugs)} drug(s): {drug_line}"))
 
     def produce(feedback: str = "") -> DrugCuration:
         prompt = base if not feedback else f"{base}\n\n[Reviewer feedback — fix these]:\n{feedback}"
@@ -290,15 +317,25 @@ def curate_drugs(
         max_attempts=max_attempts,
     )
     d = result.value
+    logger.info("")
     if reviewer is not None:
-        mark = OK if result.ok else FAIL
-        logger.info(role("reviewer", f"{mark} " + ("faithful" if result.ok
-                                                    else _short("; ".join(result.problems) or "flagged", 110))))
-    logger.info(role("result", f"main={_short(d.main_drugs, 60)} · tga={_short(d.tga_status, 40)} · "
-                     f"pbs={_short(d.pbs_status, 40)}"))
+        logger.info("reviewer · %s", PASS if result.ok else FAIL)
+        if not result.ok:
+            for p in result.problems:
+                logger.info(bullet(p))
+    else:
+        logger.info("reviewer · skipped (--no-review)")
+    logger.info("")
+    logger.info("result")
+    for lbl, val in (("main_drugs", d.main_drugs), ("auxiliary_drugs", d.auxiliary_drugs),
+                     ("pottr_drug_class", d.pottr_drug_class), ("drug_class", d.drug_class),
+                     ("tga_status", d.tga_status), ("pbs_status", d.pbs_status),
+                     ("tga_detail", d.tga_detail), ("pbs_detail", d.pbs_detail)):
+        logger.info(kv(lbl, val.strip() or "(none)", indent=4, pad=18))
     return DrugCurationResult(
         main_drugs=d.main_drugs.strip(), auxiliary_drugs=d.auxiliary_drugs.strip(),
         pottr_drug_class=d.pottr_drug_class.strip(), drug_class=d.drug_class.strip(),
         tga_status=d.tga_status.strip(), pbs_status=d.pbs_status.strip(),
+        tga_detail=d.tga_detail.strip(), pbs_detail=d.pbs_detail.strip(),
         faithful=result.ok, attempts=result.attempts, problems=result.problems,
     )

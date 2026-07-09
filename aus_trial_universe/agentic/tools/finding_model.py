@@ -51,10 +51,34 @@ Exclusions are wrapped in NOT(...). Order terms SmallVariant, GainDeletion, Disr
 
 _CLASS_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*)\s*\[")
 _SMALLVARIANT_RE = re.compile(r"SmallVariant\[([^\[\]]*)\]")
+_NOT_BODY_RE = re.compile(r"NOT\(([^()]*)\)")
+
+
+def _top_level_terms(expr: str) -> list[str]:
+    """Split on top-level & / | (bracket- and paren-depth 0), keeping NOT(...) as one term."""
+    terms: list[str] = []
+    depth = 0
+    cur = ""
+    for c in expr:
+        if c in "[(":
+            depth += 1
+            cur += c
+        elif c in "])":
+            depth -= 1
+            cur += c
+        elif depth == 0 and c in "&|":
+            if cur.strip():
+                terms.append(cur.strip())
+            cur = ""
+        else:
+            cur += c
+    if cur.strip():
+        terms.append(cur.strip())
+    return terms
 
 
 def finding_model_problems(expr: str) -> list[str]:
-    """Deterministic syntax problems in a finding-model expression (empty = well-formed)."""
+    """Deterministic syntax + logic problems in a finding-model expression (empty = well-formed)."""
     expr = (expr or "").strip()
     problems: list[str] = []
     if not expr:
@@ -69,5 +93,20 @@ def finding_model_problems(expr: str) -> list[str]:
     for body in _SMALLVARIANT_RE.findall(expr):
         if "gene=" not in body:
             problems.append("SmallVariant term missing gene= scope")
+            break
+    # Idempotency: a top-level term repeated (X & X, or NOT(X) & NOT(X)) is redundant noise.
+    terms = _top_level_terms(expr)
+    dups = sorted({t for t in terms if terms.count(t) > 1})
+    if dups:
+        problems.append(f"duplicate term(s): {'; '.join(dups)} — X AND X = X (and NOT(X) AND NOT(X) = NOT(X)); list each once")
+    # Self-contradiction: the same term both required and excluded (X & NOT(X)). When a trial's
+    # inclusion and exclusion of an alteration apply to DIFFERENT cancer types, that must be split
+    # into separate DNF rows upstream, and a location/context-qualified exclusion that finding-model
+    # cannot express must be OMITTED — never encoded as X & NOT(X) here.
+    positive = _NOT_BODY_RE.sub("", expr)
+    for body in _NOT_BODY_RE.findall(expr):
+        body = body.strip()
+        if body and body in positive:
+            problems.append(f"self-contradiction: term both required and excluded: {body}")
             break
     return problems

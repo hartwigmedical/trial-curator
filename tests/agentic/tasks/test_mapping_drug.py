@@ -32,14 +32,17 @@ def test_curate_drugs_happy():
     client = _DrugClient(
         curations=[DrugCuration(main_drugs="olaparib", auxiliary_drugs="",
                                 pottr_drug_class="cancer_therapy -> PARP_inhibitor",
-                                drug_class="PARP inhibitor", tga_status="Approved (2016)",
-                                pbs_status="PBS-listed for BRCA-mutated ovarian cancer")],
+                                drug_class="PARP inhibitor",
+                                tga_status="olaparib: Approved", pbs_status="olaparib: Approved",
+                                tga_detail="olaparib: ARTG registered 2016 (tga.gov.au/...)",
+                                pbs_detail="olaparib: PBS-listed 2017, BRCA ovarian (pbs.gov.au/...)")],
         verdicts=[ReviewVerdict(faithful=True)],
     )
     r = curate_drugs(client, "An olaparib maintenance trial ...", ["olaparib"])
     assert r.faithful and r.attempts == 1 and client.research_calls == 1
     assert r.main_drugs == "olaparib" and r.drug_class == "PARP inhibitor"
-    assert r.tga_status == "Approved (2016)"
+    assert r.tga_status == "olaparib: Approved"
+    assert r.tga_detail.startswith("olaparib:") and r.pbs_detail.startswith("olaparib:")
 
 
 def test_curate_drugs_validator_refines_on_empty_main():

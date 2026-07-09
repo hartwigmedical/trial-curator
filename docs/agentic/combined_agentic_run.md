@@ -1,7 +1,7 @@
 # Combined Agentic Run
 
 How to set up and run the **v2 agentic pipeline** (`aus_trial_universe/agentic/`) — one command
-takes a trial from free text all the way to a fully-enriched DNF resource table.
+takes a trial from free text all the way to a fully-enriched DNF (disjunctive normal form) resource table.
 
 - **Pipeline:** extract → map (OncoTree + finding-model) → drug enrichment, in **one streamed pass**.
 - **One run = one output + one log.** No intermediate files.
@@ -98,14 +98,16 @@ exclusions inline as `NOT(...)`). Columns, in order:
 | `molecular_biomarker` | extract | `value [source]` |
 | `prior_therapy` | extract | `value [source]` |
 | `drug` | extract | the cohort's raw intervention drug(s) |
-| `main_drugs` / `auxiliary_drugs` | drug | trial-level main investigational drug(s)/regimen vs the rest |
+| `main_drugs` / `auxiliary_drugs` | drug | the **investigational agent(s) under study by judgement** vs comparators/backbone/SoC/placebo |
 | `pottr_drug_class` | drug | POTTR class hierarchy of the main drug(s) |
 | `drug_class` | drug | general (non-POTTR) class/mechanism of the main drug(s) |
-| `tga_status` | drug | TGA/ARTG approval of the main drug(s), `Approved (YYYY)` / `Not approved` / `Unclear` |
-| `pbs_status` | drug | PBS reimbursement status + details for the main drug(s) |
+| `tga_status` | drug | **per main drug**: `<drug>: Approved` / `<drug>: Not approved` (TGA/ARTG) |
+| `pbs_status` | drug | **per main drug**: `<drug>: Approved` / `<drug>: Not approved` (PBS) |
+| `tga_detail` | drug | per main drug: year + evidence + official source link (tga.gov.au / ARTG) |
+| `pbs_detail` | drug | per main drug: year/indication + evidence + official source link (pbs.gov.au) |
 
-`main_drugs` / `pottr_drug_class` / `drug_class` / `tga_status` / `pbs_status` are trial-level (repeated across
-that trial's cohort rows); `arm_type` and `drug` are per cohort.
+`main_drugs` / `pottr_drug_class` / `drug_class` / `tga_status` / `pbs_status` / `tga_detail` / `pbs_detail` are
+trial-level (repeated across that trial's cohort rows); `arm_type` and `drug` are per cohort.
 
 > **Verification:** the finding-model / OncoTree / drug outputs are checked **manually** against the legacy
 > `data/eligibility_path/exports/final/eligibility_*_resource_*.tsv` and the hand-curated resource files.
@@ -115,7 +117,7 @@ that trial's cohort rows); `arm_type` and `drug` are per cohort.
 
 ## Testing
 ```bash
-make agentic-tests        # 53 unit tests, no API, all fake-client
+make agentic-tests        # 54 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 

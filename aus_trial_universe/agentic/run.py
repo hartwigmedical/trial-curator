@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     _load_openai_key()
 
     from aus_trial_universe.agentic.core.client import LlmClient
-    from aus_trial_universe.agentic.core.logfmt import FAIL, OK, stage
+    from aus_trial_universe.agentic.core.logfmt import FAIL, PASS, stage
     from aus_trial_universe.agentic.tasks.extraction.loaders import load_trials
     from aus_trial_universe.agentic.tasks.extraction.workflow import TSV_COLUMNS, extract_trial
     from aus_trial_universe.agentic.tasks.mapping.workflow import (
@@ -88,7 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     out_cols = _insert_after(out_cols, "gene_alteration", ["gene_alteration_findingmodel"])
     out_cols = _insert_after(out_cols, "molecular_signature", ["molecular_signature_findingmodel"])
     out_cols = _insert_after(out_cols, "drug", ["main_drugs", "auxiliary_drugs",
-                                               "pottr_drug_class", "drug_class", "tga_status", "pbs_status"])
+                                               "pottr_drug_class", "drug_class", "tga_status", "pbs_status",
+                                               "tga_detail", "pbs_detail"])
 
     client = LlmClient(model=args.model) if args.model else LlmClient()
     kw = dict(max_attempts=args.max_attempts, use_reviewer=not args.no_review)
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
 
     total = 0
     summaries = []
+    failures: list[tuple[str, str]] = []  # (trial_id, error) — batch continues past a failed trial
     with open(out_path, "w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=out_cols, delimiter="\t", lineterminator="\n", extrasaction="ignore")
         writer.writeheader()
@@ -107,53 +109,63 @@ def main(argv: list[str] | None = None) -> int:
             log.info("═" * 70)
             log.info("TRIAL %d/%d · %s · %s", i, len(trials), source, trial_id)
             log.info("═" * 70)
-            # STAGE I: EXTRACTION
-            log.info("")
-            log.info(stage("EXTRACTION"))
-            result = extract_trial(client, trial_id=trial_id, source_text=base_text, cohorts=cohorts,
-                                   max_attempts=args.max_attempts, use_judge=not args.no_judge)
-            rows = [{c: getattr(r, c) for c in TSV_COLUMNS} for r in result.rows]
-            # STAGE II: MAPPING (this trial's cells)
-            log.info("")
-            log.info(stage("MAPPING"))
-            onco = map_cancer_types(client, [r["cancer_type"] for r in rows], **kw)
-            gene = map_gene_alterations(client, [r["gene_alteration"] for r in rows], **kw)
-            sig = map_molecular_signatures(client, [r["molecular_signature"] for r in rows], **kw)
-            for r in rows:
-                o = onco.get(strip_provenance(r["cancer_type"]))
-                r["oncotree_name"] = o.oncotree_name if o else ""
-                r["oncotree_code"] = o.oncotree_code if o else ""
-                g = gene.get(strip_provenance(r["gene_alteration"]))
-                r["gene_alteration_findingmodel"] = g.finding_model if g else ""
-                s = sig.get(strip_provenance(r["molecular_signature"]))
-                r["molecular_signature_findingmodel"] = s.finding_model if s else ""
-            # STAGE III: DRUG enrichment (trial-level): main/auxiliary + POTTR/general class + TGA/PBS (web search)
-            log.info("")
-            log.info(stage("DRUG"))
-            drug_set: list[str] = []
-            for r in rows:
-                for dn in strip_provenance(r["drug"]).split(";"):
-                    dn = dn.strip()
-                    if dn and dn not in drug_set:
-                        drug_set.append(dn)
-            dc = curate_drugs(client, base_text, drug_set, **kw)
-            for r in rows:
-                r["main_drugs"] = dc.main_drugs
-                r["auxiliary_drugs"] = dc.auxiliary_drugs
-                r["pottr_drug_class"] = dc.pottr_drug_class
-                r["drug_class"] = dc.drug_class
-                r["tga_status"] = dc.tga_status
-                r["pbs_status"] = dc.pbs_status
-            writer.writerows(rows)
-            fh.flush()
-            total += len(rows)
-            summaries.append((source, trial_id, len(rows), result.faithful, result.attempts))
-            log.info("")
-            log.info("%s %s · +%d row(s) · total %d", OK, trial_id, len(rows), total)
+            try:
+                # STAGE I: EXTRACTION
+                log.info("")
+                log.info(stage("EXTRACTION"))
+                result = extract_trial(client, trial_id=trial_id, source_text=base_text, cohorts=cohorts,
+                                       max_attempts=args.max_attempts, use_judge=not args.no_judge)
+                rows = [{c: getattr(r, c) for c in TSV_COLUMNS} for r in result.rows]
+                # STAGE II: MAPPING (this trial's cells)
+                log.info("")
+                log.info(stage("MAPPING"))
+                onco = map_cancer_types(client, [r["cancer_type"] for r in rows], **kw)
+                gene = map_gene_alterations(client, [r["gene_alteration"] for r in rows], **kw)
+                sig = map_molecular_signatures(client, [r["molecular_signature"] for r in rows], **kw)
+                for r in rows:
+                    o = onco.get(strip_provenance(r["cancer_type"]))
+                    r["oncotree_name"] = o.oncotree_name if o else ""
+                    r["oncotree_code"] = o.oncotree_code if o else ""
+                    g = gene.get(strip_provenance(r["gene_alteration"]))
+                    r["gene_alteration_findingmodel"] = g.finding_model if g else ""
+                    s = sig.get(strip_provenance(r["molecular_signature"]))
+                    r["molecular_signature_findingmodel"] = s.finding_model if s else ""
+                # STAGE III: DRUG enrichment (trial-level): main/auxiliary + POTTR/general class + TGA/PBS (web search)
+                log.info("")
+                log.info(stage("DRUG"))
+                drug_set: list[str] = []
+                for r in rows:
+                    for dn in strip_provenance(r["drug"]).split(";"):
+                        dn = dn.strip()
+                        if dn and dn not in drug_set:
+                            drug_set.append(dn)
+                dc = curate_drugs(client, base_text, drug_set, **kw)
+                for r in rows:
+                    r["main_drugs"] = dc.main_drugs
+                    r["auxiliary_drugs"] = dc.auxiliary_drugs
+                    r["pottr_drug_class"] = dc.pottr_drug_class
+                    r["drug_class"] = dc.drug_class
+                    r["tga_status"] = dc.tga_status
+                    r["pbs_status"] = dc.pbs_status
+                    r["tga_detail"] = dc.tga_detail
+                    r["pbs_detail"] = dc.pbs_detail
+                writer.writerows(rows)
+                fh.flush()
+                total += len(rows)
+                summaries.append((source, trial_id, len(rows), result.faithful, result.attempts))
+                log.info("")
+                log.info("done · %s · %d row(s) · total %d", trial_id, len(rows), total)
+            except Exception as exc:  # one flaky/API-failing trial must not kill the whole batch
+                failures.append((trial_id, f"{type(exc).__name__}: {exc}"))
+                log.info("")
+                log.info("FAILED · %s · %s (skipped; continuing)", trial_id, f"{type(exc).__name__}: {exc}")
 
-    print(f"\n{'═' * 70}\n{len(trials)} trial(s) · {total} row(s) → {out_path}\n")
+    print(f"\n{'═' * 70}\n{len(trials)} trial(s): {len(summaries)} ok, {len(failures)} failed · "
+          f"{total} row(s) → {out_path}\n")
     for source, trial_id, n, faithful, attempts in summaries[:40]:
-        print(f"  {OK if faithful else FAIL} {trial_id} · rows={n} · attempts={attempts}")
+        print(f"  {PASS if faithful else FAIL}  {trial_id} · rows={n} · attempts={attempts}")
+    for trial_id, err in failures:
+        print(f"  FAILED  {trial_id} · {err[:90]}")
     return 0
 
 

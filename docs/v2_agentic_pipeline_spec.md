@@ -73,8 +73,9 @@ SELECT/ASSEMBLE ─▶ COHORTS ─▶ EXTRACT ─▶ (rule-check + REVIEW panel)
 Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Output name: single → `trial_resource_<id>.tsv`;
 multiple/all → `trial_resource_<YYYYMMDD_HHMMSS>.tsv`, under `data/agentic/output/`.
 
-## 6. The DNF model
+## 6. The DNF (disjunctive normal form) model
 
+The output table is in **disjunctive normal form**: a set of rows ORed together, each row a conjunction of ANDed cells.
 - **One row = one satisfiable conjunction** (cells ANDed). Rows sharing a `(trialId, cohort)` are **ORed**.
 - **Conditionals become co-occurrence:** "if cancer A then mutation X; if cancer B then mutation Y" → two rows.
 - **Exclusions are inline `NOT(...)`.** A cell holds the full requirement for its criterion in that row (several
@@ -143,7 +144,11 @@ One cohort-aware **extractor** (whole rows) checked by a rule-check then a **5-a
 `cancer_type` (strengthened: reject false-positive tumours seen only in prior-therapy/history/exclusion context),
 `molecular` (faithfulness + correct column per taxonomy), `prior_therapy`, `structural` (DNF integrity + cohort
 scope), and `drug` (**advisory** — doesn't gate). The bounded refine loop re-runs the extractor on the four gating
-reviewers' feedback (max ~3 attempts); the drug reviewer is reported but non-blocking.
+reviewers' feedback (max ~3 attempts). **Incremental repair:** on a gating failure the extractor receives its
+OWN previous table + only the flagged issues and keeps unflagged rows verbatim (preserves correct work, aids
+convergence). The drug reviewer is reported but non-blocking. Also enforced: cancer_type never ANDs two
+different tumour types (CONDITIONS is authoritative; a broad umbrella is dropped when the trial is clearly one
+specific type; different types are OR rows), and no cell holds `X AND NOT(X)` (split across DNF rows instead).
 
 ## 8. Mapping stage (Stage II)
 
@@ -151,23 +156,29 @@ Enriches the DNF rows. Every procedure is an LLM **mapper/curator → reviewer**
 resources per the hold-out rule (§8.4).
 
 ### 8.1 cancer_type → OncoTree
-Mapper → `oncotree_name` + `oncotree_code`, preserving AND/NOT; grounded in the OncoTree ontology
-(`tools/oncotree.py`). A deterministic validator rejects invalid codes, `[None]` noise, and any code that is both
-included and excluded, before the reviewer.
+Mapper → `oncotree_name` + `oncotree_code`, mapping tumour terms; grounded in the OncoTree ontology
+(`tools/oncotree.py`). Only **three permitted non-OncoTree terms**: `Pan-cancer`, `solid tumour`,
+`Haematological malignancy` (no `[None]` — a non-cancer value maps to empty). A deterministic validator
+(`_oncotree_logic_problems`) rejects any `[None]`, and — per OR-alternative — `X AND X`, `X AND NOT(X)`, a broad
+term ANDed with a specific code under it, and a subtype ANDed with its OncoTree parent (hierarchy from the CSV
+levels via `is_subcode`). `NOT(cancer type)` is kept minimal. The reviewer audits the same.
 
 ### 8.2 gene_alteration / molecular_signature → finding-model syntax
 Mapper → Hartwig finding-model syntax (`tools/finding_model.py` grammar): `SmallVariant[gene=… & …]`,
 `GainDeletion[… & type=GAIN|HOM_DEL|HET_DEL]`, `Fusion[geneStart/geneEnd]`, `Disruption`, `Arm[…]`, `Wildtype`,
-`MicrosatelliteStability[…]`, `homologousRecombination[…]`, `tumorMutationBurden/Load[…]`. A syntax validator
-(balanced brackets, known classes, gene-scoped `SmallVariant`) runs before the reviewer.
+`MicrosatelliteStability[…]`, `homologousRecombination[…]`, `tumorMutationBurden/Load[…]`. A validator
+(balanced brackets, known classes, gene-scoped `SmallVariant`, **no duplicate terms, no `X & NOT(X)`
+self-contradiction**) runs before the reviewer. A `NOT()` qualified by something finding-model can't express
+(e.g. an anatomic location) is **omitted** — never emitted as `NOT(same-variant)`.
 
 ### 8.3 Drug enrichment (trial-level, one web-search curator → reviewer)
 Sources: CTGov `interventions[].name/otherNames/description`; ANZCTR `INTERVENTIONS` (RxNorm cross-check
 **shelved**). One web-search curator produces, for the trial:
-- `main_drugs` / `auxiliary_drugs` — investigational drug(s)/regimen (listed first) vs comparators/backbone/supportive;
+- `main_drugs` / `auxiliary_drugs` — the **investigational agent(s) under study by judgement** (NOT the whole
+  regimen) vs comparators/backbone/supportive/placebo;
 - `pottr_drug_class` — POTTR class hierarchy of the main drug(s); `drug_class` — general (non-POTTR) class (web search);
-- `tga_status` — TGA/ARTG approval of the main drug(s), `Approved (YYYY)` / `Not approved` / `Unclear`;
-- `pbs_status` — PBS reimbursement of the main drug(s), with details.
+- `tga_status` / `pbs_status` — **per main drug**, `<drug>: Approved` / `<drug>: Not approved`;
+- `tga_detail` / `pbs_detail` — per main drug, the **year + evidence + official source link** (tga.gov.au ARTG / pbs.gov.au).
 
 ### 8.4 Hold-out / anti-overfitting rule
 Prompts teach **grammar/ontology + a few (~8–12) diverse examples only**. The hand-curated resources
@@ -176,11 +187,13 @@ overwrites) are **held-out verification data**, checked **manually** later (esp.
 legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would degenerate into a mechanical vlookup).
 The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
 
-## 9. Output schema (19 columns)
+## 9. Output schema (21 columns)
 `trialId, cohort, arm_type, cancer_type, oncotree_name, oncotree_code, gene_alteration,
 gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
-prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status`.
+prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status,
+tga_detail, pbs_detail`.
 `arm_type` + `drug` are per cohort; `main_drugs`/classes/regulatory are trial-level (repeated across the trial's rows).
+`tga_status`/`pbs_status` are per main drug (`<drug>: Approved/Not approved`); `tga_detail`/`pbs_detail` carry the evidence (year + link).
 
 ## 10. Repo layout & retirement
 
@@ -198,7 +211,7 @@ RxNorm coupling). `ui/` deleted. `actin_curator/`, `pydantic_curator/`, `trialcu
 supersedes each (legacy still supplies resources + is imported by the old paths).
 
 ## 11. Verification
-- **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (53 tests).
+- **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (54 tests).
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
 - **Mapping accuracy:** **manual** hold-out comparison against the legacy trial-resource + curated resources
   (a 10-trial complex review set is written to `data/agentic/analysis/review_trials_ids.txt`). An automated

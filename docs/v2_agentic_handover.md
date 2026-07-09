@@ -1,26 +1,35 @@
 # v2 Agentic Pipeline — Handover
 
-- **As of:** 2026-07-08. **Branch:** `AUS-328-Aus-trial-universe-v2`.
+- **As of:** 2026-07-10. **Branch:** `AUS-328-Aus-trial-universe-v2`.
 - **Pre-rewrite fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only — NOT data).
 - **Run/setup guide:** `docs/agentic/combined_agentic_run.md` (all make commands + environment).
-- **Design + fields + schema:** `docs/v2_agentic_pipeline_spec.md` (single spec); **diagram:** `docs/v2_workflow_diagram.html`.
+- **Design + fields + schema:** `docs/v2_agentic_pipeline_spec.md` (single spec); **diagram:** `docs/v2_workflow_diagram.html`
+  (published Artifact: https://claude.ai/code/artifact/671df104-6474-4c32-b78c-45f4b65d063f — on any diagram change,
+  **overwrite** that URL via `scripts/publish_diagram_artifact.sh`; see memory `workflow-diagram-artifact`).
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`.
 
 ## Next up (start here)
-1. **[BIG] Act on the user's review of the 10-complex-trial run.** The user is reviewing the output of the
-   complex set (`data/agentic/analysis/review_trials_ids.txt`, 10 trials with hard cohort × cancer × gene
-   combos) and will bring **specific feedback** into the next session. Wait for it; that feedback drives the
-   next round of prompt/logic tuning. Re-run with
-   `make agentic-run IDS=$(cat data/agentic/analysis/review_trials_ids.txt)`.
+The user is reviewing output quality and will bring **more changes tomorrow (from 2026-07-11)**. Known items:
 
-   *(Run-log rework — clarity, no fluff — is done; see "Ticked off" below.)*
+1. **Extraction convergence on hard trials.** `NCT05009992` still finishes `faithful=False` after 3 attempts —
+   deep sub-cohort scoping (1A/1B/2A/2B…). Incremental repair helped (feeds the doer its own prior table +
+   only the flagged issues) but didn't fully converge. Consider more attempts, per-dimension "resolved"
+   tracking, or splitting sub-cohorts up front.
+2. **`H3K27-altered` → empty finding-model nuance.** A bare `H3K27-altered` cell mapped to `""` while
+   `H3K27M` and `H3K27-altered AND BRAF V600E` mapped correctly — inconsistent drop. Gene-mapper judgement
+   tune (held-out manual-verification territory).
+3. **Two run sets awaiting review:** the hard set (`data/agentic/analysis/review_trials_ids.txt`) and a new
+   **typical/standard set** (`data/agentic/analysis/typical_trials_ids.txt`, 10 average CTGov cancer trials).
+   Re-run either with `make agentic-run IDS=$(cat <that file>)`.
+
+   *(Run-log rework and the 2026-07-10 output-quality fixes are done; see "Ticked off".)*
 
 ## TL;DR
 The v2 rewrite is a **complete two-stage agentic pipeline**, end-to-end verified on ctgov + anzctr:
 **extract → map → drug enrichment**, in one streamed pass, via a single command (`make agentic-run`).
 Pattern B throughout: deterministic Python owns control flow; the LLM fills the doer/reviewer slots.
-**53 unit tests pass** (all fake-client, no API). Output is a DNF table (one row = one satisfiable
-(trial, cohort) conjunction; rows ORed, cells ANDed, exclusions inline `NOT(...)`).
+**54 unit tests pass** (all fake-client, no API). Output is a **DNF (disjunctive normal form)** table — one row =
+one satisfiable (trial, cohort) conjunction; rows are ORed, cells within a row ANDed, exclusions inline `NOT(...)`.
 
 ## Quickstart
 Conda env `trial_curator` (auto-selected); `OPENAI_API_KEY` auto-loaded from `.env`. Needs `openai>=2.x`.
@@ -29,7 +38,7 @@ make agentic-run ID=NCT06881784                 # one trial (source auto-detecte
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
 make agentic-run                                # ALL trials
 make agentic-clean                              # wipe data/agentic/{output,log,cache}
-make agentic-tests                              # 53 unit tests, no API
+make agentic-tests                              # 54 unit tests, no API
 #   options: MODEL=<name>  NO_JUDGE=1 (skip extraction panel)  NO_REVIEW=1 (skip mapping/drug reviewers)
 ```
 One run → **one output** `data/agentic/output/trial_resource_<id|timestamp>.tsv` + **one log** `data/agentic/log/…`.
@@ -51,18 +60,22 @@ aus_trial_universe/agentic/
   tasks/mapping/             # STAGE II: enrich the DNF rows (LLM mapper -> reviewer each)
     agents.py, schema.py     # oncotree / gene / signature mappers + drug curator (web search) + reviewers
     workflow.py              # map_cancer_types, map_gene_alterations, map_molecular_signatures, curate_drugs
+  core/logfmt.py             # shared run-log formatting (stage banners + doer/reviewer blocks)
   tools/
-    oncotree.py              # OncoTree vocab + code validator
-    finding_model.py         # finding-model grammar + syntax validator
-tests/agentic/               # 53 tests (fake-client)
+    oncotree.py              # OncoTree vocab + code validator + hierarchy (ancestors/is_subcode); 3 sentinels
+    finding_model.py         # finding-model grammar + syntax/logic validator (dup + self-contradiction)
+tests/agentic/               # 54 tests (fake-client)
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|clean|tests
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
-## Output schema (19 columns)
+## Output schema (21 columns)
 `trialId, cohort, arm_type, cancer_type, oncotree_name, oncotree_code, gene_alteration,
 gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
-prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status`.
+prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status,
+tga_detail, pbs_detail`.
+`tga_status`/`pbs_status` are now **per main drug** (`<drug>: Approved` / `<drug>: Not approved`);
+`tga_detail`/`pbs_detail` (new) carry the **year + evidence + official source link** per drug.
 See `combined_agentic_run.md` §Output Schema for per-column notes.
 
 ## Locked decisions (don't re-litigate)
@@ -72,16 +85,44 @@ See `combined_agentic_run.md` §Output Schema for per-column notes.
 - **Mapping (memory `v2-mapping-stage-decisions`):** every procedure is an LLM mapper/curator → reviewer.
   **Hold-out rule:** prompts carry grammar/ontology + ~8–12 examples only; the curated resources are
   **held-out verification data**, checked **manually** later (esp. gene_alteration) — not ingested wholesale.
-- **Drug:** `main_drugs`/`auxiliary_drugs` (trial-level, main first, regimen allowed); `pottr_drug_class` +
-  `drug_class` + `tga_status` (Approved+year) + `pbs_status` for the **main drug(s)**, via web search.
+- **OncoTree logic (2026-07-10):** exactly **3 permitted non-OncoTree terms** — `Pan-cancer`, `solid tumour`,
+  `Haematological malignancy` (no `[None]`; a non-cancer value maps to empty). Deterministic validator +
+  prompts forbid `X AND X`, `X AND NOT(X)`, a broad term ANDed with its own subtype (→ OR / drop umbrella),
+  and a subtype ANDed with its OncoTree parent (`tools/oncotree.py:is_subcode`); `NOT(cancer type)` kept minimal.
+- **Cancer_type (2026-07-10):** CONDITIONS is authoritative; **never AND two different cancer types**; drop a
+  broad umbrella when the trial is clearly one specific type; genuinely different types are separate OR rows.
+- **gene finding-model (2026-07-10):** never `X & NOT(X)` or duplicate terms; a NOT() qualified by something
+  finding-model can't express (e.g. anatomic location) is **omitted**. Inclusion+exclusion of the same
+  alteration across cohorts must be **split into rows** upstream (extraction molecular/structural reviewers).
+- **Drug (2026-07-10):** `main_drugs` = the **investigational agent(s) under study by judgement** (not the
+  whole regimen — backbone/SoC/comparator/placebo go to `auxiliary_drugs`); `pottr_drug_class` + `drug_class`;
+  `tga_status`/`pbs_status` **per main drug** (Approved/Not approved) + `tga_detail`/`pbs_detail`
+  (year + evidence + official link), via web search.
+- **Refine = incremental repair (2026-07-10):** on a gating FAIL the extractor gets its OWN prior table + only
+  the flagged issues, and keeps unflagged rows verbatim (preserves correct work, aids convergence).
 - **arm_type** per cohort from CTGov `armGroups[].type`.
 - **One output + one log**, streamed per trial; `--selected` retired; modes = `ID` / `IDS` / all.
 
 ## Verified (live)
+- `NCT05009992` (DMG, 6 cohorts — the hard case, 2026-07-10): fresh full run + **comprehensive validator
+  (`scratchpad/check_output.py`) PASS, 0 problems / 55 rows** — no `[None]`, no gene `A AND NOT(A)`/dupes,
+  clean OncoTree, per-drug TGA/PBS + detail links, `main_drugs` = investigational agents only. (Extraction
+  still `faithful=False` — convergence limit; mapping degrades gracefully.)
 - `NCT07099898` (SCLC, 2 arms): main=`risvutatug rezetecan` (investigational, TGA `Not approved`),
   auxiliary=`Topotecan`; POTTR + drug_class + PBS populated via web search; arm_type EXPERIMENTAL/ACTIVE_COMPARATOR.
 - `NCT05417594` (BRCA basket, 83 rows): oncotree + `SmallVariant[gene=BRCA1 & …]` finding-model.
 - Legacy comparison spot-checks: BREAST=BREAST, MTAP `HOM_DEL` matches; deviations marginal.
+
+## Ticked off (2026-07-10) — output-quality fixes
+Acting on the user's review of the DNF output:
+- **OncoTree logic guards** — 3 sentinels (dropped `[None]`), and deterministic rejection of `X AND X`,
+  `X AND NOT(X)`, broad-AND-subtype, and subtype-AND-parent (hierarchy from OncoTree levels).
+- **Cancer_type** — CONDITIONS authoritative, never-AND different types, drop umbrella when one specific type.
+- **gene finding-model** — validator now catches duplicate terms + self-contradiction; mapper omits
+  unrepresentable (e.g. location-qualified) `NOT()`; extraction reviewers flag `X AND NOT(X)` cells to split.
+- **Drug** — `main_drugs` by judgement (investigational only); per-drug `tga_status`/`pbs_status` +
+  `tga_detail`/`pbs_detail` (year + evidence + link). **+2 output columns.**
+- **Refine → incremental repair** (prior table + flagged issues only). Verified live on `NCT05009992`. 54 tests pass.
 
 ## Ticked off (2026-07-08)
 Former TODOs now closed:
@@ -108,6 +149,10 @@ Former TODOs now closed:
 - **ANZCTR `DRUG_rxnorm_matched`** shelved — ANZCTR drug is now LLM-extracted; revisit RxNorm as a cross-check.
 - **OncoTree granularity** — SCLC-subtype trials occasionally flag "unfaithful" (output still written); tune vs
   the manual review of the 10-trial set (`data/agentic/analysis/review_trials_ids.txt`).
+- **Extraction convergence** — hard multi-subcohort trials (`NCT05009992`) still exhaust 3 attempts
+  `faithful=False` even with incremental repair. Deeper fix pending (more attempts / per-dimension resolved /
+  up-front subcohort split).
+- **`H3K27-altered` → empty finding-model** — bare `H3K27-altered` inconsistently maps to `""`; gene-mapper tune.
 - **Run-comparison method** (spec §12) — still deferred; verification of the mapping is currently manual.
 - **`eligibility_path` retirement** — legacy stays in-tree as the resource source + reference until superseded.
 

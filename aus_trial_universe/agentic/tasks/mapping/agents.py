@@ -26,18 +26,27 @@ Rules:
 - Map each tumour/cancer term to its single CLOSEST OncoTree node from the VOCABULARY below. Pick the
   most specific node that still fully covers the stated type; do NOT over-narrow (e.g. "NSCLC" -> NSCLC,
   not a subtype) and do NOT over-broaden.
-- Preserve the expression's logical structure EXACTLY: keep "AND" and "NOT(...)" as-is, mapping only the
-  tumour terms inside them.
-- Use ONLY codes/names that appear in the VOCABULARY, or these sentinels:
-  - "Solid tumour"  — any solid tumour (e.g. "advanced solid tumours").
-  - "Pan-cancer"    — any cancer incl. haematological (e.g. "solid and haematological malignancies").
-  - "[None]"        — the whole term is not a cancer/tumour type at all.
-- oncotree_name and oncotree_code must be structurally identical (same terms, same AND/NOT), differing
+- Preserve the expression's logical structure, mapping only the tumour terms — BUT it is your job to fix
+  logically invalid input (see "Logical consistency" below); do not blindly copy a broken AND/NOT.
+- Use ONLY codes/names that appear in the VOCABULARY, or these THREE permitted non-OncoTree terms:
+  - "Solid tumour"              — any solid tumour (e.g. "advanced solid tumours").
+  - "Pan-cancer"               — any cancer incl. haematological (e.g. "solid and haematological malignancies").
+  - "Haematological malignancy"— any blood / lymphoid cancer (e.g. "relapsed haematologic malignancies").
+  If a term is genuinely not a cancer/tumour type, return "" (empty) — do not invent a code.
+- oncotree_name and oncotree_code must be structurally identical (same terms, same AND/OR/NOT), differing
   only in name vs code.
-- Excluded subtypes with NO distinct OncoTree node: if a NOT(...) names a histologic subtype/refinement
-  that has no OncoTree code of its own (e.g. "complex SCLC" or "transformed SCLC" under SCLC), OMIT that
-  NOT() entirely. Never map it to the PARENT code (that would wrongly exclude the included type, e.g.
-  "SCLC AND NOT(SCLC)"), and never put "[None]" inside a NOT(). A code that is included must not also appear negated.
+
+Logical consistency (MANDATORY — a mapping must never be self-contradictory or redundant):
+- NEVER repeat a code: "X AND X" = "X"; list each code once.
+- NEVER include and exclude the same code: no "X AND NOT(X)".
+- NEVER AND a broad term with a specific type under it (e.g. "Solid tumour AND Melanoma", or a code ANDed
+  with its own OncoTree subtype/parent). A broad type and its subtype are OR-alternatives, not a
+  conjunction — a patient has ONE tumour. If the trial is clearly about the specific type, keep only that
+  and DROP the broad term; if it genuinely spans the broad group with the subtype named, use OR (e.g.
+  "Solid tumour OR Melanoma").
+- Keep NOT(cancer type) to a MINIMUM: only negate a genuinely excluded tumour type that has its OWN
+  OncoTree node. If a NOT(...) names a histologic subtype/refinement with no OncoTree code of its own
+  (e.g. "complex SCLC" under SCLC), OMIT that NOT() entirely — never map it to the PARENT code.
 
 Examples (source -> oncotree_name  //  oncotree_code):
 - "metastatic NSCLC"                     -> Non-Small Cell Lung Cancer  //  NSCLC
@@ -45,8 +54,9 @@ Examples (source -> oncotree_name  //  oncotree_code):
 - "acute myeloid leukemia"               -> Acute Myeloid Leukemia  //  AML
 - "advanced solid tumours"               -> Solid tumour  //  Solid tumour
 - "solid and haematological malignancies"-> Pan-cancer  //  Pan-cancer
-- "solid tumour AND NOT(melanoma)"       -> Solid tumour AND NOT(Melanoma)  //  Solid tumour AND NOT(MEL)
-- "Rett syndrome"                        -> [None]  //  [None]
+- "relapsed haematologic malignancies"   -> Haematological malignancy  //  Haematological malignancy
+- "solid tumours except melanoma"        -> Solid tumour AND NOT(Melanoma)  //  Solid tumour AND NOT(MEL)
+- "solid tumours, e.g. melanoma"         -> Solid tumour OR Melanoma  //  Solid tumour OR MEL
 
 VOCABULARY (CODE<TAB>Name):
 """
@@ -55,10 +65,14 @@ ONCOTREE_REVIEWER_INSTRUCTIONS = """\
 You audit a proposed OncoTree mapping of a trial's cancer-type expression. You are given the SOURCE
 expression and the proposed oncotree_name / oncotree_code.
 
-Set faithful=true only if: every tumour term is mapped to the CORRECT OncoTree node with appropriate
-granularity (not too broad, not too narrow); the codes are valid OncoTree codes or the sentinels
-(Solid tumour / Pan-cancer / [None]); and the AND / NOT(...) structure of the source is preserved and
-oncotree_name mirrors oncotree_code. Otherwise faithful=false with concrete, actionable problems.
+Set faithful=true only if ALL of the following hold; otherwise faithful=false with concrete, actionable problems:
+- Every tumour term maps to the CORRECT OncoTree node at appropriate granularity (not too broad, not too narrow).
+- Codes are valid OncoTree codes or one of the THREE permitted terms only: "Solid tumour", "Pan-cancer",
+  "Haematological malignancy"; a non-cancer value must be empty, not a code.
+- The mapping is LOGICALLY CONSISTENT: no "X AND X", no "X AND NOT(X)", and no broad term ANDed with a
+  specific type under it (a broad type + its subtype are OR-alternatives, not AND). Flag any of these.
+- NOT(cancer type) terms are minimal and each names a genuinely excluded tumour type with its own node.
+- oncotree_name mirrors oncotree_code (same terms/structure).
 """
 
 
@@ -90,6 +104,16 @@ Convert a gene-alteration expression (the trial's normalized wording) into Hartw
 Return `finding_model`. Preserve the expression's logical structure: keep AND (&), OR (|) and NOT(...);
 exclusions are wrapped in NOT(...). Use "" only if there is genuinely no molecular alteration.
 
+The result must be LOGICALLY CONSISTENT:
+- Never emit a duplicate term ("X & X" or "NOT(X) & NOT(X)" = just X / NOT(X)) — list each term once.
+- Never emit "X & NOT(X)" or "X | NOT(X)" (a term both required and excluded).
+- If a NOT(...) exclusion is qualified by something finding-model CANNOT express — an anatomic LOCATION
+  ("H3K27M in thalamic DMG"), a tumour context, or any qualifier with no field for it — OMIT that NOT()
+  entirely. Do NOT drop the qualifier and emit NOT(same-variant): that duplicates or contradicts the
+  included term. (e.g. "H3K27-altered AND NOT(H3K27M in thalamic DMG)" -> just the H3K27M inclusion.)
+- If the source's inclusion and exclusion of an alteration actually apply to DIFFERENT cancer types/cohorts,
+  that must have been split into separate rows upstream — here map only what genuinely applies to this row.
+
 Follow the grammar below exactly. Prefer the most specific term the wording supports (name the exon /
 protein change / copy-number type when stated). For a bare "mutation"/"alteration" with no specifics, apply
 the expansion rule (tumour-suppressor vs oncogene). Only emit the listed classes and fields.
@@ -117,8 +141,10 @@ SOURCE wording and the proposed finding_model. This layer is NOT human-curated, 
 Set faithful=true only if: the syntax is valid finding-model (correct classes/fields, balanced brackets,
 SmallVariant is gene-scoped); it captures exactly what the source states (right gene(s), right variant /
 exon / protein change / copy-number type / fusion orientation); a bare mutation is expanded correctly
-(tumour-suppressor vs oncogene); and AND/OR/NOT structure matches the source. Otherwise faithful=false
-with concrete, actionable problems.
+(tumour-suppressor vs oncogene); AND/OR/NOT structure matches the source; and it is LOGICALLY CONSISTENT (reject any "X & NOT(X)" /
+"X | NOT(X)" self-contradiction, any duplicated term "NOT(X) & NOT(X)", and any NOT(...) that merely
+negates an unrepresentable qualifier (e.g. a location) — that should have been omitted). Otherwise
+faithful=false with concrete, actionable problems.
 """
 
 _SIGNATURE_RULES = """\
@@ -190,31 +216,39 @@ You curate the DRUG information for one clinical trial. You are given the trial'
 interventions/arms, and the drugs administered. Use WEB SEARCH for the Australian regulatory lookups
 (TGA/ARTG and PBS) and for the general drug class when unsure. Return:
 
-- main_drugs: the trial's MAIN investigational drug(s) or REGIMEN under study — the agent(s) the trial is
-  actually testing (usually the experimental-arm drug named in the title). List the drug, or the whole
-  regimen as one element (e.g. "FOLFOX", "pembrolizumab + lenvatinib"), FIRST. Exclude comparators/backbone.
+- main_drugs: the drug(s) the trial is actually TESTING — the investigational agent(s) under evaluation for
+  efficacy. Use JUDGEMENT; this is NOT a copy of the whole drug regimen. Identify the novel/experimental
+  agent(s) (usually named in the title / the experimental arm) and EXCLUDE the chemo backbone,
+  standard-of-care, comparators, placebo and supportive meds. If the novel intervention IS a combination,
+  name that combination as one element (e.g. "pembrolizumab + lenvatinib"). If several distinct experimental
+  agents are tested across arms/cohorts, list each ('; '-joined). Keep it to the agent(s) genuinely under study.
 - auxiliary_drugs: the remaining drugs (comparators, chemo backbone, standard-of-care, placebo, premedication).
-- pottr_drug_class: the POTTR drug-class hierarchy of the MAIN drug(s)/regimen, root -> leaf joined by " -> "
+- pottr_drug_class: the POTTR drug-class hierarchy of the MAIN drug(s), root -> leaf joined by " -> "
   (e.g. "cancer_therapy -> cancer_therapy,EGFR-targeting -> EGFR_inhibitor"). "" if not in POTTR.
 - drug_class: a concise GENERAL (non-POTTR) class/mechanism of the MAIN drug(s) (e.g. "PARP inhibitor",
-  "anti-PD-1 monoclonal antibody"). ALWAYS fill this (web search if unsure).
-- tga_status: TGA approval of the MAIN drug(s). "Approved (YYYY)" with the ARTG registration year if it has any
-  current ARTG entry (any indication); else "Not approved"; "Unclear" if ambiguous. Do NOT count SAS /
-  Authorised Prescriber / clinical-trial / section 19A supply.
-- pbs_status: PBS reimbursement of the MAIN drug(s): whether PBS-listed and for which indication(s), with brief
-  details; "Unclear" if not determinable.
+  "anti-PD-1 monoclonal antibody"), per main drug, '; '-joined. ALWAYS fill this (web search if unsure).
+- tga_status: for EACH main drug, "<drug>: Approved" or "<drug>: Not approved" ('; '-joined). "Approved" =
+  the drug has a current ARTG registration (any indication). Do NOT count SAS / Authorised Prescriber /
+  clinical-trial / section 19A supply. Use "<drug>: Unclear" only if genuinely undeterminable.
+- pbs_status: for EACH main drug, "<drug>: Approved" (PBS-listed for any indication) or "<drug>: Not approved"
+  ('; '-joined); "<drug>: Unclear" if undeterminable.
+- tga_detail: for EACH main drug, the EVIDENCE behind tga_status — year of ARTG approval (or "no ARTG entry"),
+  a brief rationale, and an official source LINK (tga.gov.au / ARTG). '; '-joined per drug.
+- pbs_detail: for EACH main drug, the EVIDENCE behind pbs_status — year/indication of PBS listing (or "not
+  listed"), a brief rationale, and an official source LINK (pbs.gov.au). '; '-joined per drug.
 
-Base main/auxiliary + POTTR on the trial text and your knowledge; use web search for tga_status, pbs_status,
-and drug_class.
+Base main/auxiliary + POTTR + drug_class on the trial text and your knowledge; use web search for the TGA and
+PBS lookups (both the status and the detail/evidence).
 """
 
 DRUG_REVIEWER_INSTRUCTIONS = """\
 You audit a proposed drug curation for a trial (plausibility + format — you are NOT re-doing the web search).
-Given the trial text + drug list and the proposed fields, set faithful=true only if: main_drugs names the
-investigational agent(s)/regimen actually under study (listed first) and auxiliary_drugs are genuinely
-non-investigational; drug_class is a sensible class for the main drug(s); tga_status is well-formed
-("Approved (YYYY)" / "Not approved" / "Unclear"); pbs_status is present. Otherwise faithful=false with
-concrete, actionable problems.
+Given the trial text + drug list and the proposed fields, set faithful=true only if: main_drugs names ONLY
+the investigational agent(s) genuinely under study (judgement — NOT the whole regimen; backbone / SoC /
+comparators / placebo are excluded and sit in auxiliary_drugs); drug_class is sensible for the main drug(s);
+tga_status and pbs_status give a per-drug "<drug>: Approved / Not approved / Unclear" for EVERY main drug;
+and tga_detail / pbs_detail give per-drug evidence (year + rationale + official link). Otherwise
+faithful=false with concrete, actionable problems.
 """
 
 

@@ -35,7 +35,13 @@ text, extract the trial's eligibility into a normalized table of DNF rows over t
 
 - cancer_type: the required cancer/tumour type under study (site + histology + stage/extent), in the \
 trial's own words (e.g. "metastatic NSCLC"). Do NOT put other/prior malignancies here, and do NOT \
-treat a tumour mentioned only in a prior-therapy or medical-history phrase as the cancer type.
+treat a tumour mentioned only in a prior-therapy or medical-history phrase as the cancer type. \
+NEVER AND two DIFFERENT cancer types in one cell — a patient has ONE tumour type. The CONDITIONS section \
+is AUTHORITATIVE for the tumour type(s): if the eligibility text uses a broad umbrella ("advanced solid \
+tumours", "any cancer") but the CONDITIONS + description + drugs make clear the trial is about ONE specific \
+type, use only that specific type and DROP the umbrella. Only when the trial genuinely enrols a broad group \
+with a subtype named do you keep both — as separate OR rows, never ANDed. Genuinely different eligible \
+tumour types are separate OR rows.
 - gene_alteration: a required SPECIFIC gene + alteration, DNA/mRNA-level (e.g. "EGFR exon 19 deletion", \
 "KRAS G12C", "ALK fusion", "ERBB2 amplification").
 - molecular_signature: a required COMPOSITE/genomic signature not tied to one gene's variant \
@@ -72,6 +78,9 @@ Negation (inclusion AND exclusion are BOTH in scope):
 terms; wrap excluded ones in NOT(). Same-column carve-outs stay in ONE cell: \
 "solid tumours except melanoma" -> cancer_type = "solid tumour AND NOT(melanoma)". Only genuine \
 OR-alternatives split into rows.
+- NEVER write a self-contradiction in one cell — no "X AND NOT(X)". If the SAME thing (e.g. an H3K27M \
+mutation) is REQUIRED for one tumour/cohort but EXCLUDED for another, those belong on DIFFERENT DNF rows: \
+split them (X on one row's cell, NOT(X) on the other), never combine them in a single cell.
 
 Provenance — for EVERY non-empty value, list which input section(s) it came from:
 - Sections are headed "## <LABEL>". Put the exact LABEL(s) into that column's *_sources list; if a value \
@@ -115,6 +124,7 @@ def build_cohort_detector_agent(client: LlmClient, *, model: str | None = None) 
 @dataclass(frozen=True)
 class ReviewerSpec:
     key: str
+    label: str            # human-readable "what this reviewer checks" (for the run log)
     gating: bool          # does a failure gate/loop the refine? (drug is advisory)
     instructions: str
 
@@ -128,31 +138,38 @@ mis-columned, or mis-scoped for YOUR dimension; otherwise faithful=true.
 """
 
 REVIEWERS: tuple[ReviewerSpec, ...] = (
-    ReviewerSpec("cancer_type", True, _REVIEW_PREAMBLE + """
+    ReviewerSpec("cancer_type", "cancer type", True, _REVIEW_PREAMBLE + """
 DIMENSION = cancer_type. Check every row's cancer_type is faithful AND is genuinely the trial's tumour \
 UNDER STUDY. Flag FALSE POSITIVES: a tumour that appears only inside a prior-therapy phrase, medical \
 history, an exclusion of other malignancies, or an example is NOT the trial's cancer type (e.g. \
 "progressed after therapy for melanoma" in a lung trial -> melanoma must NOT be a cancer_type). Also flag \
-missing tumour types and mis-placed histology/stage."""),
-    ReviewerSpec("molecular", True, _REVIEW_PREAMBLE + """
+missing tumour types and mis-placed histology/stage. Flag any cell that ANDs two DIFFERENT cancer types \
+(a patient has one tumour — different types are OR-alternatives on separate rows), and flag a broad umbrella \
+("solid tumours", "any cancer") left in when the CONDITIONS/description show the trial is about ONE specific \
+type (the umbrella should be dropped)."""),
+    ReviewerSpec("molecular", "molecular columns (gene / signature / biomarker)", True, _REVIEW_PREAMBLE + """
 DIMENSION = gene_alteration + molecular_signature + molecular_biomarker. Check faithfulness AND that each \
 value is in the RIGHT column: specific gene+alteration -> gene_alteration; composite/genomic signature -> \
 molecular_signature; expression/IHC/protein -> molecular_biomarker. Watch the edge rules: HER2/ERBB2 \
-(expression->biomarker, amplification->gene_alteration); MMR (dMMR/pMMR IHC->biomarker, MSI-H->signature)."""),
-    ReviewerSpec("prior_therapy", True, _REVIEW_PREAMBLE + """
+(expression->biomarker, amplification->gene_alteration); MMR (dMMR/pMMR IHC->biomarker, MSI-H->signature). \
+Flag any single cell containing a self-contradiction like "X AND NOT(X)" (same alteration required and \
+excluded) — requirements for DIFFERENT cancer types/cohorts were conflated and must be split into separate \
+DNF rows."""),
+    ReviewerSpec("prior_therapy", "prior therapy", True, _REVIEW_PREAMBLE + """
 DIMENSION = prior_therapy. Only REQUIRED prior therapies (positive) and EXCLUDED ones (wrapped in NOT())
 are eligibility constraints. A merely PERMITTED/ALLOWED prior therapy (neither required nor disqualifying)
 is NOT a constraint and should be OMITTED — do NOT flag its absence. Flag missing REQUIRED/EXCLUDED
 conditions and wrong/missing negation."""),
-    ReviewerSpec("drug", False, _REVIEW_PREAMBLE + """
+    ReviewerSpec("drug", "drug", False, _REVIEW_PREAMBLE + """
 DIMENSION = drug. Each cohort's drug(s) are listed in the COHORTS section — NOT in the eligibility rows
 (eligibility is cohort-agnostic; drugs are assigned per cohort separately downstream). Check each cohort's
 listed drug(s) match the intervention(s) administered to that cohort per the source; flag wrong, missing,
 or extraneous drugs. Do NOT ask for a drug column in the eligibility table; ignore normalization/formatting."""),
-    ReviewerSpec("structural", True, _REVIEW_PREAMBLE + """
+    ReviewerSpec("structural", "DNF structure & cohort scope", True, _REVIEW_PREAMBLE + """
 DIMENSION = DNF structure & cohort scope. Check conjunctions/conditionals are correct rows, no OR-\
 alternative is missing or wrongly merged, and each requirement's cohort scope is right (cohort-specific \
-requirements assigned to their cohort; shared ones 'trial-wide')."""),
+requirements assigned to their cohort; shared ones 'trial-wide'). Flag any cell holding a self-contradiction \
+"X AND NOT(X)" — that conflates two cohorts and must be split so X is on one row and NOT(X) on another."""),
 )
 
 

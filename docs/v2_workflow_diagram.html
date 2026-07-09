@@ -112,6 +112,10 @@
     background: var(--rev-bg); border: 1px dashed var(--rev); border-radius: 10px; padding: 9px 13px; }
   .refine-bar .loop-ico { font-family: var(--mono); font-weight: 700; font-size: 15px; }
   .refine-bar b { color: var(--ink); }
+  /* Stage I "code check" role — same teal deterministic-code identity as Stage II */
+  .codecheck { display: flex; align-items: baseline; gap: 10px; margin: 11px 0 4px; font-size: 12.5px; color: var(--ink-soft);
+    background: var(--code-bg); border: 1px dashed color-mix(in srgb, var(--code) 45%, var(--border)); border-radius: 10px; padding: 8px 12px; }
+  .codecheck .cc-lab { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--code); flex: none; }
   .loop-exits { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 14px; }
   .exit { border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; background: var(--panel-2); font-size: 12px; color: var(--ink-soft); }
   .exit .n { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 3px; }
@@ -127,7 +131,6 @@
   .proc { border: 1.5px solid var(--border); border-radius: 12px; padding: 13px 15px; background: var(--panel-2); }
   .proc .ph { display: flex; align-items: center; gap: 8px; }
   .proc h4 { margin: 0; font-size: 14px; }
-  .proc .st { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; margin-left: auto; color: var(--code); background: var(--code-bg); }
   .proc .role { font-size: 12px; margin: 8px 0 0; color: var(--ink-soft); display: flex; gap: 8px; }
   .proc .role .rlab { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; flex: none; min-width: 92px; padding-top: 1px; }
   .proc .role.map .rlab { color: var(--gen); } .proc .role.rev .rlab { color: var(--rev); } .proc .role.chk .rlab { color: var(--code); }
@@ -142,7 +145,7 @@
 </style>
 
 <div class="wrap">
-  <p class="date">8 July 2026</p>
+  <p class="date">10 July 2026</p>
   <h1>Trial extraction &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, streamed to one output.</p>
@@ -150,7 +153,7 @@
   <div class="principle">
     <div class="h">Guiding principle &mdash; one agent per independent task</div>
     <p>Split work into a separate agent only when the sub-tasks are <b>genuinely independent</b>. Outputs that must be
-      decided <b>together</b> stay in one agent (a DNF row is a conjunction across columns &rarr; <b>one extractor emits whole rows</b>).
+      decided <b>together</b> stay in one agent (a DNF &mdash; disjunctive normal form &mdash; row is a conjunction across columns &rarr; <b>one extractor emits whole rows</b>).
       Independent checks <b>fan out</b> (&rarr; a <b>panel of focused reviewers</b>). Deterministic work gets <b>zero</b> agents.</p>
   </div>
 
@@ -183,20 +186,23 @@
 
     <!-- ===== THE LOOP (vertical) ===== -->
     <section class="loop">
-      <div class="loop-title"><span class="t">Extract &rarr; check &rarr; refine</span><span class="s">the heart of the workflow &middot; a bounded evaluator&ndash;optimizer loop</span></div>
-      <p class="loop-sub">One agent <b>generates</b> the candidate table; a panel <b>verifies</b> it. Verification is an easier
+      <div class="loop-title"><span class="t">Stage I &mdash; extraction</span><span class="s">extract &rarr; check &rarr; refine &middot; the bounded evaluator&ndash;optimizer loop at its heart</span></div>
+      <p class="loop-sub">One agent <b>generates</b> the candidate table; a panel of agents <b>verifies</b> it. Verification is an easier
         task than generation and runs on a fresh pass with the finished table in view &mdash; so it catches omissions the
-        generator missed. Gating failures feed back and the extractor <b>redoes</b> the work, up to 3 attempts.</p>
+        generator missed. On a gating failure the loop does <b>incremental repair</b>: the extractor gets its OWN previous
+        table + only the flagged issues and <b>keeps unflagged rows verbatim</b> (preserves correct work, aids convergence), up to 3 attempts.</p>
 
       <!-- DOER -->
       <div class="box extract">
-        <div class="b-head">&#9312; Extract &middot; 1 LLM doer</div>
+        <div class="b-head">doer &middot; extract</div>
         <p class="b-lead">Reads the assembled document + cohort list &rarr; the candidate DNF table (whole rows, so cross-column co-occurrence is preserved).</p>
         <div class="tasks-label">Essential tasks</div>
         <ul>
           <li>one row = one ANDed conjunction; OR-alternatives &rarr; separate rows</li>
           <li>fill 5 columns (cancer_type, gene_alteration, molecular_signature, molecular_biomarker, prior_therapy); "" when not required</li>
           <li>exclusions inline as <span class="inline-code">NOT(...)</span>; same-column carve-outs stay in one cell</li>
+          <li>never write a self-contradiction <span class="inline-code">X AND NOT(X)</span> in one cell &mdash; if the same thing is required for one cohort and excluded for another, <b>split into rows</b></li>
+          <li>cancer_type: CONDITIONS is authoritative; <b>never AND two different tumour types</b>; drop a broad umbrella when the trial is clearly one specific type</li>
           <li>tag every value with its source section(s) <span class="inline-code">[a; b]</span></li>
           <li>assign each row a cohort scope: a cohort id or <span class="inline-code">trial-wide</span></li>
         </ul>
@@ -210,25 +216,28 @@
 
       <div class="flowlbl"><span class="a">&#9660;</span> &nbsp;candidate table</div>
 
-      <!-- REVIEWER PANEL -->
+      <!-- CODE CHECK -->
+      <div class="codecheck"><span class="cc-lab">code check</span><span>deterministic rule-check &mdash; at least one row, and no row with all five eligibility columns empty; a failure goes straight back to the doer (no reviewer call).</span></div>
+
+      <!-- REVIEWER -->
       <div class="box review">
-        <div class="b-head">&#9313; Check &middot; rule-check (code), then a 5-agent reviewer panel (parallel)</div>
+        <div class="b-head">reviewer &middot; 5-agent panel (parallel)</div>
         <p class="b-lead">Each reviewer sees the whole candidate table + source and judges ONE dimension &rarr; faithful? + problems.
           Independent checks &rarr; separate agents (the guiding principle).</p>
         <div class="tasks-label">One reviewer per dimension</div>
         <ul class="reviewers">
-          <li class="rv gate"><span class="k">cancer_type</span><span class="d">tumour <b style="color:var(--ink)">under study</b>? reject one seen only in a prior-therapy / history / exclusion line (e.g. drop "melanoma" from a lung trial). <span class="pill gate">gates</span></span></li>
-          <li class="rv gate"><span class="k">molecular</span><span class="d">faithful + <b style="color:var(--ink)">right column</b>: HER2 IHC &rarr; biomarker, ERBB2 amp &rarr; gene, MSI-H &rarr; signature. <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">cancer_type</span><span class="d">tumour <b style="color:var(--ink)">under study</b>? reject one seen only in a prior-therapy / history / exclusion line (e.g. drop "melanoma" from a lung trial); flag ANDing two different types or an un-dropped umbrella. <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">molecular</span><span class="d">faithful + <b style="color:var(--ink)">right column</b> (HER2 IHC &rarr; biomarker, ERBB2 amp &rarr; gene, MSI-H &rarr; signature); flag a cell's <span class="inline-code">X AND NOT(X)</span> (conflated cohorts &rarr; split rows). <span class="pill gate">gates</span></span></li>
           <li class="rv gate"><span class="k">prior_therapy</span><span class="d">required / excluded only (omit merely-permitted); exclusions wrapped in <span class="inline-code">NOT()</span>. <span class="pill gate">gates</span></span></li>
-          <li class="rv gate"><span class="k">structural</span><span class="d">DNF integrity: conjunctions / OR-rows correct; each row's cohort scope right. <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">structural</span><span class="d">DNF integrity: conjunctions / OR-rows correct; each row's cohort scope right; no <span class="inline-code">X AND NOT(X)</span> cell. <span class="pill gate">gates</span></span></li>
           <li class="rv adv"><span class="k">drug</span><span class="d">each cohort's drug reflects its arm's intervention. <span class="pill adv">advisory (non-gating)</span></span></li>
         </ul>
       </div>
 
       <div class="refine-bar">
         <span class="loop-ico">&#8634;</span>
-        <div><b>Refine</b> &mdash; any of the 4 gating reviewers fails &rarr; its problems are appended to the prompt and
-          <b>Extract</b> re-runs (the drug reviewer is advisory, so it never blocks). Bounded at 3 attempts.</div>
+        <div><b>Refine (incremental)</b> &mdash; any of the 4 gating reviewers fails &rarr; <b>Extract</b> re-runs with its OWN prior
+          table + only the flagged issues, keeping unflagged rows as-is (the drug reviewer is advisory, so it never blocks). Bounded at 3 attempts.</div>
       </div>
 
       <div class="loop-exits">
@@ -241,28 +250,28 @@
 
     <!-- ===== STAGE II MAPPING ===== -->
     <section class="stage2-band">
-      <div class="stage2-title"><span class="t">Stage II &mdash; mapping</span><span class="s">on the extracted rows &middot; each procedure is its own doer + reviewer (independent task)</span></div>
+      <div class="stage2-title"><span class="t">Stage II &mdash; mapping</span><span class="s">on the extracted rows &middot; each procedure = doer &rarr; code check &rarr; reviewer (independent task)</span></div>
       <p class="loop-sub">Each normalized cell is mapped to a controlled representation, then reviewed. Curated resources ground
         the prompts + tests but are held out as verification data (not ingested) &mdash; so it stays a mapping, not a vlookup.</p>
       <div class="procs">
         <div class="proc">
-          <div class="ph"><h4>cancer_type &rarr; OncoTree</h4><span class="st">built</span></div>
-          <p class="role map"><span class="rlab">doer</span><span>expression &rarr; OncoTree name + code (e.g. "metastatic NSCLC" &rarr; NSCLC), AND/NOT preserved.</span></p>
-          <p class="role chk"><span class="rlab">code check</span><span>reject invalid codes, <span class="inline-code">[None]</span> noise, and any code both included and excluded.</span></p>
-          <p class="role rev"><span class="rlab">reviewer</span><span>right node + granularity; structure preserved.</span></p>
-          <p class="ground">grounds: OncoTree ontology (tools/oncotree.py) + a few ConditionsCurationResource examples</p>
+          <div class="ph"><h4>cancer_type &rarr; OncoTree</h4></div>
+          <p class="role map"><span class="rlab">doer</span><span>expression &rarr; OncoTree name + code (e.g. "metastatic NSCLC" &rarr; NSCLC). Only 3 non-OncoTree terms allowed: <span class="inline-code">Pan-cancer</span> / <span class="inline-code">solid tumour</span> / <span class="inline-code">Haematological malignancy</span> (no <span class="inline-code">[None]</span>).</span></p>
+          <p class="role chk"><span class="rlab">code check</span><span>reject invalid codes and logic errors: <span class="inline-code">X AND X</span>, <span class="inline-code">X AND NOT(X)</span>, a broad term ANDed with its subtype, a subtype ANDed with its parent (hierarchy via <span class="inline-code">is_subcode</span>).</span></p>
+          <p class="role rev"><span class="rlab">reviewer</span><span>right node + granularity; structure preserved; NOT(cancer type) kept minimal.</span></p>
+          <p class="ground">grounds: OncoTree ontology + hierarchy (tools/oncotree.py) + a few ConditionsCurationResource examples</p>
         </div>
         <div class="proc">
-          <div class="ph"><h4>gene_alteration / molecular_signature &rarr; finding-model</h4><span class="st">built</span></div>
+          <div class="ph"><h4>gene_alteration / molecular_signature &rarr; finding-model</h4></div>
           <p class="role map"><span class="rlab">doer</span><span>&rarr; finding-model syntax: <span class="inline-code">SmallVariant[gene=BRAF &amp; &hellip;=p.V600E]</span>, <span class="inline-code">Fusion[geneEnd=ALK]</span>, <span class="inline-code">MicrosatelliteStability[&hellip;=MSI]</span>.</span></p>
-          <p class="role chk"><span class="rlab">code check</span><span>balanced brackets, known classes, gene-scoped SmallVariant.</span></p>
-          <p class="role rev"><span class="rlab">reviewer</span><span>faithful + valid grammar (strict &mdash; not human-curated).</span></p>
+          <p class="role chk"><span class="rlab">code check</span><span>balanced brackets, known classes, gene-scoped SmallVariant; no duplicate terms, no <span class="inline-code">X &amp; NOT(X)</span> self-contradiction.</span></p>
+          <p class="role rev"><span class="rlab">reviewer</span><span>faithful + valid grammar (strict); a NOT() qualified by something inexpressible (e.g. a location) is <b>omitted</b>, not negated.</span></p>
           <p class="ground">grounds: finding-model grammar (tools/finding_model.py) + GeneAlteration/MolecularSignature examples</p>
         </div>
         <div class="proc">
-          <div class="ph"><h4>drug &rarr; main/aux + class + TGA/PBS</h4><span class="st">built</span></div>
-          <p class="role map"><span class="rlab">doer (web)</span><span>main vs auxiliary drug(s); POTTR + general drug class; TGA approval (+year) &amp; PBS reimbursement of the main drug(s), via <b>web search</b>.</span></p>
-          <p class="role rev"><span class="rlab">reviewer</span><span>main = investigational; class sensible; tga/pbs well-formed.</span></p>
+          <div class="ph"><h4>drug &rarr; main/aux + class + TGA/PBS</h4></div>
+          <p class="role map"><span class="rlab">doer (web)</span><span>main = the <b>investigational agent(s) by judgement</b> (not the whole regimen; backbone/SoC/comparator/placebo &rarr; auxiliary); POTTR + general class; <b>per main drug</b> TGA &amp; PBS status (Approved/Not approved) + a detail column (year + evidence + official link), via <b>web search</b>.</span></p>
+          <p class="role rev"><span class="rlab">reviewer</span><span>main = investigational only; class sensible; per-drug status + detail present.</span></p>
           <p class="ground">grounds: POTTR dataset + live web research (Responses API web_search)</p>
         </div>
       </div>
@@ -272,7 +281,7 @@
     <section class="stage">
       <span class="rail"></span>
       <div class="head"><span class="tag">Write</span><h3>Stream one enriched TSV</h3><span class="badge code">code</span></div>
-      <p>19 columns, one row per satisfiable (trial, cohort) conjunction; rows appended as each trial completes.</p>
+      <p>21 columns (incl. per-drug <span class="inline-code">tga_status</span>/<span class="inline-code">pbs_status</span> + <span class="inline-code">tga_detail</span>/<span class="inline-code">pbs_detail</span>), one row per satisfiable (trial, cohort) conjunction; rows appended as each trial completes. A trial that errors is logged &amp; <b>skipped</b> &mdash; the batch continues, and the summary reports <span class="inline-code">N ok, M failed</span>.</p>
     </section>
 
   </div>
@@ -282,8 +291,9 @@
     <div class="layer-grid">
       <div class="layer"><span class="name">client.py</span><p>One door to OpenAI: <span class="inline-code">.parse()</span> (structured) + <span class="inline-code">.research()</span> (web_search); cache, retries, tracing.</p></div>
       <div class="layer"><span class="name">agent.py</span><p>Agent = prompt + schema + model (+ web_search flag), bound to the client.</p></div>
-      <div class="layer"><span class="name">workflow.py</span><p><span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;repair loop).</p></div>
-      <div class="layer"><span class="name">tools/</span><p>oncotree.py (code vocab + validator) &middot; finding_model.py (grammar + syntax validator).</p></div>
+      <div class="layer"><span class="name">workflow.py</span><p><span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;incremental-repair loop).</p></div>
+      <div class="layer"><span class="name">logfmt.py</span><p>Shared run-log formatting: stage banners + doer/reviewer blocks (one field per line, spelled-out PASS/FAIL).</p></div>
+      <div class="layer"><span class="name">tools/</span><p>oncotree.py (vocab + validator + hierarchy/is_subcode, 3 sentinels) &middot; finding_model.py (grammar + syntax/logic validator).</p></div>
     </div>
   </div>
 </div>
