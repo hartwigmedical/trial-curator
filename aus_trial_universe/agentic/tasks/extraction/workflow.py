@@ -271,20 +271,58 @@ def _with_sources(value: str, sources: list[str]) -> str:
     return f"{value} [{'; '.join(labels)}]" if labels else value
 
 
-def _merge_cell(a: _Cell, b: _Cell) -> _Cell:
-    """AND-combine two same-column cells (trial-wide x cohort-specific)."""
+# Single-valued axes: a patient has exactly ONE of these, so a trial-wide value and a cohort-specific
+# value cannot co-occur — ANDing them would make an unsatisfiable row. The cohort-specific value wins.
+_EXCLUSIVE_COLUMNS = {"cancer_type"}
+
+
+def _top_level_and(expr: str) -> list[str]:
+    """Split `expr` on top-level ' AND ' (paren-depth 0), keeping any NOT(...) body intact."""
+    parts: list[str] = []
+    depth = start = i = 0
+    while i < len(expr):
+        c = expr[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and expr[i:i + 5] == " AND ":
+            parts.append(expr[start:i])
+            i += 5
+            start = i
+            continue
+        i += 1
+    parts.append(expr[start:])
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _merge_cell(a: _Cell, b: _Cell, *, exclusive: bool = False) -> _Cell:
+    """AND-combine two same-column cells (trial-wide `a` x cohort-specific `b`).
+
+    exclusive=True (a single-valued axis like cancer_type): the two values cannot both hold for one
+    patient, so ANDing the positive types ("Stage A AND Stage B") would be unsatisfiable — the
+    cohort-specific value `b` WINS. But any trial-wide NOT(...) EXCLUSIONS are carve-outs (compatible
+    with any positive type), so they are PRESERVED, never silently dropped. This is the safety net for
+    an extractor that restates the axis in both scopes; the extractor is separately instructed to keep
+    each criterion in exactly one scope.
+    """
     av, bv = a.value.strip(), b.value.strip()
     if not av:
         return _Cell(bv, list(b.sources))
     if not bv or av == bv:
         return _Cell(av, list(a.sources) + list(b.sources))
+    if exclusive:
+        tw_exclusions = [t for t in _top_level_and(av) if t.startswith("NOT(") and t not in bv]
+        if tw_exclusions:  # cohort positive type wins, but keep trial-wide exclusions
+            return _Cell(" AND ".join([bv, *tw_exclusions]), list(a.sources) + list(b.sources))
+        return _Cell(bv, list(b.sources))  # cohort-specific wins; never "av AND bv"
     return _Cell(f"{av} AND {bv}", list(a.sources) + list(b.sources))
 
 
 def _merge(tw: _EligRaw, sp: _EligRaw) -> _EligRaw:
     merged = _EligRaw(cohort=sp.cohort)
     for col in ELIGIBILITY_COLUMNS:
-        setattr(merged, col, _merge_cell(getattr(tw, col), getattr(sp, col)))
+        setattr(merged, col, _merge_cell(getattr(tw, col), getattr(sp, col), exclusive=col in _EXCLUSIVE_COLUMNS))
     return merged
 
 
@@ -298,13 +336,28 @@ def _rule_problems(eligs: list[_EligRaw]) -> list[str]:
     return problems
 
 
+# A trial-wide x cohort-specific product beyond this is almost always the extractor mis-scoping
+# OR-alternatives into both scopes (they should live in one) — surfaced as a WARN, never silently emitted.
+_CROSS_PRODUCT_WARN = 50
+
+
 def _distribute(eligs: list[_EligRaw], cohort_index: dict[str, Cohort], trial_id: str) -> list[DnfRow]:
-    """Per cohort: rows = (trial-wide OR-rows) x (cohort-specific OR-rows), cells ANDed."""
+    """Per cohort: rows = (trial-wide OR-rows) x (cohort-specific OR-rows), cells ANDed, then de-duplicated.
+
+    Each output row is a self-contained cohort row (shared trial-wide criteria merged in). A single-valued
+    axis (cancer_type) is never ANDed across scopes — the cohort value wins (see _merge_cell).
+    """
     trial_wide = [e for e in eligs if e.cohort == TRIAL_WIDE]
     rows: list[DnfRow] = []
     for cid, cohort in cohort_index.items():
         specifics = [e for e in eligs if e.cohort == cid]
         if trial_wide and specifics:
+            product = len(trial_wide) * len(specifics)
+            if product > _CROSS_PRODUCT_WARN:
+                logger.info(bullet(
+                    f"WARN · cohort {cid} ({cohort.label}): {len(trial_wide)} trial-wide × "
+                    f"{len(specifics)} cohort-specific = {product} rows before dedup — likely OR-alternatives "
+                    f"duplicated across scopes; each criterion should be assigned to exactly one scope."))
             combos = [_merge(tw, sp) for tw in trial_wide for sp in specifics]
         elif specifics:
             combos = specifics
@@ -324,7 +377,23 @@ def _distribute(eligs: list[_EligRaw], cohort_index: dict[str, Cohort], trial_id
                     drug=_with_sources(cohort.drug, [cohort.drug_source]),
                 )
             )
-    return rows
+    return _dedup_rows(rows)
+
+
+def _dedup_rows(rows: list[DnfRow]) -> list[DnfRow]:
+    """Drop exact-duplicate DNF rows (cohort label is part of the key), preserving first-seen order.
+
+    After the cohort-wins merge, distinct trial-wide OR-rows can collapse to the same self-contained row;
+    genuinely different sub-populations are kept."""
+    seen: set[tuple] = set()
+    out: list[DnfRow] = []
+    for r in rows:
+        key = (r.trialId, r.cohort, r.arm_type, r.cancer_type, r.gene_alteration,
+               r.molecular_signature, r.molecular_biomarker, r.prior_therapy, r.drug)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out
 
 
 def _review_input(source_text: str, cohort_index: dict[str, Cohort], eligs: list[_EligRaw]) -> str:

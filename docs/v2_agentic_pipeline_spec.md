@@ -27,8 +27,14 @@ reproducible, cheap, and debuggable across thousands of trials.
 3. **Deterministic orchestration (pattern B).** Control flow is plain Python. LLMs power the *stages*, never the *plan*.
 4. **One agent per independent task.** Split work into a separate agent only when the sub-tasks are genuinely
    independent; keep jointly-decided outputs in one agent (see §3). This governs the whole agent inventory.
-5. **Doer → reviewer.** Each generative step is paired with an adversarial reviewer on a bounded refine loop
-   (evaluator–optimizer). Verification is an easier task than generation, so a reviewer catches what the doer missed.
+5. **Doer → reviewer — the reviewer only advises; the doer is the sole writer.** Each generative step is paired
+   with an adversarial reviewer on a bounded refine loop (evaluator–optimizer). Verification is an easier task
+   than generation, so a reviewer catches what the doer missed. **The reviewer can only return a verdict +
+   problems, never a corrected artifact** — `ReviewVerdict` (`tasks/*/schema.py`) carries no output field, and
+   `refine()` (`core/workflow.py`) feeds the critique *back to the doer*, which re-generates (Reflexion-style,
+   **not** an editor). The deterministic validators are feedback-only too. One writer ⇒ no unchecked edit ever
+   reaches the output, and every accepted value was re-checked *after* it was (re)written. Trade-off: it pays
+   full re-generation and can stall convergence on the hardest trials (see §12).
 6. **Determinism via cache.** The response cache is the deterministic layer (identical request → identical output).
    `temperature`/`seed` are omitted by default (current reasoning models reject `temperature`).
 7. **Model-agnostic.** One client; the model is configuration, swappable per agent.
@@ -132,6 +138,18 @@ distinct-eligibility groups) + an **LLM drug agent** (from `INTERVENTIONS`). The
 assigns each criterion to a specific cohort or "trial-wide"; a cohort's effective eligibility =
 `trial-wide ∧ cohort-specific` (cross-product distribution), so each output row is self-contained with its own drug.
 
+**Scope-assignment contract (2026-07-10).** The COHORTS list is a **fixed, known set** (CTGov: from `armGroups`);
+the extractor's job is to **assign** each criterion to exactly ONE scope — never state the same criterion in two
+scopes. `trial-wide` = shared identically by ALL cohorts, stated once; a cohort id = defining/specific/varying
+for that cohort (a subset-shared criterion is emitted once per applicable cohort). This prevents the
+cross-product **blow-up** where a criterion duplicated across scopes multiplies out: e.g. `NCT04221035` (SIOPEN
+HR-NBL2) restated its neuroblastoma staging in both trial-wide (17 OR-rows) and each cohort → `17 × 40 = 680`
+rows, 86% of them unsatisfiable `Stage A AND Stage B` conjunctions. Deterministic **distribution safety net**:
+(1) single-valued axes (`cancer_type`) are never ANDed across scopes — the **cohort value wins** (`_merge_cell`);
+(2) exact-duplicate rows are **de-duplicated** after merge; (3) a `trial-wide × cohort-specific` product beyond a
+threshold logs a `WARN` (never silently emitted). The `structural` reviewer flags cross-scope duplication so
+refine can fix it upstream.
+
 ### 7.4 Provenance vocabulary (the `[source]` tags)
 - **CTGov:** `TITLE`, `OFFICIAL TITLE`, `CONDITIONS`, `KEYWORDS`, `BRIEF SUMMARY`, `DETAILED DESCRIPTION`, `ELIGIBILITY CRITERIA`, `INTERVENTIONS MODULE`.
 - **ANZCTR:** `STUDY TITLE`, `SCIENTIFIC TITLE`, `HEALTH CONDITION`, `INCLUSION CRITERIA`, `EXCLUSION CRITERIA`, `INTERVENTIONS`.
@@ -149,6 +167,20 @@ OWN previous table + only the flagged issues and keeps unflagged rows verbatim (
 convergence). The drug reviewer is reported but non-blocking. Also enforced: cancer_type never ANDs two
 different tumour types (CONDITIONS is authoritative; a broad umbrella is dropped when the trial is clearly one
 specific type; different types are OR rows), and no cell holds `X AND NOT(X)` (split across DNF rows instead).
+
+**Extraction judgement rules (2026-07-10).** Two failure modes need LLM interpretation, not a deterministic
+guard:
+- **Capture tumour-type EXCLUSIONS.** An "except / excluding / other than" carve-out is a real criterion —
+  encoded as a same-cell `NOT()` and never dropped (e.g. DMG trial excluding thalamic/cerebellar DMG →
+  `DMG AND NOT(thalamic and cerebellar DMG)`). The `cancer_type` reviewer flags a dropped exclusion. Defensive:
+  `_merge_cell` cohort-wins preserves any trial-wide `NOT()` exclusion (the cohort's positive type wins, but a
+  shared exclusion is never lost in the merge).
+- **No over-enumeration of subsuming rows.** The extractor must not emit near-duplicate OR rows differing only
+  by a trivial/subsuming variation of one criterion (e.g. one row adds `AND refractory to standard therapy`, a
+  strict superset of another's prior_therapy — the stricter row is logically subsumed). By judgement it keeps
+  the SINGLE version applicable to the majority of patients. The `prior_therapy` + `structural` reviewers flag
+  it. (Distinct from the deterministic cross-product guard in §7.3: that kills *unsatisfiable* explosions; this
+  removes *redundant-but-satisfiable* duplicates that no code rule can safely collapse.)
 
 ## 8. Mapping stage (Stage II)
 
@@ -170,6 +202,19 @@ Mapper → Hartwig finding-model syntax (`tools/finding_model.py` grammar): `Sma
 (balanced brackets, known classes, gene-scoped `SmallVariant`, **no duplicate terms, no `X & NOT(X)`
 self-contradiction**) runs before the reviewer. A `NOT()` qualified by something finding-model can't express
 (e.g. an anatomic location) is **omitted** — never emitted as `NOT(same-variant)`.
+
+**Diagnostic-category gene terms (2026-07-10):** `H3K27-altered` (the WHO category, also caused by
+non-expressible EZHIP/EGFR mechanisms) maps **identically to `H3K27M`** — the K27M small-variant OR'd across the
+canonical H3 genes `H3F3A | HIST1H3B | HIST1H3C`, using the **strict-HGVS coordinate `p.K28M`** (the initiator
+Met is residue 1, so histone "K27" = protein K28). In a conjunction the whole H3 OR-block is parenthesised and
+never dropped. Anchored by a note in the shared `GRAMMAR_REFERENCE` (seen by mapper **and** reviewer) + worked
+examples in `_GENE_RULES`.
+
+**Acceptable simplification (2026-07-10):** when the source carries a qualifier finding-model has **no field**
+for — a copy-number **count/threshold** (`amplification with ≥5 copies` → just `type=GAIN`), a quantitative
+level, a VAF threshold, an anatomic location, a tumour context — the mapper maps to the closest expressible term
+and **drops** the qualifier. This loss of specificity is **correct, not a fault**: neither mapper nor reviewer
+may flag a dropped unrepresentable qualifier.
 
 ### 8.3 Drug enrichment (trial-level, one web-search curator → reviewer)
 Sources: CTGov `interventions[].name/otherNames/description`; ANZCTR `INTERVENTIONS` (RxNorm cross-check
@@ -205,16 +250,24 @@ aus_trial_universe/
     core/    client.py agent.py workflow.py pipeline_io.py
     tasks/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
     tools/   oncotree.py  finding_model.py
+    qa/      validate_output.py            # independent output validator (review of the reviewers)
 ```
 Shared identity/reference code belongs in `agentic/tools/` (do not reintroduce the old drug_utility→eligibility
 RxNorm coupling). `ui/` deleted. `actin_curator/`, `pydantic_curator/`, `trialcurator/`, `qa/` retire as v2
 supersedes each (legacy still supplies resources + is imported by the old paths).
 
 ## 11. Verification
-- **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (54 tests).
+- **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (64 tests).
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
+- **Independent output validator (`make agentic-validate`, `agentic/qa/validate_output.py`):** a deterministic
+  *review of the reviewer agents* — runs OUTSIDE the workflow on a finished output TSV to catch what the in-loop
+  reviewers let through (mapping degrades gracefully, so flagged values can still reach the output). Re-runs the
+  pipeline's own OncoTree + finding-model validators on the final cells, plus cross-row DNF/cohort/exclusion
+  checks nothing else does (unsatisfiable `A AND B` cancer_type, all-empty rows, exact-dup rows, in-cell
+  `X AND NOT(X)`, prior_therapy subsuming-twin over-enumeration). **Testing-period QA step, not the production
+  path;** always run it while iterating, and keep its checks in sync with the pipeline's validators.
 - **Mapping accuracy:** **manual** hold-out comparison against the legacy trial-resource + curated resources
-  (a 10-trial complex review set is written to `data/agentic/analysis/review_trials_ids.txt`). An automated
+  (review sets: `data/agentic/analysis/complex_trials_ids.txt` + `typical_trials_ids.txt`). An automated
   run-comparison method is deferred (§12).
 
 ## 12. Open / deferred

@@ -157,6 +157,15 @@
       Independent checks <b>fan out</b> (&rarr; a <b>panel of focused reviewers</b>). Deterministic work gets <b>zero</b> agents.</p>
   </div>
 
+  <div class="principle">
+    <div class="h">Guiding principle &mdash; the reviewer only advises; the doer is the sole writer</div>
+    <p>Every check &mdash; the deterministic validators <b>and</b> the LLM reviewer &mdash; returns only a <b>verdict + problems</b>,
+      <b>never a rewritten value</b> (<span class="inline-code">ReviewVerdict</span> has no output field). On a failure the critique is fed back to the
+      <b>doer</b>, which re-generates (evaluator&ndash;optimizer / Reflexion &mdash; <b>not an editor</b>). One writer &rArr; no unchecked edit can
+      reach the output, and every accepted value was re-checked <i>after</i> it was written. Trade-off: it pays full re-generation and
+      can stall convergence on the hardest trials.</p>
+  </div>
+
   <div class="legend">
     <div class="item"><span class="dot code"></span> Deterministic code</div>
     <div class="item"><span class="dot gen"></span> LLM &middot; doer (extract / map / research)</div>
@@ -203,8 +212,10 @@
           <li>exclusions inline as <span class="inline-code">NOT(...)</span>; same-column carve-outs stay in one cell</li>
           <li>never write a self-contradiction <span class="inline-code">X AND NOT(X)</span> in one cell &mdash; if the same thing is required for one cohort and excluded for another, <b>split into rows</b></li>
           <li>cancer_type: CONDITIONS is authoritative; <b>never AND two different tumour types</b>; drop a broad umbrella when the trial is clearly one specific type</li>
+          <li><b>capture tumour-type exclusions</b> (&ldquo;except / excluding / other than&rdquo;) as a same-cell <span class="inline-code">NOT(...)</span> &mdash; never drop a stated carve-out</li>
+          <li><b>judgement, no over-enumeration:</b> don't emit near-duplicate OR rows that differ only by a subsuming clause (e.g. one adds <span class="inline-code">AND refractory to standard therapy</span>) &mdash; keep the single version applying to most patients</li>
           <li>tag every value with its source section(s) <span class="inline-code">[a; b]</span></li>
-          <li>assign each row a cohort scope: a cohort id or <span class="inline-code">trial-wide</span></li>
+          <li><b>assign scope</b> from the FIXED cohort list: each criterion to <b>exactly one</b> scope &mdash; a cohort id, or <span class="inline-code">trial-wide</span> only if shared by ALL cohorts; never restate a criterion (esp. a single-valued axis like cancer_type) across scopes</li>
         </ul>
         <div class="tasks-label">Examples</div>
         <div class="examples">
@@ -226,10 +237,10 @@
           Independent checks &rarr; separate agents (the guiding principle).</p>
         <div class="tasks-label">One reviewer per dimension</div>
         <ul class="reviewers">
-          <li class="rv gate"><span class="k">cancer_type</span><span class="d">tumour <b style="color:var(--ink)">under study</b>? reject one seen only in a prior-therapy / history / exclusion line (e.g. drop "melanoma" from a lung trial); flag ANDing two different types or an un-dropped umbrella. <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">cancer_type</span><span class="d">tumour <b style="color:var(--ink)">under study</b>? reject one seen only in a prior-therapy / history / exclusion line (e.g. drop "melanoma" from a lung trial); flag ANDing two different types, an un-dropped umbrella, or a <b>dropped tumour-type exclusion</b>. <span class="pill gate">gates</span></span></li>
           <li class="rv gate"><span class="k">molecular</span><span class="d">faithful + <b style="color:var(--ink)">right column</b> (HER2 IHC &rarr; biomarker, ERBB2 amp &rarr; gene, MSI-H &rarr; signature); flag a cell's <span class="inline-code">X AND NOT(X)</span> (conflated cohorts &rarr; split rows). <span class="pill gate">gates</span></span></li>
-          <li class="rv gate"><span class="k">prior_therapy</span><span class="d">required / excluded only (omit merely-permitted); exclusions wrapped in <span class="inline-code">NOT()</span>. <span class="pill gate">gates</span></span></li>
-          <li class="rv gate"><span class="k">structural</span><span class="d">DNF integrity: conjunctions / OR-rows correct; each row's cohort scope right; no <span class="inline-code">X AND NOT(X)</span> cell. <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">prior_therapy</span><span class="d">required / excluded only (omit merely-permitted); exclusions wrapped in <span class="inline-code">NOT()</span>; flag <b>over-enumeration</b> (near-duplicate rows differing only by a subsuming clause). <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">structural</span><span class="d">DNF integrity: conjunctions / OR-rows correct; each row's cohort scope right; a criterion in <b>exactly one scope</b> (no cross-scope duplication); no <span class="inline-code">X AND NOT(X)</span> or redundant subsuming rows. <span class="pill gate">gates</span></span></li>
           <li class="rv adv"><span class="k">drug</span><span class="d">each cohort's drug reflects its arm's intervention. <span class="pill adv">advisory (non-gating)</span></span></li>
         </ul>
       </div>

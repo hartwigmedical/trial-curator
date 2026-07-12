@@ -11,18 +11,17 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 
 ## Make Commands
 
-There are exactly three:
-
 | Command | What it does |
 |---|---|
 | `make agentic-run` | Full pipeline (extract → map → drug), streamed to one output + one log. Runs the unit tests first (aborts on failure). |
+| `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
 | `make agentic-clean` | Wipe run artifacts under `data/agentic/{output,log,cache}` (handy between test runs). |
 | `make agentic-tests` | Run the unit-test suite (no API calls). |
 
 ### `make agentic-run` modes
 ```bash
-make agentic-run ID=NCT06881784                 # one trial (source auto-detected from the id)
-make agentic-run ID=ACTRN12605000025639         # ANZCTR auto-detected
+make agentic-run ID=NCT06881784                 # one trial (source auto-detected from the id) CTGOV trial
+make agentic-run ID=ACTRN12605000025639         # ANZCTR trial
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set (comma-separated)
 make agentic-run                                # ALL trials (every ctgov + anzctr trial)
 ```
@@ -36,12 +35,28 @@ make agentic-run                                # ALL trials (every ctgov + anzc
 
 Example: `make agentic-run ID=NCT05417594 NO_JUDGE=1`.
 
-### The review set (10 complex trials)
-A curated set of complex (cohort × cancer × gene) trials for review is written to
-`data/agentic/analysis/review_trials_ids.txt` (copy-paste ready):
+### The review sets (10 complex + 10 typical trials)
+Curated ID lists for review (copy-paste ready): `data/agentic/analysis/complex_trials_ids.txt`
+(complex cohort × cancer × gene trials) and `data/agentic/analysis/typical_trials_ids.txt`
+(average CTGov cancer trials):
 ```bash
-make agentic-run IDS=$(cat data/agentic/analysis/review_trials_ids.txt)
+make agentic-run IDS=$(cat data/agentic/analysis/complex_trials_ids.txt)
+make agentic-run IDS=$(cat data/agentic/analysis/complex_trials_ids.txt),$(cat data/agentic/analysis/typical_trials_ids.txt)
 ```
+
+### `make agentic-validate` — the independent "review of the reviewers"
+A **deterministic** validator that runs OUTSIDE the agentic workflow, so it catches what the in-loop
+reviewer agents let through (mapping degrades gracefully — output is written even when a stage finishes
+`faithful=False`). **It is a testing-period QA step, not part of the production path** — always run it on a
+fresh output while iterating, and keep its checks in sync with the pipeline's validators. It (1) re-runs the
+pipeline's own OncoTree + finding-model validators on the final cells, and (2) adds cross-row DNF / cohort /
+exclusion checks nothing else performs: unsatisfiable `A AND B` cancer_type, all-empty rows, exact-duplicate
+rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
+```bash
+make agentic-validate                 # newest data/agentic/output/trial_resource_*.tsv
+make agentic-validate OUT=<path.tsv>  # a specific run
+```
+Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/qa/validate_output.py`.
 
 ---
 
@@ -117,7 +132,7 @@ trial-level (repeated across that trial's cohort rows); `arm_type` and `drug` ar
 
 ## Testing
 ```bash
-make agentic-tests        # 54 unit tests, no API, all fake-client
+make agentic-tests        # 64 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 

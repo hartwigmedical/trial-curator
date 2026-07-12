@@ -126,11 +126,15 @@ Examples (input -> finding_model):
 - "ALK fusion"                 -> Fusion[geneStart=ALK | geneEnd=ALK]
 - "NTRK fusion"                -> Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]
 - "ERBB2 amplification"        -> GainDeletion[gene=ERBB2 & type=GAIN]
+- "PDGFRA amplification with >=5 copy numbers" -> GainDeletion[gene=PDGFRA & type=GAIN]   (copy-number COUNT has no field — drop it, keep type=GAIN)
 - "MTAP homozygous deletion"   -> GainDeletion[gene=MTAP & type=HOM_DEL] | Disruption[gene=MTAP]
 - "BRCA1 mutation"             -> SmallVariant[gene=BRCA1] | GainDeletion[gene=BRCA1 & type=HOM_DEL] | Disruption[gene=BRCA1]
 - "KRAS mutation"              -> SmallVariant[gene=KRAS] | GainDeletion[gene=KRAS & type=GAIN]
 - "ALK wild-type"              -> Wildtype[gene=ALK]
 - "no EGFR exon 20 insertion"  -> NOT(SmallVariant[gene=EGFR & transcriptImpact.affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION])
+- "H3K27M"                     -> SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]
+- "H3K27-altered"              -> (IDENTICAL to "H3K27M" above — see the "Histone H3 K27" note in the grammar; same 3 genes, p.K28M)
+- "H3K27-altered AND BRAF V600E" -> (SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]) & SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]
 
 """
 
@@ -145,6 +149,11 @@ exon / protein change / copy-number type / fusion orientation); a bare mutation 
 "X | NOT(X)" self-contradiction, any duplicated term "NOT(X) & NOT(X)", and any NOT(...) that merely
 negates an unrepresentable qualifier (e.g. a location) — that should have been omitted). Otherwise
 faithful=false with concrete, actionable problems.
+
+Do NOT fail a mapping merely because it dropped a qualifier finding-model has no field to express — a
+copy-number count/threshold ("amplification with >=5 copies" -> type=GAIN is CORRECT), a quantitative level,
+a VAF threshold, an anatomic location, a tumour context. That simplification is acceptable and correct (see
+"Expressiveness limits" in the grammar); flag it only if a genuinely REPRESENTABLE detail is wrong or missing.
 """
 
 _SIGNATURE_RULES = """\

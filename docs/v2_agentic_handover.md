@@ -9,26 +9,31 @@
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`.
 
 ## Next up (start here)
-The user is reviewing output quality and will bring **more changes tomorrow (from 2026-07-11)**. Known items:
+Active session **2026-07-10 (continued)** — output-quality review with the user. Known items:
 
 1. **Extraction convergence on hard trials.** `NCT05009992` still finishes `faithful=False` after 3 attempts —
    deep sub-cohort scoping (1A/1B/2A/2B…). Incremental repair helped (feeds the doer its own prior table +
    only the flagged issues) but didn't fully converge. Consider more attempts, per-dimension "resolved"
    tracking, or splitting sub-cohorts up front.
-2. **`H3K27-altered` → empty finding-model nuance.** A bare `H3K27-altered` cell mapped to `""` while
-   `H3K27M` and `H3K27-altered AND BRAF V600E` mapped correctly — inconsistent drop. Gene-mapper judgement
-   tune (held-out manual-verification territory).
-3. **Two run sets awaiting review:** the hard set (`data/agentic/analysis/review_trials_ids.txt`) and a new
-   **typical/standard set** (`data/agentic/analysis/typical_trials_ids.txt`, 10 average CTGov cancer trials).
-   Re-run either with `make agentic-run IDS=$(cat <that file>)`.
+2. **User to verify the extraction fixes closely** (mostly a CTGov / cohort-structured concern). Three fixes
+   landed + verified live this session (see "Ticked off"): DNF cross-product blow-up (`NCT04221035` 680→32),
+   prior_therapy over-enumeration (`NCT05417594` 108→47), cancer_type exclusion capture (`NCT05009992` 0→53
+   NOT() carve-outs). Baseline snapshots for diffing under the scratchpad. **Latest verified run:**
+   `trial_resource_20260710_163600.tsv` (NCT05417594 + NCT05009992).
+3. **Still owed:** the parallel-agent review of **OncoTree** + **gene_alteration → finding-model** mappings, and
+   the **typical/standard set** (`data/agentic/analysis/typical_trials_ids.txt`). Re-run any set with
+   `make agentic-run IDS=…`.
+4. **Extraction non-determinism / split-vs-inline** — `NCT05417594`'s HRR genes appear as 5 rows in one run vs 1
+   inline-OR cell in another (both lossless). The "split an OR into rows vs inline it in a cell" rule isn't
+   pinned; fold into the convergence work (item 1).
 
-   *(Run-log rework and the 2026-07-10 output-quality fixes are done; see "Ticked off".)*
+   *(The `H3K27-altered` mapping + the acceptable-simplification rule are done; see "Ticked off".)*
 
 ## TL;DR
 The v2 rewrite is a **complete two-stage agentic pipeline**, end-to-end verified on ctgov + anzctr:
 **extract → map → drug enrichment**, in one streamed pass, via a single command (`make agentic-run`).
 Pattern B throughout: deterministic Python owns control flow; the LLM fills the doer/reviewer slots.
-**54 unit tests pass** (all fake-client, no API). Output is a **DNF (disjunctive normal form)** table — one row =
+**64 unit tests pass** (all fake-client, no API). Output is a **DNF (disjunctive normal form)** table — one row =
 one satisfiable (trial, cohort) conjunction; rows are ORed, cells within a row ANDed, exclusions inline `NOT(...)`.
 
 ## Quickstart
@@ -38,7 +43,7 @@ make agentic-run ID=NCT06881784                 # one trial (source auto-detecte
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
 make agentic-run                                # ALL trials
 make agentic-clean                              # wipe data/agentic/{output,log,cache}
-make agentic-tests                              # 54 unit tests, no API
+make agentic-tests                              # 64 unit tests, no API
 #   options: MODEL=<name>  NO_JUDGE=1 (skip extraction panel)  NO_REVIEW=1 (skip mapping/drug reviewers)
 ```
 One run → **one output** `data/agentic/output/trial_resource_<id|timestamp>.tsv` + **one log** `data/agentic/log/…`.
@@ -47,7 +52,7 @@ Full detail: `docs/agentic/combined_agentic_run.md`.
 ## What's built
 ```
 aus_trial_universe/agentic/
-  run.py                     # PIPELINE ORCHESTRATOR: per trial extract -> map -> drug, stream one output
+  run.py                     # PIPELINE ORCHESTRATOR: per trial extract -> map -> drug, stream one output; a failing trial is logged & skipped (batch continues)
   core/
     client.py                # LlmClient: .parse() (chat.completions) + .research() (Responses API web_search); cache, retries, tracing
     agent.py                 # Agent = prompt + schema + model (+ web_search flag) bound to the client
@@ -64,8 +69,10 @@ aus_trial_universe/agentic/
   tools/
     oncotree.py              # OncoTree vocab + code validator + hierarchy (ancestors/is_subcode); 3 sentinels
     finding_model.py         # finding-model grammar + syntax/logic validator (dup + self-contradiction)
-tests/agentic/               # 54 tests (fake-client)
-scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|clean|tests
+  qa/
+    validate_output.py       # INDEPENDENT output validator ("review of the reviewers"); make agentic-validate
+tests/agentic/               # 64 tests (fake-client)
+scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|clean|tests
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
@@ -104,10 +111,15 @@ See `combined_agentic_run.md` §Output Schema for per-column notes.
 - **One output + one log**, streamed per trial; `--selected` retired; modes = `ID` / `IDS` / all.
 
 ## Verified (live)
-- `NCT05009992` (DMG, 6 cohorts — the hard case, 2026-07-10): fresh full run + **comprehensive validator
-  (`scratchpad/check_output.py`) PASS, 0 problems / 55 rows** — no `[None]`, no gene `A AND NOT(A)`/dupes,
-  clean OncoTree, per-drug TGA/PBS + detail links, `main_drugs` = investigational agents only. (Extraction
-  still `faithful=False` — convergence limit; mapping degrades gracefully.)
+- `NCT05009992` (DMG, 6 cohorts — the hard case, 2026-07-10): fresh full run + a **comprehensive per-row check
+  (OncoTree logic + finding-model validity + drug columns): PASS, 0 problems / 55 rows** — no `[None]`, no gene
+  `A AND NOT(A)`/dupes, clean OncoTree, per-drug TGA/PBS + detail links, `main_drugs` = investigational agents
+  only. (Extraction still `faithful=False` — convergence limit; mapping degrades gracefully.) NB: that ad-hoc
+  validator was a session script, not committed — re-derive from the validators in `tools/` if needed.
+- **10 typical CTGov trials** (`data/agentic/analysis/typical_trials_ids.txt`, 2026-07-10): comprehensive validator
+  **PASS, 0 problems / 135 rows** — fixes hold with no regressions on standard trials (RCC→CCRCC/PRCC, endometrial
+  carve-outs, `Solid tumour`, CML→CMLBCRABL1, per-drug TGA/PBS). One trial hit a transient API error and was
+  recovered via the batch-resilience skip + a single-id re-run.
 - `NCT07099898` (SCLC, 2 arms): main=`risvutatug rezetecan` (investigational, TGA `Not approved`),
   auxiliary=`Topotecan`; POTTR + drug_class + PBS populated via web search; arm_type EXPERIMENTAL/ACTIVE_COMPARATOR.
 - `NCT05417594` (BRCA basket, 83 rows): oncotree + `SmallVariant[gene=BRCA1 & …]` finding-model.
@@ -122,7 +134,54 @@ Acting on the user's review of the DNF output:
   unrepresentable (e.g. location-qualified) `NOT()`; extraction reviewers flag `X AND NOT(X)` cells to split.
 - **Drug** — `main_drugs` by judgement (investigational only); per-drug `tga_status`/`pbs_status` +
   `tga_detail`/`pbs_detail` (year + evidence + link). **+2 output columns.**
-- **Refine → incremental repair** (prior table + flagged issues only). Verified live on `NCT05009992`. 54 tests pass.
+- **Refine → incremental repair** (prior table + flagged issues only). Verified live on `NCT05009992`.
+- **Batch resilience** — a trial that errors mid-pipeline is logged (`FAILED · <id> … skipped; continuing`) and the
+  run continues to the next trial; the final summary reports `N ok, M failed` (previously one flaky API call crashed
+  the whole batch). `run.py` + `tests/agentic/tasks/test_run_resilience.py`.
+- **`H3K27-altered` ≡ `H3K27M`** — bare `H3K27-altered` (and its `AND <other>` conjunctions) previously mapped
+  inconsistently (empty / H3-block dropped / `p.K27M` vs `p.K28M` / 1–4 genes). Now one canonical rendering
+  anchored in the **shared** grammar (mapper + reviewer): K27M small-variant OR `H3F3A | HIST1H3B | HIST1H3C`,
+  strict-HGVS **`p.K28M`**, block never dropped in a conjunction. Verified live — all 9 H3 cells of `NCT05009992`
+  consistent, attempt 1. (`H3F3B` intentionally dropped; legacy gene symbols — flag for the user's manual check.)
+- **Acceptable-simplification rule** — mapper + reviewer now treat dropping a qualifier finding-model has no field
+  for (copy-number count/threshold, quantitative level, VAF, anatomic location, tumour context) as **correct**:
+  map to the closest term (`≥5 copies` → `type=GAIN`) and drop the qualifier; reviewer no longer fails it.
+  Prompt-only (shared `GRAMMAR_REFERENCE` + `_GENE_RULES` + gene-reviewer clause). Added a prompt-decision guard
+  test `test_locked_prompt_decisions_present`.
+- **DNF cross-product blow-up fixed** — `NCT04221035` (SIOPEN HR-NBL2) produced **680 rows from 3 cohorts, 86%
+  unsatisfiable** (`Stage A AND Stage B`). Root cause: the extractor restated the disease-staging axis in BOTH
+  `trial-wide` (17 OR-rows) and each cohort, and `_distribute` cross-producted + blind-ANDed them (`17 × 40 =
+  680`). Fix — (1) **extractor scope contract**: cohorts are a fixed known set; assign each criterion to exactly
+  ONE scope, never restate a single-valued axis (cancer_type/stage) across scopes (`agents.py` +
+  `structural` reviewer now flags it); (2) **distribution safety net**: `_merge_cell` — cohort value **wins** on
+  `cancer_type` (never `X AND Y`); `_dedup_rows` after merge; `_CROSS_PRODUCT_WARN` logs oversized products.
+  Each output row stays **self-contained** per the downstream matching engine's needs. Regression test
+  `test_cohort_wins_on_cancer_type_and_dedup_prevents_blowup`. Verified: `NCT04221035` **680 → 32 rows, 587 → 0
+  impossible conjunctions**; no cross-product WARN on any of the 5 complex trials. (User to verify closely.)
+- **prior_therapy over-enumeration (LLM judgement)** — `NCT05417594` emitted every `(cancer × gene)` profile
+  TWICE, differing only by an extra `AND refractory to standard therapy` (a strict superset → the stricter row
+  is logically subsumed). Not solvable programmatically (can't know if the clause is required); the extractor
+  now applies **judgement**: never emit near-duplicate/subsuming OR rows — decide whether the extra clause is
+  required and keep the SINGLE version applying to the majority of patients. prior_therapy + structural
+  reviewers flag the pattern. Verified: **108 → 47 rows, 25 → 0 subsumed pairs** (legit basket enumeration
+  preserved).
+- **cancer_type tumour-type EXCLUSIONS restored** — a prior run silently dropped `NCT05009992`'s stated
+  exclusions (thalamic/cerebellar DMG carve-out, histone-H3-wildtype astrocytoma, etc.). Extractor prompt now
+  mandates capturing "except/excluding/other than" tumour carve-outs as same-cell `NOT()` and never dropping
+  them ("losing a stated tumour-type exclusion is a serious error"); cancer_type reviewer flags a missing one.
+  Defensive: `_merge_cell` cohort-wins now **preserves trial-wide `NOT()` exclusions** (cohort's positive type
+  wins, but a shared exclusion is never dropped by the merge; `_top_level_and` splitter). Regression test
+  `test_cohort_wins_preserves_trialwide_cancer_type_exclusion`. Verified: NOT() carve-outs **0 → 53** on
+  `NCT05009992`.
+- **Independent output validator — a "review of the reviewer agents"** (`make agentic-validate`,
+  `aus_trial_universe/agentic/qa/validate_output.py`). Deterministic, runs OUTSIDE the workflow to catch what
+  the in-loop reviewers let through (mapping degrades gracefully — output is written even at `faithful=False`).
+  Re-runs the pipeline's own OncoTree + finding-model validators on the final cells, plus cross-row DNF/cohort/
+  exclusion checks nothing else does (unsatisfiable `A AND B` cancer_type, all-empty rows, exact-dup rows,
+  in-cell `X AND NOT(X)`, prior_therapy subsuming-twin over-enumeration). **Testing-period QA only — NOT the
+  production path; always run it on a fresh output while iterating and keep its checks in sync with the
+  pipeline.** Also fixed the duplicate `agentic-clean` Makefile target (was warning on every run). Tests
+  `tests/agentic/qa/test_validate_output.py`. **64 tests pass.**
 
 ## Ticked off (2026-07-08)
 Former TODOs now closed:
@@ -152,7 +211,6 @@ Former TODOs now closed:
 - **Extraction convergence** — hard multi-subcohort trials (`NCT05009992`) still exhaust 3 attempts
   `faithful=False` even with incremental repair. Deeper fix pending (more attempts / per-dimension resolved /
   up-front subcohort split).
-- **`H3K27-altered` → empty finding-model** — bare `H3K27-altered` inconsistently maps to `""`; gene-mapper tune.
 - **Run-comparison method** (spec §12) — still deferred; verification of the mapping is currently manual.
 - **`eligibility_path` retirement** — legacy stays in-tree as the resource source + reference until superseded.
 

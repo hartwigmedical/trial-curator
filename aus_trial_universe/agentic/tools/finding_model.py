@@ -46,6 +46,27 @@ Molecular signatures:
 Expansion when NO specific variant is given (a bare "mutation"/"alteration"/"positive"):
 - tumour suppressor gene  -> SmallVariant[gene=X] | GainDeletion[gene=X & type=HOM_DEL] | Disruption[gene=X]
 - oncogene                -> SmallVariant[gene=X] | GainDeletion[gene=X & type=GAIN]   (add Fusion[...] if the gene is a known fusion partner)
+
+Histone H3 K27 (diagnostic-category terms):
+- "H3K27M" and "H3K27-altered" both denote the SAME expressible molecular core — the H3 K27M mutation.
+  ("H3K27-altered" is the WHO diagnostic category, defined by loss of H3K27 trimethylation; the non-K27M
+  mechanisms — EZHIP overexpression, EGFR-mutant thalamic tumours — cannot be expressed in finding-model, so
+  capture the K27M core.) Render BOTH terms IDENTICALLY, OR'd across the canonical H3 genes:
+    SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]
+  The coordinate is p.K28M (strict HGVS: the initiator Met is residue 1, so histone "K27" = protein K28) —
+  NEVER p.K27M. In a conjunction ("H3K27-altered AND <other>"), wrap this whole OR-block in parentheses and
+  AND the other alteration onto it; NEVER drop the H3 block or reduce it to fewer genes.
+
+Expressiveness limits — acceptable simplification:
+The classes/fields above are the COMPLETE vocabulary. When the source free text carries a qualifier that has
+NO corresponding field, map to the CLOSEST expressible term and DROP the unrepresentable qualifier:
+- copy-number COUNT / threshold  ("amplification with >=5 copies", "high-level amplification")  -> just type=GAIN
+- variant-allele-frequency threshold ("VAF > 10%")                                               -> drop the threshold
+- anatomic location / tumour context ("H3K27M in thalamic DMG")                                   -> drop the qualifier
+This loss of specificity is ACCEPTABLE and CORRECT — NEITHER mapper NOR reviewer may treat a dropped
+unrepresentable qualifier as a fault. Preserve only representable detail (gene, protein change, exon,
+copy-number TYPE GAIN|HOM_DEL|HET_DEL, fusion orientation).
+
 Exclusions are wrapped in NOT(...). Order terms SmallVariant, GainDeletion, Disruption, Fusion.
 """
 

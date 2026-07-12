@@ -9,6 +9,8 @@
 #           Vars: ID=<id> (one) | IDS=<a,b,c> (a set) | none = ALL trials
 #                 optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1
 #   tests   Run the agentic unit-test suite (no API calls).
+#   validate  Independent output validator ("review of the reviewer agents"): re-checks a finished
+#             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
 #   clean   Delete all run outputs under data/agentic/ (output/, log/, cache/).
 #           No API/Python needed; handy for clearing test runs.
 
@@ -104,8 +106,14 @@ case "${CMD}" in
   tests)
     exec "${PYTHON_BIN}" -m pytest tests/agentic -q
     ;;
+  validate)
+    # Independent output validator (review of the reviewer agents). OUT=<tsv> or newest.
+    vargs=()
+    if [[ -n "${OUT:-}" ]]; then vargs=("${OUT}"); fi
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.qa.validate_output "${vargs[@]}"
+    ;;
   *)
-    echo "Unknown command: '${CMD}'. Use one of: run | tests" >&2
+    echo "Unknown command: '${CMD}'. Use one of: run | tests | validate" >&2
     exit 2
     ;;
 esac

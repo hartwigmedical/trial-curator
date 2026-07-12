@@ -24,6 +24,22 @@ def test_finding_model_validator():
     assert any("self-contradiction" in p for p in finding_model_problems(contradiction))
 
 
+def test_locked_prompt_decisions_present():
+    """Prompt-only decisions (2026-07-10) can't be caught by fake-client behaviour tests — guard the
+    strings so a future grammar edit can't silently drop them. See memory v2-mapping-stage-decisions."""
+    from aus_trial_universe.agentic.tasks.mapping.agents import GENE_REVIEWER_INSTRUCTIONS, _GENE_RULES
+    from aus_trial_universe.agentic.tools.finding_model import GRAMMAR_REFERENCE
+
+    # H3K27-altered ≡ H3K27M: canonical 3-gene block, strict-HGVS p.K28M coordinate.
+    for gene in ("H3F3A", "HIST1H3B", "HIST1H3C"):
+        assert gene in GRAMMAR_REFERENCE
+    assert "gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M" in GRAMMAR_REFERENCE
+    assert "H3K27-altered" in GRAMMAR_REFERENCE and "H3K27-altered" in _GENE_RULES
+    # Acceptable simplification: drop a qualifier finding-model has no field for; reviewer must not fail for it.
+    assert "acceptable simplification" in GRAMMAR_REFERENCE.lower()
+    assert "Do NOT fail" in GENE_REVIEWER_INSTRUCTIONS
+
+
 # --- mapper -> validate + reviewer -> refine ------------------------------- #
 class _FMClient:
     """Fake dispatching FindingModelMapping (mapper) + ReviewVerdict (reviewer), sequential."""

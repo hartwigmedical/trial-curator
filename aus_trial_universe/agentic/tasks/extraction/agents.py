@@ -41,7 +41,13 @@ is AUTHORITATIVE for the tumour type(s): if the eligibility text uses a broad um
 tumours", "any cancer") but the CONDITIONS + description + drugs make clear the trial is about ONE specific \
 type, use only that specific type and DROP the umbrella. Only when the trial genuinely enrols a broad group \
 with a subtype named do you keep both — as separate OR rows, never ANDed. Genuinely different eligible \
-tumour types are separate OR rows.
+tumour types are separate OR rows. \
+CAPTURE EXCLUDED tumour types: when the eligibility text carves OUT a specific tumour subtype / histology / \
+anatomic location ("except ...", "excluding ...", "other than ...", "not ... tumours"), that exclusion is a \
+REAL eligibility criterion — encode it as a same-cell NOT() carve-out and NEVER drop it (e.g. a DMG trial that \
+excludes thalamic/cerebellar DMG → cancer_type = "DMG AND NOT(thalamic and cerebellar DMG)"; \
+"grade III/IV glioma, not histone-H3-wildtype grade II astrocytoma" → keep the NOT() term). Losing a stated \
+tumour-type exclusion is a serious error.
 - gene_alteration: a required SPECIFIC gene + alteration, DNA/mRNA-level (e.g. "EGFR exon 19 deletion", \
 "KRAS G12C", "ALK fusion", "ERBB2 amplification").
 - molecular_signature: a required COMPOSITE/genomic signature not tied to one gene's variant \
@@ -60,10 +66,22 @@ Column edge rules:
 - Ignore everything else (age, labs, performance status, comorbidities, other/prior malignancy, \
 reproductive status, drug/intervention names) — only the five columns above.
 
-Cohort assignment — set each row's `cohort`:
-- If a requirement applies ONLY to a specific cohort in the COHORTS list, set cohort to that cohort's id (e.g. "C1").
-- If it applies to the whole trial / all patients, set cohort to "trial-wide".
-- When in doubt (or the trial has a single cohort), use "trial-wide".
+Cohort assignment — set each row's `cohort` (this is a PRIMARY task, not an afterthought):
+The COHORTS list is FIXED and already identified for you (from the trial's own structure). Your job is to
+ASSIGN each eligibility criterion to the cohort(s) it actually governs. Each `trial-wide` row is
+AND-combined onto EVERY cohort's rows downstream to build that cohort's complete, self-contained
+eligibility — so assign each criterion to EXACTLY ONE scope; NEVER state the same criterion in two scopes.
+- a cohort id (e.g. "C1"): a criterion that DEFINES, is SPECIFIC to, or DIFFERS for that cohort (e.g. a
+  per-cohort tumour/staging selection, a per-cohort prior-therapy/treatment-phase condition). If a criterion
+  applies to several — but not all — cohorts, emit it once per applicable cohort (not trial-wide).
+- "trial-wide": ONLY a criterion shared IDENTICALLY by ALL cohorts (a common disease definition, a trial-wide
+  exclusion). State it ONCE — do NOT also repeat it inside cohort rows.
+- Single-cohort trial: everything is "trial-wide".
+CRITICAL — do NOT restate a shared criterion in both scopes, and do NOT put a cohort-defining criterion in
+trial-wide. In particular, a single-valued axis like cancer_type / tumour-stage must appear in ONE scope only:
+if it varies between cohorts, put each cohort's value in that cohort's rows (NOT trial-wide); if it is the same
+for all, state it once trial-wide. Restating it in both scopes creates impossible combinations
+("Stage A AND Stage B") when the scopes are AND-combined downstream.
 
 DNF rules:
 - One row = one satisfiable combination of requirements (a conjunction: all cells ANDed).
@@ -71,6 +89,13 @@ DNF rules:
 - Conditionals become co-occurrence: "if <cancer A> then <mutation X>; if <cancer B> then <mutation Y>" \
 -> two rows: (cancer=A, gene=X) and (cancer=B, gene=Y).
 - Use "" for any column not required by a row.
+- Split into separate OR rows ONLY for GENUINELY distinct eligibility paths a patient chooses between. Do NOT \
+emit near-duplicate rows that differ only by a TRIVIAL or SUBSUMING variation of the SAME criterion — e.g. two \
+rows identical except one adds "AND refractory to standard therapy" to prior_therapy, or one prior_therapy \
+that is a strict superset of another's terms. These are NOT real alternatives (the stricter row is subsumed by \
+the looser one, so it adds nothing). Apply JUDGEMENT and read the text: decide whether that extra clause is \
+actually REQUIRED for the cohort — if it applies to the MAJORITY of eligible patients keep only the version \
+WITH it; if not, keep only the version WITHOUT it — but keep exactly ONE. Never emit both.
 
 Negation (inclusion AND exclusion are BOTH in scope):
 - Wrap an excluded criterion in NOT(...), e.g. prior_therapy = "NOT(prior EGFR TKI)".
@@ -146,7 +171,9 @@ history, an exclusion of other malignancies, or an example is NOT the trial's ca
 missing tumour types and mis-placed histology/stage. Flag any cell that ANDs two DIFFERENT cancer types \
 (a patient has one tumour — different types are OR-alternatives on separate rows), and flag a broad umbrella \
 ("solid tumours", "any cancer") left in when the CONDITIONS/description show the trial is about ONE specific \
-type (the umbrella should be dropped)."""),
+type (the umbrella should be dropped). Flag a MISSING tumour-type EXCLUSION: if the eligibility text carves out \
+a specific tumour subtype / histology / anatomic location ("except ...", "excluding ...", "other than ..."), it \
+MUST appear as a NOT() carve-out in cancer_type — a dropped tumour-type exclusion is a serious faithfulness error."""),
     ReviewerSpec("molecular", "molecular columns (gene / signature / biomarker)", True, _REVIEW_PREAMBLE + """
 DIMENSION = gene_alteration + molecular_signature + molecular_biomarker. Check faithfulness AND that each \
 value is in the RIGHT column: specific gene+alteration -> gene_alteration; composite/genomic signature -> \
@@ -159,7 +186,10 @@ DNF rows."""),
 DIMENSION = prior_therapy. Only REQUIRED prior therapies (positive) and EXCLUDED ones (wrapped in NOT())
 are eligibility constraints. A merely PERMITTED/ALLOWED prior therapy (neither required nor disqualifying)
 is NOT a constraint and should be OMITTED — do NOT flag its absence. Flag missing REQUIRED/EXCLUDED
-conditions and wrong/missing negation."""),
+conditions and wrong/missing negation. Flag OVER-ENUMERATION: two near-duplicate rows that differ ONLY by a
+trivial/subsuming prior_therapy variation (one row's prior_therapy a strict superset of another's — e.g. an
+extra "AND refractory to standard therapy") are not genuine alternatives; they must be collapsed by judgement
+to the SINGLE version applicable to the majority of patients, not emitted as separate rows."""),
     ReviewerSpec("drug", "drug", False, _REVIEW_PREAMBLE + """
 DIMENSION = drug. Each cohort's drug(s) are listed in the COHORTS section — NOT in the eligibility rows
 (eligibility is cohort-agnostic; drugs are assigned per cohort separately downstream). Check each cohort's
@@ -168,8 +198,15 @@ or extraneous drugs. Do NOT ask for a drug column in the eligibility table; igno
     ReviewerSpec("structural", "DNF structure & cohort scope", True, _REVIEW_PREAMBLE + """
 DIMENSION = DNF structure & cohort scope. Check conjunctions/conditionals are correct rows, no OR-\
 alternative is missing or wrongly merged, and each requirement's cohort scope is right (cohort-specific \
-requirements assigned to their cohort; shared ones 'trial-wide'). Flag any cell holding a self-contradiction \
-"X AND NOT(X)" — that conflates two cohorts and must be split so X is on one row and NOT(X) on another."""),
+requirements assigned to their cohort; shared ones 'trial-wide'). Each trial-wide row is AND-combined onto \
+EVERY cohort downstream, so flag a criterion DUPLICATED across scopes (stated both trial-wide AND in a \
+cohort) — it must live in exactly ONE scope. In particular flag a single-valued axis (cancer_type / \
+tumour-stage) populated in BOTH trial-wide and cohort rows: that produces impossible AND-combinations \
+("Stage A AND Stage B") when scopes combine — a per-cohort tumour/stage belongs in that cohort's rows only, \
+a shared one trial-wide only. Also flag any cell holding a self-contradiction "X AND NOT(X)" — that conflates \
+two cohorts and must be split so X is on one row and NOT(X) on another. Flag REDUNDANT near-duplicate OR rows \
+that differ only by a subsuming variation of one criterion (the stricter row just adds an extra AND-clause to \
+an otherwise identical row): they are not distinct alternatives — keep the single majority-applicable version."""),
 )
 
 

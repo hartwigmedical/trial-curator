@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-clean
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-validate
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -52,6 +52,10 @@ agentic-clean:
 agentic-tests:
 	scripts/agentic/pipeline.sh tests
 
-# Clear all run outputs under data/agentic/ (output/, log/, cache/). Handy between test runs.
-agentic-clean:
-	scripts/agentic/pipeline.sh clean
+# Independent output validator — a "review of the reviewer agents". Deterministic, runs OUTSIDE
+# the workflow to catch what the in-loop reviewers let through. Testing-period QA step (not the
+# production path). OUT defaults to the newest output TSV.
+#   make agentic-validate                 # newest data/agentic/output/trial_resource_*.tsv
+#   make agentic-validate OUT=<path.tsv>  # a specific run
+agentic-validate:
+	OUT="$(OUT)" scripts/agentic/pipeline.sh validate

@@ -102,6 +102,78 @@ def test_cohort_specific_criterion_merges_only_into_its_cohort():
     assert by_cohort["Arm B"].gene_alteration == ""
 
 
+def test_cohort_wins_on_cancer_type_and_dedup_prevents_blowup():
+    """Regression for the NCT04221035 680-row blow-up: staging restated in BOTH trial-wide and cohort
+    scopes must not AND into impossible 'Stage A AND Stage B' rows (cohort value wins on cancer_type),
+    and the redundant trial-wide OR-rows must de-duplicate away instead of cross-multiplying."""
+    client = _ScriptedClient(extractions=[_extraction(
+        # trial-wide: two staging OR-alternatives (as the extractor wrongly duplicated)
+        ExtractedRow(cohort="trial-wide", cancer_type="Stage M NBL", cancer_type_sources=["ELIGIBILITY CRITERIA"]),
+        ExtractedRow(cohort="trial-wide", cancer_type="Stage Ms NBL", cancer_type_sources=["ELIGIBILITY CRITERIA"]),
+        # cohort C1: the SAME staging restated + a genuinely cohort-specific prior therapy
+        ExtractedRow(cohort="C1", cancer_type="Stage M NBL", prior_therapy="post-induction",
+                     cancer_type_sources=["ELIGIBILITY CRITERIA"], prior_therapy_sources=["ELIGIBILITY CRITERIA"]),
+        ExtractedRow(cohort="C1", cancer_type="Stage Ms NBL", prior_therapy="post-induction",
+                     cancer_type_sources=["ELIGIBILITY CRITERIA"], prior_therapy_sources=["ELIGIBILITY CRITERIA"]),
+    )])
+    cohorts = [Cohort(label="Arm A"), Cohort(label="Arm B")]
+    result = extract_trial(client, trial_id="NCT_NBL", source_text="...", cohorts=cohorts, use_judge=False)
+    # no cancer_type cell ANDs two staging values (would be unsatisfiable)
+    assert all(" AND " not in r.cancer_type for r in result.rows), [r.cancer_type for r in result.rows]
+    # Arm A (C1): 2 trial-wide x 2 specifics = 4 combos, but cancer_type-wins + dedup -> 2 self-contained rows
+    arm_a = [r for r in result.rows if r.cohort == "Arm A"]
+    assert len(arm_a) == 2, [(r.cancer_type, r.prior_therapy) for r in arm_a]
+    assert {r.cancer_type for r in arm_a} == {"Stage M NBL [ELIGIBILITY CRITERIA]", "Stage Ms NBL [ELIGIBILITY CRITERIA]"}
+    assert all(r.prior_therapy == "post-induction [ELIGIBILITY CRITERIA]" for r in arm_a)
+    # Arm B (no specifics): gets the 2 trial-wide staging rows, still self-contained
+    arm_b = [r for r in result.rows if r.cohort == "Arm B"]
+    assert {r.cancer_type for r in arm_b} == {"Stage M NBL [ELIGIBILITY CRITERIA]", "Stage Ms NBL [ELIGIBILITY CRITERIA]"}
+
+
+def test_cohort_wins_preserves_trialwide_cancer_type_exclusion():
+    """cohort-wins on cancer_type keeps the cohort's positive type but must NOT drop a trial-wide NOT() carve-out."""
+    client = _ScriptedClient(extractions=[_extraction(
+        ExtractedRow(cohort="trial-wide", cancer_type="DMG AND NOT(thalamic DMG)", cancer_type_sources=["ELIGIBILITY CRITERIA"]),
+        ExtractedRow(cohort="C1", cancer_type="pontine DMG", cancer_type_sources=["ELIGIBILITY CRITERIA"]),
+    )])
+    result = extract_trial(client, trial_id="NCT_X", source_text="...",
+                           cohorts=[Cohort(label="Arm A"), Cohort(label="Arm B")], use_judge=False)
+    arm_a = [r for r in result.rows if r.cohort == "Arm A"][0]
+    # cohort's positive type ('pontine DMG') wins over trial-wide's ('DMG'), but the trial-wide
+    # NOT() exclusion is preserved — never silently dropped
+    assert arm_a.cancer_type == "pontine DMG AND NOT(thalamic DMG) [ELIGIBILITY CRITERIA]"
+    # Arm B (no specifics) keeps the full trial-wide cell incl. the exclusion
+    arm_b = [r for r in result.rows if r.cohort == "Arm B"][0]
+    assert arm_b.cancer_type == "DMG AND NOT(thalamic DMG) [ELIGIBILITY CRITERIA]"
+
+
+def test_top_level_and_splitter_respects_paren_depth():
+    """The exclusion-preservation merge relies on this: split top-level ' AND ' but keep NOT(...) bodies
+    (incl. an ' AND ' or ' OR ' inside them) intact."""
+    from aus_trial_universe.agentic.tasks.extraction.workflow import _top_level_and
+    assert _top_level_and("DMG") == ["DMG"]
+    assert _top_level_and("") == []
+    assert _top_level_and("DMG AND NOT(thalamic DMG)") == ["DMG", "NOT(thalamic DMG)"]
+    # ' AND ' / ' OR ' inside a NOT() body must NOT split
+    assert _top_level_and("A AND NOT(x AND y)") == ["A", "NOT(x AND y)"]
+    assert _top_level_and("DMG AND NOT(thalamic DMG OR cerebellar DMG) AND NOT(disseminated disease)") == \
+        ["DMG", "NOT(thalamic DMG OR cerebellar DMG)", "NOT(disseminated disease)"]
+
+
+def test_extraction_judgement_prompt_decisions_present():
+    """Prompt-only judgement rules (2026-07-10) can't be caught by fake-client behaviour tests — guard the
+    strings so a future prompt edit can't silently drop them. See memory v2-stage2-extraction-decisions."""
+    from aus_trial_universe.agentic.tasks.extraction.agents import EXTRACTOR_INSTRUCTIONS, REVIEWERS
+    rv = {s.key: s.instructions for s in REVIEWERS}
+    # (1) capture tumour-type exclusions as NOT(); (2) no subsuming over-enumeration; (3) one-scope assignment
+    assert "except" in EXTRACTOR_INSTRUCTIONS and "excluding" in EXTRACTOR_INSTRUCTIONS
+    assert "refractory to standard therapy" in EXTRACTOR_INSTRUCTIONS  # the subsuming-row example
+    assert "EXACTLY ONE scope" in EXTRACTOR_INSTRUCTIONS
+    assert "excluded tumour" in rv["cancer_type"].lower() or "tumour-type exclusion" in rv["cancer_type"].lower()
+    assert "over-enumeration" in rv["prior_therapy"].lower()
+    assert "subsuming" in rv["structural"].lower()
+
+
 def test_not_negation_and_multisource_passthrough():
     client = _ScriptedClient(extractions=[_extraction(
         ExtractedRow(cohort="trial-wide",
