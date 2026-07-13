@@ -91,26 +91,22 @@ class EligibilityExtraction(BaseModel):
 
 # --- ANZCTR drug extractor I/O ---------------------------------------------- #
 class DrugExtraction(BaseModel):
-    """Investigational + comparator drug/treatment names, raw (no normalization)."""
+    """ANZCTR drug/treatment names, raw (no normalization), split by arm role (spec §6.1).
 
-    drugs: list[str] = Field(
+    ANZCTR has a single eligibility cohort; the regime axis comes from the drugs. The intervention
+    section gives the experimental regime; the comparator section gives a control regime IF it names an
+    actual drug (not placebo / radiotherapy / observation)."""
+
+    intervention_drugs: list[str] = Field(
         default_factory=list,
-        description="Drug/treatment names administered in the trial, as stated. [] if none.",
+        description="Investigational drug/treatment names from the INTERVENTIONS section, as stated. [] if none.",
     )
-
-
-# --- ANZCTR cohort-detection I/O -------------------------------------------- #
-class DetectedCohort(BaseModel):
-    label: str = Field(description="Short human-readable cohort name.")
-    description: str = Field(default="", description="What distinguishes this cohort's eligibility.")
-
-
-class CohortDetection(BaseModel):
-    """Conservative cohort detection: empty list => a single trial-wide cohort."""
-
-    cohorts: list[DetectedCohort] = Field(
+    comparator_drugs: list[str] = Field(
         default_factory=list,
-        description="Distinct patient groups with DIFFERENT eligibility. Empty if the trial is a single cohort.",
+        description=(
+            "Comparator DRUG names from the COMPARATOR section, as stated. [] if the comparator is placebo, "
+            "radiotherapy, observation/no treatment, or otherwise not a drug (use the CONTROL field as a hint)."
+        ),
     )
 
 

@@ -1,0 +1,128 @@
+"""Persistence for the drug reference (spec §6.1).
+
+An in-memory view of the three tables, loaded from the newest `version_<ddmmyyyy>` dir under
+`data/agentic/resources/drug_ref/`. The build is **incremental**: an existing, non-stale canonical is a
+pure lookup (no LLM). `save()` writes a fresh version dir holding the full current state — a self-contained,
+datestamped snapshot (same-day rebuilds overwrite that day's version, matching the other resources).
+"""
+from __future__ import annotations
+
+import csv
+from dataclasses import asdict
+from datetime import date, datetime
+from pathlib import Path
+
+from aus_trial_universe.agentic.core.pipeline_io import latest_version_dir
+from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+    DRUG_ALIAS_COLUMNS,
+    DRUG_INDICATION_COLUMNS,
+    DRUG_REF_COLUMNS,
+    TABLE_FILES,
+    DrugAlias,
+    DrugIndication,
+    DrugRef,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DRUG_REF_ROOT = REPO_ROOT / "data/agentic/resources/drug_ref"
+
+
+def _read_tsv(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    with open(path, newline="", encoding="utf-8") as fh:
+        return list(csv.DictReader(fh, delimiter="\t"))
+
+
+def _write_tsv(path: Path, columns: list[str], rows: list[dict]) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=columns, delimiter="\t", lineterminator="\n", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
+def _parse_date(value: str) -> date | None:
+    try:
+        return datetime.strptime((value or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+class DrugRefStore:
+    """In-memory drug reference; load the newest version, look up / upsert, then save a new version."""
+
+    def __init__(self) -> None:
+        self.aliases: dict[str, DrugAlias] = {}                  # raw_name -> DrugAlias
+        self.refs: dict[str, DrugRef] = {}                      # canonical_id -> DrugRef
+        self.indications: dict[str, list[DrugIndication]] = {}  # canonical_id -> rows
+
+    # --- load -------------------------------------------------------------- #
+    @classmethod
+    def load(cls, root: Path = DRUG_REF_ROOT) -> "DrugRefStore":
+        store = cls()
+        try:
+            vdir = latest_version_dir(root)
+        except FileNotFoundError:
+            return store  # first build — empty reference
+        for row in _read_tsv(vdir / TABLE_FILES["drug_alias"]):
+            a = DrugAlias(**{k: row.get(k, "") for k in DRUG_ALIAS_COLUMNS})
+            if a.raw_name:
+                store.aliases[a.raw_name] = a
+        for row in _read_tsv(vdir / TABLE_FILES["drug_ref"]):
+            r = DrugRef(**{k: row.get(k, "") for k in DRUG_REF_COLUMNS})
+            if r.canonical_id:
+                store.refs[r.canonical_id] = r
+        for row in _read_tsv(vdir / TABLE_FILES["drug_indication"]):
+            i = DrugIndication(**{k: row.get(k, "") for k in DRUG_INDICATION_COLUMNS})
+            if i.canonical_id:
+                store.indications.setdefault(i.canonical_id, []).append(i)
+        return store
+
+    # --- lookups ----------------------------------------------------------- #
+    def canonical_for(self, raw_name: str) -> str | None:
+        a = self.aliases.get(raw_name)
+        return a.canonical_id if a else None
+
+    def has_alias(self, raw_name: str) -> bool:
+        return raw_name in self.aliases
+
+    def has_ref(self, canonical_id: str) -> bool:
+        return canonical_id in self.refs
+
+    def ref(self, canonical_id: str) -> DrugRef | None:
+        return self.refs.get(canonical_id)
+
+    def indications_for(self, canonical_id: str) -> list[DrugIndication]:
+        return self.indications.get(canonical_id, [])
+
+    def is_stale(self, canonical_id: str, max_age_days: int, *, today: date | None = None) -> bool:
+        """True if the canonical is absent or its research is older than max_age_days."""
+        r = self.refs.get(canonical_id)
+        if r is None:
+            return True
+        d = _parse_date(r.researched_on)
+        if d is None:
+            return True
+        return ((today or date.today()) - d).days > max_age_days
+
+    # --- upserts ----------------------------------------------------------- #
+    def put_alias(self, raw_name: str, canonical_id: str) -> None:
+        self.aliases[raw_name] = DrugAlias(raw_name=raw_name, canonical_id=canonical_id)
+
+    def put_ref(self, ref: DrugRef) -> None:
+        self.refs[ref.canonical_id] = ref
+
+    def put_indications(self, canonical_id: str, rows: list[DrugIndication]) -> None:
+        self.indications[canonical_id] = list(rows)
+
+    # --- save -------------------------------------------------------------- #
+    def save(self, root: Path = DRUG_REF_ROOT, *, on: date | None = None) -> Path:
+        vdir = root / f"version_{(on or date.today()).strftime('%d%m%Y')}"
+        vdir.mkdir(parents=True, exist_ok=True)
+        _write_tsv(vdir / TABLE_FILES["drug_alias"], DRUG_ALIAS_COLUMNS,
+                   [asdict(a) for a in self.aliases.values()])
+        _write_tsv(vdir / TABLE_FILES["drug_ref"], DRUG_REF_COLUMNS,
+                   [asdict(r) for r in self.refs.values()])
+        _write_tsv(vdir / TABLE_FILES["drug_indication"], DRUG_INDICATION_COLUMNS,
+                   [asdict(i) for rows in self.indications.values() for i in rows])
+        return vdir

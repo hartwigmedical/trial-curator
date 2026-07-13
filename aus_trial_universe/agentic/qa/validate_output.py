@@ -16,8 +16,8 @@ Two layers of checks:
    rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 
 Usage:
-    python -m aus_trial_universe.agentic.qa.validate_output [OUTPUT.tsv]
-    (no arg -> newest data/agentic/output/trial_resource_*.tsv)
+    python -m aus_trial_universe.agentic.qa.validate_output [COMBINED.tsv]
+    (no arg -> newest data/agentic/output/<timestamp>/combined.tsv)
 """
 from __future__ import annotations
 
@@ -135,15 +135,16 @@ def validate_rows(rows: list[dict]) -> list[TrialReport]:
 
 
 def _newest_output() -> Path:
-    candidates = sorted(OUTPUT_DIR.glob("trial_resource_*.tsv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    """Newest combined view: <timestamp>/combined.tsv (falls back to the legacy trial_resource_*.tsv)."""
+    candidates = list(OUTPUT_DIR.glob("*/combined.tsv")) + list(OUTPUT_DIR.glob("trial_resource_*.tsv"))
     if not candidates:
-        raise SystemExit(f"no trial_resource_*.tsv under {OUTPUT_DIR}")
-    return candidates[0]
+        raise SystemExit(f"no <timestamp>/combined.tsv (or legacy trial_resource_*.tsv) under {OUTPUT_DIR}")
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent validator (review of the reviewer agents) for an agentic output TSV.")
-    parser.add_argument("output", nargs="?", help="output TSV (default: newest under data/agentic/output/)")
+    parser.add_argument("output", nargs="?", help="combined-view TSV (default: newest <timestamp>/combined.tsv under data/agentic/output/)")
     args = parser.parse_args(argv)
 
     path = Path(args.output) if args.output else _newest_output()

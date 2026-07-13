@@ -59,6 +59,35 @@ def _clean_intervention_name(name: str) -> str:
     return name.split(":", 1)[1].strip() if ":" in name else name
 
 
+# A regime is a DRUG regime: only pharmacological agents count (spec §6.1). A literal "Drug:" filter would
+# drop the many investigational BIOLOGICALS (antibodies, ADCs, cell therapies) — e.g. NCT07099898's experimental
+# arm "Ris-Rez" is typed "Biological:", so filtering to "Drug:" alone would keep only the comparator.
+_PHARMACOLOGICAL_TYPES = {"drug", "biological"}
+
+
+def _intervention_type(name: str) -> str:
+    """Type prefix of an armGroup interventionName ('Drug: Topotecan' -> 'drug'); '' if unprefixed."""
+    name = (name or "").strip()
+    return name.split(":", 1)[0].strip().lower() if ":" in name else ""
+
+
+def _is_placebo(name: str) -> bool:
+    return "placebo" in (name or "").lower()
+
+
+def _pharmacological_drugs(intervention_names: list) -> list[str]:
+    """Cleaned names of the {Drug, Biological} interventions in an arm; placebo excluded, order-preserving dedup."""
+    out: list[str] = []
+    for n in intervention_names or []:
+        if not isinstance(n, str):
+            continue
+        if _intervention_type(n) in _PHARMACOLOGICAL_TYPES and not _is_placebo(n):
+            clean = _clean_intervention_name(n)
+            if clean and clean not in out:
+                out.append(clean)
+    return out
+
+
 def _ctgov_interventions_text(ai: dict) -> str:
     """Human-readable render of armsInterventionsModule (interventions + arm->drug mapping)."""
     lines: list[str] = []
@@ -102,19 +131,37 @@ def _assemble_ctgov_text(protocol_section: dict) -> str:
 
 
 def _ctgov_cohorts(ai: dict) -> list[Cohort]:
-    """Option A: one cohort per armGroup; drug = that arm's (cleaned) interventionNames."""
+    """One regime per DRUG-BEARING armGroup (spec §6.1 — the regime axis).
+
+    A regime = an armGroup with >=1 pharmacological agent ({Drug, Biological}); placebo-only / pure-radiation /
+    procedure-only arms carry no drug and are dropped (not a drug regime). Each regime carries arm_type (which
+    flags control arms) and the armGroup `description` — the best signal for eligibility->regime assignment.
+    """
     cohorts: list[Cohort] = []
     for arm in ai.get("armGroups") or []:
-        label = (arm.get("label") or "").strip() or "arm"
-        names = [_clean_intervention_name(n) for n in (arm.get("interventionNames") or []) if isinstance(n, str)]
-        drug = "; ".join(dict.fromkeys(n for n in names if n))
-        arm_type = (arm.get("type") or "").strip()
-        cohorts.append(Cohort(label=label, drug=drug, drug_source="INTERVENTIONS MODULE", arm_type=arm_type))
-    if not cohorts:  # no arm structure -> single cohort with all intervention names
-        names = [(iv.get("name") or "").strip() for iv in (ai.get("interventions") or [])]
-        drug = "; ".join(dict.fromkeys(n for n in names if n))
-        cohorts = [Cohort(label="all", drug=drug, drug_source="INTERVENTIONS MODULE")]
-    return cohorts
+        drugs = _pharmacological_drugs(arm.get("interventionNames"))
+        if not drugs:  # no pharmacological agent -> not a drug regime
+            continue
+        cohorts.append(Cohort(
+            label=(arm.get("label") or "").strip() or "arm",
+            drug="; ".join(drugs),
+            drug_source="INTERVENTIONS MODULE",
+            description=(arm.get("description") or "").strip(),
+            arm_type=(arm.get("type") or "").strip(),
+        ))
+    if cohorts:
+        return cohorts
+    # Fallback (no drug-bearing armGroups): single regime from the pharmacological interventions[]. Type is the
+    # canonical enum here (DRUG/BIOLOGICAL/RADIATION/…); keep untyped names (lenient) but drop typed non-drugs.
+    drugs: list[str] = []
+    for iv in ai.get("interventions") or []:
+        name = (iv.get("name") or "").strip()
+        itype = (iv.get("type") or "").strip().lower()
+        if not name or _is_placebo(name) or (itype and itype not in _PHARMACOLOGICAL_TYPES):
+            continue
+        if name not in drugs:
+            drugs.append(name)
+    return [Cohort(label="all", drug="; ".join(drugs), drug_source="INTERVENTIONS MODULE")]
 
 
 def load_ctgov_trial(trial_id: str) -> tuple[str, list[Cohort]]:
@@ -145,6 +192,8 @@ ANZCTR_SECTIONS = [
     ("SCIENTIFIC TITLE", "SCIENTIFIC TITLE"),
     ("HEALTH CONDITION", "HEALTH CONDITION"),
     ("INTERVENTIONS", "INTERVENTIONS"),
+    ("COMPARATOR", "COMPARATOR"),  # comparator-arm drugs (regime axis, spec §6.1)
+    ("CONTROL", "CONTROL"),        # Active/Placebo/Uncontrolled/… — signals whether a comparator drug exists
     ("INCLUSION CRITERIA", "INCLUSIVE CRITERIA"),
     ("EXCLUSION CRITERIA", "EXCLUSIVE CRITERIA"),
 ]

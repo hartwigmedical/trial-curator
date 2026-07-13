@@ -39,10 +39,12 @@ def test_batch_continues_past_a_failing_trial(tmp_path, monkeypatch):
     monkeypatch.setattr("aus_trial_universe.agentic.tasks.mapping.workflow.curate_drugs",
                         lambda *a, **k: DrugCurationResult())
 
-    out = tmp_path / "out.tsv"
-    rc = run.main(["--ids", "GOOD1,BADX,GOOD2", "--out", str(out)])
+    out = tmp_path / "run1"
+    rc = run.main(["--ids", "GOOD1,BADX,GOOD2", "--out-dir", str(out)])
 
     assert rc == 0                                  # batch completes despite the failure
-    rows = list(csv.DictReader(open(out), delimiter="\t"))
+    rows = list(csv.DictReader(open(out / "combined.tsv"), delimiter="\t"))
     ids = [r["trialId"] for r in rows]
     assert ids == ["GOOD1", "GOOD2"]                # both good trials written, bad one skipped
+    # the 3NF masters are written alongside the combined view (spec §6.1)
+    assert (out / "regime.tsv").exists() and (out / "eligibility.tsv").exists()

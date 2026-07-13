@@ -2,8 +2,9 @@
 
 Deterministic orchestrator; the LLM only fills the agent steps. Per trial:
 
-  resolve cohorts + drug  (CTGov: given/deterministic · ANZCTR: cohort-detect + drug agents)
-  -> cohort-aware extractor -> scoped DNF rows
+  resolve regimes + drug  (CTGov: given/deterministic from armGroups · ANZCTR: single eligibility cohort,
+                           regimes from the INTERVENTIONS/COMPARATOR drug agent — spec §6.1)
+  -> regime-aware extractor -> scoped DNF rows
   -> parallel reviewer panel (gating: cancer_type/molecular/prior_therapy/structural; advisory: drug)
   -> bounded refine (re-extract on gating problems)
   -> distribute: per cohort, rows = trial-wide  x  cohort-specific  (representation A), attach drug
@@ -19,7 +20,6 @@ from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import ADVISORY, FAIL, PASS, bullet, kv, line
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.extraction.agents import (
-    build_cohort_detector_agent,
     build_drug_agent,
     build_extractor_agent,
     build_reviewer_agents,
@@ -189,27 +189,41 @@ def extract_trial(
 # Cohort / drug resolution
 # --------------------------------------------------------------------------- #
 def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] | None) -> list[Cohort]:
-    if cohorts is not None:  # CTGov: deterministic cohorts + drug
+    if cohorts is not None:  # CTGov: deterministic regimes from armGroups
         return cohorts or [Cohort("all")]
-    # ANZCTR: detect cohorts + extract drug via LLM
-    detection = build_cohort_detector_agent(client)(source_text)
-    drug_res = build_drug_agent(client)(source_text)
-    drug = "; ".join(dict.fromkeys(d.strip() for d in drug_res.drugs if d and d.strip()))
+    # ANZCTR: a SINGLE eligibility cohort (all criteria are trial-wide — no cohort detection); the regime axis
+    # comes from the drugs — an experimental regime (INTERVENTIONS) + a control regime (COMPARATOR) only when the
+    # comparator names an actual drug. Same data structure as CTGov (spec §6.1).
+    dr = build_drug_agent(client)(source_text)
+    main = "; ".join(dict.fromkeys(d.strip() for d in dr.intervention_drugs if d and d.strip()))
+    comp = "; ".join(dict.fromkeys(d.strip() for d in dr.comparator_drugs if d and d.strip()))
+    regimes: list[Cohort] = []
+    if main:
+        regimes.append(Cohort(label="intervention", drug=main, drug_source="INTERVENTIONS", arm_type="EXPERIMENTAL"))
+    if comp:
+        regimes.append(Cohort(label="comparator", drug=comp, drug_source="COMPARATOR", arm_type="ACTIVE_COMPARATOR"))
     logger.info("")
-    logger.info("cohorts · ANZCTR detection → %d group(s) · drug (LLM): %s",
-                len(detection.cohorts), drug or "(none)")
-    if detection.cohorts:
-        return [Cohort(label=c.label, description=c.description, drug=drug, drug_source="INTERVENTIONS")
-                for c in detection.cohorts]
-    return [Cohort(label="all", drug=drug, drug_source="INTERVENTIONS")]
+    logger.info("cohorts · ANZCTR single eligibility cohort · %d regime(s) · intervention: %s · comparator: %s",
+                len(regimes) or 1, main or "(none)", comp or "(none)")
+    return regimes or [Cohort(label="all", drug_source="INTERVENTIONS")]
+
+
+def _regime_line(cid: str, c: Cohort) -> str:
+    """One regime rendered for the extractor/reviewer: id, label, arm_type, drug, description (the
+    arm_type/drug/description are the signals used to ASSIGN eligibility to the right regime)."""
+    arm = f" [{c.arm_type}]" if c.arm_type else ""
+    drug = f" · drug: {c.drug}" if c.drug else ""
+    desc = f" — {c.description}" if c.description else ""
+    return f"- {cid} = {c.label}{arm}{drug}{desc}"
 
 
 def _cohorts_section(cohort_index: dict[str, Cohort]) -> str:
-    lines = [
-        f"- {cid} = {c.label}" + (f" — {c.description}" if c.description else "")
-        for cid, c in cohort_index.items()
-    ]
-    return "## COHORTS (assign each row's cohort to one of these ids, or 'trial-wide')\n" + "\n".join(lines)
+    lines = [_regime_line(cid, c) for cid, c in cohort_index.items()]
+    return (
+        "## COHORTS — the FIXED, KNOWN set of drug regimes for this trial. Assign each row's `cohort` to one of "
+        "these ids, or 'trial-wide' (the default). A criterion the text ties to a group NOT listed here (a "
+        "closed/withdrawn cohort) must be DROPPED — never invented as a new id.\n" + "\n".join(lines)
+    )
 
 
 def _resolve_scope(raw: str, cohort_index: dict[str, Cohort]) -> str:
@@ -398,9 +412,7 @@ def _dedup_rows(rows: list[DnfRow]) -> list[DnfRow]:
 
 def _review_input(source_text: str, cohort_index: dict[str, Cohort], eligs: list[_EligRaw]) -> str:
     cohorts_txt = "\n".join(
-        f"- {cid} = {c.label}" + (f" — {c.description}" if c.description else "")
-        + (f" (drug: {c.drug})" if c.drug else "")
-        for cid, c in cohort_index.items()
+        _regime_line(cid, c) for cid, c in cohort_index.items()
     ) or "(single trial-wide cohort)"
     table = "\n".join(
         f"- cohort={e.cohort}, " + ", ".join(

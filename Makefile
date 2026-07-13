@@ -37,13 +37,14 @@ eligibility-path-tests:
 	scripts/eligibility/pipeline.sh tests
 
 # --- v2 agentic pipeline (aus_trial_universe/agentic) ---
-# Full pipeline (extract -> map), one streamed output + one log per run. Runs unit tests first.
+# Full pipeline (extract -> map -> drug); one timestamped output dir (regime/eligibility/combined) + one
+# log per run. Runs unit tests first.
 #   make agentic-run ID=NCT06881784          # one trial (source auto-detected)
 #   make agentic-run IDS=NCT1,ACTRN2,NCT3    # a specific set of trials
 #   make agentic-run                         # ALL trials (ctgov + anzctr)
-#   optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1
+#   optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1  EXTRACT_ONLY=1 (skip map+drug)
 agentic-run:
-	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" scripts/agentic/pipeline.sh run
+	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" EXTRACT_ONLY="$(EXTRACT_ONLY)" scripts/agentic/pipeline.sh run
 
 # Wipe run artifacts under data/agentic/{output,log,cache} (handy between test runs).
 agentic-clean:
@@ -55,7 +56,7 @@ agentic-tests:
 # Independent output validator — a "review of the reviewer agents". Deterministic, runs OUTSIDE
 # the workflow to catch what the in-loop reviewers let through. Testing-period QA step (not the
 # production path). OUT defaults to the newest output TSV.
-#   make agentic-validate                 # newest data/agentic/output/trial_resource_*.tsv
-#   make agentic-validate OUT=<path.tsv>  # a specific run
+#   make agentic-validate                 # newest data/agentic/output/<timestamp>/combined.tsv
+#   make agentic-validate OUT=<combined.tsv>  # a specific run's combined view
 agentic-validate:
 	OUT="$(OUT)" scripts/agentic/pipeline.sh validate

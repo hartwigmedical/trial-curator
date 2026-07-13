@@ -1,9 +1,10 @@
-"""Cohort/drug enumeration from source structure (run.py) — Option A."""
+"""Regime (cohort) enumeration from CTGov armGroups (spec §6.1 — the drug-regime axis)."""
 from __future__ import annotations
 
 from aus_trial_universe.agentic.tasks.extraction.loaders import (
     _clean_intervention_name,
     _ctgov_cohorts,
+    _pharmacological_drugs,
 )
 
 
@@ -35,3 +36,47 @@ def test_ctgov_cohorts_fallback_single_when_no_arms():
     cohorts = _ctgov_cohorts(ai)
     assert len(cohorts) == 1 and cohorts[0].label == "all"
     assert cohorts[0].drug == "pembrolizumab; lenvatinib"
+
+
+def test_pharmacological_filter_keeps_drug_and_biological_excludes_others_and_placebo():
+    # {Drug, Biological} kept; Radiation/Procedure/Device dropped; Placebo excluded.
+    names = ["Biological: Ris-Rez", "Drug: Topotecan", "Radiation: Radiotherapy",
+             "Procedure: Surgery", "Device: Pump", "Drug: Placebo"]
+    assert _pharmacological_drugs(names) == ["Ris-Rez", "Topotecan"]
+
+
+def test_ctgov_regime_keeps_biological_arm_and_carries_description_and_arm_type():
+    # NCT07099898 shape: the investigational arm is a BIOLOGICAL — must NOT be dropped by a "Drug:" filter.
+    ai = {"armGroups": [
+        {"label": "Ris-Rez", "type": "EXPERIMENTAL", "description": "risvutatug rezetecan",
+         "interventionNames": ["Biological: Ris-Rez"]},
+        {"label": "Topotecan", "type": "ACTIVE_COMPARATOR", "description": "SoC comparator",
+         "interventionNames": ["Drug: Topotecan"]},
+    ], "interventions": []}
+    cohorts = _ctgov_cohorts(ai)
+    assert [(c.label, c.drug, c.arm_type, c.description) for c in cohorts] == [
+        ("Ris-Rez", "Ris-Rez", "EXPERIMENTAL", "risvutatug rezetecan"),
+        ("Topotecan", "Topotecan", "ACTIVE_COMPARATOR", "SoC comparator"),
+    ]
+
+
+def test_ctgov_regime_drops_non_drug_arms():
+    # A pure-radiotherapy arm and a placebo-only arm are NOT drug regimes -> dropped; mixed arm keeps only its drug.
+    ai = {"armGroups": [
+        {"label": "Chemo+RT", "type": "EXPERIMENTAL",
+         "interventionNames": ["Drug: Cisplatin", "Radiation: Radiotherapy"]},
+        {"label": "RT only", "type": "ACTIVE_COMPARATOR", "interventionNames": ["Radiation: Radiotherapy"]},
+        {"label": "Placebo", "type": "PLACEBO_COMPARATOR", "interventionNames": ["Drug: Placebo"]},
+    ], "interventions": []}
+    cohorts = _ctgov_cohorts(ai)
+    assert [(c.label, c.drug) for c in cohorts] == [("Chemo+RT", "Cisplatin")]  # RT-only + placebo dropped
+
+
+def test_ctgov_fallback_filters_typed_non_drugs():
+    ai = {"armGroups": [], "interventions": [
+        {"type": "DRUG", "name": "pembrolizumab"},
+        {"type": "RADIATION", "name": "Radiotherapy"},
+        {"type": "DRUG", "name": "Placebo"},
+    ]}
+    cohorts = _ctgov_cohorts(ai)
+    assert len(cohorts) == 1 and cohorts[0].drug == "pembrolizumab"

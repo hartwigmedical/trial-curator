@@ -1,16 +1,14 @@
 """Tests for the eligibility-extraction workflow (fake client, no LLM).
 
-Covers: cohort-aware extraction, cross-product distribution (trial-wide x cohort-specific),
+Covers: regime-aware extraction, cross-product distribution (trial-wide x regime-specific),
 multi-source provenance, inline NOT(), the reviewer panel (gating vs advisory), the refine
-loop, and the ANZCTR path (LLM cohort-detection + drug extraction).
+loop, and the ANZCTR path (single eligibility cohort; regimes from the drug agent — spec §6.1).
 """
 from __future__ import annotations
 
 from aus_trial_universe.agentic.core.client import LlmResult
 from aus_trial_universe.agentic.tasks.extraction.agents import REVIEWERS
 from aus_trial_universe.agentic.tasks.extraction.schema import (
-    CohortDetection,
-    DetectedCohort,
     DrugExtraction,
     EligibilityExtraction,
     ExtractedRow,
@@ -36,12 +34,12 @@ class _ScriptedClient:
     consumed in order per reviewer (default faithful=True). cohort_detection / drugs: ANZCTR path.
     """
 
-    def __init__(self, extractions, verdicts=None, cohort_detection=None, drugs=None):
+    def __init__(self, extractions, verdicts=None, intervention_drugs=None, comparator_drugs=None):
         self._extractions = extractions
         self._verdicts = {k: list(v) for k, v in (verdicts or {}).items()}
         self._vcount = {k: 0 for k in self._verdicts}
-        self._cohort_detection = cohort_detection
-        self._drugs = drugs or []
+        self._intervention_drugs = intervention_drugs or []
+        self._comparator_drugs = comparator_drugs or []
         self.extractor_calls = 0
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
@@ -58,10 +56,9 @@ class _ScriptedClient:
             i = min(self._vcount[key], len(seq) - 1)
             self._vcount[key] += 1
             return LlmResult(seq[i], "fake", "{}", False, 1)
-        if output_schema is CohortDetection:
-            return LlmResult(self._cohort_detection or CohortDetection(cohorts=[]), "fake", "{}", False, 1)
         if output_schema is DrugExtraction:
-            return LlmResult(DrugExtraction(drugs=self._drugs), "fake", "{}", False, 1)
+            return LlmResult(DrugExtraction(intervention_drugs=self._intervention_drugs,
+                                            comparator_drugs=self._comparator_drugs), "fake", "{}", False, 1)
         raise AssertionError(f"unexpected schema {output_schema}")
 
 
@@ -172,6 +169,9 @@ def test_extraction_judgement_prompt_decisions_present():
     assert "excluded tumour" in rv["cancer_type"].lower() or "tumour-type exclusion" in rv["cancer_type"].lower()
     assert "over-enumeration" in rv["prior_therapy"].lower()
     assert "subsuming" in rv["structural"].lower()
+    # (4) drop criteria for text-cohorts NOT in the fixed regime list (closed cohorts) — decision 8 (§6.1 #5)
+    assert "DROP" in EXTRACTOR_INSTRUCTIONS and "closed" in EXTRACTOR_INSTRUCTIONS.lower()
+    assert "closed" in rv["structural"].lower() and "drop" in rv["structural"].lower()
 
 
 def test_not_negation_and_multisource_passthrough():
@@ -217,38 +217,46 @@ def test_empty_extraction_exhausts_attempts_before_panel():
     assert any("no eligibility rows" in p for p in result.problems)
 
 
-# --- ANZCTR path ------------------------------------------------------------ #
-def test_anzctr_single_cohort_llm_drug():
+# --- ANZCTR path (single eligibility cohort; regimes from the drug agent — spec §6.1) --------------- #
+def test_anzctr_single_eligibility_cohort_intervention_regime():
+    """ANZCTR has ONE eligibility cohort; the regime axis is the INTERVENTIONS drug set (no cohort-detection)."""
     client = _ScriptedClient(
-        extractions=[_extraction(ExtractedRow(cohort="trial-wide", cancer_type="colorectal cancer", cancer_type_sources=["INCLUSION CRITERIA"]))],
-        cohort_detection=CohortDetection(cohorts=[]),
-        drugs=["capecitabine", "bevacizumab"],
+        extractions=[_extraction(ExtractedRow(cohort="trial-wide", cancer_type="colorectal cancer",
+                                              cancer_type_sources=["INCLUSION CRITERIA"]))],
+        intervention_drugs=["capecitabine", "bevacizumab"],
     )
     result = extract_trial(client, trial_id="ACTRN1", source_text="...", cohorts=None)
     assert len(result.rows) == 1
     row = result.rows[0]
-    assert row.cohort == "(all)"  # synthetic single cohort rendered in brackets
+    assert row.cohort == "intervention" and row.arm_type == "EXPERIMENTAL"
     assert row.cancer_type == "colorectal cancer [INCLUSION CRITERIA]"
     assert row.drug == "capecitabine; bevacizumab [INTERVENTIONS]"
 
 
-def test_anzctr_detected_cohorts_mirror_ctgov_structure():
+def test_anzctr_comparator_drug_becomes_its_own_control_regime():
+    """A comparator that names a real drug is its own control regime (arm_type flags control, decision 7);
+    the single trial-wide eligibility is shared across both regimes — same data structure as CTGov."""
     client = _ScriptedClient(
-        extractions=[_extraction(
-            ExtractedRow(cohort="trial-wide", cancer_type="NSCLC", cancer_type_sources=["HEALTH CONDITION"]),
-            ExtractedRow(cohort="C1", gene_alteration="EGFR mutation", gene_alteration_sources=["INCLUSION CRITERIA"]),
-            ExtractedRow(cohort="C2", gene_alteration="ALK fusion", gene_alteration_sources=["INCLUSION CRITERIA"]),
-        )],
-        cohort_detection=CohortDetection(cohorts=[
-            DetectedCohort(label="Cohort 1", description="EGFR+"),
-            DetectedCohort(label="Cohort 2", description="ALK+"),
-        ]),
-        drugs=["osimertinib"],
+        extractions=[_extraction(ExtractedRow(cohort="trial-wide", cancer_type="NSCLC",
+                                              cancer_type_sources=["HEALTH CONDITION"]))],
+        intervention_drugs=["osimertinib"],
+        comparator_drugs=["chemotherapy"],
     )
     result = extract_trial(client, trial_id="ACTRN2", source_text="...", cohorts=None)
     by_cohort = {r.cohort: r for r in result.rows}
-    assert set(by_cohort) == {"Cohort 1", "Cohort 2"}
-    assert by_cohort["Cohort 1"].gene_alteration == "EGFR mutation [INCLUSION CRITERIA]"
-    assert by_cohort["Cohort 2"].gene_alteration == "ALK fusion [INCLUSION CRITERIA]"
-    assert all(r.cancer_type == "NSCLC [HEALTH CONDITION]" for r in result.rows)  # trial-wide distributed
-    assert all(r.drug == "osimertinib [INTERVENTIONS]" for r in result.rows)
+    assert set(by_cohort) == {"intervention", "comparator"}
+    assert (by_cohort["intervention"].arm_type, by_cohort["intervention"].drug) == \
+        ("EXPERIMENTAL", "osimertinib [INTERVENTIONS]")
+    assert (by_cohort["comparator"].arm_type, by_cohort["comparator"].drug) == \
+        ("ACTIVE_COMPARATOR", "chemotherapy [COMPARATOR]")
+    assert all(r.cancer_type == "NSCLC [HEALTH CONDITION]" for r in result.rows)  # shared eligibility
+
+
+def test_anzctr_no_drugs_falls_back_to_single_regime():
+    client = _ScriptedClient(
+        extractions=[_extraction(ExtractedRow(cohort="trial-wide", cancer_type="melanoma",
+                                              cancer_type_sources=["HEALTH CONDITION"]))],
+    )
+    result = extract_trial(client, trial_id="ACTRN3", source_text="...", cohorts=None)
+    assert len(result.rows) == 1 and result.rows[0].cohort == "(all)"
+    assert result.rows[0].cancer_type == "melanoma [HEALTH CONDITION]"

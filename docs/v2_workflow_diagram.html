@@ -148,7 +148,7 @@
   <p class="date">10 July 2026</p>
   <h1>Trial extraction &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
-    <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, streamed to one output.</p>
+    <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, streamed to a timestamped run directory (normalized masters + combined view).</p>
 
   <div class="principle">
     <div class="h">Guiding principle &mdash; one agent per independent task</div>
@@ -183,12 +183,12 @@
 
     <section class="stage">
       <span class="rail"></span>
-      <div class="head"><span class="tag">Cohorts &amp; drug</span><h3>Split by registry &mdash; sources differ</h3><span class="badge mix">code + llm</span></div>
+      <div class="head"><span class="tag">Regimes (the axis)</span><h3>Drug regime = the spine; eligibility is assigned to it</h3><span class="badge mix">code + llm</span></div>
       <div class="branch">
         <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
-          <p>one cohort per <span class="inline-code">armGroups</span> entry: label, <span class="inline-code">arm_type</span>, drug from <span class="inline-code">interventionNames</span>. No LLM.</p></div>
-        <div class="b an"><span class="src">ANZCTR &middot; 2 LLM doers</span>
-          <p><b>cohort-detection</b> (conservative; default single) + <b>drug</b> extraction from the <span class="inline-code">INTERVENTIONS</span> text.</p></div>
+          <p>one regime per <b>drug-bearing</b> <span class="inline-code">armGroups</span> entry (filtered to <span class="inline-code">{Drug, Biological}</span>; placebo / RT-only / procedure arms dropped): label, <span class="inline-code">arm_type</span> (flags control), drug, + <span class="inline-code">description</span> (the assignment signal). No LLM.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; 1 LLM doer</span>
+          <p><b>single eligibility cohort</b> (no cohort-detection &mdash; avoids run-to-run drift); regimes come from a <b>drug</b> doer naming <span class="inline-code">INTERVENTIONS</span> (experimental) + <span class="inline-code">COMPARATOR</span> (control, gated by <span class="inline-code">CONTROL</span>).</p></div>
       </div>
     </section>
     <div class="conn"></div>
@@ -291,8 +291,8 @@
 
     <section class="stage">
       <span class="rail"></span>
-      <div class="head"><span class="tag">Write</span><h3>Stream one enriched TSV</h3><span class="badge code">code</span></div>
-      <p>21 columns (incl. per-drug <span class="inline-code">tga_status</span>/<span class="inline-code">pbs_status</span> + <span class="inline-code">tga_detail</span>/<span class="inline-code">pbs_detail</span>), one row per satisfiable (trial, cohort) conjunction; rows appended as each trial completes. A trial that errors is logged &amp; <b>skipped</b> &mdash; the batch continues, and the summary reports <span class="inline-code">N ok, M failed</span>.</p>
+      <div class="head"><span class="tag">Write</span><h3>Split into 3NF masters + combined view</h3><span class="badge code">code</span></div>
+      <p>Each run writes a timestamped dir with <b>regime.tsv</b> (<span class="inline-code">(trialId,cohort)&rarr;arm_type,drug</span>) + <b>eligibility.tsv</b> (<span class="inline-code">(trialId,cohort,conj_id)&rarr;cells</span>) &mdash; the normalized masters &mdash; plus <b>combined.tsv</b>, their materialized join (one row per satisfiable (trial, regime) conjunction; the flat rows the matcher reads). Rows appended as each trial completes; a trial that errors is logged &amp; <b>skipped</b> (batch continues, summary reports <span class="inline-code">N ok, M failed</span>). <span class="inline-code">drug_ref</span> (global datestamped drug facts) joins in later.</p>
     </section>
 
   </div>

@@ -66,21 +66,74 @@ Two layers. The orchestrator is **code, not an LLM**.
 - **`tools/`** — reference data + validators agents lean on: `oncotree.py` (code vocab + validator),
   `finding_model.py` (grammar + syntax validator).
 
-## 5. The pipeline (one command, one output)
+## 5. The pipeline (one command, one run directory)
 
-`make agentic-run` runs, per trial, in **one streamed pass** (partial results survive an interrupt); one output
-TSV + one log per run. No intermediate files.
+`make agentic-run` runs, per trial, in **one streamed pass** (partial results survive an interrupt); one
+timestamped run directory + one log per run. No intermediate files.
 
 ```
-SELECT/ASSEMBLE ─▶ COHORTS ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ stream one row-set
-   loaders          §7.3       §7 (LLM)         §7.5                       §8.1-2   §8.3
+SELECT/ASSEMBLE ─▶ REGIMES ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ split → regime/eligibility/combined
+   loaders          §7.3      §7 (LLM)         §7.5                      §8.1-2   §8.3     §9
 ```
 
-Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Output name: single → `trial_resource_<id>.tsv`;
-multiple/all → `trial_resource_<YYYYMMDD_HHMMSS>.tsv`, under `data/agentic/output/`.
+Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Options: `MODEL=` · `NO_JUDGE=1` ·
+`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: `data/agentic/output/<YYYYMMDD_HHMMSS>/` holding
+`regime.tsv` + `eligibility.tsv` + `combined.tsv` (§9).
 
-## 6. The DNF (disjunctive normal form) model
+## 6. The relational data model
 
+### 6.1 The drug-regime axis (locked 2026-07-13)
+**The drug regime is the spine of the output** — the axis every row hangs off. A patient is matched to a
+*treatment they could receive*; eligibility exists only to say *who qualifies for that treatment*. So
+eligibility is **not a first-class entity** — it is **assigned to** a regime. An "eligibility cohort" (a text
+label such as `Cohort 1A`) has no standing on its own; it matters only as a routing label naming *which
+regime* those criteria attach to.
+
+- **CTGov — the regime axis is given, deterministically**, by `armsInterventionsModule.armGroups`. Each
+  drug-bearing armGroup = one regime (its `type` → `arm_type`; its interventions → the drug set). There are
+  **exactly as many regimes as drug-bearing armGroups — the LLM never invents or drops one.**
+- **ANZCTR — same principle, messier input.** No clean arm structure, so (a deliberate simplification, to
+  avoid run-to-run cohort-detection drift) **every ANZCTR trial has a single eligibility cohort**: all
+  eligibility is trial-wide. Regimes come from the drugs — `INTERVENTIONS` (experimental) and `COMPARATOR`
+  (control), gated by `CONTROL` (Active → a real comparator regime; Placebo/Uncontrolled → none). The LLM's
+  *only* ANZCTR job is to name the drugs; it does no cohort reasoning.
+
+The normalized relations (the flat TSV is their **materialized join**):
+
+| Relation | Key | Attributes | Derivation |
+|---|---|---|---|
+| **regime** (the axis) | (trialId, regime_id) | arm_type (flags control) | CTGov: `armGroups` filtered to `{Drug, Biological}` · ANZCTR: INTERVENTIONS/COMPARATOR |
+| **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
+| **drug_ref** (global) | drug | drug_class, pottr_drug_class, tga/pbs status+detail, **researched_on date** | web search once per unique drug, **datestamped**; trial curation is then a LOOKUP (re-research only on request). RxNorm deferred. |
+| **eligibility** (assigned to a regime) | (trialId, regime_id, conj_id) | 5 eligibility columns (+prov, inline NOT()) | LLM extract; trial-wide by default |
+
+**Row grain = (trialId, regime_id, conj_id).** For a given `(trialId, regime_id)` the drug columns are
+constant — a functional dependency, by design (not an accident). Mapping/annotation/enrichment are *just more
+columns* hanging off this grain (§8) — keyed by the source cell (mapping) or by `drug` (drug_ref).
+
+**Output = normalized masters + a combined view (locked 2026-07-13).** Each run writes a timestamped directory
+with the 3NF masters — `regime.tsv` (`(trialId, cohort) → arm_type, drug`) and `eligibility.tsv`
+(`(trialId, cohort, conj_id) → cells`) — plus `combined.tsv`, their materialized join (the flat, self-contained
+rows the matching engine reads). `drug_ref` is a *further* separate, **persisted, datestamped** table (global
+drug facts, built once per unique drug, looked up by name — the drug-stage throughput win), **deferred** with
+the rest of drug enrichment. Full column lists in §9.
+
+**Locked design decisions (2026-07-13) — do not re-litigate:**
+1. **Regime membership** = any armGroup with ≥1 pharmacological agent `{Drug, Biological}`; exclude
+   placebo-only / pure-radiation / procedure-only arms (no drug ⇒ not a drug regime).
+2. `arm_type` is carried onto every regime and **flags control** arms (`ACTIVE_COMPARATOR`, `PLACEBO_COMPARATOR`).
+3. **main vs auxiliary is a WITHIN-regime split** — main = the investigational/defining agent(s) (judged from
+   title / description / etc.), auxiliary = backbone/SoC in the *same* regime. Not a cross-regime notion.
+4. A comparator armGroup carrying a real drug is **its own regime** (its `arm_type` marks it control).
+5. **Eligibility→regime assignment — the make-or-break rule.** Trial-wide by default (applies to every regime);
+   assign a criterion to a specific regime ONLY when the text clearly ties it there; **DROP** eligibility for
+   text-cohorts that correspond to NO regime (closed/retired cohorts). *If this is wrong, everything is wrong.*
+6. CTGov and ANZCTR **share one data structure**; ANZCTR is the single-eligibility-cohort special case.
+7. Drug enrichment is **per regime**, not per trial (fixes the bug where one trial-level curation was stamped
+   onto every row regardless of arm).
+8. Drug identity = raw/normalized name for now; **RxNorm matching deferred**.
+
+### 6.2 The DNF within a regime
 The output table is in **disjunctive normal form**: a set of rows ORed together, each row a conjunction of ANDed cells.
 - **One row = one satisfiable conjunction** (cells ANDed). Rows sharing a `(trialId, cohort)` are **ORed**.
 - **Conditionals become co-occurrence:** "if cancer A then mutation X; if cancer B then mutation Y" → two rows.
@@ -105,12 +158,13 @@ type + molecular selection often live). Assembly is per-source.
 | `descriptionModule.briefSummary` / `detailedDescription` | BRIEF SUMMARY / DETAILED DESCRIPTION (~half of trials) |
 | `eligibilityModule.eligibilityCriteria` | ELIGIBILITY CRITERIA (incl + excl in one field) |
 | `armsInterventionsModule.interventions[]` | `.type` (DRUG/BIOLOGICAL/…), `.name`, `.otherNames`, `.description` |
-| `armsInterventionsModule.armGroups[]` | `.label`, `.type`, `.interventionNames` — the cohort/arm structure |
+| `armsInterventionsModule.armGroups[]` | `.label`, `.type`, `.interventionNames`, **`.description`** — the regime/arm structure (description aids eligibility→regime assignment) |
 | `eligibilityModule.sex/minimumAge/…`, `designModule.phases/studyType`, `statusModule.overallStatus`, `contactsLocationsModule` | out of extraction scope (gates / housekeeping) |
 
 **ANZCTR** (`anzctr_field_extractions.csv`): `STUDY TITLE`, `SCIENTIFIC TITLE`, `HEALTH CONDITION`, `INTERVENTIONS`,
-`INCLUSIVE CRITERIA` → INCLUSION CRITERIA, `EXCLUSIVE CRITERIA` → EXCLUSION CRITERIA. (`ACTRN` stored as bare digits;
-display id is `ACTRN`-prefixed. `COMPARATOR`/`CONTROL`, age/phase/status/geography = gates/housekeeping.)
+`INCLUSIVE CRITERIA` → INCLUSION CRITERIA, `EXCLUSIVE CRITERIA` → EXCLUSION CRITERIA, **`COMPARATOR`** (comparator-arm
+drugs) + **`CONTROL`** (Active/Placebo/Uncontrolled/… — the deterministic signal for whether a comparator regime
+exists). (`ACTRN` stored as bare digits; display id is `ACTRN`-prefixed. Age/phase/status/geography = gates/housekeeping.)
 
 ### 7.2 The five eligibility columns + taxonomy
 Definitions mirror `pydantic_curator/criterion_schema.py`:
@@ -131,28 +185,43 @@ omitted; out-of-scope criteria (age/labs/PS/comorbidity/other-malignancy/reprodu
 (titles/conditions/keywords/summary/description/eligibility). `gene_alteration` / `molecular_signature` /
 `molecular_biomarker` / `prior_therapy` — the same set, chiefly the eligibility/inclusion+exclusion criteria.
 
-### 7.3 Cohorts
-One cohort per arm. **CTGov:** deterministic from `armGroups` (`label`, `type` → `arm_type`, `interventionNames`
-→ drug). **ANZCTR:** a conservative **cohort-detection agent** (default single cohort; only splits on explicit
-distinct-eligibility groups) + an **LLM drug agent** (from `INTERVENTIONS`). The extractor is **cohort-aware**: it
-assigns each criterion to a specific cohort or "trial-wide"; a cohort's effective eligibility =
-`trial-wide ∧ cohort-specific` (cross-product distribution), so each output row is self-contained with its own drug.
+### 7.3 Cohorts = drug regimes (see §6.1)
+A cohort **is** a drug regime; the regime is the fixed axis and eligibility is assigned to it.
+- **CTGov:** deterministic from `armGroups` — one regime per **drug-bearing** armGroup, filtered to
+  pharmacological agents `{Drug, Biological}` (a `Drug:`-only filter would drop the many investigational
+  *biologicals*, e.g. `NCT07099898`'s experimental arm *Ris-Rez*). Placebo-only / pure-radiation / procedure-only
+  arms carry no drug and are **dropped**. Each regime carries `label`, `type` → `arm_type` (flags control),
+  `interventionNames` → drug set, **and `armGroups[].description`** (the best signal for eligibility→regime
+  assignment — e.g. *"Cohort 5 … targeted agents selected on molecular data"*).
+- **ANZCTR:** **single eligibility cohort** (all criteria trial-wide — no cohort-detection agent); regimes come
+  from the drugs — an LLM drug agent names `INTERVENTIONS` (experimental) and `COMPARATOR` (control) drugs, gated
+  by `CONTROL` (Active → a comparator regime; Placebo/Uncontrolled → none).
 
-**Scope-assignment contract (2026-07-10).** The COHORTS list is a **fixed, known set** (CTGov: from `armGroups`);
-the extractor's job is to **assign** each criterion to exactly ONE scope — never state the same criterion in two
-scopes. `trial-wide` = shared identically by ALL cohorts, stated once; a cohort id = defining/specific/varying
-for that cohort (a subset-shared criterion is emitted once per applicable cohort). This prevents the
-cross-product **blow-up** where a criterion duplicated across scopes multiplies out: e.g. `NCT04221035` (SIOPEN
-HR-NBL2) restated its neuroblastoma staging in both trial-wide (17 OR-rows) and each cohort → `17 × 40 = 680`
-rows, 86% of them unsatisfiable `Stage A AND Stage B` conjunctions. Deterministic **distribution safety net**:
-(1) single-valued axes (`cancer_type`) are never ANDed across scopes — the **cohort value wins** (`_merge_cell`);
-(2) exact-duplicate rows are **de-duplicated** after merge; (3) a `trial-wide × cohort-specific` product beyond a
-threshold logs a `WARN` (never silently emitted). The `structural` reviewer flags cross-scope duplication so
-refine can fix it upstream.
+The extractor is **regime-aware**: it assigns each criterion to a specific regime or "trial-wide"; a regime's
+effective eligibility = `trial-wide ∧ regime-specific` (cross-product distribution), so each output row is
+self-contained with its own drug.
+
+**Scope-assignment contract (2026-07-10, extended 2026-07-13 — the make-or-break rule, §6.1 #5).** The COHORTS
+list is a **fixed, known set of regimes** (CTGov: from `armGroups`); the extractor **assigns**, never invents:
+- assign each criterion to exactly ONE scope — never state the same criterion in two scopes;
+- `trial-wide` (the DEFAULT) = shared identically by ALL regimes, stated once; a regime id = defining/specific/
+  varying for that regime (a subset-shared criterion is emitted once per applicable regime);
+- **DROP** eligibility for text-cohorts that correspond to NO regime in the list (closed/retired cohorts) — e.g.
+  `NCT05009992`'s eligibility text spells out `COHORT 1A/1B, 2A/2B, 3A/3B` all marked CLOSED, none of which is an
+  armGroup; those criteria are discarded, only regimes 4/5/6 are populated.
+
+This also prevents the cross-product **blow-up** where a criterion duplicated across scopes multiplies out: e.g.
+`NCT04221035` (SIOPEN HR-NBL2) restated its neuroblastoma staging in both trial-wide (17 OR-rows) and each cohort
+→ `17 × 40 = 680` rows, 86% of them unsatisfiable `Stage A AND Stage B` conjunctions. Deterministic
+**distribution safety net**: (1) single-valued axes (`cancer_type`) are never ANDed across scopes — the **regime
+value wins** (`_merge_cell`); (2) exact-duplicate rows are **de-duplicated** after merge; (3) a
+`trial-wide × regime-specific` product beyond a threshold logs a `WARN` (never silently emitted). The
+`structural` reviewer audits the assignment (right scope, closed-cohort criteria dropped, no cross-scope
+duplication) so refine can fix it upstream.
 
 ### 7.4 Provenance vocabulary (the `[source]` tags)
 - **CTGov:** `TITLE`, `OFFICIAL TITLE`, `CONDITIONS`, `KEYWORDS`, `BRIEF SUMMARY`, `DETAILED DESCRIPTION`, `ELIGIBILITY CRITERIA`, `INTERVENTIONS MODULE`.
-- **ANZCTR:** `STUDY TITLE`, `SCIENTIFIC TITLE`, `HEALTH CONDITION`, `INCLUSION CRITERIA`, `EXCLUSION CRITERIA`, `INTERVENTIONS`.
+- **ANZCTR:** `STUDY TITLE`, `SCIENTIFIC TITLE`, `HEALTH CONDITION`, `INCLUSION CRITERIA`, `EXCLUSION CRITERIA`, `INTERVENTIONS`, `COMPARATOR` (comparator-regime drug source).
 
 Cite all sections a value came from, `;`-delimited (CTGov bundles incl+excl in one `ELIGIBILITY CRITERIA` field;
 ANZCTR keeps them separate, so a negated criterion may cite `EXCLUSION CRITERIA`).
@@ -232,13 +301,24 @@ overwrites) are **held-out verification data**, checked **manually** later (esp.
 legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would degenerate into a mechanical vlookup).
 The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
 
-## 9. Output schema (21 columns)
-`trialId, cohort, arm_type, cancer_type, oncotree_name, oncotree_code, gene_alteration,
-gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
-prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status,
-tga_detail, pbs_detail`.
-`arm_type` + `drug` are per cohort; `main_drugs`/classes/regulatory are trial-level (repeated across the trial's rows).
-`tga_status`/`pbs_status` are per main drug (`<drug>: Approved/Not approved`); `tga_detail`/`pbs_detail` carry the evidence (year + link).
+## 9. Output — normalized masters + combined view (§6.1)
+Each run writes a **timestamped directory** `data/agentic/output/<YYYYMMDD_HHMMSS>/` with three TSVs:
+
+- **`regime.tsv`** (master, Table 1) — PK `(trialId, cohort)`: `arm_type`, `drug`, and the per-regime drug
+  enrichment (`main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status, tga_detail, pbs_detail`).
+- **`eligibility.tsv`** (master, Table 2) — PK `(trialId, cohort, conj_id)`: `cancer_type, oncotree_name,
+  oncotree_code, gene_alteration, gene_alteration_findingmodel, molecular_signature,
+  molecular_signature_findingmodel, molecular_biomarker, prior_therapy`. `conj_id` numbers the OR-conjunctions within a regime.
+- **`combined.tsv`** (the materialized view) — the join of the two masters on `(trialId, cohort)`; all 22 columns:
+  `trialId, cohort, arm_type, conj_id, cancer_type, oncotree_name, oncotree_code, gene_alteration,
+  gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
+  prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status, tga_detail, pbs_detail`.
+
+`drug` + the enrichment are per **regime** (functionally dependent on `(trialId, cohort)`; §6.1) — the intrinsic
+drug facts will come from the global datestamped `drug_ref` table (deferred). `tga_status`/`pbs_status` are per
+main drug (`<drug>: Approved/Not approved`); `tga_detail`/`pbs_detail` carry the evidence (year + link).
+The `eligibility.tsv` master stores each regime's distributed rows (self-contained; clean FK to `regime.tsv`);
+trial-wide criteria are AND-combined into each regime by `_distribute` upstream.
 
 ## 10. Repo layout & retirement
 

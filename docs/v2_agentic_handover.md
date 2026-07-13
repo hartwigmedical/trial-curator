@@ -1,6 +1,6 @@
 # v2 Agentic Pipeline — Handover
 
-- **As of:** 2026-07-10. **Branch:** `AUS-328-Aus-trial-universe-v2`.
+- **As of:** 2026-07-13. **Branch:** `AUS-328-Aus-trial-universe-v2`. **New chat starts with priority ⓿ (speed).**
 - **Pre-rewrite fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only — NOT data).
 - **Run/setup guide:** `docs/agentic/combined_agentic_run.md` (all make commands + environment).
 - **Design + fields + schema:** `docs/v2_agentic_pipeline_spec.md` (single spec); **diagram:** `docs/v2_workflow_diagram.html`
@@ -8,26 +8,103 @@
   **overwrite** that URL via `scripts/publish_diagram_artifact.sh`; see memory `workflow-diagram-artifact`).
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`.
 
-## Next up (start here)
-Active session **2026-07-10 (continued)** — output-quality review with the user. Known items:
+## Next up (start here) — for the NEW chat, in this order
 
-1. **Extraction convergence on hard trials.** `NCT05009992` still finishes `faithful=False` after 3 attempts —
-   deep sub-cohort scoping (1A/1B/2A/2B…). Incremental repair helped (feeds the doer its own prior table +
-   only the flagged issues) but didn't fully converge. Consider more attempts, per-dimension "resolved"
-   tracking, or splitting sub-cohorts up front.
-2. **User to verify the extraction fixes closely** (mostly a CTGov / cohort-structured concern). Three fixes
-   landed + verified live this session (see "Ticked off"): DNF cross-product blow-up (`NCT04221035` 680→32),
-   prior_therapy over-enumeration (`NCT05417594` 108→47), cancer_type exclusion capture (`NCT05009992` 0→53
-   NOT() carve-outs). Baseline snapshots for diffing under the scratchpad. **Latest verified run:**
-   `trial_resource_20260710_163600.tsv` (NCT05417594 + NCT05009992).
-3. **Still owed:** the parallel-agent review of **OncoTree** + **gene_alteration → finding-model** mappings, and
-   the **typical/standard set** (`data/agentic/analysis/typical_trials_ids.txt`). Re-run any set with
-   `make agentic-run IDS=…`.
-4. **Extraction non-determinism / split-vs-inline** — `NCT05417594`'s HRR genes appear as 5 rows in one run vs 1
-   inline-OR cell in another (both lossless). The "split an OR into rows vs inline it in a cell" rule isn't
-   pinned; fold into the convergence work (item 1).
+**✅ DONE (2026-07-13): Relational contract — the drug-regime axis + normalized output.** A design review found
+the output conflated two axes; the **drug regime (CTGov `armGroups`) is now the locked spine**, eligibility is
+*assigned* to it. Contract + 9 locked decisions: `v2_agentic_pipeline_spec.md` §6.1 (memory `v2-drug-regime-axis`).
+Shipped + verified extraction-only on 5 trials (NCT05009992/04221035 complex, 2 typical, 1 ANZCTR): (1) CTGov
+regime filter `{Drug, Biological}` (biologicals kept, radiation/placebo dropped) + arm descriptions; (2)
+eligibility→regime assignment incl. **drop closed-cohort criteria** (NCT05009992: closed 1A/1B/2A/2B dropped, 6
+regimes, 34 rows, no blow-up) + the `structural` reviewer auditing assignment; (3) ANZCTR → single eligibility
+cohort, regimes from INTERVENTIONS/COMPARATOR gated by CONTROL; (4) **output = 3NF masters + combined view** —
+each run writes `data/agentic/output/<ts>/{regime,eligibility,combined}.tsv` (`run.py` `_write_trial`; `--out-dir`,
+`--extract-only` added; validator reads newest `*/combined.tsv`). 70 tests pass.
+*Next here:* the deferred **`drug_ref`** table (global, datestamped, per-drug web-search once → lookup) makes drug
+enrichment per-regime + is the drug-stage speed win (⓿).
+*Observed but out of scope (→ ①):* complex trials still `faithful=False` (convergence); within-regime
+over-enumeration (NCT04221035 induction 66 rows; NCT05009992 Cohort 5 `H3K27-altered AND <target>`); `prior_therapy`
+absorbing washout/concomitant-med noise.
+
+**⓿ FIRST: SPEED / EFFICIENCY (do this before anything else).** A complex trial currently takes **>20 min**
+end-to-end — far too slow to run the full universe (thousands of trials). Attack throughput/latency BEFORE the
+correctness work below. Likely levers (investigate, don't assume): the bounded-refine loop re-generates the
+WHOLE table each attempt (up to 3× full extraction) even when only a few cells are flagged; the 5-reviewer panel
++ mapping reviewers add many sequential-ish LLM round-trips per trial; trials run **sequentially** (only
+within-trial `fan_out` is parallel — `DEFAULT_MAX_WORKERS=8`); the drug stage does live `web_search` (slow); the
+default cache is **in-memory only** (no run-to-run reuse — a `DiskCache` would make re-runs near-instant); model
+choice / `max_completion_tokens`. Measure first (add per-stage timing), then decide: parallelise across trials,
+DiskCache, cheaper/faster model per stage, fewer/thinner reviewer calls, or partial re-gen on refine. Keep the
+lean/Pattern-B ethos. **This is the agreed first task in the new window.**
+
+**① Over-enumeration + the doer/reviewer VANTAGE-POINT lesson (the big correctness item).** See the dedicated
+section **“Design discussion — over-enumeration & the doer/reviewer vantage point”** below. A source-grounded
+review found a *systematic* extraction error (OR-alternatives fabricated into AND-combinations) that the
+in-loop reviewers AND the deterministic validator both missed. The durable fix is architectural (move the
+“aggregate-output-vs-source” vantage point INTO the loop), not just a sterner extractor prompt. Concrete fixes
+are listed there. Pick this up after speed.
+
+**② Extraction convergence on hard trials.** `NCT05009992` still finishes `faithful=False` after 3 attempts —
+deep sub-cohort scoping (1A/1B/2A/2B…). Incremental repair helped but didn't fully converge. Consider more
+attempts, per-dimension "resolved" tracking, or splitting sub-cohorts up front. (Related: enumeration-granularity
+non-determinism — same trial/code gives 32 vs 218 rows across runs; see the design section.)
+
+**③ Fresh-eyes review still owed** (was in progress when we stopped). Compare highly-granular cases against the
+ORIGINAL input text for systematic errors (not just the programmatic validator — it can't see faithfulness).
+Sets: `data/agentic/analysis/complex_trials_ids.txt` + `typical_trials_ids.txt`. The last run FAILED 16/20 on a
+transient API rate/capacity wall (batch-resilience skipped + continued; API healthy again). Deliverable = one
+merged 20-trial TSV, reviewed. Run: `make agentic-run IDS=$(cat …/complex_trials_ids.txt),$(cat …/typical_trials_ids.txt)`
+then `make agentic-validate`.
 
    *(The `H3K27-altered` mapping + the acceptable-simplification rule are done; see "Ticked off".)*
+
+## Design discussion — over-enumeration & the doer/reviewer vantage point
+*(Captured 2026-07-12/13 from a live source-grounded review of `NCT04221035` (SIOPEN HR-NBL2). Preserve for the
+new chat — this is the reasoning behind priority ① above, not just a bug list.)*
+
+**The serious errors found (source-confirmed):**
+1. **OR-alternatives fabricated into AND-combinations.** Source states the gene criterion as *"MYCN
+   amplification, **or** focal high level MYC **or** MYCL amplification"* — **3 OR-alternatives** (a patient needs
+   ONE). The output produced **9 gene values**, incl. **6 spurious AND-pairs** (e.g. `MYCN amp AND focal MYCL
+   amp`) AND both orderings of each pair. **84/218 rows (38%)** carried a fabricated conjunction. It is
+   **satisfiable** (a patient *could* have two amplifications), so the **deterministic validator can't catch it**
+   — only comparison to the source reveals it.
+2. **Enumeration-granularity non-determinism.** Same trial, same code: **32 rows** in one run, **218** in another.
+   Volatile, and inflated by (1). "Deterministically clean" ≠ "faithful".
+3. **Secondary:** commutative-duplicate rows (`A AND B` + `B AND A` survive string-order dedup); `cancer_type`
+   over-fragmentation (grouped "L2, M or Ms" split into separate rows *and* recombined → 8 cancer variants).
+   Cross-multiplied: 8 cancer × 9 gene × … → 161 rows in ONE cohort of a protocol whose true structure is a
+   handful of OR-paths.
+
+**Why the review caught it but the extractor (even with a sterner prompt) couldn't — 5 structural reasons:**
+1. **A prior was handed in.** "200+ combinations seems impossible" is a sharp, falsifiable hypothesis that
+   directed attention to one number and to the source. The extractor is told "extract into DNF rows", never "is
+   this row count plausible?" — nobody asks it the question that makes the error visible.
+2. **Verification ≪ generation in difficulty.** Checking "are these 9 values really 3 alternatives?" is far
+   cheaper than *constructing* the correct 3 while also expanding staging/cohort/prior-therapy/provenance/
+   negation. (This is spec principle #5, and the NP check-vs-solve asymmetry.)
+3. **The reviewer sees the aggregate; the generator never does.** Laying out the *deduplicated set* of gene
+   values makes `MYCN AND MYCL` next to `MYCL AND MYCN` obviously absurd. The extractor emits rows **forward,
+   sequentially**, and never views its own finished output as a set to notice duplicates or a count mismatch.
+4. **The DNF task itself is the trap.** It is asked to produce *disjunctive normal form* — to multiply a boolean
+   expression out into one-row-per-combination. `(MYCN|MYC|MYCL) & (staging₁|staging₂)` has a tiny logical form
+   but a large DNF; expansion is exactly where it loses "which ORs are independent axes vs. mutually-substitutable
+   alternatives within one criterion" and cross-multiplies. Over-enumeration is the *natural failure mode* of the
+   task, not a random slip.
+5. **Focus + tools + slow reading.** One trial, one anomaly, set/count ops, source read carefully — vs. the
+   extractor doing all 5 columns × cohort × provenance in one fast pass under ~40 competing prompt rules.
+
+**Key takeaway — a prompt alone won't fully fix it; the fix is architectural.** Commutative-duplicate and
+count-vs-source checks are inherently **post-hoc, whole-output** operations a forward generator can't do on
+itself; each new prompt rule competes for attention; the failure is a **global** property ("the DNF must not
+exceed the source's true alternative structure"). Tellingly, the **reviewer panel missed this too** — the
+molecular/structural reviewers judge per-dimension faithfulness of individual cells; none was given the
+enumeration-plausibility lens and none sees the deduplicated set. **The lesson: move the vantage point (aggregate
+output vs. source) INTO the loop.** Concrete fixes:
+- **Extractor (prompt):** never AND the OR-alternatives of a single criterion; normalise commutative AND.
+- **Validator (deterministic, cheap):** flag commutative-duplicate AND-cells (`A AND B` + `B AND A`).
+- **Reviewer (new lens):** count the distinct alternatives the source states per criterion; if the output's
+  enumeration exceeds that, an OR was fabricated into an AND. Give a reviewer the *aggregate* view.
 
 ## TL;DR
 The v2 rewrite is a **complete two-stage agentic pipeline**, end-to-end verified on ctgov + anzctr:

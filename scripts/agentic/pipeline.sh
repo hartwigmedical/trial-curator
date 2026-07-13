@@ -7,7 +7,7 @@
 #   run     Full pipeline: Stage I extract -> Stage II map (OncoTree). Runs the unit
 #           tests first (aborts on failure) and tees a combined timestamped log.
 #           Vars: ID=<id> (one) | IDS=<a,b,c> (a set) | none = ALL trials
-#                 optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1
+#                 optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1  EXTRACT_ONLY=1
 #   tests   Run the agentic unit-test suite (no API calls).
 #   validate  Independent output validator ("review of the reviewer agents"): re-checks a finished
 #             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
@@ -96,8 +96,9 @@ case "${CMD}" in
     if [[ -n "${MODEL:-}" ]]; then args+=(--model "${MODEL}"); fi
     if [[ -n "${NO_JUDGE:-}" ]]; then args+=(--no-judge); fi
     if [[ -n "${NO_REVIEW:-}" ]]; then args+=(--no-review); fi
+    if [[ -n "${EXTRACT_ONLY:-}" ]]; then args+=(--extract-only); fi
 
-    # (b) One process (extract -> map), streamed to one output; teed to one log.
+    # (b) One process (extract -> map -> drug), streamed to a timestamped output dir; teed to one log.
     mkdir -p "${LOG_DIR}"
     log_file="${LOG_DIR}/agentic_run_${label}_$(date +%Y%m%d_%H%M%S).log"
     printf '\n==> run (logging to %s)\n' "${log_file}" >&2

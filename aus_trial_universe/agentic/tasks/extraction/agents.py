@@ -1,9 +1,9 @@
 """Specialist agents for the extraction task (see docs/v2_agentic_pipeline_spec.md §7).
 
 Extraction agents (source-dependent):
-- extractor:        relevant trial text + COHORTS list -> scoped DNF rows (5 eligibility columns).
-- drug (ANZCTR):    INTERVENTIONS text -> raw drug names.
-- cohort (ANZCTR):  conservative detection of distinct-eligibility cohorts (default single).
+- extractor:        relevant trial text + COHORTS (regime) list -> scoped DNF rows (5 eligibility columns).
+- drug (ANZCTR):    INTERVENTIONS/COMPARATOR text -> raw intervention + comparator drug names (the regime axis;
+                    ANZCTR has a single eligibility cohort, so there is no cohort-detection agent — spec §6.1).
 
 Review panel (source-independent), run in parallel; each has full context, focused prompt:
 - cancer_type (strengthened false-positive check), molecular (+ column correctness),
@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.tasks.extraction.schema import (
-    CohortDetection,
     DrugExtraction,
     EligibilityExtraction,
     JudgeVerdict,
@@ -67,16 +66,25 @@ Column edge rules:
 reproductive status, drug/intervention names) — only the five columns above.
 
 Cohort assignment — set each row's `cohort` (this is a PRIMARY task, not an afterthought):
-The COHORTS list is FIXED and already identified for you (from the trial's own structure). Your job is to
-ASSIGN each eligibility criterion to the cohort(s) it actually governs. Each `trial-wide` row is
-AND-combined onto EVERY cohort's rows downstream to build that cohort's complete, self-contained
-eligibility — so assign each criterion to EXACTLY ONE scope; NEVER state the same criterion in two scopes.
-- a cohort id (e.g. "C1"): a criterion that DEFINES, is SPECIFIC to, or DIFFERS for that cohort (e.g. a
-  per-cohort tumour/staging selection, a per-cohort prior-therapy/treatment-phase condition). If a criterion
-  applies to several — but not all — cohorts, emit it once per applicable cohort (not trial-wide).
-- "trial-wide": ONLY a criterion shared IDENTICALLY by ALL cohorts (a common disease definition, a trial-wide
-  exclusion). State it ONCE — do NOT also repeat it inside cohort rows.
-- Single-cohort trial: everything is "trial-wide".
+The COHORTS list is the trial's FIXED, KNOWN set of DRUG REGIMES (each cohort = an arm/regime with its own
+drug(s), already identified from the trial's structure). You do NOT identify or invent cohorts — you ASSIGN
+each eligibility criterion to the regime(s) it actually governs, using each regime's arm_type / drug /
+description to decide. Each `trial-wide` row is AND-combined onto EVERY regime's rows downstream to build that
+regime's complete, self-contained eligibility — so assign each criterion to EXACTLY ONE scope; NEVER state the
+same criterion in two scopes.
+- "trial-wide" (the DEFAULT — when in doubt, use this): a criterion shared by ALL regimes (the common disease
+  definition, a trial-wide exclusion, a shared prior-therapy rule). State it ONCE — do NOT also repeat it
+  inside a regime's rows.
+- a cohort id (e.g. "C1"): ONLY a criterion the text CLEARLY ties to that specific regime — one that DEFINES,
+  is SPECIFIC to, or DIFFERS for it (a per-regime tumour/staging selection, a per-regime prior-therapy /
+  treatment-phase condition). If a criterion applies to several — but not all — regimes, emit it once per
+  applicable regime.
+- DROP criteria for groups NOT in the COHORTS list: the eligibility text often describes cohorts/arms that are
+  NOT among the listed regimes — closed, withdrawn, or not-yet-open groups (e.g. the text details "Cohort
+  1A/1B/2A/2B" but only "Cohort 4/5/6" are listed). Those regimes are not in this trial's output: DISCARD their
+  criteria entirely. Never invent a cohort id for them, and never fold their regime-specific criteria into
+  trial-wide (that would wrongly impose a closed cohort's selection on every real regime).
+- Single-regime trial: everything is "trial-wide".
 CRITICAL — do NOT restate a shared criterion in both scopes, and do NOT put a cohort-defining criterion in
 trial-wide. In particular, a single-valued axis like cancer_type / tumour-stage must appear in ONE scope only:
 if it varies between cohorts, put each cohort's value in that cohort's rows (NOT trial-wide); if it is the same
@@ -113,18 +121,13 @@ is supported by several sections, list ALL of them. Leave *_sources empty for em
 """
 
 DRUG_EXTRACTOR_INSTRUCTIONS = """\
-From the trial text (especially the INTERVENTIONS section), extract the investigational and comparator \
-drug/treatment names administered in the trial. Return the names as stated (RAW — no normalization, no \
-RxNorm). Exclude dosing/schedule prose. Exclude placebo unless it is the only comparator. Return [] if none.
-"""
-
-COHORT_DETECTOR_INSTRUCTIONS = """\
-Identify whether this trial has DISTINCT patient cohorts with DIFFERENT eligibility.
-
-Most trials have a SINGLE cohort. Only return multiple cohorts when the trial EXPLICITLY defines separate \
-patient groups selected by different eligibility (e.g. a basket/umbrella trial with per-group tumour or \
-molecular selection). Do NOT treat the arms of a randomised trial (same eligibility, different treatment) \
-as separate cohorts. If there is any doubt, return an EMPTY list (meaning one trial-wide cohort).
+This is an ANZCTR trial (a single eligibility cohort); its drug regimes come from the drugs it administers. \
+Return drug/treatment names as stated (RAW — no normalization, no RxNorm; exclude dosing/schedule prose):
+- intervention_drugs: the investigational drug(s)/treatment(s) named in the INTERVENTIONS section.
+- comparator_drugs: the comparator DRUG(s) named in the COMPARATOR section — but [] if the comparator is a \
+placebo, radiotherapy, observation / no active treatment, or otherwise not a drug. Use the CONTROL field as a \
+hint: "Placebo"/"Uncontrolled" usually mean no comparator drug; "Active"/"Dose comparison" usually mean there is one.
+Return [] for a list with none.
 """
 
 
@@ -136,11 +139,6 @@ def build_extractor_agent(client: LlmClient, *, model: str | None = None) -> Age
 def build_drug_agent(client: LlmClient, *, model: str | None = None) -> Agent[DrugExtraction]:
     return Agent(name="drug_extractor", instructions=DRUG_EXTRACTOR_INSTRUCTIONS,
                  output_schema=DrugExtraction, client=client, model=model)
-
-
-def build_cohort_detector_agent(client: LlmClient, *, model: str | None = None) -> Agent[CohortDetection]:
-    return Agent(name="cohort_detector", instructions=COHORT_DETECTOR_INSTRUCTIONS,
-                 output_schema=CohortDetection, client=client, model=model)
 
 
 # --------------------------------------------------------------------------- #
@@ -195,12 +193,17 @@ DIMENSION = drug. Each cohort's drug(s) are listed in the COHORTS section — NO
 (eligibility is cohort-agnostic; drugs are assigned per cohort separately downstream). Check each cohort's
 listed drug(s) match the intervention(s) administered to that cohort per the source; flag wrong, missing,
 or extraneous drugs. Do NOT ask for a drug column in the eligibility table; ignore normalization/formatting."""),
-    ReviewerSpec("structural", "DNF structure & cohort scope", True, _REVIEW_PREAMBLE + """
-DIMENSION = DNF structure & cohort scope. Check conjunctions/conditionals are correct rows, no OR-\
-alternative is missing or wrongly merged, and each requirement's cohort scope is right (cohort-specific \
-requirements assigned to their cohort; shared ones 'trial-wide'). Each trial-wide row is AND-combined onto \
-EVERY cohort downstream, so flag a criterion DUPLICATED across scopes (stated both trial-wide AND in a \
-cohort) — it must live in exactly ONE scope. In particular flag a single-valued axis (cancer_type / \
+    ReviewerSpec("structural", "DNF structure & regime-scope assignment", True, _REVIEW_PREAMBLE + """
+DIMENSION = DNF structure & regime-scope assignment. Check conjunctions/conditionals are correct rows, no OR-\
+alternative is missing or wrongly merged, and each requirement's scope is right. The COHORTS list is the \
+trial's FIXED set of DRUG REGIMES — audit the ASSIGNMENT of eligibility to it (this is a primary check): \
+(a) a regime-specific criterion must sit on the regime the text actually ties it to (use each regime's \
+arm_type / drug / description to judge); (b) a criterion the text attaches to a group that is NOT in the \
+COHORTS list — a closed / withdrawn / not-yet-open cohort (e.g. "Cohort 1A/1B" when only Cohorts 4/5/6 are \
+listed) — must be DROPPED: flag it if it was invented as a cohort id, mis-assigned to a listed regime, or \
+folded into trial-wide; (c) the default scope is trial-wide. \
+Each trial-wide row is AND-combined onto EVERY regime downstream, so flag a criterion DUPLICATED across scopes \
+(stated both trial-wide AND in a regime) — it must live in exactly ONE scope. In particular flag a single-valued axis (cancer_type / \
 tumour-stage) populated in BOTH trial-wide and cohort rows: that produces impossible AND-combinations \
 ("Stage A AND Stage B") when scopes combine — a per-cohort tumour/stage belongs in that cohort's rows only, \
 a shared one trial-wide only. Also flag any cell holding a self-contradiction "X AND NOT(X)" — that conflates \
