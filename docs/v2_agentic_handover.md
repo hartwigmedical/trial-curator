@@ -26,6 +26,19 @@ enrichment per-regime + is the drug-stage speed win (⓿).
 over-enumeration (NCT04221035 induction 66 rows; NCT05009992 Cohort 5 `H3K27-altered AND <target>`); `prior_therapy`
 absorbing washout/concomitant-med noise.
 
+**✅ DONE (2026-07-13): drug-reference subsystem (the 3rd 3NF table, standalone).** `aus_trial_universe/agentic/
+tasks/drug_ref/` — `drug_alias` (raw→canonical) / `drug_ref` (intrinsic facts) / `drug_indication` (TGA/PBS,
+indication-specific). Spec + 3NF + build decisions in `v2_agentic_pipeline_spec.md` §6.1 (memory
+`v2-drug-ref-table`). Three doer→reviewer web_search stages (canonicalize / annotate / approvals),
+incremental+datestamped resource (`data/agentic/resources/drug_ref/version_<ddmmyyyy>/`), `make drug-ref-build
+DRUGS="..." | IDS=... [LIMIT=n]`. **Verified on TGA+PBS being indication-specific** (checked the live sites) and
+a 5-drug live run (code→INN+RXCUI canonicalization, sourced annotations, topotecan's 3 AU indications, 0 for the
+4 investigational agents). 77 tests pass.
+*Parked (do NEXT for drug):* (a) map each indication's free-text `cancer_type`/`biomarker` into the eligibility
+vocabulary (OncoTree + finding-model) — the *symmetric-match* representation; (b) link drug_ref back into the
+trial `combined` view (join by canonical + approval-for-this-cancer). User parked both until the standalone
+tables were right.
+
 **⓿ FIRST: SPEED / EFFICIENCY (do this before anything else).** A complex trial currently takes **>20 min**
 end-to-end — far too slow to run the full universe (thousands of trials). Attack throughput/latency BEFORE the
 correctness work below. Likely levers (investigate, don't assume): the bounded-refine loop re-generates the

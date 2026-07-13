@@ -11,6 +11,8 @@
 #   tests   Run the agentic unit-test suite (no API calls).
 #   validate  Independent output validator ("review of the reviewer agents"): re-checks a finished
 #             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
+#   drug-ref-build  Build/refresh the drug reference resource (spec §6.1). Incremental (existing drugs
+#             reused). Vars: DRUGS="a; b" | IDS=NCT1,NCT2 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL.
 #   clean   Delete all run outputs under data/agentic/ (output/, log/, cache/).
 #           No API/Python needed; handy for clearing test runs.
 
@@ -113,8 +115,24 @@ case "${CMD}" in
     if [[ -n "${OUT:-}" ]]; then vargs=("${OUT}"); fi
     exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.qa.validate_output "${vargs[@]}"
     ;;
+  drug-ref-build)
+    # Standalone drug-reference builder (spec §6.1). Incremental: existing drugs are reused (lookup).
+    #   Vars: DRUGS="a; b; c" | IDS=NCT1,NCT2 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL=<name>
+    dargs=()
+    if [[ -n "${DRUGS:-}" ]]; then dargs=(--drugs "${DRUGS}")
+    elif [[ -n "${IDS:-}" ]]; then dargs=(--from-trials "${IDS}")
+    else echo "drug-ref-build needs DRUGS=\"a; b\" or IDS=NCT1,NCT2" >&2; exit 2; fi
+    if [[ -n "${LIMIT:-}" ]]; then dargs+=(--limit "${LIMIT}"); fi
+    if [[ -n "${REFRESH_DRUGS:-}" ]]; then dargs+=(--refresh-drugs); fi
+    if [[ -n "${NO_REVIEW:-}" ]]; then dargs+=(--no-review); fi
+    if [[ -n "${MODEL:-}" ]]; then dargs+=(--model "${MODEL}"); fi
+    mkdir -p "${LOG_DIR}"
+    log_file="${LOG_DIR}/drug_ref_build_$(date +%Y%m%d_%H%M%S).log"
+    printf '\n==> drug-ref-build (logging to %s)\n' "${log_file}" >&2
+    "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_ref.build "${dargs[@]}" 2>&1 | tee "${log_file}"
+    ;;
   *)
-    echo "Unknown command: '${CMD}'. Use one of: run | tests | validate" >&2
+    echo "Unknown command: '${CMD}'. Use one of: run | tests | validate | drug-ref-build" >&2
     exit 2
     ;;
 esac

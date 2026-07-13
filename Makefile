@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-validate
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-validate drug-ref-build
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -60,3 +60,11 @@ agentic-tests:
 #   make agentic-validate OUT=<combined.tsv>  # a specific run's combined view
 agentic-validate:
 	OUT="$(OUT)" scripts/agentic/pipeline.sh validate
+
+# Standalone drug-reference builder (spec §6.1). Incremental — existing drugs are reused (pure lookup);
+# only new (or REFRESH_DRUGS=1) drugs are researched. Writes data/agentic/resources/drug_ref/version_<ddmmyyyy>/.
+#   make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"
+#   make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5
+#   optional: REFRESH_DRUGS=1  NO_REVIEW=1  MODEL=<name>
+drug-ref-build:
+	DRUGS="$(DRUGS)" IDS="$(IDS)" LIMIT="$(LIMIT)" REFRESH_DRUGS="$(REFRESH_DRUGS)" NO_REVIEW="$(NO_REVIEW)" MODEL="$(MODEL)" scripts/agentic/pipeline.sh drug-ref-build

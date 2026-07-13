@@ -104,7 +104,14 @@ The normalized relations (the flat TSV is their **materialized join**):
 |---|---|---|---|
 | **regime** (the axis) | (trialId, regime_id) | arm_type (flags control) | CTGov: `armGroups` filtered to `{Drug, Biological}` · ANZCTR: INTERVENTIONS/COMPARATOR |
 | **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
-| **drug_ref** (global) | drug | drug_class, pottr_drug_class, tga/pbs status+detail, **researched_on date** | web search once per unique drug, **datestamped**; trial curation is then a LOOKUP (re-research only on request). RxNorm deferred. |
+| **drug_ref** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
+
+\* **Built standalone (2026-07-13).** The drug dimension is really **three** 3NF tables — `drug_alias` (raw
+name → canonical id, LLM doer→reviewer with RxNorm grounding), `drug_ref` (canonical → intrinsic facts), and
+`drug_indication` (canonical → TGA/PBS approval, **indication-specific** — cancer + biomarker + line/stage,
+verified against the live TGA/PBS sites). Persisted at `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`.
+*Deferred (user):* mapping each indication's free-text cancer/biomarker into the eligibility vocabulary
+(OncoTree + finding-model) and joining `drug_ref` back into `combined` — done *after* the standalone tables.
 | **eligibility** (assigned to a regime) | (trialId, regime_id, conj_id) | 5 eligibility columns (+prov, inline NOT()) | LLM extract; trial-wide by default |
 
 **Row grain = (trialId, regime_id, conj_id).** For a given `(trialId, regime_id)` the drug columns are
@@ -115,8 +122,8 @@ columns* hanging off this grain (§8) — keyed by the source cell (mapping) or 
 with the 3NF masters — `regime.tsv` (`(trialId, cohort) → arm_type, drug`) and `eligibility.tsv`
 (`(trialId, cohort, conj_id) → cells`) — plus `combined.tsv`, their materialized join (the flat, self-contained
 rows the matching engine reads). `drug_ref` is a *further* separate, **persisted, datestamped** table (global
-drug facts, built once per unique drug, looked up by name — the drug-stage throughput win), **deferred** with
-the rest of drug enrichment. Full column lists in §9.
+drug facts, built once per unique drug, looked up by name — the drug-stage throughput win); it is now **built
+standalone** (see the drug_ref note above), and only its *join* into `combined` remains deferred. Full column lists in §9.
 
 **Locked design decisions (2026-07-13) — do not re-litigate:**
 1. **Regime membership** = any armGroup with ≥1 pharmacological agent `{Drug, Biological}`; exclude
