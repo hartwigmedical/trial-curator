@@ -54,7 +54,7 @@ class DrugRefStore:
     """In-memory drug reference; load the newest version, look up / upsert, then save a new version."""
 
     def __init__(self) -> None:
-        self.aliases: dict[str, DrugAlias] = {}                  # raw_name -> DrugAlias
+        self.aliases: dict[str, list[DrugAlias]] = {}            # raw_name -> [DrugAlias, ...] (a combination raw -> N)
         self.refs: dict[str, DrugRef] = {}                      # canonical_id -> DrugRef
         self.targets: dict[str, list[DrugTarget]] = {}         # canonical_id -> (target, action) rows
         self.indications: dict[str, list[DrugIndication]] = {}  # canonical_id -> rows
@@ -70,7 +70,7 @@ class DrugRefStore:
         for row in _read_tsv(vdir / TABLE_FILES["drug_alias"]):
             a = DrugAlias(**{k: row.get(k, "") for k in DRUG_ALIAS_COLUMNS})
             if a.raw_name:
-                store.aliases[a.raw_name] = a
+                store.aliases.setdefault(a.raw_name, []).append(a)
         for row in _read_tsv(vdir / TABLE_FILES["drug_ref"]):
             r = DrugRef(**{k: row.get(k, "") for k in DRUG_REF_COLUMNS})
             if r.canonical_id:
@@ -86,9 +86,10 @@ class DrugRefStore:
         return store
 
     # --- lookups ----------------------------------------------------------- #
-    def canonical_for(self, raw_name: str) -> str | None:
-        a = self.aliases.get(raw_name)
-        return a.canonical_id if a else None
+    def canonical_ids_for(self, raw_name: str) -> list[str]:
+        """The canonical_id(s) a raw name resolves to — several for a combination/regimen raw, one for a single
+        drug, none for a non-drug (a raw recorded with a single empty-id row)."""
+        return [a.canonical_id for a in self.aliases.get(raw_name, []) if a.canonical_id]
 
     def has_alias(self, raw_name: str) -> bool:
         return raw_name in self.aliases
@@ -116,8 +117,12 @@ class DrugRefStore:
         return ((today or date.today()) - d).days > max_age_days
 
     # --- upserts ----------------------------------------------------------- #
-    def put_alias(self, raw_name: str, canonical_id: str) -> None:
-        self.aliases[raw_name] = DrugAlias(raw_name=raw_name, canonical_id=canonical_id)
+    def set_alias(self, raw_name: str, canonical_ids: list[str]) -> None:
+        """Map a raw name to its canonical drug(s): one row per distinct canonical_id (a combination raw ->
+        several), or a single empty-id row marking the raw processed-but-not-a-drug (so it is not re-canonicalized)."""
+        ids = list(dict.fromkeys(c for c in canonical_ids if c))
+        self.aliases[raw_name] = ([DrugAlias(raw_name=raw_name, canonical_id=c) for c in ids]
+                                  or [DrugAlias(raw_name=raw_name, canonical_id="")])
 
     def put_ref(self, ref: DrugRef) -> None:
         self.refs[ref.canonical_id] = ref
@@ -133,7 +138,7 @@ class DrugRefStore:
         vdir = root / f"version_{(on or date.today()).strftime('%d%m%Y')}"
         vdir.mkdir(parents=True, exist_ok=True)
         _write_tsv(vdir / TABLE_FILES["drug_alias"], DRUG_ALIAS_COLUMNS,
-                   [asdict(a) for a in self.aliases.values()])
+                   [asdict(a) for rows in self.aliases.values() for a in rows])
         _write_tsv(vdir / TABLE_FILES["drug_ref"], DRUG_REF_COLUMNS,
                    [asdict(r) for r in self.refs.values()])
         _write_tsv(vdir / TABLE_FILES["drug_target"], DRUG_TARGET_COLUMNS,

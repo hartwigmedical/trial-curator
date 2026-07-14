@@ -58,6 +58,21 @@ make agentic-validate OUT=<path.tsv>  # a specific run
 ```
 Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/qa/validate_output.py`.
 
+### `make drug-ref-build` — the drug-reference resource (spec §6.1)
+Builds the standalone drug reference (4 tables: `drug_alias`, `drug_ref`, `drug_target`, `drug_indication`) at
+`data/agentic/resources/drug_ref/version_<ddmmyyyy>/`. LLM doer→reviewer for judgement (canonicalize / annotate /
+approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and `pottr_drug_class` (POTTR). Incremental
+(existing non-stale drugs are pure lookups), batched with a checkpoint save after each batch (resumable), soft-fails
+per drug. Logs to `data/agentic/log/`.
+```bash
+make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"   # explicit list
+make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5        # drugs from specific trials (CTGov)
+make drug-ref-build ALL_TRIALS=1                               # every distinct drug across all ctgov + anzctr
+#   optional: WORKERS=<n> (concurrency, default 8) · REFRESH_DRUGS=1 · NO_REVIEW=1 · MODEL=<name>
+```
+`WORKERS` sets both concurrency and checkpoint-batch size (output identical regardless — see memory
+`feedback-max-allowable-concurrency`). Entry: `aus_trial_universe/agentic/tasks/drug_ref/build.py`.
+
 ---
 
 ## Environment and API keys

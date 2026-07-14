@@ -12,6 +12,7 @@ from aus_trial_universe.agentic.tasks.drug_ref import pottr, rxnorm
 from aus_trial_universe.agentic.tasks.drug_ref.schema import (
     ApprovalByIndication,
     ApprovedIndication,
+    CanonicalComponent,
     Canonicalization,
     DrugAnnotation,
     ReviewVerdict,
@@ -52,7 +53,7 @@ class _FakeClient:
             for key, c in self.canon_map.items():
                 if key in user_input:
                     return self._r(c)
-            return self._r(Canonicalization(canonical_name=""))
+            return self._r(Canonicalization(components=[]))
         if schema is DrugAnnotation:
             self._bump("annot")
             if self.raise_annot_for and self.raise_annot_for in user_input:
@@ -69,10 +70,12 @@ class _FakeClient:
 def _client():
     return _FakeClient(
         canon_map={
-            "Keytruda": Canonicalization(canonical_name="pembrolizumab", aliases=["Keytruda", "MK-3475"]),
-            "MK-3475": Canonicalization(canonical_name="pembrolizumab"),
-            "Ris-Rez": Canonicalization(canonical_name="risvutatug rezetecan", is_investigational=True),
-            "Radiotherapy": Canonicalization(canonical_name=""),   # not a drug
+            "Keytruda": Canonicalization(components=[
+                CanonicalComponent(canonical_name="pembrolizumab", aliases=["Keytruda", "MK-3475"])]),
+            "MK-3475": Canonicalization(components=[CanonicalComponent(canonical_name="pembrolizumab")]),
+            "Ris-Rez": Canonicalization(components=[
+                CanonicalComponent(canonical_name="risvutatug rezetecan", is_investigational=True)]),
+            "Radiotherapy": Canonicalization(components=[]),   # not a drug
         },
         annotation=DrugAnnotation(modality="monoclonal antibody",
                                   targets=[TargetAction(target="PD-1", action="antagonist")],
@@ -108,9 +111,9 @@ def test_build_dedups_researches_once_and_wires_deterministic_facts():
     assert client.calls["annot"] == 2 and client.calls["appr"] == 2    # once-per-canonical
 
     # namespaced canonical_id: rxcui:<n> when resolved, name:<x> for investigational
-    pid = store.canonical_for("Keytruda")
-    assert pid == store.canonical_for("MK-3475") == "rxcui:1547545"    # dedup + rxcui-backed id
-    assert store.canonical_for("Ris-Rez") == "name:risvutatug rezetecan"
+    pid = store.canonical_ids_for("Keytruda")[0]
+    assert store.canonical_ids_for("Keytruda") == store.canonical_ids_for("MK-3475") == ["rxcui:1547545"]  # dedup + rxcui id
+    assert store.canonical_ids_for("Ris-Rez") == ["name:risvutatug rezetecan"]
 
     r = store.ref(pid)
     assert r.rxcui == "1547545" and r.atc_code == "L01FF02"            # deterministic lookups wired in
@@ -139,8 +142,8 @@ def test_incremental_reuses_existing(tmp_path):
 def test_build_soft_fails_one_drug_and_continues():
     """A single unrecoverable drug failure must not kill the run — it is skipped, counted, others proceed."""
     client = _FakeClient(
-        canon_map={"DrugA": Canonicalization(canonical_name="druga"),
-                   "DrugB": Canonicalization(canonical_name="drugb")},
+        canon_map={"DrugA": Canonicalization(components=[CanonicalComponent(canonical_name="druga")]),
+                   "DrugB": Canonicalization(components=[CanonicalComponent(canonical_name="drugb")])},
         annotation=DrugAnnotation(modality="small molecule", drug_class="x"),
         approval=ApprovalByIndication(indications=[]),
         raise_annot_for="drugb",   # DrugB's annotate blows up
@@ -159,3 +162,26 @@ def test_checkpoint_called_per_batch():
     build_drug_ref(client, ["Keytruda", "Ris-Rez"], store, today=date(2026, 7, 13),
                    workers=1, checkpoint=lambda: calls.__setitem__("n", calls["n"] + 1))
     assert calls["n"] >= 3                            # per Stage-1 batch + per research batch (workers=1 -> per drug)
+
+
+def test_patient_population_generic_patients_normalized_to_empty():
+    """The uninformative generic 'patients' population value is dropped; real values are kept (spec §6.1)."""
+    from aus_trial_universe.agentic.tasks.drug_ref.workflow import _clean_pp
+    assert _clean_pp("patients") == "" and _clean_pp("  Patients ") == ""
+    assert _clean_pp("adult") == "adult" and _clean_pp("pediatric >=1 year") == "pediatric >=1 year"
+
+
+def test_combination_raw_splits_into_multiple_canonicals():
+    """A combination raw token maps to N standalone canonicals (1 raw -> N), each researched once."""
+    client = _FakeClient(
+        canon_map={"Nivo + Ipi": Canonicalization(components=[
+            CanonicalComponent(canonical_name="nivolumab"),
+            CanonicalComponent(canonical_name="ipilimumab")])},
+        annotation=DrugAnnotation(modality="monoclonal antibody", drug_class="checkpoint inhibitor"),
+        approval=ApprovalByIndication(indications=[]),
+    )
+    store = DrugRefStore()
+    summary = build_drug_ref(client, ["Nivo + Ipi"], store, today=date(2026, 7, 13), workers=2)
+    assert store.canonical_ids_for("Nivo + Ipi") == ["name:nivolumab", "name:ipilimumab"]   # 1 raw -> 2 canonicals
+    assert summary.researched == 2 and client.calls["annot"] == 2                            # each atom researched once
+    assert store.ref("name:nivolumab") and store.ref("name:ipilimumab")

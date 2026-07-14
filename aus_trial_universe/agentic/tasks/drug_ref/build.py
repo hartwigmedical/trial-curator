@@ -130,13 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     vdir = store.save()
 
+    n_alias = sum(len(v) for v in store.aliases.values())
     n_tgt = sum(len(v) for v in store.targets.values())
     n_ind = sum(len(v) for v in store.indications.values())
     print(f"\n{'═' * 70}\ndrug-ref → {vdir}/\n"
           f"  this run:  canonicalized={summary.canonicalized} · reused_alias={summary.reused_alias} · "
           f"non_drug={summary.non_drug} · researched={summary.researched} · reused_ref={summary.reused_ref} · "
           f"failed={summary.failed}\n"
-          f"  resource:  {len(store.aliases)} aliases · {len(store.refs)} drugs · {n_tgt} target rows · "
+          f"  resource:  {n_alias} alias rows · {len(store.refs)} drugs · {n_tgt} target rows · "
           f"{n_ind} indication rows\n")
     return 0
 

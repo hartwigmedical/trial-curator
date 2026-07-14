@@ -1,12 +1,17 @@
 # v2 Agentic Pipeline — Handover
 
-- **As of:** 2026-07-13. **Branch:** `AUS-328-Aus-trial-universe-v2`. **New chat starts with priority ⓿ (speed).**
+- **As of:** 2026-07-14. **Branch:** `AUS-328-Aus-trial-universe-v2`. **NEW CHAT — pick up the drug-ref work: the
+  FULL run is in progress; on resume do (1) the combination-token fix [task #18] then (2) max-concurrency
+  [task #19]. See the "drug-reference subsystem" section below.**
 - **Pre-rewrite fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only — NOT data).
 - **Run/setup guide:** `docs/agentic/combined_agentic_run.md` (all make commands + environment).
 - **Design + fields + schema:** `docs/v2_agentic_pipeline_spec.md` (single spec); **diagram:** `docs/v2_workflow_diagram.html`
   (published Artifact: https://claude.ai/code/artifact/671df104-6474-4c32-b78c-45f4b65d063f — on any diagram change,
   **overwrite** that URL via `scripts/publish_diagram_artifact.sh`; see memory `workflow-diagram-artifact`).
-- **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`.
+- **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`,
+  `v2-drug-regime-axis`, `v2-drug-ref-table`, `feedback-max-allowable-concurrency`.
+- **Git:** the user makes all commits; last is `eed237e` (a mid-build checkpoint) — the drug-ref refactor
+  (build.py, workflow.py, rxnorm.py, pottr.py, tests) + doc/Makefile/pipeline edits are **uncommitted** in the tree.
 
 ## Next up (start here) — for the NEW chat, in this order
 
@@ -38,14 +43,30 @@ save** + **soft-fail per drug** (one bad drug can't kill a long run). `make drug
 ALL_TRIALS=1`. 82 tests pass. 5-drug re-run verified: namespaced ids, correct POTTR hierarchies + ATC,
 drug_target pairs (ADC antigen+payload, dordaviprone 3 targets), per-agency TGA/PBS + real ARTG/PBS links, 0 for
 investigational agents. (`rxcui` = "in RxNorm / standard identity", NOT an approval flag — documented.)
-*⏳ IN PROGRESS (overnight): FULL run* `make drug-ref-build ALL_TRIALS=1` under `caffeinate` — 1743 CTGov drug
-tokens + 504 ANZCTR trials' drugs (ANZCTR via `extract_anzctr_drugs` doer→reviewer). Log:
-`scratchpad/drug_ref_FULL_run.log`; resource accretes to `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`
-with checkpoints; re-run resumes (incremental). Minor to polish: `patient_population` sometimes "patients"→should be "".
-*Parked (do NEXT for drug):* (a) map each indication's free-text `cancer_type`/`biomarker` into the eligibility
-vocabulary (OncoTree + finding-model) — the *symmetric-match* representation; (b) link drug_ref back into the
-trial `combined` view (join by canonical + approval-for-this-cancer). User parked both until the standalone
-tables were right.
+*⏳ IN PROGRESS: FULL run* `make drug-ref-build ALL_TRIALS=1` under `caffeinate`, resumed at **`--workers 16`** —
+2442 raw tokens (1743 CTGov from armGroups + 699 ANZCTR via `extract_anzctr_drugs` doer→reviewer) → **1417
+distinct canonicals**; ~61%+ researched, **0 failures**. Resource accretes to
+`data/agentic/resources/drug_ref/version_<ddmmyyyy>/` with a checkpoint after each batch; **re-run resumes**
+(`make drug-ref-build ALL_TRIALS=1 WORKERS=<max>` — done drugs are reused, only remaining ones researched).
+**Check status in a fresh chat:** `pgrep -f drug_ref.build` (still running?); researched count = rows with a
+non-empty `researched_on` in `version_<ddmmyyyy>/drug_ref.tsv` vs total rows. NB the live progress watcher +
+completion ping were armed in the pre-`/clear` session and do NOT carry over — poll manually or re-arm.
+
+**IMMEDIATE post-run TODOs (in order):**
+1. **[#18] Combination-token fix — the `1 raw → 1 canonical` constraint is WRONG.** A raw token that is a
+   combination/regimen (e.g. `Arm A: Gedatolisib + Palbociclib + Fulvestrant`, from messy CTGov intervention
+   names) must be SPLIT into individual standalone drugs (`1 raw → N canonicals`). Revise `canonicalize` to return
+   the component drugs; then find the combination-case rows in the finished result, re-run them as standalone
+   drugs, and APPEND to the result files. (User: don't disrupt the running build; do this after it finishes.)
+2. **[#19] Max allowable concurrency** (memory `feedback-max-allowable-concurrency`): read OpenAI rate-limit docs
+   + a concurrency sweep to find the ceiling; use it for ALL runs going forward. 16 confirmed allowable; `--workers`
+   sets both fan_out concurrency + checkpoint batch.
+3. **Logs → `data/agentic/log/`** (the `make` path already does this; the manual full-run log is temporarily in
+   scratchpad — move it to `data/agentic/log/` at completion). Minor polish: `patient_population` "patients"→"".
+
+*Parked (after the above):* (a) map each indication's free-text `cancer_type`/`biomarker` into the eligibility
+vocabulary (OncoTree + finding-model) — the *symmetric-match* representation; (b) link `drug_ref` back into the
+trial `combined` view (join by canonical + approval-for-this-cancer). User parked both until the standalone tables were right.
 
 **⓿ FIRST: SPEED / EFFICIENCY (do this before anything else).** A complex trial currently takes **>20 min**
 end-to-end — far too slow to run the full universe (thousands of trials). Attack throughput/latency BEFORE the

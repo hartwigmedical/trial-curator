@@ -27,28 +27,41 @@ _MODALITY_LIST = ", ".join(MODALITIES)
 # Stage 1 — canonicalize (raw name -> canonical identity). Judgement only; RXCUI is a later deterministic lookup.
 # --------------------------------------------------------------------------- #
 CANONICALIZER_INSTRUCTIONS = """\
-You are given ONE drug/treatment name exactly as written in a clinical-trial registry. Identify the CANONICAL
-drug it refers to (its active substance / INN). This is a judgement task, NOT string matching — use web search
-to confirm identity when unsure. Do NOT return an RXCUI or any id (that is looked up separately).
+You are given ONE drug/treatment name exactly as written in a clinical-trial registry. Identify the standalone
+CANONICAL drug(s) it refers to (each drug's active substance / INN). This is a judgement task, NOT string
+matching — use web search to confirm identity when unsure. Do NOT return an RXCUI or any id (looked up separately).
 
-Return:
-- canonical_name: the ingredient / INN name — brand "Keytruda" and code "MK-3475" both -> "pembrolizumab";
-  a development code -> its INN (e.g. "ONC201" -> "dordaviprone", "Ris-Rez" -> "risvutatug rezetecan").
-  Reduce a salt/formulation to the base ingredient ("temozolomide 100 MG" -> "temozolomide").
-  Set "" if the value is NOT a drug (a procedure, "radiotherapy", placebo, "best supportive care").
-- aliases: brand names / synonyms / code names you are confident about.
-- is_investigational: true if it is a novel/experimental agent with no approved/marketed form.
-- notes: one line of reasoning.
+Return `components` — ONE entry per distinct standalone drug:
+- SINGLE drug -> exactly one component. A single molecular entity is ONE drug even if it acts on several targets:
+  an antibody-drug conjugate ("trastuzumab deruxtecan"), a bispecific / trispecific antibody ("a bispecific
+  antibody against PD-L1 and VEGF" -> the one agent, e.g. "pumitamig"), or a fusion protein — DO NOT split these.
+- COMBINATION / REGIMEN -> one component PER distinct active drug. Split a name giving several drugs administered
+  together, however written: "A + B", "A / B", "A and B", "A plus B", "A, B and C", or a fixed-dose combination
+  product (split into its active ingredients). A named regimen abbreviation ("FOLFOX", "R-CHOP", "FOLFIRINOX") ->
+  expand into its component drugs. If the name lists ALTERNATIVE regimens joined by "OR", return each DISTINCT
+  component drug once (the union), not the alternatives.
+- NON-DRUG -> return an EMPTY list (a procedure, "radiotherapy", placebo, "best supportive care", "observation").
 
-If the name is a multi-drug REGIMEN abbreviation (e.g. "R-CHOP", "FOLFOX"), set canonical_name to the regimen
-as written and say so in notes (do not invent a single ingredient).
+For EACH component:
+- canonical_name: the ingredient / INN — brand "Keytruda" and code "MK-3475" both -> "pembrolizumab"; a
+  development code -> its INN ("ONC201" -> "dordaviprone", "Ris-Rez" -> "risvutatug rezetecan"). Reduce a
+  salt / formulation to the base ingredient ("temozolomide 100 MG" -> "temozolomide"). NEVER leave a "+", "/",
+  "and" or other join word inside a canonical_name — that means it was not split.
+- aliases: brand / synonym / code names you are confident about.
+- is_investigational: true if a novel/experimental agent with no approved/marketed form.
+Set notes to one line of reasoning (incl. why one drug vs. a combination).
 """
 
 CANONICALIZER_REVIEWER_INSTRUCTIONS = """\
 You audit a proposed canonicalization of a raw trial drug name (check plausibility — not re-doing the search).
-Given the RAW name and the proposed canonical_name / aliases / is_investigational, set faithful=true only if:
-canonical_name is the correct ingredient/INN (brand & code names resolved to it; salt/formulation reduced to the
-base), is_investigational is set correctly, and a non-drug (procedure/placebo/radiotherapy) has canonical_name "".
+Given the RAW name and the proposed components, set faithful=true only if:
+- the SPLIT is correct: a multi-drug regimen/combination is split into ALL its distinct component drugs (one per
+  active drug), while a single molecular entity (ADC, bispecific / trispecific antibody, fusion) is kept as ONE
+  component and NOT split; a named regimen (FOLFOX / R-CHOP) is expanded into its component drugs;
+- each component's canonical_name is the correct ingredient / INN (brand & code names resolved to it; salt /
+  formulation reduced to base) with NO leftover "+" / "/" / "and" join word inside it;
+- is_investigational is set correctly per component;
+- a non-drug (procedure / placebo / radiotherapy) yields an EMPTY component list.
 Otherwise faithful=false with concrete, actionable problems.
 """
 

@@ -14,6 +14,7 @@ deterministic facts (rxcui / pottr / atc) come from rxnorm.py / pottr.py.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable
@@ -49,6 +50,11 @@ logger = logging.getLogger(__name__)
 
 _VALID_STATUS = {APPROVED, NOT_APPROVED, UNKNOWN}
 
+# A canonical_name still holding a multi-drug join word means the combination was NOT split (deterministic
+# backstop to the reviewer). No single-ingredient INN contains these; a fixed-dose combo (which SHOULD split)
+# does, so flagging them is correct. Word-boundaried so "and"/"or"/"plus" inside an INN (e.g. "sorafenib") are safe.
+_COMBO_LEFTOVER = re.compile(r"\+|/|;|&|\bor\b|\band\b|\bplus\b", re.I)
+
 
 def _dedup(names) -> list[str]:
     return list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
@@ -81,9 +87,14 @@ def canonicalize(client: LlmClient, raw_name: str, *, max_attempts: int = 3, use
         return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
     def check(c: Canonicalization) -> CheckResult:
+        leftover = [comp.canonical_name for comp in c.components if _COMBO_LEFTOVER.search(comp.canonical_name)]
+        if leftover:
+            return CheckResult(ok=False, problems=[
+                f"component {n!r} still contains a combination join word — split into standalone drugs" for n in leftover])
         if reviewer is not None:
-            v = reviewer(f"RAW name: {raw_name}\n\nPROPOSED canonical_name={c.canonical_name!r}; "
-                         f"aliases={c.aliases}; is_investigational={c.is_investigational}; notes={c.notes!r}")
+            comps = "; ".join(f"{comp.canonical_name!r}(investigational={comp.is_investigational}, "
+                              f"aliases={comp.aliases})" for comp in c.components) or "(none — not a drug)"
+            v = reviewer(f"RAW name: {raw_name}\n\nPROPOSED components: {comps}\nnotes={c.notes!r}")
             if not v.faithful:
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the canonicalization"])
         return CheckResult(ok=True)
@@ -162,13 +173,19 @@ def _to_targets(cid: str, ann: DrugAnnotation) -> list[DrugTarget]:
             for t in ann.targets if t.target.strip()]
 
 
+def _clean_pp(value: str) -> str:
+    """Drop the uninformative generic 'patients' population value (spec §6.1 polish)."""
+    v = (value or "").strip()
+    return "" if v.lower() == "patients" else v
+
+
 def _to_indications(cid: str, appr: ApprovalByIndication, stamp: str) -> list[DrugIndication]:
     return [
         DrugIndication(
             canonical_id=cid, indication_id=str(i + 1), indication_raw=ind.indication_raw,
             cancer_type=ind.cancer_type, biomarker=ind.biomarker, stage=ind.stage,
             line_of_therapy=ind.line_of_therapy, prior_therapy=ind.prior_therapy,
-            combination=ind.combination, setting=ind.setting, patient_population=ind.patient_population,
+            combination=ind.combination, setting=ind.setting, patient_population=_clean_pp(ind.patient_population),
             tga_status=ind.tga_status, tga_date=ind.tga_date, tga_evidence_url=ind.tga_evidence_url,
             pbs_status=ind.pbs_status, pbs_date=ind.pbs_date, pbs_evidence_url=ind.pbs_evidence_url,
             researched_on=stamp,
@@ -239,23 +256,28 @@ def build_drug_ref(
                 continue
             raw, c = res
             summary.canonicalized += 1
-            cn = c.canonical_name.strip()
-            if not cn:
+            comps = [comp for comp in c.components if comp.canonical_name.strip()]
+            if not comps:                                    # a non-drug (procedure / placebo / …)
                 summary.non_drug += 1
-                store.put_alias(raw, "")
+                store.set_alias(raw, [])                     # record raw as processed-but-not-a-drug (skip next run)
                 logger.info(line(f"{raw}  →  (not a drug)", indent=4))
                 continue
-            rxcui = rxnorm.resolve_rxcui(cn)                 # DETERMINISTIC
-            cid = canonical_id_for(cn, rxcui)
-            store.put_alias(raw, cid)
-            if not store.has_ref(cid):
-                store.put_ref(DrugRef(canonical_id=cid, canonical_name=cn, rxcui=rxcui, aliases=" | ".join(c.aliases)))
-            logger.info(line(f"{raw}  →  {cn}  ({cid})", indent=4))
+            cids: list[str] = []
+            for comp in comps:                               # 1 raw -> N canonicals (combination split into atoms)
+                cn = comp.canonical_name.strip()
+                rxcui = rxnorm.resolve_rxcui(cn)             # DETERMINISTIC
+                cid = canonical_id_for(cn, rxcui)
+                cids.append(cid)
+                if not store.has_ref(cid):
+                    store.put_ref(DrugRef(canonical_id=cid, canonical_name=cn, rxcui=rxcui,
+                                          aliases=" | ".join(comp.aliases)))
+            store.set_alias(raw, cids)
+            logger.info(line(f"{raw}  →  {' + '.join(comp.canonical_name.strip() for comp in comps)}", indent=4))
         if checkpoint:
             checkpoint()
 
     # --- Stage 2+3: annotate + approvals (LLM) + deterministic pottr/atc, in batches with checkpoints ---
-    cids = [cid for cid in dict.fromkeys(store.canonical_for(r) for r in raws) if cid]
+    cids = list(dict.fromkeys(cid for r in raws for cid in store.canonical_ids_for(r)))
     to_research = [cid for cid in cids if _needs(cid, store, refresh, refresh_days, today)]
     summary.reused_ref = len(cids) - len(to_research)
     logger.info("")

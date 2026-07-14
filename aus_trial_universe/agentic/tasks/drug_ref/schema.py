@@ -134,16 +134,28 @@ def canonical_id_for(canonical_name: str, rxcui: str = "") -> str:
 # --------------------------------------------------------------------------- #
 # LLM I/O schemas (pydantic) — JUDGEMENT stages only (deterministic facts excluded)
 # --------------------------------------------------------------------------- #
-class Canonicalization(BaseModel):
-    """Stage 1 (judgement): raw drug name -> canonical identity. rxcui is NOT here — it is a deterministic
-    RxNorm lookup on `canonical_name`."""
+class CanonicalComponent(BaseModel):
+    """One standalone drug that a raw token resolves to. A single molecular entity (small molecule, mAb, ADC,
+    bispecific / trispecific antibody, fusion protein) is ONE component even if it engages several targets; a
+    multi-drug regimen resolves to SEVERAL (one per distinct active drug). rxcui is a later deterministic lookup."""
 
-    canonical_name: str = Field(description="The canonical ingredient name (RxNorm ingredient where it exists; "
-                                            "for an investigational agent, its best canonical / INN name). "
-                                            "\"\" if the value is not a drug (procedure / placebo / radiotherapy).")
-    aliases: list[str] = Field(default_factory=list, description="Brand names / synonyms / code names.")
+    canonical_name: str = Field(description="The canonical ingredient / INN name of THIS component (RxNorm "
+                                            "ingredient where it exists; for an investigational agent, its best "
+                                            "canonical / INN or development code). Salt / formulation reduced to base.")
+    aliases: list[str] = Field(default_factory=list, description="Brand / synonym / code names for THIS component.")
     is_investigational: bool = Field(default=False, description="True if no approved/RxNorm drug (novel agent).")
-    notes: str = Field(default="", description="Brief reasoning.")
+
+
+class Canonicalization(BaseModel):
+    """Stage 1 (judgement): a raw drug/treatment name -> the standalone drug(s) it refers to. A combination or
+    regimen yields MULTIPLE components (one per distinct active drug); a single molecular entity yields ONE; a
+    non-drug (procedure / placebo / radiotherapy / best supportive care) yields NONE. rxcui is NOT here — it is a
+    deterministic RxNorm lookup per component `canonical_name`."""
+
+    components: list[CanonicalComponent] = Field(
+        default_factory=list,
+        description="One entry per distinct standalone drug the raw name refers to. [] if it is not a drug.")
+    notes: str = Field(default="", description="Brief reasoning, incl. why this is one drug vs. a combination.")
 
 
 class TargetAction(BaseModel):

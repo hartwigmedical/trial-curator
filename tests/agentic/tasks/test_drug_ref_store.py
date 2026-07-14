@@ -9,13 +9,13 @@ from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
 
 def test_empty_load_when_no_versions(tmp_path):
     store = DrugRefStore.load(tmp_path)
-    assert store.refs == {} and store.aliases == {} and store.canonical_for("x") is None
+    assert store.refs == {} and store.aliases == {} and store.canonical_ids_for("x") == []
 
 
 def test_save_then_load_round_trips_all_tables(tmp_path):
     s = DrugRefStore()
-    s.put_alias("Keytruda", "rxcui:1547545")
-    s.put_alias("pembrolizumab", "rxcui:1547545")   # two raw spellings -> one canonical
+    s.set_alias("Keytruda", ["rxcui:1547545"])
+    s.set_alias("pembrolizumab", ["rxcui:1547545"])   # two raw spellings -> one canonical
     s.put_ref(DrugRef(canonical_id="rxcui:1547545", canonical_name="pembrolizumab", rxcui="1547545",
                       aliases="Keytruda | MK-3475", modality="monoclonal antibody",
                       drug_class="checkpoint inhibitor", pottr_drug_class="cancer_therapy -> anti-PD-1_monoclonal_antibody",
@@ -33,7 +33,7 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
     assert vdir.name == "version_13072026"
 
     loaded = DrugRefStore.load(tmp_path)
-    assert loaded.canonical_for("Keytruda") == loaded.canonical_for("pembrolizumab") == "rxcui:1547545"
+    assert loaded.canonical_ids_for("Keytruda") == loaded.canonical_ids_for("pembrolizumab") == ["rxcui:1547545"]
     r = loaded.ref("rxcui:1547545")
     assert r.modality == "monoclonal antibody" and r.atc_code == "L01FF02"
     assert loaded.targets_for("rxcui:1547545")[0].target == "PD-1"
@@ -54,15 +54,27 @@ def test_is_stale(tmp_path):
 
 def test_incremental_add_keeps_existing(tmp_path):
     s = DrugRefStore()
-    s.put_alias("Keytruda", "c1")
+    s.set_alias("Keytruda", ["c1"])
     s.put_ref(DrugRef(canonical_id="c1", canonical_name="pembrolizumab", researched_on="2026-07-13"))
     s.save(tmp_path, on=date(2026, 7, 10))
 
     s2 = DrugRefStore.load(tmp_path)
     assert s2.has_ref("c1")
-    s2.put_alias("Opdivo", "c2")
+    s2.set_alias("Opdivo", ["c2"])
     s2.put_ref(DrugRef(canonical_id="c2", canonical_name="nivolumab", researched_on="2026-07-13"))
     s2.save(tmp_path, on=date(2026, 7, 13))
 
     latest = DrugRefStore.load(tmp_path)
     assert latest.has_ref("c1") and latest.has_ref("c2")
+
+
+def test_alias_one_raw_maps_to_many_canonicals(tmp_path):
+    """A combination raw maps to N canonicals (1 raw -> N); a non-drug raw is recorded with no canonical."""
+    s = DrugRefStore()
+    s.set_alias("Nivo + Ipi", ["name:nivolumab", "name:ipilimumab"])   # combination -> two atoms
+    s.set_alias("Radiotherapy", [])                                    # non-drug -> recorded, resolves to nothing
+    s.save(tmp_path, on=date(2026, 7, 13))
+
+    loaded = DrugRefStore.load(tmp_path)
+    assert loaded.canonical_ids_for("Nivo + Ipi") == ["name:nivolumab", "name:ipilimumab"]
+    assert loaded.has_alias("Radiotherapy") and loaded.canonical_ids_for("Radiotherapy") == []
