@@ -1,9 +1,11 @@
-"""Drug-reference agents: a doer -> reviewer pair per build stage (spec §6.1).
+"""Drug-reference agents: a doer -> reviewer pair per JUDGEMENT stage (spec §6.1).
 
-Three per-drug, trial-independent stages, each grounded by web search on an authoritative source:
-  1. canonicalize  raw name -> canonical identity   (RxNorm ingredient; judgement, not substring)
-  2. annotate      canonical -> intrinsic facts      (class / POTTR / modality / mechanism / ATC / FDA / EMA)
-  3. approvals     canonical -> TGA/PBS approvals     (INDICATION-specific: cancer + biomarker + line/stage)
+The LLM does only what needs judgement/interpretation; the deterministic facts (rxcui, pottr_drug_class,
+atc_code) are NOT here — they come from rxnorm.py / pottr.py after the LLM stages.
+
+  1. canonicalize  raw name -> canonical identity (name, aliases, investigational?) — judgement
+  2. annotate      canonical -> modality (vocab) + (target,action) pairs + drug_class + FDA/EMA — interpretation
+  3. approvals     canonical -> TGA/PBS approvals (indication-specific) — interpretation
 
 Same doer->reviewer + bounded-refine pattern as the mapping task; reviewers verify (never rewrite).
 """
@@ -12,45 +14,41 @@ from __future__ import annotations
 from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+    MODALITIES,
     ApprovalByIndication,
     Canonicalization,
     DrugAnnotation,
     ReviewVerdict,
 )
 
+_MODALITY_LIST = ", ".join(MODALITIES)
+
 # --------------------------------------------------------------------------- #
-# Stage 1 — canonicalize (raw name -> canonical identity)
+# Stage 1 — canonicalize (raw name -> canonical identity). Judgement only; RXCUI is a later deterministic lookup.
 # --------------------------------------------------------------------------- #
 CANONICALIZER_INSTRUCTIONS = """\
 You are given ONE drug/treatment name exactly as written in a clinical-trial registry. Identify the CANONICAL
-drug it refers to, grounded in RxNorm. Use WEB SEARCH (RxNav / RxNorm) to confirm — this is a judgement task,
-NOT string matching.
+drug it refers to (its active substance / INN). This is a judgement task, NOT string matching — use web search
+to confirm identity when unsure. Do NOT return an RXCUI or any id (that is looked up separately).
 
 Return:
-- canonical_name: the RxNorm INGREDIENT name (the active substance / INN), e.g. brand "Keytruda" and code
-  "MK-3475" both -> "pembrolizumab". For an INVESTIGATIONAL agent not in RxNorm, give its best canonical / INN
-  name (e.g. "Ris-Rez" -> "risvutatug rezetecan").
-- rxcui: the RxNorm RXCUI of that ingredient if it exists, else "" (leave empty rather than guess a number).
+- canonical_name: the ingredient / INN name — brand "Keytruda" and code "MK-3475" both -> "pembrolizumab";
+  a development code -> its INN (e.g. "ONC201" -> "dordaviprone", "Ris-Rez" -> "risvutatug rezetecan").
+  Reduce a salt/formulation to the base ingredient ("temozolomide 100 MG" -> "temozolomide").
+  Set "" if the value is NOT a drug (a procedure, "radiotherapy", placebo, "best supportive care").
 - aliases: brand names / synonyms / code names you are confident about.
-- is_investigational: true if the drug has no RxNorm ingredient / is a novel experimental agent.
-- notes: one line of reasoning / what RxNorm shows.
+- is_investigational: true if it is a novel/experimental agent with no approved/marketed form.
+- notes: one line of reasoning.
 
-Rules:
-- Resolve brand -> ingredient, code name -> ingredient, salt/formulation -> base ingredient (e.g.
-  "temozolomide 100 MG" -> "temozolomide").
-- If the name is a multi-drug REGIMEN abbreviation (e.g. "R-CHOP", "FOLFOX"), set canonical_name to the regimen
-  as written, is_investigational=false, and say so in notes (do not invent an ingredient).
-- If the value is not a drug at all (a procedure, "radiotherapy", placebo, "best supportive care"), set
-  canonical_name to "" and note why.
+If the name is a multi-drug REGIMEN abbreviation (e.g. "R-CHOP", "FOLFOX"), set canonical_name to the regimen
+as written and say so in notes (do not invent a single ingredient).
 """
 
 CANONICALIZER_REVIEWER_INSTRUCTIONS = """\
-You audit a proposed canonicalization of a raw trial drug name (you are NOT re-doing the search — check
-plausibility). Given the RAW name and the proposed canonical_name / rxcui / aliases / is_investigational, set
-faithful=true only if: canonical_name is the correct RxNorm ingredient (or best canonical for an investigational
-agent), brand/code names are resolved to the ingredient, a salt/formulation is reduced to the base ingredient,
-is_investigational is set correctly (true when there is genuinely no RxNorm ingredient), and rxcui is either a
-plausible RXCUI or empty (never a guessed number). A non-drug (procedure/placebo) must have canonical_name "".
+You audit a proposed canonicalization of a raw trial drug name (check plausibility — not re-doing the search).
+Given the RAW name and the proposed canonical_name / aliases / is_investigational, set faithful=true only if:
+canonical_name is the correct ingredient/INN (brand & code names resolved to it; salt/formulation reduced to the
+base), is_investigational is set correctly, and a non-drug (procedure/placebo/radiotherapy) has canonical_name "".
 Otherwise faithful=false with concrete, actionable problems.
 """
 
@@ -66,33 +64,33 @@ def build_canonicalizer_reviewer(client: LlmClient, *, model: str | None = None)
 
 
 # --------------------------------------------------------------------------- #
-# Stage 2 — intrinsic annotation (drug-level facts, trial-independent)
+# Stage 2 — intrinsic annotation (modality + target/action pairs + general class + FDA/EMA). No POTTR/ATC (deterministic).
 # --------------------------------------------------------------------------- #
-ANNOTATOR_INSTRUCTIONS = """\
-You are given a CANONICAL drug name (RxNorm ingredient, or an investigational agent's canonical name). Return
-its intrinsic, drug-level facts — properties of the DRUG ITSELF, independent of any trial. Use WEB SEARCH for
-POTTR / ATC / regulatory class when unsure. CITE a source for every fact you can.
+ANNOTATOR_INSTRUCTIONS = f"""\
+You are given a CANONICAL drug name. Return its intrinsic, drug-level facts (properties of the drug itself,
+independent of any trial). Use WEB SEARCH when unsure, and CITE a source for every fact you can. Do NOT return
+POTTR class or ATC code — those are looked up deterministically elsewhere.
 
-- modality: molecular modality — small molecule / monoclonal antibody / ADC / bispecific / cell therapy /
-  vaccine / radioligand / peptide / oligonucleotide, etc.
-- mechanism: the molecular target(s) / mechanism of action (e.g. "anti-PD-1", "EGFR TKI", "PARP inhibitor",
-  "DRD2 antagonist / ClpP agonist").
-- drug_class: a concise GENERAL drug class (usable even when the drug is not in POTTR).
-- pottr_drug_class: the POTTR drug-class hierarchy, root -> leaf joined by " -> "
-  (e.g. "cancer_therapy -> cancer_therapy,immunotherapy -> anti-PD-1"). "" if not in POTTR.
-- atc_code: the WHO ATC classification code (e.g. "L01FF02" for pembrolizumab). "" if none / investigational.
-- fda_status: a COARSE summary of US FDA approval (e.g. "approved 2014; melanoma, NSCLC, + others" or "not
-  FDA-approved (investigational)"). Additional context only — do NOT enumerate every indication.
-- ema_status: a COARSE summary of EMA approval, same style.
-- sources: compact per-fact citations, "field=url; ..." (e.g. "atc_code=who.int/...; fda_status=fda.gov/...").
+- modality: EXACTLY ONE of these terms — {_MODALITY_LIST}.
+- targets: the drug's (target, action) pairs — one per molecular target. `target` = the molecule/pathway
+  (e.g. "PD-1", "TOP1", "ClpP", "B7-H3", "PI3K/mTOR"); `action` = how it acts (inhibitor / antagonist / agonist
+  / activator / degrader / ADC-binding / ...); `note` = nuance ("payload", "antigen", "dual") or "". A
+  multi-target drug has SEVERAL pairs, each with its own action (e.g. dordaviprone: ClpP=activator, DRD2=antagonist);
+  an ADC has the antigen pair (action=ADC-binding, note="antigen") AND the payload-target pair (note="payload").
+- drug_class: a concise GENERAL drug class (e.g. "PARP inhibitor", "checkpoint inhibitor").
+- fda_status: a COARSE US FDA summary in the form "<status> (<year>): <detail> | <detail>", '|' separating
+  items (e.g. "approved (2014): melanoma | NSCLC"); "not FDA-approved (investigational)" if none. Do NOT use ';'.
+- ema_status: a COARSE EMA summary, same format.
+- sources: per-fact citations, "field=url | ..." (e.g. "modality=... | fda_status=...").
 """
 
-ANNOTATOR_REVIEWER_INSTRUCTIONS = """\
-You audit proposed intrinsic drug facts (plausibility + completeness — NOT re-doing the search). Given the
-canonical drug name and the proposed fields, set faithful=true only if: modality, mechanism and drug_class are
-correct and sensible for this drug; pottr_drug_class is a plausible root->leaf hierarchy or "" (not in POTTR);
-atc_code is a plausible ATC code or "" (investigational); fda_status/ema_status are coarse and correct; and
-sources are present for the facts that need them. Otherwise faithful=false with concrete, actionable problems.
+ANNOTATOR_REVIEWER_INSTRUCTIONS = f"""\
+You audit proposed intrinsic drug facts (plausibility — not re-doing the search). Set faithful=true only if:
+modality is EXACTLY ONE of [{_MODALITY_LIST}] and correct; the (target, action) pairs are correct and complete
+for this drug (each target has the right action; a multi-target drug lists all its targets; an ADC has both the
+antigen and the payload target); drug_class is sensible; fda_status/ema_status are coarse, correctly formatted
+("<status> (<year>): <detail> | ...", no ';'), and correct; and sources are present. Otherwise faithful=false
+with concrete, actionable problems.
 """
 
 
@@ -111,37 +109,39 @@ def build_annotator_reviewer(client: LlmClient, *, model: str | None = None) -> 
 # --------------------------------------------------------------------------- #
 APPROVAL_INSTRUCTIONS = """\
 You are given a CANONICAL drug name. Find its AUSTRALIAN ONCOLOGY regulatory approvals and return ONE entry per
-distinct indication. TGA and PBS approval are INDICATION-SPECIFIC (a drug can be approved for melanoma but not
-lung; an indication is often cancer + biomarker, e.g. "NSCLC with PD-L1 >=50%", "HER2-positive breast"). Use
-WEB SEARCH on the OFFICIAL sources — TGA (tga.gov.au ARTG / Product Information) and PBS (pbs.gov.au).
+distinct indication. TGA and PBS approval are INDICATION-SPECIFIC (approved for melanoma but maybe not lung; an
+indication is often cancer + biomarker, e.g. "NSCLC with PD-L1 >=50%", and often combination/line/stage/population
+specific). Use WEB SEARCH on the OFFICIAL sources — TGA (tga.gov.au ARTG / Product Information) and PBS (pbs.gov.au).
 
-For EACH indication return:
-- indication_raw: the indication exactly as the regulator states it (full wording).
-- cancer_type: the cancer type as stated (e.g. "melanoma", "NSCLC", "breast cancer").
-- biomarker: the biomarker qualifier as stated, if any (e.g. "PD-L1 >=50%", "HER2-positive", "MSI-H/dMMR"); "" if none.
-- line_of_therapy: e.g. "1L", ">=2 prior lines"; "" if unspecified.
+For EACH indication capture the full, static profile AS THE REGULATOR STATES IT:
+- indication_raw: the indication exactly as worded.
+- cancer_type: e.g. "melanoma", "NSCLC".
+- biomarker: e.g. "PD-L1 >=50%", "HER2-positive", "MSI-H/dMMR"; "" if none.
 - stage: e.g. "unresectable Stage III/IV"; "" if unspecified.
-- tga_status: "approved" if TGA-registered (ARTG/PI) for this indication, "not_approved" if you can confirm it
-  is not, else "unknown". tga_date: year of the ARTG approval. tga_evidence_url: the official ARTG/PI link.
+- line_of_therapy: e.g. "1L", ">=2 prior lines"; "" if unspecified.
+- prior_therapy: required prior treatment, e.g. "after platinum-based chemotherapy"; "" if none.
+- combination: "monotherapy" or "in combination with <X>".
+- setting: adjuvant / neoadjuvant / metastatic / curative-intent; "" if unspecified.
+- patient_population: e.g. "adult", "pediatric >=1 year"; "" if unspecified.
+- tga_status: "approved" if TGA-registered (ARTG/PI) for this indication, "not_approved" if confirmed not, else
+  "unknown". tga_date: year of the ARTG approval. tga_evidence_url: the official ARTG/PI link.
 - pbs_status / pbs_date / pbs_evidence_url: the same for the PBS listing (a drug may be TGA-approved but not
-  PBS-listed for the same indication — set them independently).
+  PBS-listed for the SAME indication — set them independently).
 
-Rules:
-- Cover every distinct ONCOLOGY indication you can find for either agency; combine the TGA and PBS view of the
-  SAME indication into one entry. Do NOT include non-oncology indications.
-- Registration = an actual ARTG entry / PBS listing; do NOT count SAS / Authorised Prescriber / clinical-trial supply.
-- If the drug has NO Australian oncology approval (e.g. investigational), return an EMPTY indications list.
-- Always give an official source link where you assert a status.
+Rules: cover every distinct ONCOLOGY indication for either agency; combine the TGA and PBS view of the SAME
+indication into one entry; registration = an actual ARTG entry / PBS listing (NOT SAS / Authorised Prescriber /
+trial supply); an investigational / non-approved drug returns an EMPTY list; always give an official source link
+where you assert a status.
 """
 
 APPROVAL_REVIEWER_INSTRUCTIONS = """\
-You audit a proposed set of TGA/PBS approvals for a drug (plausibility + structure — NOT re-doing the search).
-Set faithful=true only if: each indication is captured at the right specificity (cancer type, and the biomarker
-qualifier when the approval is biomarker-restricted — e.g. PD-L1 level, HER2 status, MSI-H — is NOT dropped);
-tga_status/pbs_status are each approved/not_approved/unknown with an official evidence link where a status is
-asserted; TGA and PBS are set independently; and an investigational / non-approved drug yields an empty list
-rather than invented approvals. Flag a dropped biomarker qualifier, a missing evidence link on an asserted
-approval, or a non-oncology indication. Otherwise faithful=false with concrete, actionable problems.
+You audit a proposed set of TGA/PBS approvals (plausibility — not re-doing the search). Set faithful=true only if:
+each indication is at the right specificity (the biomarker qualifier — PD-L1 level, HER2, MSI-H — and the
+combination/line where the approval is restricted are NOT dropped); tga_status/pbs_status are each
+approved/not_approved/unknown with an official evidence link where a status is asserted; TGA and PBS are set
+independently; and an investigational / non-approved drug yields an empty list rather than invented approvals.
+Flag a dropped biomarker/combination qualifier, a missing evidence link on an asserted approval, or a
+non-oncology indication. Otherwise faithful=false with concrete, actionable problems.
 """
 
 

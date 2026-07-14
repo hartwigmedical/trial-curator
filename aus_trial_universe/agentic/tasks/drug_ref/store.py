@@ -17,10 +17,12 @@ from aus_trial_universe.agentic.tasks.drug_ref.schema import (
     DRUG_ALIAS_COLUMNS,
     DRUG_INDICATION_COLUMNS,
     DRUG_REF_COLUMNS,
+    DRUG_TARGET_COLUMNS,
     TABLE_FILES,
     DrugAlias,
     DrugIndication,
     DrugRef,
+    DrugTarget,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -54,6 +56,7 @@ class DrugRefStore:
     def __init__(self) -> None:
         self.aliases: dict[str, DrugAlias] = {}                  # raw_name -> DrugAlias
         self.refs: dict[str, DrugRef] = {}                      # canonical_id -> DrugRef
+        self.targets: dict[str, list[DrugTarget]] = {}         # canonical_id -> (target, action) rows
         self.indications: dict[str, list[DrugIndication]] = {}  # canonical_id -> rows
 
     # --- load -------------------------------------------------------------- #
@@ -72,6 +75,10 @@ class DrugRefStore:
             r = DrugRef(**{k: row.get(k, "") for k in DRUG_REF_COLUMNS})
             if r.canonical_id:
                 store.refs[r.canonical_id] = r
+        for row in _read_tsv(vdir / TABLE_FILES["drug_target"]):
+            t = DrugTarget(**{k: row.get(k, "") for k in DRUG_TARGET_COLUMNS})
+            if t.canonical_id:
+                store.targets.setdefault(t.canonical_id, []).append(t)
         for row in _read_tsv(vdir / TABLE_FILES["drug_indication"]):
             i = DrugIndication(**{k: row.get(k, "") for k in DRUG_INDICATION_COLUMNS})
             if i.canonical_id:
@@ -91,6 +98,9 @@ class DrugRefStore:
 
     def ref(self, canonical_id: str) -> DrugRef | None:
         return self.refs.get(canonical_id)
+
+    def targets_for(self, canonical_id: str) -> list[DrugTarget]:
+        return self.targets.get(canonical_id, [])
 
     def indications_for(self, canonical_id: str) -> list[DrugIndication]:
         return self.indications.get(canonical_id, [])
@@ -112,6 +122,9 @@ class DrugRefStore:
     def put_ref(self, ref: DrugRef) -> None:
         self.refs[ref.canonical_id] = ref
 
+    def put_targets(self, canonical_id: str, rows: list[DrugTarget]) -> None:
+        self.targets[canonical_id] = list(rows)
+
     def put_indications(self, canonical_id: str, rows: list[DrugIndication]) -> None:
         self.indications[canonical_id] = list(rows)
 
@@ -123,6 +136,8 @@ class DrugRefStore:
                    [asdict(a) for a in self.aliases.values()])
         _write_tsv(vdir / TABLE_FILES["drug_ref"], DRUG_REF_COLUMNS,
                    [asdict(r) for r in self.refs.values()])
+        _write_tsv(vdir / TABLE_FILES["drug_target"], DRUG_TARGET_COLUMNS,
+                   [asdict(t) for rows in self.targets.values() for t in rows])
         _write_tsv(vdir / TABLE_FILES["drug_indication"], DRUG_INDICATION_COLUMNS,
                    [asdict(i) for rows in self.indications.values() for i in rows])
         return vdir

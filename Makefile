@@ -65,6 +65,7 @@ agentic-validate:
 # only new (or REFRESH_DRUGS=1) drugs are researched. Writes data/agentic/resources/drug_ref/version_<ddmmyyyy>/.
 #   make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"
 #   make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5
-#   optional: REFRESH_DRUGS=1  NO_REVIEW=1  MODEL=<name>
+#   make drug-ref-build ALL_TRIALS=1                 # every distinct drug across all ctgov + anzctr
+#   optional: LIMIT=<n>  WORKERS=<n> (concurrency, default 8)  REFRESH_DRUGS=1  NO_REVIEW=1  MODEL=<name>
 drug-ref-build:
-	DRUGS="$(DRUGS)" IDS="$(IDS)" LIMIT="$(LIMIT)" REFRESH_DRUGS="$(REFRESH_DRUGS)" NO_REVIEW="$(NO_REVIEW)" MODEL="$(MODEL)" scripts/agentic/pipeline.sh drug-ref-build
+	DRUGS="$(DRUGS)" IDS="$(IDS)" ALL_TRIALS="$(ALL_TRIALS)" LIMIT="$(LIMIT)" WORKERS="$(WORKERS)" REFRESH_DRUGS="$(REFRESH_DRUGS)" NO_REVIEW="$(NO_REVIEW)" MODEL="$(MODEL)" scripts/agentic/pipeline.sh drug-ref-build

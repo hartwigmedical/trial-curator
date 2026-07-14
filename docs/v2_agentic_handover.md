@@ -26,14 +26,22 @@ enrichment per-regime + is the drug-stage speed win (⓿).
 over-enumeration (NCT04221035 induction 66 rows; NCT05009992 Cohort 5 `H3K27-altered AND <target>`); `prior_therapy`
 absorbing washout/concomitant-med noise.
 
-**✅ DONE (2026-07-13): drug-reference subsystem (the 3rd 3NF table, standalone).** `aus_trial_universe/agentic/
-tasks/drug_ref/` — `drug_alias` (raw→canonical) / `drug_ref` (intrinsic facts) / `drug_indication` (TGA/PBS,
-indication-specific). Spec + 3NF + build decisions in `v2_agentic_pipeline_spec.md` §6.1 (memory
-`v2-drug-ref-table`). Three doer→reviewer web_search stages (canonicalize / annotate / approvals),
-incremental+datestamped resource (`data/agentic/resources/drug_ref/version_<ddmmyyyy>/`), `make drug-ref-build
-DRUGS="..." | IDS=... [LIMIT=n]`. **Verified on TGA+PBS being indication-specific** (checked the live sites) and
-a 5-drug live run (code→INN+RXCUI canonicalization, sourced annotations, topotecan's 3 AU indications, 0 for the
-4 investigational agents). 77 tests pass.
+**✅ DONE (2026-07-13): drug-reference subsystem, standalone — 4 3NF tables + review-driven refactor.**
+`aus_trial_universe/agentic/tasks/drug_ref/`: `drug_alias` (raw→**namespaced** `canonical_id` = `rxcui:<n>` |
+`name:<x>`) / `drug_ref` (intrinsic facts) / `drug_target` ((target,action) pairs = the mechanism) /
+`drug_indication` (TGA/PBS, indication-specific, comprehensive static fields incl. combination/prior_therapy/
+setting/population). Spec §6.1 (memory `v2-drug-ref-table`). **Division of labour (user):** LLM doer→reviewer for
+judgement (canonicalize / annotate modality+targets+class+FDA/EMA / approvals); **deterministic offline lookups**
+for the no-judgement facts — `rxcui`+`atc_code` (RxNorm RXNCONSO.RRF) and `pottr_drug_class` (POTTR ontology walk)
+via `rxnorm.py`/`pottr.py` (reuse the data, not the Postgres pipeline). Incremental + **batched with checkpoint
+save** + **soft-fail per drug** (one bad drug can't kill a long run). `make drug-ref-build DRUGS=.. | IDS=.. |
+ALL_TRIALS=1`. 82 tests pass. 5-drug re-run verified: namespaced ids, correct POTTR hierarchies + ATC,
+drug_target pairs (ADC antigen+payload, dordaviprone 3 targets), per-agency TGA/PBS + real ARTG/PBS links, 0 for
+investigational agents. (`rxcui` = "in RxNorm / standard identity", NOT an approval flag — documented.)
+*⏳ IN PROGRESS (overnight): FULL run* `make drug-ref-build ALL_TRIALS=1` under `caffeinate` — 1743 CTGov drug
+tokens + 504 ANZCTR trials' drugs (ANZCTR via `extract_anzctr_drugs` doer→reviewer). Log:
+`scratchpad/drug_ref_FULL_run.log`; resource accretes to `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`
+with checkpoints; re-run resumes (incremental). Minor to polish: `patient_population` sometimes "patients"→should be "".
 *Parked (do NEXT for drug):* (a) map each indication's free-text `cancer_type`/`biomarker` into the eligibility
 vocabulary (OncoTree + finding-model) — the *symmetric-match* representation; (b) link drug_ref back into the
 trial `combined` view (join by canonical + approval-for-this-cancer). User parked both until the standalone

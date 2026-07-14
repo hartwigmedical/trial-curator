@@ -252,6 +252,17 @@ def test_anzctr_comparator_drug_becomes_its_own_control_regime():
     assert all(r.cancer_type == "NSCLC [HEALTH CONDITION]" for r in result.rows)  # shared eligibility
 
 
+def test_extract_anzctr_drugs_doer_reviewer():
+    """ANZCTR drug identification is a doer->reviewer step (spec §6.1); returns intervention + comparator drugs."""
+    from aus_trial_universe.agentic.tasks.extraction.workflow import extract_anzctr_drugs
+    client = _ScriptedClient(extractions=[], intervention_drugs=["capecitabine", "bevacizumab"],
+                             comparator_drugs=["chemotherapy"])
+    dr = extract_anzctr_drugs(client, "...trial text...", use_reviewer=True)   # fake reviewer -> faithful
+    assert dr.intervention_drugs == ["capecitabine", "bevacizumab"] and dr.comparator_drugs == ["chemotherapy"]
+    dr2 = extract_anzctr_drugs(client, "...trial text...", use_reviewer=False)  # reviewer skipped
+    assert dr2.intervention_drugs == ["capecitabine", "bevacizumab"]
+
+
 def test_anzctr_no_drugs_falls_back_to_single_regime():
     client = _ScriptedClient(
         extractions=[_extraction(ExtractedRow(cohort="trial-wide", cancer_type="melanoma",

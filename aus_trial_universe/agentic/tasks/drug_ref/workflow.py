@@ -1,22 +1,27 @@
 """Drug-reference build workflow (spec §6.1).
 
 Per-drug, trial-independent, incremental. For a list of raw drug names:
-  Stage 1  canonicalize each NEW raw name -> alias (raw -> canonical_id); seed the canonical identity.
-  Stage 2+3  for each canonical that is NEW or STALE, run annotate + approvals (in parallel across
-             drugs), then write drug_ref + drug_indication rows.
+  Stage 1   canonicalize each NEW raw name (LLM judgement) -> alias; resolve rxcui deterministically (RxNorm);
+            seed the canonical identity.
+  Stage 2+3 for each canonical that is NEW or STALE: annotate + approvals (LLM, in parallel across drugs),
+            plus deterministic pottr_drug_class (POTTR) + atc_code (RxNorm/ATC); write drug_ref + drug_target +
+            drug_indication. Processed in BATCHES with a checkpoint save after each (resilient to interruption).
 An existing, non-stale canonical is a pure LOOKUP (no LLM) — the reuse / speed win.
 
-Plain-Python orchestration; the LLM only fills the doer/reviewer steps (each on a bounded refine loop).
+Plain-Python orchestration; the LLM fills only the judgement steps (each on a bounded refine loop); the
+deterministic facts (rxcui / pottr / atc) come from rxnorm.py / pottr.py.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Callable
 
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.core.logfmt import FAIL, PASS, kv, line, stage
+from aus_trial_universe.agentic.core.logfmt import kv, line, stage
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
+from aus_trial_universe.agentic.tasks.drug_ref import pottr, rxnorm
 from aus_trial_universe.agentic.tasks.drug_ref.agents import (
     build_annotator,
     build_annotator_reviewer,
@@ -26,14 +31,16 @@ from aus_trial_universe.agentic.tasks.drug_ref.agents import (
     build_canonicalizer_reviewer,
 )
 from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+    MODALITIES,
+    UNKNOWN,
     APPROVED,
     NOT_APPROVED,
-    UNKNOWN,
     ApprovalByIndication,
     Canonicalization,
     DrugAnnotation,
     DrugIndication,
     DrugRef,
+    DrugTarget,
     canonical_id_for,
 )
 from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
@@ -47,6 +54,21 @@ def _dedup(names) -> list[str]:
     return list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
 
 
+def _chunks(seq: list, n: int):
+    for i in range(0, len(seq), max(1, n)):
+        yield seq[i:i + n]
+
+
+def _safe(label: str, fn):
+    """Run fn(); on ANY exception log it and return None. `fan_out` re-raises thunk exceptions, so every
+    per-drug thunk is wrapped in this — one bad drug (e.g. a persistent API error) must not kill a long run."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 — soft failure by design
+        logger.info(line(f"FAILED · {label} · {type(exc).__name__}: {exc}", indent=4))
+        return None
+
+
 # --------------------------------------------------------------------------- #
 # Stage functions (each: doer -> validate + reviewer -> bounded refine)
 # --------------------------------------------------------------------------- #
@@ -56,18 +78,12 @@ def canonicalize(client: LlmClient, raw_name: str, *, max_attempts: int = 3, use
 
     def produce(feedback: str = "") -> Canonicalization:
         prompt = f"Raw drug name: {raw_name}"
-        if feedback:
-            prompt += f"\n\n[Reviewer feedback — fix these]:\n{feedback}"
-        return doer(prompt)
+        return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
     def check(c: Canonicalization) -> CheckResult:
-        if c.rxcui and not c.rxcui.strip().isdigit():
-            return CheckResult(ok=False, problems=[f"rxcui must be numeric or empty, got {c.rxcui!r}"])
         if reviewer is not None:
-            v = reviewer(
-                f"RAW name: {raw_name}\n\nPROPOSED canonical_name={c.canonical_name!r}; rxcui={c.rxcui!r}; "
-                f"aliases={c.aliases}; is_investigational={c.is_investigational}; notes={c.notes!r}"
-            )
+            v = reviewer(f"RAW name: {raw_name}\n\nPROPOSED canonical_name={c.canonical_name!r}; "
+                         f"aliases={c.aliases}; is_investigational={c.is_investigational}; notes={c.notes!r}")
             if not v.faithful:
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the canonicalization"])
         return CheckResult(ok=True)
@@ -83,17 +99,16 @@ def annotate(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, u
 
     def produce(feedback: str = "") -> DrugAnnotation:
         prompt = f"Canonical drug: {canonical_name}"
-        if feedback:
-            prompt += f"\n\n[Reviewer feedback — fix these]:\n{feedback}"
-        return doer(prompt)
+        return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
     def check(a: DrugAnnotation) -> CheckResult:
+        if a.modality not in MODALITIES:
+            return CheckResult(ok=False, problems=[f"modality must be exactly one of {list(MODALITIES)}, got {a.modality!r}"])
         if reviewer is not None:
-            v = reviewer(
-                f"Canonical drug: {canonical_name}\n\nPROPOSED modality={a.modality!r}; mechanism={a.mechanism!r}; "
-                f"drug_class={a.drug_class!r}; pottr_drug_class={a.pottr_drug_class!r}; atc_code={a.atc_code!r}; "
-                f"fda_status={a.fda_status!r}; ema_status={a.ema_status!r}; sources={a.sources!r}"
-            )
+            targets = "; ".join(f"{t.target}:{t.action}" + (f"({t.note})" if t.note else "") for t in a.targets)
+            v = reviewer(f"Canonical drug: {canonical_name}\n\nPROPOSED modality={a.modality!r}; "
+                         f"targets=[{targets}]; drug_class={a.drug_class!r}; fda_status={a.fda_status!r}; "
+                         f"ema_status={a.ema_status!r}; sources={a.sources!r}")
             if not v.faithful:
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the annotation"])
         return CheckResult(ok=True)
@@ -109,9 +124,7 @@ def approvals(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, 
 
     def produce(feedback: str = "") -> ApprovalByIndication:
         prompt = f"Canonical drug: {canonical_name}"
-        if feedback:
-            prompt += f"\n\n[Reviewer feedback — fix these]:\n{feedback}"
-        return doer(prompt)
+        return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
     def check(a: ApprovalByIndication) -> CheckResult:
         bad = [f"{lbl}={s!r} not in approved/not_approved/unknown"
@@ -133,39 +146,56 @@ def approvals(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, 
 
 
 # --------------------------------------------------------------------------- #
-# Incremental build orchestrator
+# Row builders
 # --------------------------------------------------------------------------- #
-@dataclass
-class BuildSummary:
-    canonicalized: int = 0   # raw names newly canonicalized (LLM)
-    reused_alias: int = 0    # raw names already known (lookup)
-    researched: int = 0      # canonicals newly annotated + approvals (LLM)
-    reused_ref: int = 0      # canonicals already researched & fresh (lookup)
-    non_drug: int = 0        # raw values resolved to non-drugs (procedure/placebo)
-    problems: list[str] = field(default_factory=list)
-
-
-def _to_ref(cid: str, cn: str, c: Canonicalization | DrugRef, ann: DrugAnnotation, stamp: str) -> DrugRef:
+def _to_ref(cid: str, cn: str, seed: DrugRef, ann: DrugAnnotation, pottr_cls: str, atc: str, stamp: str) -> DrugRef:
     return DrugRef(
-        canonical_id=cid, canonical_name=cn,
-        rxcui=c.rxcui, aliases=("; ".join(c.aliases) if isinstance(c, Canonicalization) else c.aliases),
-        modality=ann.modality, mechanism=ann.mechanism, drug_class=ann.drug_class,
-        pottr_drug_class=ann.pottr_drug_class, atc_code=ann.atc_code,
+        canonical_id=cid, canonical_name=cn, rxcui=seed.rxcui, aliases=seed.aliases,
+        modality=ann.modality, drug_class=ann.drug_class,
+        pottr_drug_class=pottr_cls, atc_code=atc,          # deterministic lookups
         fda_status=ann.fda_status, ema_status=ann.ema_status, sources=ann.sources, researched_on=stamp,
     )
+
+
+def _to_targets(cid: str, ann: DrugAnnotation) -> list[DrugTarget]:
+    return [DrugTarget(canonical_id=cid, target=t.target.strip(), action=t.action.strip(), note=t.note.strip())
+            for t in ann.targets if t.target.strip()]
 
 
 def _to_indications(cid: str, appr: ApprovalByIndication, stamp: str) -> list[DrugIndication]:
     return [
         DrugIndication(
             canonical_id=cid, indication_id=str(i + 1), indication_raw=ind.indication_raw,
-            cancer_type=ind.cancer_type, biomarker=ind.biomarker, line_of_therapy=ind.line_of_therapy,
-            stage=ind.stage, tga_status=ind.tga_status, tga_date=ind.tga_date, tga_evidence_url=ind.tga_evidence_url,
+            cancer_type=ind.cancer_type, biomarker=ind.biomarker, stage=ind.stage,
+            line_of_therapy=ind.line_of_therapy, prior_therapy=ind.prior_therapy,
+            combination=ind.combination, setting=ind.setting, patient_population=ind.patient_population,
+            tga_status=ind.tga_status, tga_date=ind.tga_date, tga_evidence_url=ind.tga_evidence_url,
             pbs_status=ind.pbs_status, pbs_date=ind.pbs_date, pbs_evidence_url=ind.pbs_evidence_url,
             researched_on=stamp,
         )
         for i, ind in enumerate(appr.indications)
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Incremental build orchestrator
+# --------------------------------------------------------------------------- #
+@dataclass
+class BuildSummary:
+    canonicalized: int = 0
+    reused_alias: int = 0
+    researched: int = 0
+    reused_ref: int = 0
+    non_drug: int = 0
+    failed: int = 0          # drugs skipped after an unrecoverable error (run continues)
+    problems: list[str] = field(default_factory=list)
+
+
+def _needs(cid: str, store: DrugRefStore, refresh: bool, refresh_days: int | None, today: date | None) -> bool:
+    r = store.ref(cid)
+    if r is None or not r.researched_on or refresh:
+        return True
+    return refresh_days is not None and store.is_stale(cid, refresh_days, today=today)
 
 
 def build_drug_ref(
@@ -178,49 +208,59 @@ def build_drug_ref(
     use_reviewer: bool = True,
     max_attempts: int = 3,
     today: date | None = None,
+    workers: int = 8,
+    checkpoint: Callable[[], None] | None = None,
 ) -> BuildSummary:
-    """Incrementally add/refresh the given raw drug names in `store` (mutated in place)."""
+    """Incrementally add/refresh the given raw drug names in `store` (mutated in place).
+
+    `workers` sets both the parallelism (fan_out max_workers) and the checkpoint batch size — output is
+    identical regardless of `workers`; it only changes throughput (higher may hit API rate limits → retries).
+    `checkpoint`, if given, is called after each batch — wire it to store.save() so a long run persists progress
+    (an interruption loses at most the in-flight batch)."""
     stamp = (today or date.today()).isoformat()
     summary = BuildSummary()
     raws = _dedup(raw_names)
 
-    # --- Stage 1: canonicalize new raw names -> aliases (+ seed canonical identity) ---
+    # --- Stage 1: canonicalize (LLM judgement) -> alias + deterministic rxcui + seeded identity ---
+    # Batched with a checkpoint after each batch, so a long Stage 1 persists progress (resilient to interruption).
     to_canon = [r for r in raws if refresh or not store.has_alias(r)]
     summary.reused_alias = len(raws) - len(to_canon)
     logger.info(stage("DRUG-REF · canonicalize"))
-    logger.info(line(f"{len(to_canon)} new · {summary.reused_alias} reused"))
-    canon_results = fan_out([
-        (lambda r=r: (r, canonicalize(client, r, max_attempts=max_attempts, use_reviewer=use_reviewer)))
-        for r in to_canon
-    ])
-    for raw, c in canon_results:
-        summary.canonicalized += 1
-        cn = c.canonical_name.strip()
-        if not cn:
-            summary.non_drug += 1
-            store.put_alias(raw, "")            # remember it's a non-drug; skip next time
-            logger.info(line(f"{raw}  →  (not a drug)", indent=4))
-            continue
-        cid = canonical_id_for(cn)
-        store.put_alias(raw, cid)
-        if not store.has_ref(cid):              # seed identity; facts filled in Stage 2/3
-            store.put_ref(DrugRef(canonical_id=cid, canonical_name=cn, rxcui=c.rxcui, aliases="; ".join(c.aliases)))
-        logger.info(line(f"{raw}  →  {cn}" + (f"  (rxcui {c.rxcui})" if c.rxcui else "  (investigational)"), indent=4))
+    logger.info(line(f"{len(to_canon)} new · {summary.reused_alias} reused · workers={workers}"))
+    for batch in _chunks(to_canon, workers):
+        results = fan_out([
+            (lambda r=r: _safe(f"canonicalize {r}", lambda r=r: (
+                r, canonicalize(client, r, max_attempts=max_attempts, use_reviewer=use_reviewer))))
+            for r in batch
+        ], max_workers=workers)
+        for res in results:
+            if res is None:
+                summary.failed += 1
+                continue
+            raw, c = res
+            summary.canonicalized += 1
+            cn = c.canonical_name.strip()
+            if not cn:
+                summary.non_drug += 1
+                store.put_alias(raw, "")
+                logger.info(line(f"{raw}  →  (not a drug)", indent=4))
+                continue
+            rxcui = rxnorm.resolve_rxcui(cn)                 # DETERMINISTIC
+            cid = canonical_id_for(cn, rxcui)
+            store.put_alias(raw, cid)
+            if not store.has_ref(cid):
+                store.put_ref(DrugRef(canonical_id=cid, canonical_name=cn, rxcui=rxcui, aliases=" | ".join(c.aliases)))
+            logger.info(line(f"{raw}  →  {cn}  ({cid})", indent=4))
+        if checkpoint:
+            checkpoint()
 
-    # --- Stage 2+3: annotate + approvals for each referenced canonical that is new / stale ---
+    # --- Stage 2+3: annotate + approvals (LLM) + deterministic pottr/atc, in batches with checkpoints ---
     cids = [cid for cid in dict.fromkeys(store.canonical_for(r) for r in raws) if cid]
-    def _needs(cid: str) -> bool:
-        r = store.ref(cid)
-        if r is None or not r.researched_on:
-            return True
-        if refresh:
-            return True
-        return refresh_days is not None and store.is_stale(cid, refresh_days, today=today)
-    to_research = [cid for cid in cids if _needs(cid)]
+    to_research = [cid for cid in cids if _needs(cid, store, refresh, refresh_days, today)]
     summary.reused_ref = len(cids) - len(to_research)
     logger.info("")
     logger.info(stage("DRUG-REF · annotate + approvals"))
-    logger.info(line(f"{len(to_research)} to research · {summary.reused_ref} reused (fresh)"))
+    logger.info(line(f"{len(to_research)} to research · {summary.reused_ref} reused (fresh) · workers={workers}"))
 
     def _research(cid: str):
         cn = store.ref(cid).canonical_name
@@ -228,19 +268,33 @@ def build_drug_ref(
         appr = approvals(client, cn, max_attempts=max_attempts, use_reviewer=use_reviewer)
         return cid, cn, ann, appr
 
-    for cid, cn, ann, appr in fan_out([(lambda c=c: _research(c)) for c in to_research]):
-        base = store.ref(cid)
-        store.put_ref(_to_ref(cid, cn, base, ann, stamp))
-        store.put_indications(cid, _to_indications(cid, appr, stamp))
-        summary.researched += 1
-        logger.info("")
-        logger.info(line(f"{cn}", indent=2))
-        logger.info(kv("class", f"{ann.drug_class} · {ann.modality} · {ann.mechanism}".strip(" ·"), indent=4, pad=12))
-        logger.info(kv("pottr", ann.pottr_drug_class or "(none)", indent=4, pad=12))
-        logger.info(kv("atc", ann.atc_code or "(none)", indent=4, pad=12))
-        logger.info(kv("indications", str(len(appr.indications)), indent=4, pad=12))
-        for ind in appr.indications:
-            bio = f" [{ind.biomarker}]" if ind.biomarker else ""
-            logger.info(line(f"· {ind.cancer_type}{bio} — TGA {ind.tga_status}, PBS {ind.pbs_status}", indent=8))
+    for bi, batch in enumerate(_chunks(to_research, workers), 1):
+        results = fan_out([
+            (lambda c=c: _safe(f"research {store.ref(c).canonical_name}", lambda c=c: _research(c)))
+            for c in batch
+        ], max_workers=workers)
+        for res in results:
+            if res is None:
+                summary.failed += 1
+                continue
+            cid, cn, ann, appr = res
+            base = store.ref(cid)
+            store.put_ref(_to_ref(cid, cn, base, ann, pottr.pottr_class_for(cn), rxnorm.atc_code_for(cn), stamp))
+            store.put_targets(cid, _to_targets(cid, ann))
+            store.put_indications(cid, _to_indications(cid, appr, stamp))
+            summary.researched += 1
+            logger.info("")
+            logger.info(line(f"{cn}", indent=2))
+            logger.info(kv("modality", ann.modality, indent=4, pad=12))
+            logger.info(kv("targets", "; ".join(f"{t.target}:{t.action}" for t in ann.targets) or "(none)", indent=4, pad=12))
+            logger.info(kv("pottr", pottr.pottr_class_for(cn) or "(not in POTTR)", indent=4, pad=12))
+            logger.info(kv("atc", rxnorm.atc_code_for(cn) or "(none)", indent=4, pad=12))
+            logger.info(kv("indications", str(len(appr.indications)), indent=4, pad=12))
+            for ind in appr.indications:
+                bio = f" [{ind.biomarker}]" if ind.biomarker else ""
+                logger.info(line(f"· {ind.cancer_type}{bio} — TGA {ind.tga_status}, PBS {ind.pbs_status}", indent=8))
+        if checkpoint:
+            checkpoint()
+            logger.info(line(f"— checkpoint saved (batch {bi})", indent=2))
 
     return summary

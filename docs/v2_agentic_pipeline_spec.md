@@ -106,10 +106,15 @@ The normalized relations (the flat TSV is their **materialized join**):
 | **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
 | **drug_ref** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
-\* **Built standalone (2026-07-13).** The drug dimension is really **three** 3NF tables — `drug_alias` (raw
-name → canonical id, LLM doer→reviewer with RxNorm grounding), `drug_ref` (canonical → intrinsic facts), and
-`drug_indication` (canonical → TGA/PBS approval, **indication-specific** — cancer + biomarker + line/stage,
-verified against the live TGA/PBS sites). Persisted at `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`.
+\* **Built standalone (2026-07-13).** The drug dimension is **four** 3NF tables in
+`aus_trial_universe/agentic/tasks/drug_ref/` — `drug_alias` (raw name → namespaced `canonical_id`:
+`rxcui:<n>` else `name:<x>`), `drug_ref` (canonical → intrinsic facts), `drug_target` (canonical → (target,
+action) pairs — the mechanism), `drug_indication` (canonical → TGA/PBS approval, **indication-specific**, verified
+against the live TGA/PBS sites). **Division of labour:** LLM doer→reviewer does the *judgement* (canonical
+identity, modality/target/class, approvals); the *deterministic* facts — `rxcui` + `atc_code` (RxNorm RRF) and
+`pottr_drug_class` (POTTR ontology walk) — are offline lookups (`rxnorm.py` / `pottr.py`), not LLM guesses.
+Built via `make drug-ref-build DRUGS=.. | IDS=.. | ALL_TRIALS=1`; incremental + batched-with-checkpoint;
+`--refresh-drugs` to re-research. Persisted at `data/agentic/resources/drug_ref/version_<ddmmyyyy>/` (4 TSVs).
 *Deferred (user):* mapping each indication's free-text cancer/biomarker into the eligibility vocabulary
 (OncoTree + finding-model) and joining `drug_ref` back into `combined` — done *after* the standalone tables.
 | **eligibility** (assigned to a regime) | (trialId, regime_id, conj_id) | 5 eligibility columns (+prov, inline NOT()) | LLM extract; trial-wide by default |

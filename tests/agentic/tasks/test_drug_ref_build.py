@@ -1,16 +1,21 @@
-"""drug_ref build workflow (fake client): alias dedup, once-per-canonical research, incremental reuse."""
+"""drug_ref build workflow (fake client): alias dedup, once-per-canonical research, deterministic lookups
+wired in (mocked here — OOTB-safe), namespaced canonical_id, drug_target pairs, incremental reuse."""
 from __future__ import annotations
 
 import threading
 from datetime import date
 
+import pytest
+
 from aus_trial_universe.agentic.core.client import LlmResult
+from aus_trial_universe.agentic.tasks.drug_ref import pottr, rxnorm
 from aus_trial_universe.agentic.tasks.drug_ref.schema import (
     ApprovalByIndication,
     ApprovedIndication,
     Canonicalization,
     DrugAnnotation,
     ReviewVerdict,
+    TargetAction,
 )
 from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
 from aus_trial_universe.agentic.tasks.drug_ref.workflow import build_drug_ref
@@ -19,12 +24,13 @@ from aus_trial_universe.agentic.tasks.drug_ref.workflow import build_drug_ref
 class _FakeClient:
     """Canned outputs by schema (parse + research alike). Canonicalization is keyed by raw substring."""
 
-    def __init__(self, canon_map, annotation, approval):
+    def __init__(self, canon_map, annotation, approval, raise_annot_for=None):
         self.canon_map = canon_map
         self.annotation = annotation
         self.approval = approval
+        self.raise_annot_for = raise_annot_for   # simulate an unrecoverable failure for one drug
         self.calls = {"canon": 0, "annot": 0, "appr": 0}
-        self._lock = threading.Lock()  # research() fans out across threads
+        self._lock = threading.Lock()
 
     def _r(self, obj):
         return LlmResult(obj, "fake", "{}", False, 1)
@@ -49,6 +55,8 @@ class _FakeClient:
             return self._r(Canonicalization(canonical_name=""))
         if schema is DrugAnnotation:
             self._bump("annot")
+            if self.raise_annot_for and self.raise_annot_for in user_input:
+                raise RuntimeError("simulated unrecoverable API failure")
             return self._r(self.annotation)
         if schema is ApprovalByIndication:
             self._bump("appr")
@@ -61,36 +69,58 @@ class _FakeClient:
 def _client():
     return _FakeClient(
         canon_map={
-            "Keytruda": Canonicalization(canonical_name="pembrolizumab", rxcui="1547545", aliases=["Keytruda", "MK-3475"]),
-            "MK-3475": Canonicalization(canonical_name="pembrolizumab", rxcui="1547545"),
+            "Keytruda": Canonicalization(canonical_name="pembrolizumab", aliases=["Keytruda", "MK-3475"]),
+            "MK-3475": Canonicalization(canonical_name="pembrolizumab"),
             "Ris-Rez": Canonicalization(canonical_name="risvutatug rezetecan", is_investigational=True),
             "Radiotherapy": Canonicalization(canonical_name=""),   # not a drug
         },
-        annotation=DrugAnnotation(modality="mAb", mechanism="anti-PD-1", drug_class="checkpoint inhibitor",
-                                  pottr_drug_class="cancer_therapy -> immunotherapy -> anti-PD-1", atc_code="L01FF02"),
+        annotation=DrugAnnotation(modality="monoclonal antibody",
+                                  targets=[TargetAction(target="PD-1", action="antagonist")],
+                                  drug_class="checkpoint inhibitor",
+                                  fda_status="approved (2014): melanoma | NSCLC", ema_status="approved (2015)"),
         approval=ApprovalByIndication(indications=[
             ApprovedIndication(indication_raw="unresectable Stage III/IV melanoma", cancer_type="melanoma",
-                               tga_status="approved", pbs_status="approved"),
+                               combination="monotherapy", tga_status="approved", pbs_status="approved"),
             ApprovedIndication(indication_raw="NSCLC PD-L1>=50% 1L", cancer_type="NSCLC", biomarker="PD-L1 >=50%",
-                               line_of_therapy="1L", tga_status="approved", pbs_status="not_approved"),
+                               line_of_therapy="1L", combination="in combination with chemotherapy",
+                               tga_status="approved", pbs_status="not_approved"),
         ]),
     )
 
 
-def test_build_dedups_aliases_and_researches_each_canonical_once():
+@pytest.fixture(autouse=True)
+def _mock_deterministic(monkeypatch):
+    """rxcui / atc / pottr are deterministic lookups over big gitignored data — mock them for unit tests."""
+    rx = {"pembrolizumab": "1547545"}
+    atc = {"pembrolizumab": "L01FF02"}
+    pt = {"pembrolizumab": "cancer_therapy -> anti-PD-1_monoclonal_antibody"}
+    monkeypatch.setattr(rxnorm, "resolve_rxcui", lambda n: rx.get(n.strip().lower(), ""))
+    monkeypatch.setattr(rxnorm, "atc_code_for", lambda n: atc.get(n.strip().lower(), ""))
+    monkeypatch.setattr(pottr, "pottr_class_for", lambda n: pt.get(n.strip().lower(), ""))
+
+
+def test_build_dedups_researches_once_and_wires_deterministic_facts():
     client = _client()
     store = DrugRefStore()
     summary = build_drug_ref(client, ["Keytruda", "MK-3475", "Ris-Rez", "Radiotherapy"], store, today=date(2026, 7, 13))
     assert summary.canonicalized == 4 and summary.non_drug == 1        # Radiotherapy -> not a drug
-    assert summary.researched == 2                                     # 2 real canonicals, not 3 raw drug names
-    assert client.calls["annot"] == 2 and client.calls["appr"] == 2    # research is once-per-canonical
-    assert store.canonical_for("Keytruda") == store.canonical_for("MK-3475") != ""   # alias dedup
+    assert summary.researched == 2                                     # 2 real canonicals, not 3 raw names
+    assert client.calls["annot"] == 2 and client.calls["appr"] == 2    # once-per-canonical
+
+    # namespaced canonical_id: rxcui:<n> when resolved, name:<x> for investigational
     pid = store.canonical_for("Keytruda")
-    assert store.ref(pid).mechanism == "anti-PD-1" and store.ref(pid).atc_code == "L01FF02"
+    assert pid == store.canonical_for("MK-3475") == "rxcui:1547545"    # dedup + rxcui-backed id
+    assert store.canonical_for("Ris-Rez") == "name:risvutatug rezetecan"
+
+    r = store.ref(pid)
+    assert r.rxcui == "1547545" and r.atc_code == "L01FF02"            # deterministic lookups wired in
+    assert r.pottr_drug_class == "cancer_therapy -> anti-PD-1_monoclonal_antibody"
+    assert r.modality == "monoclonal antibody" and r.aliases == "Keytruda | MK-3475"
+    assert store.targets_for(pid)[0].target == "PD-1"                  # drug_target pairs
     inds = store.indications_for(pid)
-    assert {i.cancer_type for i in inds} == {"melanoma", "NSCLC"}
     nsclc = next(i for i in inds if i.cancer_type == "NSCLC")
-    assert nsclc.biomarker == "PD-L1 >=50%" and nsclc.pbs_status == "not_approved"   # cancer+biomarker; per-agency
+    assert nsclc.biomarker == "PD-L1 >=50%" and nsclc.pbs_status == "not_approved" and \
+        nsclc.combination == "in combination with chemotherapy"
 
 
 def test_incremental_reuses_existing(tmp_path):
@@ -100,20 +130,32 @@ def test_incremental_reuses_existing(tmp_path):
     store.save(tmp_path, on=date(2026, 7, 13))
     after_first = dict(client.calls)
 
-    store2 = DrugRefStore.load(tmp_path)              # a later build reads the resource
+    store2 = DrugRefStore.load(tmp_path)
     summary = build_drug_ref(client, ["Keytruda", "Ris-Rez"], store2, today=date(2026, 7, 13))
     assert summary.reused_alias == 2 and summary.researched == 0 and summary.reused_ref == 2
     assert client.calls == after_first               # pure lookup — no new LLM calls
 
 
-def test_refresh_forces_re_research(tmp_path):
+def test_build_soft_fails_one_drug_and_continues():
+    """A single unrecoverable drug failure must not kill the run — it is skipped, counted, others proceed."""
+    client = _FakeClient(
+        canon_map={"DrugA": Canonicalization(canonical_name="druga"),
+                   "DrugB": Canonicalization(canonical_name="drugb")},
+        annotation=DrugAnnotation(modality="small molecule", drug_class="x"),
+        approval=ApprovalByIndication(indications=[]),
+        raise_annot_for="drugb",   # DrugB's annotate blows up
+    )
+    store = DrugRefStore()
+    summary = build_drug_ref(client, ["DrugA", "DrugB"], store, today=date(2026, 7, 13), workers=1)
+    assert summary.researched == 1 and summary.failed == 1        # DrugA done; DrugB failed but did not crash
+    assert store.ref("name:druga").modality == "small molecule"   # the good drug is fully researched
+    assert store.ref("name:drugb").researched_on == ""            # the failed drug stays seed-only (retried next run)
+
+
+def test_checkpoint_called_per_batch():
     client = _client()
     store = DrugRefStore()
-    build_drug_ref(client, ["Keytruda"], store, today=date(2026, 7, 13))
-    store.save(tmp_path, on=date(2026, 7, 13))
-    before = dict(client.calls)
-
-    store2 = DrugRefStore.load(tmp_path)
-    summary = build_drug_ref(client, ["Keytruda"], store2, refresh=True, today=date(2026, 7, 13))
-    assert summary.researched == 1
-    assert client.calls["annot"] == before["annot"] + 1   # re-researched despite already present
+    calls = {"n": 0}
+    build_drug_ref(client, ["Keytruda", "Ris-Rez"], store, today=date(2026, 7, 13),
+                   workers=1, checkpoint=lambda: calls.__setitem__("n", calls["n"] + 1))
+    assert calls["n"] >= 3                            # per Stage-1 batch + per research batch (workers=1 -> per drug)

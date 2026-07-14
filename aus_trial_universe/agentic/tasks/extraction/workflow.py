@@ -21,11 +21,13 @@ from aus_trial_universe.agentic.core.logfmt import ADVISORY, FAIL, PASS, bullet,
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.extraction.agents import (
     build_drug_agent,
+    build_drug_reviewer_agent,
     build_extractor_agent,
     build_reviewer_agents,
 )
 from aus_trial_universe.agentic.tasks.extraction.schema import (
     DnfRow,
+    DrugExtraction,
     EligibilityExtraction,
     ExtractedRow,
     TRIAL_WIDE,
@@ -87,10 +89,10 @@ def extract_trial(
 ) -> ExtractionResult:
     """Extract a trial's eligibility into a DNF table (see module docstring).
 
-    cohorts=None triggers the ANZCTR path (LLM cohort-detection + drug extraction);
-    a provided list is the CTGov path (deterministic cohorts/drug).
+    cohorts=None triggers the ANZCTR path (single eligibility cohort; drug doer->reviewer);
+    a provided list is the CTGov path (deterministic regimes/drug).
     """
-    cohorts = _resolve_cohorts(client, source_text, cohorts)
+    cohorts = _resolve_cohorts(client, source_text, cohorts, use_reviewer=use_judge)
     cohort_index = {f"C{i + 1}": c for i, c in enumerate(cohorts)}
     logger.info("")
     logger.info("cohorts (%d)", len(cohort_index))
@@ -188,13 +190,37 @@ def extract_trial(
 # --------------------------------------------------------------------------- #
 # Cohort / drug resolution
 # --------------------------------------------------------------------------- #
-def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] | None) -> list[Cohort]:
+def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: int = 3,
+                         use_reviewer: bool = True) -> DrugExtraction:
+    """ANZCTR drug identification (doer -> reviewer): intervention + comparator drug names from the text."""
+    doer = build_drug_agent(client)
+    reviewer = build_drug_reviewer_agent(client) if use_reviewer else None
+
+    def produce(feedback: str = "") -> DrugExtraction:
+        return doer(source_text if not feedback
+                    else f"{source_text}\n\n[Reviewer feedback — fix these]:\n{feedback}")
+
+    def check(d: DrugExtraction) -> CheckResult:
+        if reviewer is not None:
+            v = reviewer(f"{source_text}\n\nPROPOSED intervention_drugs={d.intervention_drugs}; "
+                         f"comparator_drugs={d.comparator_drugs}")
+            if not v.faithful:
+                return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the drug extraction"])
+        return CheckResult(ok=True)
+
+    return refine(produce=lambda: produce(""), check=check,
+                  repair=lambda d, probs: produce("\n".join(f"- {p}" for p in probs)),
+                  max_attempts=max_attempts).value
+
+
+def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] | None,
+                     *, use_reviewer: bool = True) -> list[Cohort]:
     if cohorts is not None:  # CTGov: deterministic regimes from armGroups
         return cohorts or [Cohort("all")]
     # ANZCTR: a SINGLE eligibility cohort (all criteria are trial-wide — no cohort detection); the regime axis
     # comes from the drugs — an experimental regime (INTERVENTIONS) + a control regime (COMPARATOR) only when the
     # comparator names an actual drug. Same data structure as CTGov (spec §6.1).
-    dr = build_drug_agent(client)(source_text)
+    dr = extract_anzctr_drugs(client, source_text, use_reviewer=use_reviewer)
     main = "; ".join(dict.fromkeys(d.strip() for d in dr.intervention_drugs if d and d.strip()))
     comp = "; ".join(dict.fromkeys(d.strip() for d in dr.comparator_drugs if d and d.strip()))
     regimes: list[Cohort] = []

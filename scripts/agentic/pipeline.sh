@@ -12,7 +12,7 @@
 #   validate  Independent output validator ("review of the reviewer agents"): re-checks a finished
 #             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
 #   drug-ref-build  Build/refresh the drug reference resource (spec §6.1). Incremental (existing drugs
-#             reused). Vars: DRUGS="a; b" | IDS=NCT1,NCT2 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL.
+#             reused). Vars: DRUGS="a; b" | IDS=NCT1,NCT2 | ALL_TRIALS=1 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL.
 #   clean   Delete all run outputs under data/agentic/ (output/, log/, cache/).
 #           No API/Python needed; handy for clearing test runs.
 
@@ -117,12 +117,14 @@ case "${CMD}" in
     ;;
   drug-ref-build)
     # Standalone drug-reference builder (spec §6.1). Incremental: existing drugs are reused (lookup).
-    #   Vars: DRUGS="a; b; c" | IDS=NCT1,NCT2 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL=<name>
+    #   Vars: DRUGS="a; b; c" | IDS=NCT1,NCT2 | ALL_TRIALS=1 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL=<name>
     dargs=()
     if [[ -n "${DRUGS:-}" ]]; then dargs=(--drugs "${DRUGS}")
     elif [[ -n "${IDS:-}" ]]; then dargs=(--from-trials "${IDS}")
-    else echo "drug-ref-build needs DRUGS=\"a; b\" or IDS=NCT1,NCT2" >&2; exit 2; fi
+    elif [[ -n "${ALL_TRIALS:-}" ]]; then dargs=(--all-trials)
+    else echo "drug-ref-build needs DRUGS=\"a; b\" | IDS=NCT1,NCT2 | ALL_TRIALS=1" >&2; exit 2; fi
     if [[ -n "${LIMIT:-}" ]]; then dargs+=(--limit "${LIMIT}"); fi
+    if [[ -n "${WORKERS:-}" ]]; then dargs+=(--workers "${WORKERS}"); fi
     if [[ -n "${REFRESH_DRUGS:-}" ]]; then dargs+=(--refresh-drugs); fi
     if [[ -n "${NO_REVIEW:-}" ]]; then dargs+=(--no-review); fi
     if [[ -n "${MODEL:-}" ]]; then dargs+=(--model "${MODEL}"); fi

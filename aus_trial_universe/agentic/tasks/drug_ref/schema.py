@@ -1,8 +1,14 @@
 """Drug-reference table schemas (spec §6.1).
 
-The three persisted TSV tables are plain dataclasses (one row each); their column order is derived
-from the field order so the schema is the single source of truth. LLM I/O schemas (pydantic) for the
-canonicalize / annotate / approval agents live alongside the agents and populate these rows.
+The persisted TSV tables are plain dataclasses (one row each); their column order derives from the field
+order so the schema is the single source of truth. LLM I/O schemas (pydantic) drive the *judgement* stages
+(canonicalize / annotate / approvals); the *deterministic* facts (rxcui / pottr_drug_class / atc_code) are
+NOT produced by the LLM — they come from the RxNorm / POTTR / ATC lookups (see pottr.py / rxnorm.py / atc.py).
+
+Conventions:
+- `canonical_id` is a NAMESPACED, self-describing string: ``rxcui:<n>`` when RxNorm-resolved, else
+  ``name:<normalized canonical name>`` (investigational agents have no RXCUI). Uniform type, no int/string mixing.
+- `|` is the list separator inside free-text fields (aliases, fda/ema detail) — a plain "and-also" list, NOT logic.
 """
 from __future__ import annotations
 
@@ -16,57 +22,76 @@ APPROVED = "approved"
 NOT_APPROVED = "not_approved"
 UNKNOWN = "unknown"
 
+# Controlled vocabulary for drug modality (pick exactly one).
+MODALITIES = (
+    "small molecule", "monoclonal antibody", "antibody-drug conjugate", "bispecific antibody",
+    "cell therapy", "oncolytic virus", "therapeutic vaccine", "radioligand", "peptide",
+    "oligonucleotide", "gene therapy", "other",
+)
+
 
 # --- Table 1: raw name (as written) -> canonical identity -------------------- #
 @dataclass
 class DrugAlias:
     raw_name: str = ""       # exactly as written in the registry (the lookup key)
-    canonical_id: str = ""   # FK -> DrugRef.canonical_id
+    canonical_id: str = ""   # FK -> DrugRef.canonical_id (namespaced: rxcui:<n> | name:<x>)
 
 
 # --- Table 2: canonical drug -> intrinsic, drug-level facts ------------------ #
 @dataclass
 class DrugRef:
-    canonical_id: str = ""       # RxNorm ingredient RXCUI where it exists, else a normalized-name id
-    canonical_name: str = ""     # human-readable canonical (RxNorm ingredient name / best canonical)
-    rxcui: str = ""              # "" for investigational / not-in-RxNorm agents
-    aliases: str = ""            # "; "-joined brand names / synonyms
-    modality: str = ""           # small molecule / mAb / ADC / bispecific / cell therapy / vaccine / …
-    mechanism: str = ""          # molecular target(s) / mechanism of action
-    drug_class: str = ""         # general drug class (used even when not in POTTR)
-    pottr_drug_class: str = ""   # POTTR class hierarchy
-    atc_code: str = ""           # WHO ATC classification code
-    fda_status: str = ""         # coarse FDA approval summary (additional context)
-    ema_status: str = ""         # coarse EMA approval summary (additional context)
-    sources: str = ""            # compact per-fact citations, "field=url; ..." (cite always)
+    canonical_id: str = ""       # rxcui:<n> when RxNorm-resolved, else name:<normalized canonical name>
+    canonical_name: str = ""     # RxNorm ingredient name / best canonical name
+    rxcui: str = ""              # RxNorm identity ONLY — presence means "in RxNorm", NOT "approved". "" if none.
+    aliases: str = ""            # "|"-joined brand names / synonyms
+    modality: str = ""           # one of MODALITIES (deterministic vocab)
+    drug_class: str = ""         # general drug class (LLM; used even when not in POTTR)
+    pottr_drug_class: str = ""   # POTTR hierarchy, root->leaf joined by " -> " (DETERMINISTIC lookup). "" if not in POTTR.
+    atc_code: str = ""           # WHO ATC classification code (DETERMINISTIC lookup). "" if none.
+    fda_status: str = ""         # coarse FDA summary, "<status> (<year>): <detail> | <detail>" (LLM)
+    ema_status: str = ""         # coarse EMA summary, same format (LLM)
+    sources: str = ""            # per-fact citations, "field=url | ..." (cite always)
     researched_on: str = ""      # ISO date (YYYY-MM-DD) this canonical was last researched
 
 
-# --- Table 3: (canonical, indication) -> TGA/PBS approval (indication-specific) #
+# --- Table 3: canonical drug -> (molecular target, action) pairs ------------- #
+@dataclass
+class DrugTarget:
+    """One (target, action) pair — a drug acts on each target via a specific action, and a multi-target
+    drug has different actions per target (dordaviprone: ClpP=activator, DRD2=antagonist), so they are kept
+    PAIRED, one row per target. `target` is the queryable matching dimension."""
+
+    canonical_id: str = ""   # FK -> DrugRef.canonical_id
+    target: str = ""         # molecular target / pathway, e.g. "PD-1", "TOP1", "ClpP", "B7-H3"
+    action: str = ""         # inhibitor / antagonist / agonist / activator / degrader / ADC-binding / …
+    note: str = ""           # nuance, e.g. "payload" / "antigen" / "dual"
+
+
+# --- Table 4: (canonical, indication) -> TGA/PBS approval (indication-specific) #
 @dataclass
 class DrugIndication:
-    """One approved indication, captured AS THE REGULATOR STATES IT. An indication is often
-    cancer + biomarker (HER2+ breast, NSCLC PD-L1>=50%) and/or + line/stage, so it's decomposed into
-    as-stated free-text components and the PK is a surrogate `indication_id` (a drug has many, incl.
-    several per cancer type).
-
-    DEFERRED (spec §6.1; user 2026-07-13): mapping these components into the eligibility vocabulary
-    (OncoTree code + finding-model) — that's what enables the symmetric approval<->eligibility match, and
-    it comes with the trial-link step, which is parked. For now these stay free text, faithful to the source.
-    """
+    """One approved indication, captured AS THE REGULATOR STATES IT, decomposed into a static, comprehensive
+    set of free-text components (an indication is often cancer + biomarker + line/stage + combination, etc.).
+    TGA and PBS are independent columns on the same row (both depend fully on the key; only two fixed AU
+    agencies). DEFERRED (user): mapping the components into the eligibility vocabulary (OncoTree + finding-model)
+    for symmetric matching — comes with the trial-link."""
 
     canonical_id: str = ""       # FK -> DrugRef.canonical_id
     indication_id: str = ""      # surrogate id, unique within a canonical
     indication_raw: str = ""     # the indication exactly as the regulator states it (full text, audit)
-    # --- as-stated components (free text; NOT yet mapped to the eligibility vocabulary) ---
-    cancer_type: str = ""        # as stated, e.g. "melanoma", "NSCLC"
-    biomarker: str = ""          # as stated, e.g. "PD-L1 >=50%", "HER2-positive", "MSI-H/dMMR"
-    line_of_therapy: str = ""    # e.g. "1L", ">=2 prior lines"
+    # --- static, comprehensive as-stated components (free text) ---
+    cancer_type: str = ""        # e.g. "melanoma", "NSCLC"
+    biomarker: str = ""          # e.g. "PD-L1 >=50%", "HER2-positive", "MSI-H/dMMR"
     stage: str = ""              # e.g. "unresectable Stage III/IV"
-    # --- per-agency approval + evidence ---
+    line_of_therapy: str = ""    # e.g. "1L", ">=2 prior lines"
+    prior_therapy: str = ""      # required prior treatment, e.g. "after platinum failure"
+    combination: str = ""        # "monotherapy" | "in combination with <X>"
+    setting: str = ""            # adjuvant / neoadjuvant / metastatic / curative-intent
+    patient_population: str = "" # e.g. "adult", "pediatric >=1 year"
+    # --- per-agency approval + evidence (independent) ---
     tga_status: str = ""         # approved | not_approved | unknown
-    tga_date: str = ""           # approval/registration date (evidence)
-    tga_evidence_url: str = ""   # ARTG / PI link
+    tga_date: str = ""
+    tga_evidence_url: str = ""
     pbs_status: str = ""
     pbs_date: str = ""
     pbs_evidence_url: str = ""
@@ -79,81 +104,100 @@ def _columns(dc) -> list[str]:
 
 DRUG_ALIAS_COLUMNS = _columns(DrugAlias)
 DRUG_REF_COLUMNS = _columns(DrugRef)
+DRUG_TARGET_COLUMNS = _columns(DrugTarget)
 DRUG_INDICATION_COLUMNS = _columns(DrugIndication)
 
 TABLE_FILES = {
     "drug_alias": "drug_alias.tsv",
     "drug_ref": "drug_ref.tsv",
+    "drug_target": "drug_target.tsv",
     "drug_indication": "drug_indication.tsv",
 }
 
 
 # --------------------------------------------------------------------------- #
-# Canonical identity — keyed on the normalized canonical NAME (robust dedup; a web-searched RXCUI is
-# noisy, so it is kept as an attribute, not the key). All aliases of one drug share this id.
+# Canonical identity — namespaced, self-describing string (no int/string mixing)
 # --------------------------------------------------------------------------- #
 _ID_WS_RE = re.compile(r"\s+")
 
 
-def canonical_id_for(canonical_name: str) -> str:
+def canonical_id_for(canonical_name: str, rxcui: str = "") -> str:
+    """``rxcui:<n>`` when RxNorm-resolved (a real id, distinct from the name), else
+    ``name:<normalized canonical name>`` for investigational agents with no RXCUI."""
+    rx = (rxcui or "").strip()
+    if rx:
+        return f"rxcui:{rx}"
     norm = _ID_WS_RE.sub(" ", (canonical_name or "").strip().lower())
     return f"name:{norm}" if norm else ""
 
 
 # --------------------------------------------------------------------------- #
-# LLM I/O schemas (pydantic) for the doer/reviewer agents
+# LLM I/O schemas (pydantic) — JUDGEMENT stages only (deterministic facts excluded)
 # --------------------------------------------------------------------------- #
 class Canonicalization(BaseModel):
-    """Stage 1: raw drug name -> canonical identity (RxNorm ingredient, grounded, LLM judgement)."""
+    """Stage 1 (judgement): raw drug name -> canonical identity. rxcui is NOT here — it is a deterministic
+    RxNorm lookup on `canonical_name`."""
 
     canonical_name: str = Field(description="The canonical ingredient name (RxNorm ingredient where it exists; "
-                                            "for an investigational agent, its best canonical/INN name).")
-    rxcui: str = Field(default="", description="RxNorm RXCUI of the ingredient if found, else \"\".")
-    aliases: list[str] = Field(default_factory=list, description="Brand names / synonyms for this drug.")
-    is_investigational: bool = Field(default=False, description="True if not an approved/RxNorm drug (novel agent).")
-    notes: str = Field(default="", description="Brief reasoning / RxNorm evidence.")
+                                            "for an investigational agent, its best canonical / INN name). "
+                                            "\"\" if the value is not a drug (procedure / placebo / radiotherapy).")
+    aliases: list[str] = Field(default_factory=list, description="Brand names / synonyms / code names.")
+    is_investigational: bool = Field(default=False, description="True if no approved/RxNorm drug (novel agent).")
+    notes: str = Field(default="", description="Brief reasoning.")
+
+
+class TargetAction(BaseModel):
+    """One (target, action) pair for a drug (Stage 2 judgement)."""
+
+    target: str = Field(description="Molecular target / pathway, e.g. 'PD-1', 'TOP1', 'ClpP', 'B7-H3', 'PI3K/mTOR'.")
+    action: str = Field(description="Action on that target: inhibitor / antagonist / agonist / activator / "
+                                    "degrader / ADC-binding / etc.")
+    note: str = Field(default="", description="Nuance, e.g. 'payload', 'antigen', 'dual'. \"\" if none.")
 
 
 class DrugAnnotation(BaseModel):
-    """Stage 2: intrinsic, drug-level facts (trial-independent)."""
+    """Stage 2 (judgement): intrinsic facts the LLM interprets. POTTR / ATC are NOT here (deterministic)."""
 
-    modality: str = Field(default="", description="small molecule / mAb / ADC / bispecific / cell therapy / vaccine / …")
-    mechanism: str = Field(default="", description="Molecular target(s) / mechanism of action.")
-    drug_class: str = Field(default="", description="Concise general drug class / mechanism.")
-    pottr_drug_class: str = Field(default="", description="POTTR class hierarchy, root->leaf joined by ' -> '; \"\" if not in POTTR.")
-    atc_code: str = Field(default="", description="WHO ATC classification code.")
-    fda_status: str = Field(default="", description="Coarse FDA approval summary (e.g. 'approved 2016 (melanoma, NSCLC, …)').")
-    ema_status: str = Field(default="", description="Coarse EMA approval summary.")
-    sources: str = Field(default="", description="Per-fact citations, compact 'field=url; ...' (cite always).")
+    modality: str = Field(description=f"EXACTLY ONE of: {', '.join(MODALITIES)}.")
+    targets: list[TargetAction] = Field(default_factory=list, description="The (target, action) pairs.")
+    drug_class: str = Field(default="", description="Concise GENERAL drug class (e.g. 'PARP inhibitor').")
+    fda_status: str = Field(default="", description="Coarse US FDA summary: '<status> (<year>): <detail> | <detail>' "
+                                                    "(e.g. 'approved (2014): melanoma | NSCLC'); '|' separates items.")
+    ema_status: str = Field(default="", description="Coarse EMA summary, same format.")
+    sources: str = Field(default="", description="Per-fact citations, 'field=url | ...'.")
 
 
 class ApprovedIndication(BaseModel):
-    """One indication as the regulator states it (free text; NOT yet eligibility-vocabulary mapped)."""
+    """One indication as the regulator states it (free text; NOT eligibility-vocabulary mapped)."""
 
     indication_raw: str = Field(description="The indication exactly as stated by the regulator (full text).")
     cancer_type: str = Field(default="", description="Cancer type as stated, e.g. 'melanoma', 'NSCLC'.")
-    biomarker: str = Field(default="", description="Biomarker as stated, e.g. 'PD-L1 >=50%', 'HER2-positive', 'MSI-H/dMMR'.")
-    line_of_therapy: str = Field(default="", description="e.g. '1L', '>=2 prior lines'.")
+    biomarker: str = Field(default="", description="Biomarker as stated, e.g. 'PD-L1 >=50%', 'HER2-positive'.")
     stage: str = Field(default="", description="e.g. 'unresectable Stage III/IV'.")
+    line_of_therapy: str = Field(default="", description="e.g. '1L', '>=2 prior lines'.")
+    prior_therapy: str = Field(default="", description="Required prior treatment, e.g. 'after platinum failure'.")
+    combination: str = Field(default="", description="'monotherapy' or 'in combination with <X>'.")
+    setting: str = Field(default="", description="adjuvant / neoadjuvant / metastatic / curative-intent.")
+    patient_population: str = Field(default="", description="e.g. 'adult', 'pediatric >=1 year'.")
     tga_status: str = Field(default=UNKNOWN, description="approved | not_approved | unknown (ARTG/PI).")
-    tga_date: str = Field(default="", description="TGA approval/registration date/year (evidence).")
+    tga_date: str = Field(default="", description="TGA approval date/year.")
     tga_evidence_url: str = Field(default="", description="Official ARTG / PI link.")
     pbs_status: str = Field(default=UNKNOWN, description="approved | not_approved | unknown (PBS).")
-    pbs_date: str = Field(default="", description="PBS listing date/year (evidence).")
+    pbs_date: str = Field(default="", description="PBS listing date/year.")
     pbs_evidence_url: str = Field(default="", description="Official pbs.gov.au link.")
 
 
 class ApprovalByIndication(BaseModel):
-    """Stage 3: the drug's TGA/PBS approvals, one entry per indication (indication-specific)."""
+    """Stage 3 (judgement): the drug's TGA/PBS approvals, one entry per indication."""
 
     indications: list[ApprovedIndication] = Field(
         default_factory=list,
-        description="Every distinct TGA/PBS ONCOLOGY indication (approved or explicitly not). [] if none in Australia.",
+        description="Every distinct TGA/PBS ONCOLOGY indication. [] if none in Australia.",
     )
 
 
 class ReviewVerdict(BaseModel):
-    """A reviewer's verdict on one drug-ref stage (verdict + problems only — never a rewritten artifact)."""
+    """A reviewer's verdict on one stage (verdict + problems only — never a rewritten artifact)."""
 
     faithful: bool
     problems: list[str] = Field(default_factory=list, description="Concrete, actionable issues if not faithful.")

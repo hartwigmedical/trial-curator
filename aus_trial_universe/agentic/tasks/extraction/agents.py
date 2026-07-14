@@ -141,6 +141,21 @@ def build_drug_agent(client: LlmClient, *, model: str | None = None) -> Agent[Dr
                  output_schema=DrugExtraction, client=client, model=model)
 
 
+DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS = """\
+You audit the drugs extracted from an ANZCTR trial's INTERVENTIONS / COMPARATOR / CONTROL text (plausibility —
+not re-reading everything). Given the trial text and the proposed intervention_drugs + comparator_drugs, set
+faithful=true only if: intervention_drugs are the actual drug/treatment names stated in INTERVENTIONS (dosing/
+schedule prose excluded, not invented, none missed); comparator_drugs are the comparator DRUG(s) in COMPARATOR,
+or [] when the comparator is placebo / radiotherapy / observation / no active treatment (judge with the CONTROL
+field). Otherwise faithful=false with concrete, actionable problems.
+"""
+
+
+def build_drug_reviewer_agent(client: LlmClient, *, model: str | None = None) -> Agent[JudgeVerdict]:
+    return Agent(name="drug_extractor_reviewer", instructions=DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS,
+                 output_schema=JudgeVerdict, client=client, model=model)
+
+
 # --------------------------------------------------------------------------- #
 # Reviewer panel
 # --------------------------------------------------------------------------- #
