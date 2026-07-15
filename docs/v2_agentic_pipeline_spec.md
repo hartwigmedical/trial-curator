@@ -107,8 +107,10 @@ The normalized relations (the flat TSV is their **materialized join**):
 | **drug_ref** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
 \* **Built standalone (2026-07-13).** The drug dimension is **four** 3NF tables in
-`aus_trial_universe/agentic/tasks/drug_ref/` — `drug_alias` (raw name → namespaced `canonical_id`:
-`rxcui:<n>` else `name:<x>`), `drug_ref` (canonical → intrinsic facts), `drug_target` (canonical → (target,
+`aus_trial_universe/agentic/tasks/drug_ref/` — `drug_alias` (raw name → namespaced `canonical_id`(s):
+`rxcui:<n>` else `name:<x>`; a combination/regimen token splits into its component drugs, so **`1 raw → N`
+canonicals** — a single engineered molecule like an ADC/bispecific stays one), `drug_ref` (canonical →
+intrinsic facts), `drug_target` (canonical → (target,
 action) pairs — the mechanism), `drug_indication` (canonical → TGA/PBS approval, **indication-specific**, verified
 against the live TGA/PBS sites). **Division of labour:** LLM doer→reviewer does the *judgement* (canonical
 identity, modality/target/class, approvals); the *deterministic* facts — `rxcui` + `atc_code` (RxNorm RRF) and

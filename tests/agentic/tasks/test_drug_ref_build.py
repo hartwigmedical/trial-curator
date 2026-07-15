@@ -171,6 +171,16 @@ def test_patient_population_generic_patients_normalized_to_empty():
     assert _clean_pp("adult") == "adult" and _clean_pp("pediatric >=1 year") == "pediatric >=1 year"
 
 
+def test_combo_leftover_backstop_flags_unsplit_names():
+    """The deterministic backstop rejects a component whose name still holds a multi-drug join word, while
+    NOT false-positiving on real single-ingredient INNs (word-boundaried and/or/plus)."""
+    from aus_trial_universe.agentic.tasks.drug_ref.workflow import _COMBO_LEFTOVER
+    for bad in ("a + b", "a / b", "a; b", "a and b", "a plus b", "x OR y"):
+        assert _COMBO_LEFTOVER.search(bad), bad
+    for ok in ("pembrolizumab", "trastuzumab deruxtecan", "folinic acid", "sorafenib", "5-fluorouracil"):
+        assert not _COMBO_LEFTOVER.search(ok), ok
+
+
 def test_combination_raw_splits_into_multiple_canonicals():
     """A combination raw token maps to N standalone canonicals (1 raw -> N), each researched once."""
     client = _FakeClient(

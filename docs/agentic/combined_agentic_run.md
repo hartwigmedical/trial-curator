@@ -61,7 +61,9 @@ Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_unive
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
 Builds the standalone drug reference (4 tables: `drug_alias`, `drug_ref`, `drug_target`, `drug_indication`) at
 `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`. LLM doer→reviewer for judgement (canonicalize / annotate /
-approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and `pottr_drug_class` (POTTR). Incremental
+approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and `pottr_drug_class` (POTTR).
+`canonicalize` splits a combination/regimen token into its component standalone drugs (`1 raw → N` canonicals; a
+single engineered molecule like an ADC/bispecific stays one). Incremental
 (existing non-stale drugs are pure lookups), batched with a checkpoint save after each batch (resumable), soft-fails
 per drug. Logs to `data/agentic/log/`.
 ```bash
