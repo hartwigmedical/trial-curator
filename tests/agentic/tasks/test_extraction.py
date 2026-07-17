@@ -271,3 +271,45 @@ def test_anzctr_no_drugs_falls_back_to_single_regime():
     result = extract_trial(client, trial_id="ACTRN3", source_text="...", cohorts=None)
     assert len(result.rows) == 1 and result.rows[0].cohort == "(all)"
     assert result.rows[0].cancer_type == "melanoma [HEALTH CONDITION]"
+
+
+# --- ANZCTR drug-extractor tightening (non-drug modality backstop + prompt exclusions) --------------- #
+def test_drop_non_drug_modalities_filters_only_exact_modalities():
+    """Deterministic backstop: enumerable non-drug modalities are removed (paren-stripped, case/space-insensitive),
+    while real drug names — even ones whose text merely contains a modality word — are kept (no substring clipping)."""
+    from aus_trial_universe.agentic.tasks.extraction.workflow import _drop_non_drug_modalities
+    got = _drop_non_drug_modalities([
+        "Total Body Irradiation (TBI)", "TBI", "Surgery", "observation", "Placebo", "best supportive care",
+        "Fludarabine", "Melphalan", "Radium-223 dichloride", "radiosensitising agent XYZ",
+    ])
+    assert got == ["Fludarabine", "Melphalan", "Radium-223 dichloride", "radiosensitising agent XYZ"]
+
+
+def test_extract_anzctr_drugs_strips_non_drug_modalities():
+    """The doer->reviewer output is passed through the modality backstop: TBI/Surgery/Placebo never survive as
+    drugs, while the real conditioning drugs do (regression guard for the ANZCTR leak fix)."""
+    from aus_trial_universe.agentic.tasks.extraction.workflow import extract_anzctr_drugs
+    client = _ScriptedClient(
+        extractions=[],
+        intervention_drugs=["Fludarabine", "Melphalan", "Total Body Irradiation", "Surgery"],
+        comparator_drugs=["Placebo", "chemotherapy"],
+    )
+    dr = extract_anzctr_drugs(client, "...trial text...", use_reviewer=True)
+    assert dr.intervention_drugs == ["Fludarabine", "Melphalan"]   # TBI + Surgery dropped
+    assert dr.comparator_drugs == ["chemotherapy"]                 # Placebo dropped
+
+
+def test_anzctr_drug_extractor_prompt_decisions_present():
+    """Prompt-only tightening (2026-07-17) — guard the exclusion rules so a future edit can't silently drop them.
+    Grounded in observed ANZCTR leaks: TBI (modality), AL (disease abbrev), nizatidine (title-only), PA (fragment)."""
+    from aus_trial_universe.agentic.tasks.extraction.agents import (
+        DRUG_EXTRACTOR_INSTRUCTIONS as D, DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS as R)
+    for text in (D, R):
+        low = text.lower()
+        assert "total body irradiation" in low and "surgery" in low          # non-drug modalities excluded
+        assert "al amyloidosis" in low                                        # disease / condition abbreviation
+        assert "concomitant" in low and "prior" in low                       # prior/concomitant meds excluded
+    # doer: INTERVENTIONS primary but title is also consulted; opaque codes -> named agent
+    assert "PRIMARY" in D and "TITLE" in D and "opaque" in D.lower()
+    # reviewer: symmetric — a title-only drug still counts; stray fragments flagged
+    assert "title counts" in R.lower() and "fragment" in R.lower()

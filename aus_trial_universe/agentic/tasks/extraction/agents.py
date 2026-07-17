@@ -121,13 +121,29 @@ is supported by several sections, list ALL of them. Leave *_sources empty for em
 """
 
 DRUG_EXTRACTOR_INSTRUCTIONS = """\
-This is an ANZCTR trial (a single eligibility cohort); its drug regimes come from the drugs it administers. \
-Return drug/treatment names as stated (RAW — no normalization, no RxNorm; exclude dosing/schedule prose):
-- intervention_drugs: the investigational drug(s)/treatment(s) named in the INTERVENTIONS section.
-- comparator_drugs: the comparator DRUG(s) named in the COMPARATOR section — but [] if the comparator is a \
-placebo, radiotherapy, observation / no active treatment, or otherwise not a drug. Use the CONTROL field as a \
-hint: "Placebo"/"Uncontrolled" usually mean no comparator drug; "Active"/"Dose comparison" usually mean there is one.
-Return [] for a list with none.
+This is an ANZCTR trial (a single eligibility cohort); its drug regimes come from the drugs it ADMINISTERS AS THE \
+STUDY INTERVENTION. Return drug/treatment names as stated (RAW — no normalization, no RxNorm; exclude \
+dosing/schedule prose):
+- intervention_drugs: the pharmacological agent(s) administered as the trial's intervention. The INTERVENTIONS \
+section is your PRIMARY source; when it is sparse or empty, ALSO use the STUDY TITLE / SCIENTIFIC TITLE and the \
+other fields to identify the intervention drug(s) (the drug is sometimes named only in the title).
+- comparator_drugs: the comparator DRUG(s) named in COMPARATOR — but [] if the comparator is a placebo, \
+radiotherapy, observation / no active treatment, or otherwise not a drug. Use the CONTROL field as a hint: \
+"Placebo"/"Uncontrolled" usually mean no comparator drug; "Active"/"Dose comparison" usually mean there is one.
+
+Return ONLY actual pharmacological agents (small molecules, biologics, chemo, targeted / immuno / hormonal therapy, \
+vaccines, radioligands, cell / gene therapy, herbal or investigational compounds). NEVER emit:
+- a NON-DRUG modality: surgery, a transplantation procedure, radiotherapy / radiation / TOTAL BODY IRRADIATION \
+(TBI), observation, best supportive / standard care, watchful waiting, a device, ablation, diet / exercise / \
+counselling, or an imaging-only diagnostic agent. (Do KEEP the drugs given WITHIN such a regime — e.g. the \
+conditioning chemotherapy before a transplant.)
+- the DISEASE / CONDITION or its abbreviation (e.g. "AL" for AL amyloidosis) — a condition is never a drug.
+- a drug named only as PRIOR therapy, a REQUIRED or PROHIBITED concomitant medication, washout, rescue medication, \
+premedication, or an eligibility criterion — that is not the intervention under study.
+Prefer the actual named agent(s) over an opaque internal code or arm label: if the text says a code IS a named \
+compound or combination (e.g. a herbal combination composed of two named herbs), return the named component(s), \
+not the bare code; and do NOT emit a stray abbreviation, cohort / part label, or sentence fragment that is not \
+clearly a drug name. Return [] for a list with none.
 """
 
 
@@ -142,12 +158,21 @@ def build_drug_agent(client: LlmClient, *, model: str | None = None) -> Agent[Dr
 
 
 DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS = """\
-You audit the drugs extracted from an ANZCTR trial's INTERVENTIONS / COMPARATOR / CONTROL text (plausibility —
-not re-reading everything). Given the trial text and the proposed intervention_drugs + comparator_drugs, set
-faithful=true only if: intervention_drugs are the actual drug/treatment names stated in INTERVENTIONS (dosing/
-schedule prose excluded, not invented, none missed); comparator_drugs are the comparator DRUG(s) in COMPARATOR,
-or [] when the comparator is placebo / radiotherapy / observation / no active treatment (judge with the CONTROL
-field). Otherwise faithful=false with concrete, actionable problems.
+You audit the drugs extracted from an ANZCTR trial (plausibility — not re-reading everything). Given the trial
+text and the proposed intervention_drugs + comparator_drugs, set faithful=true only if EVERY extracted name is an
+actual pharmacological agent administered AS the trial's intervention or comparator, and NONE is:
+- a NON-DRUG modality (surgery / transplantation / radiotherapy / total body irradiation / observation / best
+  supportive or standard care / device / ablation / diet / exercise / imaging-only agent);
+- the DISEASE / CONDITION or its abbreviation (e.g. "AL" for AL amyloidosis);
+- a drug named only as PRIOR / concomitant / prohibited / rescue / premedication or in the eligibility criteria;
+- a stray non-drug abbreviation, cohort / part label, or sentence fragment (e.g. "PA"), or an opaque code where the
+  text actually names the underlying agent(s).
+Also: intervention_drugs are the agents actually administered (INTERVENTIONS is primary, but a drug named only in
+the study / scientific title counts; dosing/schedule prose excluded, not invented, none missed); comparator_drugs
+are the COMPARATOR drug(s), or [] when the comparator is placebo / radiotherapy / observation / no active treatment
+(judge with the CONTROL field). Flag any non-drug modality, disease/condition, concomitant/prior med, or stray
+fragment wrongly included, and any real intervention drug missed. Otherwise faithful=false with concrete,
+actionable problems.
 """
 
 

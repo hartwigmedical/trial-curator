@@ -106,17 +106,22 @@ The normalized relations (the flat TSV is their **materialized join**):
 | **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
 | **drug_ref** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
-\* **Built standalone (2026-07-13).** The drug dimension is **four** 3NF tables in
-`aus_trial_universe/agentic/tasks/drug_ref/` — `drug_alias` (raw name → namespaced `canonical_id`(s):
-`rxcui:<n>` else `name:<x>`; a combination/regimen token splits into its component drugs, so **`1 raw → N`
-canonicals** — a single engineered molecule like an ADC/bispecific stays one), `drug_ref` (canonical →
-intrinsic facts), `drug_target` (canonical → (target,
-action) pairs — the mechanism), `drug_indication` (canonical → TGA/PBS approval, **indication-specific**, verified
-against the live TGA/PBS sites). **Division of labour:** LLM doer→reviewer does the *judgement* (canonical
-identity, modality/target/class, approvals); the *deterministic* facts — `rxcui` + `atc_code` (RxNorm RRF) and
-`pottr_drug_class` (POTTR ontology walk) — are offline lookups (`rxnorm.py` / `pottr.py`), not LLM guesses.
+\* **Built standalone (2026-07-13; table 1 split into 3NF 2026-07-17).** The drug dimension is **five** 3NF tables in
+`aus_trial_universe/agentic/tasks/drug_ref/`:
+- `intervention_to_canonical` (input intervention name → namespaced `canonical_id`(s): `rxcui:<n>` else `name:<x>`;
+  a combination/regimen token splits into its component drugs, so **`1 input → N` canonicals** — a single engineered
+  molecule like an ADC/bispecific stays one; carries `raw_name_to_map` = the input fragment each canonical came from),
+- `trial_to_intervention` ((trialId, registry) → input intervention name — the **provenance / traceability** record:
+  which trials used each name; deterministic, populated at collection time so it is never lost),
+- `drug_ref` (canonical → intrinsic facts), `drug_target` (canonical → (target, action) pairs — the mechanism),
+- `drug_indication` (canonical → TGA/PBS approval, **indication-specific**, verified against the live TGA/PBS sites).
+
+**Division of labour:** LLM doer→reviewer does the *judgement* (canonical identity, modality/target/class, approvals);
+the *deterministic* facts — `rxcui` + `atc_code` (RxNorm RRF), `pottr_drug_class` (POTTR ontology walk), and the
+trial→intervention provenance — are offline (`rxnorm.py` / `pottr.py` / collection), not LLM guesses.
 Built via `make drug-ref-build DRUGS=.. | IDS=.. | ALL_TRIALS=1`; incremental + batched-with-checkpoint;
-`--refresh-drugs` to re-research. Persisted at `data/agentic/resources/drug_ref/version_<ddmmyyyy>/` (4 TSVs).
+`--refresh-drugs` to re-research. The build **logs per-trial drug attribution** (traceability) and persists at
+`data/agentic/resources/drug_ref/version_<ddmmyyyy>/` (5 TSVs).
 *Deferred (user):* mapping each indication's free-text cancer/biomarker into the eligibility vocabulary
 (OncoTree + finding-model) and joining `drug_ref` back into `combined` — done *after* the standalone tables.
 | **eligibility** (assigned to a regime) | (trialId, regime_id, conj_id) | 5 eligibility columns (+prov, inline NOT()) | LLM extract; trial-wide by default |

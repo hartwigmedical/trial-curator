@@ -1,9 +1,13 @@
 """Persistence for the drug reference (spec §6.1).
 
-An in-memory view of the three tables, loaded from the newest `version_<ddmmyyyy>` dir under
+An in-memory view of the five tables, loaded from the newest `version_<ddmmyyyy>` dir under
 `data/agentic/resources/drug_ref/`. The build is **incremental**: an existing, non-stale canonical is a
 pure lookup (no LLM). `save()` writes a fresh version dir holding the full current state — a self-contained,
 datestamped snapshot (same-day rebuilds overwrite that day's version, matching the other resources).
+
+Table 1 is split (3NF): `intervention_to_canonical` (input string -> canonical drug(s), deduped by string) and
+`trial_to_intervention` (which trials used each input string — the provenance/traceability record). A legacy
+`drug_alias.tsv` (raw_name -> canonical_id) still loads for backward compatibility with pre-split version dirs.
 """
 from __future__ import annotations
 
@@ -14,15 +18,17 @@ from pathlib import Path
 
 from aus_trial_universe.agentic.core.pipeline_io import latest_version_dir
 from aus_trial_universe.agentic.tasks.drug_ref.schema import (
-    DRUG_ALIAS_COLUMNS,
     DRUG_INDICATION_COLUMNS,
     DRUG_REF_COLUMNS,
     DRUG_TARGET_COLUMNS,
+    INTERVENTION_TO_CANONICAL_COLUMNS,
     TABLE_FILES,
-    DrugAlias,
+    TRIAL_TO_INTERVENTION_COLUMNS,
     DrugIndication,
     DrugRef,
     DrugTarget,
+    InterventionToCanonical,
+    TrialToIntervention,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -54,7 +60,10 @@ class DrugRefStore:
     """In-memory drug reference; load the newest version, look up / upsert, then save a new version."""
 
     def __init__(self) -> None:
-        self.aliases: dict[str, list[DrugAlias]] = {}            # raw_name -> [DrugAlias, ...] (a combination raw -> N)
+        # input_intervention_name -> [InterventionToCanonical, ...] (a combination input -> N; deduped by string)
+        self.mappings: dict[str, list[InterventionToCanonical]] = {}
+        # (trialId, registry, input_intervention_name) -> row (deduped provenance / traceability)
+        self.occurrences: dict[tuple[str, str, str], TrialToIntervention] = {}
         self.refs: dict[str, DrugRef] = {}                      # canonical_id -> DrugRef
         self.targets: dict[str, list[DrugTarget]] = {}         # canonical_id -> (target, action) rows
         self.indications: dict[str, list[DrugIndication]] = {}  # canonical_id -> rows
@@ -67,10 +76,20 @@ class DrugRefStore:
             vdir = latest_version_dir(root)
         except FileNotFoundError:
             return store  # first build — empty reference
-        for row in _read_tsv(vdir / TABLE_FILES["drug_alias"]):
-            a = DrugAlias(**{k: row.get(k, "") for k in DRUG_ALIAS_COLUMNS})
-            if a.raw_name:
-                store.aliases.setdefault(a.raw_name, []).append(a)
+        for row in _read_tsv(vdir / TABLE_FILES["intervention_to_canonical"]):
+            m = InterventionToCanonical(**{k: row.get(k, "") for k in INTERVENTION_TO_CANONICAL_COLUMNS})
+            if m.input_intervention_name:
+                store.mappings.setdefault(m.input_intervention_name, []).append(m)
+        if not store.mappings:  # backward compat: pre-split version dir with a legacy drug_alias.tsv
+            for row in _read_tsv(vdir / "drug_alias.tsv"):
+                name, cid = (row.get("raw_name") or "").strip(), (row.get("canonical_id") or "").strip()
+                if name:
+                    store.mappings.setdefault(name, []).append(
+                        InterventionToCanonical(input_intervention_name=name, raw_name_to_map=name, canonical_id=cid))
+        for row in _read_tsv(vdir / TABLE_FILES["trial_to_intervention"]):
+            o = TrialToIntervention(**{k: row.get(k, "") for k in TRIAL_TO_INTERVENTION_COLUMNS})
+            if o.trialId and o.input_intervention_name:
+                store.occurrences[(o.trialId, o.registry, o.input_intervention_name)] = o
         for row in _read_tsv(vdir / TABLE_FILES["drug_ref"]):
             r = DrugRef(**{k: row.get(k, "") for k in DRUG_REF_COLUMNS})
             if r.canonical_id:
@@ -86,13 +105,13 @@ class DrugRefStore:
         return store
 
     # --- lookups ----------------------------------------------------------- #
-    def canonical_ids_for(self, raw_name: str) -> list[str]:
-        """The canonical_id(s) a raw name resolves to — several for a combination/regimen raw, one for a single
-        drug, none for a non-drug (a raw recorded with a single empty-id row)."""
-        return [a.canonical_id for a in self.aliases.get(raw_name, []) if a.canonical_id]
+    def canonical_ids_for(self, input_name: str) -> list[str]:
+        """The canonical_id(s) an input intervention name resolves to — several for a combination/regimen input,
+        one for a single drug, none for a non-drug (an input recorded with a single empty-id row)."""
+        return [m.canonical_id for m in self.mappings.get(input_name, []) if m.canonical_id]
 
-    def has_alias(self, raw_name: str) -> bool:
-        return raw_name in self.aliases
+    def has_mapping(self, input_name: str) -> bool:
+        return input_name in self.mappings
 
     def has_ref(self, canonical_id: str) -> bool:
         return canonical_id in self.refs
@@ -117,12 +136,28 @@ class DrugRefStore:
         return ((today or date.today()) - d).days > max_age_days
 
     # --- upserts ----------------------------------------------------------- #
-    def set_alias(self, raw_name: str, canonical_ids: list[str]) -> None:
-        """Map a raw name to its canonical drug(s): one row per distinct canonical_id (a combination raw ->
-        several), or a single empty-id row marking the raw processed-but-not-a-drug (so it is not re-canonicalized)."""
-        ids = list(dict.fromkeys(c for c in canonical_ids if c))
-        self.aliases[raw_name] = ([DrugAlias(raw_name=raw_name, canonical_id=c) for c in ids]
-                                  or [DrugAlias(raw_name=raw_name, canonical_id="")])
+    def set_mapping(self, input_name: str, pairs: list[tuple[str, str]]) -> None:
+        """Map an input intervention name to its canonical drug(s). `pairs` is (raw_name_to_map, canonical_id)
+        per component: one row per distinct canonical_id (a combination input -> several), or a single empty-id
+        row marking the input processed-but-not-a-drug (so it is not re-canonicalized). For a single-drug or
+        non-drug input the fragment defaults to the whole input; for a combination component an empty fragment is
+        kept empty (an undecomposable regimen acronym)."""
+        multi = len({c for _, c in pairs if c}) > 1
+        rows, seen = [], set()
+        for frag, cid in pairs:
+            if cid and cid not in seen:
+                seen.add(cid)
+                rmap = frag.strip() if frag and frag.strip() else ("" if multi else input_name)
+                rows.append(InterventionToCanonical(input_intervention_name=input_name,
+                                                    raw_name_to_map=rmap, canonical_id=cid))
+        self.mappings[input_name] = rows or [
+            InterventionToCanonical(input_intervention_name=input_name, raw_name_to_map=input_name, canonical_id="")]
+
+    def add_occurrence(self, trial_id: str, registry: str, input_name: str) -> None:
+        """Record that a trial used an input intervention name (deduped provenance / traceability)."""
+        if trial_id and input_name:
+            self.occurrences[(trial_id, registry, input_name)] = TrialToIntervention(
+                trialId=trial_id, registry=registry, input_intervention_name=input_name)
 
     def put_ref(self, ref: DrugRef) -> None:
         self.refs[ref.canonical_id] = ref
@@ -137,8 +172,10 @@ class DrugRefStore:
     def save(self, root: Path = DRUG_REF_ROOT, *, on: date | None = None) -> Path:
         vdir = root / f"version_{(on or date.today()).strftime('%d%m%Y')}"
         vdir.mkdir(parents=True, exist_ok=True)
-        _write_tsv(vdir / TABLE_FILES["drug_alias"], DRUG_ALIAS_COLUMNS,
-                   [asdict(a) for rows in self.aliases.values() for a in rows])
+        _write_tsv(vdir / TABLE_FILES["intervention_to_canonical"], INTERVENTION_TO_CANONICAL_COLUMNS,
+                   [asdict(m) for rows in self.mappings.values() for m in rows])
+        _write_tsv(vdir / TABLE_FILES["trial_to_intervention"], TRIAL_TO_INTERVENTION_COLUMNS,
+                   [asdict(o) for o in self.occurrences.values()])
         _write_tsv(vdir / TABLE_FILES["drug_ref"], DRUG_REF_COLUMNS,
                    [asdict(r) for r in self.refs.values()])
         _write_tsv(vdir / TABLE_FILES["drug_target"], DRUG_TARGET_COLUMNS,

@@ -30,11 +30,31 @@ MODALITIES = (
 )
 
 
-# --- Table 1: raw name (as written) -> canonical identity -------------------- #
+# --- Table 1a: trial intervention name (as written) -> canonical drug(s) ----- #
 @dataclass
-class DrugAlias:
-    raw_name: str = ""       # exactly as written in the registry (the lookup key)
-    canonical_id: str = ""   # FK -> DrugRef.canonical_id (namespaced: rxcui:<n> | name:<x>)
+class InterventionToCanonical:
+    """One (input intervention name -> canonical drug) mapping. A combination/regimen input yields SEVERAL rows
+    (one per component drug, `1 input -> N`); a non-drug input yields a single row with an empty canonical_id.
+    Deduped by the input string — the mapping is a pure function of the string, independent of any trial (the
+    trial provenance lives in TrialToIntervention)."""
+
+    input_intervention_name: str = ""   # exactly as written in the registry (the lookup key)
+    raw_name_to_map: str = ""           # the drug fragment of the input mapped to THIS canonical (= the whole
+    #                                     input for a single-drug name; the split component for a combination;
+    #                                     "" when the input is an undecomposable regimen acronym, e.g. "CAPEOX")
+    canonical_id: str = ""              # FK -> DrugRef.canonical_id (namespaced: rxcui:<n> | name:<x>); "" if non-drug
+
+
+# --- Table 1b: which trial (and registry) each intervention name came from ---- #
+@dataclass
+class TrialToIntervention:
+    """Provenance (the traceability record): a trial used an intervention name. Many-to-many — one input name can
+    appear in several trials, and a trial has several intervention names. FK input_intervention_name ->
+    InterventionToCanonical (the mapping is looked up once per string and reused across every trial that uses it)."""
+
+    trialId: str = ""                   # NCT... (ctgov) or ACTRN... (anzctr)
+    registry: str = ""                  # "ctgov" | "anzctr"
+    input_intervention_name: str = ""   # FK -> InterventionToCanonical.input_intervention_name
 
 
 # --- Table 2: canonical drug -> intrinsic, drug-level facts ------------------ #
@@ -102,13 +122,15 @@ def _columns(dc) -> list[str]:
     return [f.name for f in fields(dc)]
 
 
-DRUG_ALIAS_COLUMNS = _columns(DrugAlias)
+INTERVENTION_TO_CANONICAL_COLUMNS = _columns(InterventionToCanonical)
+TRIAL_TO_INTERVENTION_COLUMNS = _columns(TrialToIntervention)
 DRUG_REF_COLUMNS = _columns(DrugRef)
 DRUG_TARGET_COLUMNS = _columns(DrugTarget)
 DRUG_INDICATION_COLUMNS = _columns(DrugIndication)
 
 TABLE_FILES = {
-    "drug_alias": "drug_alias.tsv",
+    "intervention_to_canonical": "intervention_to_canonical.tsv",
+    "trial_to_intervention": "trial_to_intervention.tsv",
     "drug_ref": "drug_ref.tsv",
     "drug_target": "drug_target.tsv",
     "drug_indication": "drug_indication.tsv",
@@ -142,6 +164,12 @@ class CanonicalComponent(BaseModel):
     canonical_name: str = Field(description="The canonical ingredient / INN name of THIS component (RxNorm "
                                             "ingredient where it exists; for an investigational agent, its best "
                                             "canonical / INN or development code). Salt / formulation reduced to base.")
+    raw_name_to_map: str = Field(default="", description="The exact substring of the INPUT name that refers to THIS "
+                                                         "component — the split fragment for a combination (e.g. "
+                                                         "'Palbociclib' from 'Arm A: Gedatolisib + Palbociclib + "
+                                                         "Fulvestrant'), or the whole cleaned input for a single-drug "
+                                                         "name. Leave \"\" only for an undecomposable regimen acronym "
+                                                         "(e.g. a component of 'CAPEOX' with no substring of its own).")
     aliases: list[str] = Field(default_factory=list, description="Brand / synonym / code names for THIS component.")
     is_investigational: bool = Field(default=False, description="True if no approved/RxNorm drug (novel agent).")
 

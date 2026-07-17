@@ -37,16 +37,30 @@ Return `components` — ONE entry per distinct standalone drug:
   antibody against PD-L1 and VEGF" -> the one agent, e.g. "pumitamig"), or a fusion protein — DO NOT split these.
 - COMBINATION / REGIMEN -> one component PER distinct active drug. Split a name giving several drugs administered
   together, however written: "A + B", "A / B", "A and B", "A plus B", "A, B and C", or a fixed-dose combination
-  product (split into its active ingredients). A named regimen abbreviation ("FOLFOX", "R-CHOP", "FOLFIRINOX") ->
-  expand into its component drugs. If the name lists ALTERNATIVE regimens joined by "OR", return each DISTINCT
+  product (split into its active ingredients). A plain COMMA-SEPARATED LIST of drug names ("A, B, C" or
+  "A, B, or C") is several drugs -> split into each. A named regimen abbreviation ("FOLFOX", "R-CHOP", "FOLFIRINOX")
+  -> expand into its component drugs. If the name lists ALTERNATIVE regimens joined by "OR", return each DISTINCT
   component drug once (the union), not the alternatives.
+  BUT a comma is NOT a separator when it introduces a form / strain / source / valency descriptor of ONE drug —
+  keep those as a SINGLE component: e.g. "immune globulin, human"; "influenza virus vaccine, trivalent";
+  "BCG, Danish strain 1331, live attenuated"; "HPV 9-valent vaccine, recombinant". Split a comma only when each
+  side is itself a distinct drug name.
 - NON-DRUG -> return an EMPTY list (a procedure, "radiotherapy", placebo, "best supportive care", "observation").
+- GENERIC / UNSPECIFIED treatment word ("chemotherapy", "chemo", "standard of care", "standard therapy",
+  "immunotherapy", "chemotherapy 1") names NO specific drug — NEVER invent or expand it into specific agents (do
+  NOT guess "vincristine, cyclophosphamide, ..." from the word "chemotherapy"). If the ONLY treatment is such a
+  generic word, return an EMPTY list; if it accompanies a named drug ("Lorlatinib with chemotherapy"), return ONLY
+  the named drug(s).
 
 For EACH component:
 - canonical_name: the ingredient / INN — brand "Keytruda" and code "MK-3475" both -> "pembrolizumab"; a
   development code -> its INN ("ONC201" -> "dordaviprone", "Ris-Rez" -> "risvutatug rezetecan"). Reduce a
   salt / formulation to the base ingredient ("temozolomide 100 MG" -> "temozolomide"). NEVER leave a "+", "/",
   "and" or other join word inside a canonical_name — that means it was not split.
+- raw_name_to_map: the EXACT substring of the INPUT name that refers to THIS component — for a combination, the
+  split fragment ("Palbociclib" from "Arm A: Gedatolisib + Palbociclib + Fulvestrant"); for a single-drug input,
+  the whole input as given. Set it to "" ONLY for an undecomposable regimen acronym (a component of "CAPEOX" /
+  "R-CHOP" has no substring of its own).
 - aliases: brand / synonym / code names you are confident about.
 - is_investigational: true if a novel/experimental agent with no approved/marketed form.
 Set notes to one line of reasoning (incl. why one drug vs. a combination).
@@ -57,11 +71,16 @@ You audit a proposed canonicalization of a raw trial drug name (check plausibili
 Given the RAW name and the proposed components, set faithful=true only if:
 - the SPLIT is correct: a multi-drug regimen/combination is split into ALL its distinct component drugs (one per
   active drug), while a single molecular entity (ADC, bispecific / trispecific antibody, fusion) is kept as ONE
-  component and NOT split; a named regimen (FOLFOX / R-CHOP) is expanded into its component drugs;
+  component and NOT split; a named regimen (FOLFOX / R-CHOP) is expanded into its component drugs; a comma-separated
+  LIST of distinct drugs ("anastrozole, exemestane, letrozole") is split into each (flag it if left as one
+  comma-joined component) — but a comma that is only a form / strain / source descriptor of ONE drug
+  ("immune globulin, human"; "influenza virus vaccine, trivalent") must stay ONE component, NOT be split;
 - each component's canonical_name is the correct ingredient / INN (brand & code names resolved to it; salt /
-  formulation reduced to base) with NO leftover "+" / "/" / "and" join word inside it;
+  formulation reduced to base) with NO leftover "+" / "/" / "and" / drug-joining "," join word inside it;
 - is_investigational is set correctly per component;
-- a non-drug (procedure / placebo / radiotherapy) yields an EMPTY component list.
+- a non-drug (procedure / placebo / radiotherapy) yields an EMPTY component list;
+- NO component is a specific drug INVENTED from a generic word — flag it if the raw names only "chemotherapy" /
+  "standard of care" / "immunotherapy" yet specific agents (e.g. vincristine, cyclophosphamide) were returned.
 Otherwise faithful=false with concrete, actionable problems.
 """
 

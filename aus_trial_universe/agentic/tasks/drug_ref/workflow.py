@@ -220,6 +220,7 @@ def build_drug_ref(
     raw_names,
     store: DrugRefStore,
     *,
+    occurrences=None,
     refresh: bool = False,
     refresh_days: int | None = None,
     use_reviewer: bool = True,
@@ -230,6 +231,9 @@ def build_drug_ref(
 ) -> BuildSummary:
     """Incrementally add/refresh the given raw drug names in `store` (mutated in place).
 
+    `occurrences`, if given, is an iterable of (trialId, registry, input_intervention_name) tuples recording which
+    trial each input name came from — persisted to the `trial_to_intervention` table (the provenance/traceability
+    record). Canonicalization is still done once per distinct input string and reused across every trial that uses it.
     `workers` sets both the parallelism (fan_out max_workers) and the checkpoint batch size — output is
     identical regardless of `workers`; it only changes throughput (higher may hit API rate limits → retries).
     `checkpoint`, if given, is called after each batch — wire it to store.save() so a long run persists progress
@@ -237,10 +241,12 @@ def build_drug_ref(
     stamp = (today or date.today()).isoformat()
     summary = BuildSummary()
     raws = _dedup(raw_names)
+    for trial_id, registry, name in (occurrences or []):     # provenance (traceability) — deterministic, no LLM
+        store.add_occurrence(trial_id, registry, name)
 
-    # --- Stage 1: canonicalize (LLM judgement) -> alias + deterministic rxcui + seeded identity ---
+    # --- Stage 1: canonicalize (LLM judgement) -> mapping + deterministic rxcui + seeded identity ---
     # Batched with a checkpoint after each batch, so a long Stage 1 persists progress (resilient to interruption).
-    to_canon = [r for r in raws if refresh or not store.has_alias(r)]
+    to_canon = [r for r in raws if refresh or not store.has_mapping(r)]
     summary.reused_alias = len(raws) - len(to_canon)
     logger.info(stage("DRUG-REF · canonicalize"))
     logger.info(line(f"{len(to_canon)} new · {summary.reused_alias} reused · workers={workers}"))
@@ -259,19 +265,19 @@ def build_drug_ref(
             comps = [comp for comp in c.components if comp.canonical_name.strip()]
             if not comps:                                    # a non-drug (procedure / placebo / …)
                 summary.non_drug += 1
-                store.set_alias(raw, [])                     # record raw as processed-but-not-a-drug (skip next run)
+                store.set_mapping(raw, [])                   # record input as processed-but-not-a-drug (skip next run)
                 logger.info(line(f"{raw}  →  (not a drug)", indent=4))
                 continue
-            cids: list[str] = []
-            for comp in comps:                               # 1 raw -> N canonicals (combination split into atoms)
+            pairs: list[tuple[str, str]] = []                # (raw_name_to_map, canonical_id) per component
+            for comp in comps:                               # 1 input -> N canonicals (combination split into atoms)
                 cn = comp.canonical_name.strip()
                 rxcui = rxnorm.resolve_rxcui(cn)             # DETERMINISTIC
                 cid = canonical_id_for(cn, rxcui)
-                cids.append(cid)
+                pairs.append((comp.raw_name_to_map, cid))
                 if not store.has_ref(cid):
                     store.put_ref(DrugRef(canonical_id=cid, canonical_name=cn, rxcui=rxcui,
                                           aliases=" | ".join(comp.aliases)))
-            store.set_alias(raw, cids)
+            store.set_mapping(raw, pairs)
             logger.info(line(f"{raw}  →  {' + '.join(comp.canonical_name.strip() for comp in comps)}", indent=4))
         if checkpoint:
             checkpoint()

@@ -14,6 +14,7 @@ No OncoTree / finding-model conversion — cells are normalized human descriptio
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from aus_trial_universe.agentic.core.client import LlmClient
@@ -190,9 +191,39 @@ def extract_trial(
 # --------------------------------------------------------------------------- #
 # Cohort / drug resolution
 # --------------------------------------------------------------------------- #
+# Deterministic backstop to the drug reviewer: an enumerable set of NON-DRUG modalities that must never surface as
+# a drug regime, however the LLM phrases it. Matched on the parenthetical-stripped, lowercased, whitespace-collapsed
+# FULL name (exact phrase — never a substring, so a real drug name is never clipped). The prompt still handles the
+# judgement cases (disease abbreviations, opaque codes, prior/concomitant meds); this guarantees the clear ones.
+_NON_DRUG_MODALITIES = frozenset({
+    "surgery", "surgical resection", "resection",
+    "radiotherapy", "radiation therapy", "radiation", "radiation treatment", "total body irradiation", "tbi",
+    "external beam radiotherapy", "stereotactic radiotherapy", "stereotactic body radiotherapy", "brachytherapy",
+    "observation", "active surveillance", "watchful waiting", "no treatment", "no active treatment", "no intervention",
+    "best supportive care", "supportive care", "placebo",
+})
+_PAREN_RE = re.compile(r"\([^)]*\)")
+_WS_RE = re.compile(r"\s+")
+
+
+def _is_non_drug_modality(name: str) -> bool:
+    """True if `name` is (exactly) one of the enumerable non-drug modalities — paren-stripped, case/space-normalized."""
+    norm = _WS_RE.sub(" ", _PAREN_RE.sub(" ", name or "").strip().lower()).strip()
+    return norm in _NON_DRUG_MODALITIES
+
+
+def _drop_non_drug_modalities(names: list[str]) -> list[str]:
+    """Filter out clear non-drug modalities from an extracted drug list (order preserved)."""
+    return [n for n in names if n and n.strip() and not _is_non_drug_modality(n)]
+
+
 def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: int = 3,
                          use_reviewer: bool = True) -> DrugExtraction:
-    """ANZCTR drug identification (doer -> reviewer): intervention + comparator drug names from the text."""
+    """ANZCTR drug identification (doer -> reviewer): intervention + comparator drug names from the text.
+
+    INTERVENTIONS is the doer's primary source but a drug named only in the study/scientific title still counts;
+    the prompt excludes non-drug modalities / disease names / prior-concomitant meds, and a deterministic backstop
+    (`_drop_non_drug_modalities`) strips the enumerable non-drug modalities the LLM may still let through."""
     doer = build_drug_agent(client)
     reviewer = build_drug_reviewer_agent(client) if use_reviewer else None
 
@@ -208,9 +239,13 @@ def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: i
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the drug extraction"])
         return CheckResult(ok=True)
 
-    return refine(produce=lambda: produce(""), check=check,
-                  repair=lambda d, probs: produce("\n".join(f"- {p}" for p in probs)),
-                  max_attempts=max_attempts).value
+    result = refine(produce=lambda: produce(""), check=check,
+                    repair=lambda d, probs: produce("\n".join(f"- {p}" for p in probs)),
+                    max_attempts=max_attempts).value
+    return DrugExtraction(
+        intervention_drugs=_drop_non_drug_modalities(result.intervention_drugs),
+        comparator_drugs=_drop_non_drug_modalities(result.comparator_drugs),
+    )
 
 
 def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] | None,

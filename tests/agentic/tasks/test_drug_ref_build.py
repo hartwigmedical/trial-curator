@@ -181,6 +181,26 @@ def test_combo_leftover_backstop_flags_unsplit_names():
         assert not _COMBO_LEFTOVER.search(ok), ok
 
 
+def test_canonicalizer_comma_list_split_decision_present():
+    """Guard the comma-list splitting decision (2026-07-17): a comma-separated drug LIST splits into each drug,
+    but a descriptive comma (form/strain/source) stays ONE component. Prompt-only judgement — lock against silent
+    edits (grounded in the 'anastrozole, exemestane, letrozole' combo that escaped the +/;/or backstop)."""
+    from aus_trial_universe.agentic.tasks.drug_ref.agents import (
+        CANONICALIZER_INSTRUCTIONS as C, CANONICALIZER_REVIEWER_INSTRUCTIONS as R)
+    assert "COMMA-SEPARATED LIST" in C                       # split a comma list of drugs
+    assert "immune globulin, human" in C and "immune globulin, human" in R   # descriptive-comma exception (keep one)
+    assert "anastrozole, exemestane, letrozole" in R         # the reviewer flags an unsplit comma list
+
+
+def test_canonicalizer_no_fabrication_from_generic_word_decision_present():
+    """Guard (2026-07-17): a generic word ('chemotherapy', 'standard of care') must NOT be expanded into specific
+    invented drugs. Grounded in 'Lorlatinib with chemotherapy1' -> LLM fabricated vincristine/cyclophosphamide/cisplatin."""
+    from aus_trial_universe.agentic.tasks.drug_ref.agents import (
+        CANONICALIZER_INSTRUCTIONS as C, CANONICALIZER_REVIEWER_INSTRUCTIONS as R)
+    assert "NEVER invent" in C and "chemotherapy" in C.lower() and "Lorlatinib with chemotherapy" in C
+    assert "invented from a generic word" in R.lower() or "invented" in R.lower()
+
+
 def test_combination_raw_splits_into_multiple_canonicals():
     """A combination raw token maps to N standalone canonicals (1 raw -> N), each researched once."""
     client = _FakeClient(

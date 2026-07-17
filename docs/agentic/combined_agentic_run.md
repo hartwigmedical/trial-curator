@@ -59,13 +59,15 @@ make agentic-validate OUT=<path.tsv>  # a specific run
 Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
-Builds the standalone drug reference (4 tables: `drug_alias`, `drug_ref`, `drug_target`, `drug_indication`) at
-`data/agentic/resources/drug_ref/version_<ddmmyyyy>/`. LLM doer→reviewer for judgement (canonicalize / annotate /
-approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and `pottr_drug_class` (POTTR).
-`canonicalize` splits a combination/regimen token into its component standalone drugs (`1 raw → N` canonicals; a
-single engineered molecule like an ADC/bispecific stays one). Incremental
-(existing non-stale drugs are pure lookups), batched with a checkpoint save after each batch (resumable), soft-fails
-per drug. Logs to `data/agentic/log/`.
+Builds the standalone drug reference (5 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_ref`,
+`drug_target`, `drug_indication`) at `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`. LLM doer→reviewer for
+judgement (canonicalize / annotate / approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and
+`pottr_drug_class` (POTTR). `canonicalize` splits a combination/regimen token into its component standalone drugs
+(`1 input → N` canonicals; a single engineered molecule like an ADC/bispecific stays one) and records
+`raw_name_to_map` (the input fragment each canonical came from). `trial_to_intervention` records which trial +
+registry each input name came from (deterministic provenance / traceability), and the build **logs per-trial drug
+attribution**. Incremental (existing non-stale drugs are pure lookups), batched with a checkpoint save after each
+batch (resumable), soft-fails per drug. Logs to `data/agentic/log/`.
 ```bash
 make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"   # explicit list
 make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5        # drugs from specific trials (CTGov)

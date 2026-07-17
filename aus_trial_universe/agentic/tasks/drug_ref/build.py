@@ -17,31 +17,42 @@ import logging
 from aus_trial_universe.agentic.run import _load_openai_key
 
 
-def _add_tokens(names: list[str], tokens) -> None:
+def _collect(names: list[str], occ: list[tuple[str, str, str]], trial_id: str, registry: str, tokens) -> list[str]:
+    """Record each drug token as a global distinct name AND as a (trial, registry, name) occurrence (provenance).
+    Returns this trial's distinct tokens (for the per-trial log line — the traceability the aggregate count lost)."""
+    seen: list[str] = []
     for d in tokens:
         d = d.strip()
-        if d and d not in names:
+        if not d:
+            continue
+        if d not in names:
             names.append(d)
+        occ.append((trial_id, registry, d))
+        if d not in seen:
+            seen.append(d)
+    return seen
 
 
-def _drugs_from_trials(ids: list[str]) -> list[str]:
-    """Distinct regime drug names from CTGov trials (ANZCTR drugs are LLM-derived at run time -> skipped)."""
+def _drugs_from_trials(ids: list[str]) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """(distinct names, occurrences) from CTGov trials (ANZCTR drugs are LLM-derived at run time -> skipped)."""
     from aus_trial_universe.agentic.tasks.extraction.loaders import load_trials
 
     log = logging.getLogger("agentic.drug_ref")
     names: list[str] = []
+    occ: list[tuple[str, str, str]] = []
     for source, tid, _text, cohorts in load_trials(ids=ids):
         if cohorts is None:
             log.warning("skip %s: ANZCTR drugs are extracted during a run, not available for --from-trials", tid)
             continue
-        for c in cohorts:
-            _add_tokens(names, (c.drug or "").split(";"))
-    return names
+        toks = _collect(names, occ, tid, source, [d for c in cohorts for d in (c.drug or "").split(";")])
+        log.info("  [%s] %s → %s", source, tid, "; ".join(toks) or "(none)")
+    return names, occ
 
 
-def _all_trial_drugs(client, *, use_reviewer: bool) -> list[str]:
-    """Every distinct drug across ALL ctgov + anzctr trials: CTGov deterministic (armGroups);
-    ANZCTR via the drug doer->reviewer agent (parallel)."""
+def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """(distinct names, occurrences) across ALL ctgov + anzctr trials: CTGov deterministic (armGroups);
+    ANZCTR via the drug doer->reviewer agent (parallel). Every drug is attributed to its trial + registry in
+    `occurrences` (the trial_to_intervention provenance) and logged per trial (traceability)."""
     from aus_trial_universe.agentic.core.workflow import fan_out
     from aus_trial_universe.agentic.tasks.extraction.loaders import (
         load_all_anzctr_trials,
@@ -51,10 +62,11 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> list[str]:
 
     log = logging.getLogger("agentic.drug_ref")
     names: list[str] = []
+    occ: list[tuple[str, str, str]] = []
     ctgov = load_all_ctgov_trials()
-    for _nct, _text, cohorts in ctgov:
-        for c in (cohorts or []):
-            _add_tokens(names, (c.drug or "").split(";"))
+    for nct, _text, cohorts in ctgov:
+        toks = _collect(names, occ, nct, "ctgov", [d for c in (cohorts or []) for d in (c.drug or "").split(";")])
+        log.info("  [ctgov] %s → %s", nct, "; ".join(toks) or "(none)")
     log.info("collected %d distinct CTGov drug(s) from %d trials", len(names), len(ctgov))
 
     anz = load_all_anzctr_trials()
@@ -64,19 +76,21 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> list[str]:
         try:
             return extract_anzctr_drugs(client, text, use_reviewer=use_reviewer)
         except Exception as exc:  # noqa: BLE001
-            log.info("  ANZCTR drug extraction failed: %s: %s", type(exc).__name__, exc)
-            return None
+            return exc
 
     results = fan_out([(lambda text=text: _one(text)) for _actrn, text, _ in anz])
     before, failed = len(names), 0
-    for dr in results:
-        if dr is None:
+    for (actrn, _text, _), dr in zip(anz, results):          # fan_out preserves order -> align to trials
+        if isinstance(dr, Exception) or dr is None:
             failed += 1
+            log.info("  [anzctr] %s → (extraction failed: %s)", actrn,
+                     type(dr).__name__ if isinstance(dr, Exception) else "none")
             continue
-        _add_tokens(names, list(dr.intervention_drugs) + list(dr.comparator_drugs))
+        toks = _collect(names, occ, actrn, "anzctr", list(dr.intervention_drugs) + list(dr.comparator_drugs))
+        log.info("  [anzctr] %s → %s", actrn, "; ".join(toks) or "(none)")
     log.info("collected %d new distinct ANZCTR drug(s) (%d trials failed); %d distinct drugs total",
              len(names) - before, failed, len(names))
-    return names
+    return names, occ
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,14 +121,17 @@ def main(argv: list[str] | None = None) -> int:
 
     client = LlmClient(model=args.model) if args.model else LlmClient()
 
+    occurrences: list[tuple[str, str, str]] = []
     if args.drugs:
         names = [d.strip() for d in args.drugs.split(";") if d.strip()]
     elif args.from_trials:
-        names = _drugs_from_trials([x.strip() for x in args.from_trials.split(",") if x.strip()])
+        names, occurrences = _drugs_from_trials([x.strip() for x in args.from_trials.split(",") if x.strip()])
     else:  # --all-trials
-        names = _all_trial_drugs(client, use_reviewer=not args.no_review)
+        names, occurrences = _all_trial_drugs(client, use_reviewer=not args.no_review)
     if args.limit:
         names = names[: args.limit]
+        keep = set(names)
+        occurrences = [o for o in occurrences if o[2] in keep]
     if not names:
         parser.error("no drug names to build")
 
@@ -123,22 +140,22 @@ def main(argv: list[str] | None = None) -> int:
     log.info("drug-ref build · %d drug(s) · refresh=%s · review=%s\n", len(names), args.refresh_drugs, not args.no_review)
 
     summary = build_drug_ref(
-        client, names, store,
+        client, names, store, occurrences=occurrences,
         refresh=args.refresh_drugs, refresh_days=args.refresh_days,
         use_reviewer=not args.no_review, workers=args.workers,
         checkpoint=lambda: store.save(),   # persist progress after each batch (resilient to interruption)
     )
     vdir = store.save()
 
-    n_alias = sum(len(v) for v in store.aliases.values())
+    n_map = sum(len(v) for v in store.mappings.values())
     n_tgt = sum(len(v) for v in store.targets.values())
     n_ind = sum(len(v) for v in store.indications.values())
     print(f"\n{'═' * 70}\ndrug-ref → {vdir}/\n"
           f"  this run:  canonicalized={summary.canonicalized} · reused_alias={summary.reused_alias} · "
           f"non_drug={summary.non_drug} · researched={summary.researched} · reused_ref={summary.reused_ref} · "
           f"failed={summary.failed}\n"
-          f"  resource:  {n_alias} alias rows · {len(store.refs)} drugs · {n_tgt} target rows · "
-          f"{n_ind} indication rows\n")
+          f"  resource:  {n_map} mapping rows · {len(store.occurrences)} trial-links · {len(store.refs)} drugs · "
+          f"{n_tgt} target rows · {n_ind} indication rows\n")
     return 0
 
 
