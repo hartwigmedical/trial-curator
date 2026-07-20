@@ -28,11 +28,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from aus_trial_universe.agentic.core.paths import ELIGIBILITY_OUTPUT
 from aus_trial_universe.agentic.tasks.mapping.workflow import _oncotree_logic_problems, strip_provenance
 from aus_trial_universe.agentic.tools.finding_model import finding_model_problems
 from aus_trial_universe.agentic.tools.oncotree import invalid_codes
 
-OUTPUT_DIR = Path(__file__).resolve().parents[3] / "data" / "agentic" / "output"
+OUTPUT_DIR = ELIGIBILITY_OUTPUT
 ELIGIBILITY_COLUMNS = ("cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy")
 
 

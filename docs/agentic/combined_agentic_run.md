@@ -15,7 +15,9 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 |---|---|
 | `make agentic-run` | Full pipeline (extract → map → drug), streamed to one output + one log. Runs the unit tests first (aborts on failure). |
 | `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
-| `make agentic-clean` | Wipe run artifacts under `data/agentic/{output,log,cache}` (handy between test runs). |
+| `make agentic-clean` | Wipe transient run artifacts under `data/agentic/{eligibility,log,cache}` — never touches the colocated inputs/resources/drug_annotations. |
+| `make drug-ref-build` | Build/refresh the drug reference (5 tables). See below. |
+| `make drug-ref-refresh-pottr` | Download the current POTTR files from GitHub (archives the previous). See below. |
 | `make agentic-tests` | Run the unit-test suite (no API calls). |
 
 ### `make agentic-run` modes
@@ -53,14 +55,14 @@ pipeline's own OncoTree + finding-model validators on the final cells, and (2) a
 exclusion checks nothing else performs: unsatisfiable `A AND B` cancer_type, all-empty rows, exact-duplicate
 rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 ```bash
-make agentic-validate                 # newest data/agentic/output/trial_resource_*.tsv
+make agentic-validate                 # newest data/agentic/eligibility/<timestamp>/combined.tsv
 make agentic-validate OUT=<path.tsv>  # a specific run
 ```
 Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
-Builds the standalone drug reference (5 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_ref`,
-`drug_target`, `drug_indication`) at `data/agentic/resources/drug_ref/version_<ddmmyyyy>/`. LLM doer→reviewer for
+Builds the standalone drug reference (5 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,
+`drug_target_actions`, `drug_regulatory_approvals`) at `<DATA_ROOT>/drug_annotations/current_version/`. LLM doer→reviewer for
 judgement (canonicalize / annotate / approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and
 `pottr_drug_class` (POTTR). `canonicalize` splits a combination/regimen token into its component standalone drugs
 (`1 input → N` canonicals; a single engineered molecule like an ADC/bispecific stays one) and records
@@ -74,6 +76,15 @@ make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5        # drugs from spec
 make drug-ref-build ALL_TRIALS=1                               # every distinct drug across all ctgov + anzctr
 #   optional: WORKERS=<n> (concurrency, default 8) · REFRESH_DRUGS=1 · NO_REVIEW=1 · MODEL=<name>
 ```
+### `make drug-ref-refresh-pottr` — refresh the POTTR reference data
+Downloads the two public POTTR files (`drug_database.txt`, `drug_class_hierarchy.txt`) from
+`raw.githubusercontent.com/fpylin/POTTR` into `<DATA_ROOT>/resources/drug_utility/pottr/current_version/`, moving the
+previous version to `…/pottr/archive/<date>/` and recording the download date in `SOURCE.txt`. RxNorm is a manual
+drop-in (UMLS-licensed) under `resources/drug_utility/rxnorm/current_version/`.
+```bash
+make drug-ref-refresh-pottr
+```
+
 `WORKERS` sets both concurrency and checkpoint-batch size (output identical regardless — see memory
 `feedback-max-allowable-concurrency`). Entry: `aus_trial_universe/agentic/tasks/drug_ref/build.py`.
 
@@ -107,8 +118,8 @@ completes (so partial results survive an interrupt):
    TGA approval (+year) and PBS reimbursement for the main drug(s).
 6. **WRITE** — the enriched rows stream to one TSV.
 
-**Output:** `data/agentic/output/trial_resource_<id>.tsv` (single trial) or
-`trial_resource_<YYYYMMDD_HHMMSS>.tsv` (multiple/all).
+**Output:** `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` holding `regime.tsv`, `eligibility.tsv`, and the
+materialized-join `combined.tsv` (the flat, self-contained rows the matching engine reads).
 **Log:** `data/agentic/log/agentic_run_<label>_<timestamp>.log` (the whole run, both stages).
 
 ---
@@ -151,7 +162,7 @@ trial-level (repeated across that trial's cohort rows); `arm_type` and `drug` ar
 
 ## Testing
 ```bash
-make agentic-tests        # 64 unit tests, no API, all fake-client
+make agentic-tests        # 95 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 
@@ -161,4 +172,5 @@ Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 ```bash
 make agentic-clean        # rm -rf data/agentic/{output,log,cache}; recreate output/ + log/
 ```
-Scoped strictly to `data/agentic/` — never touches `data/trial_inputs/` or the legacy `data/eligibility_path/`.
+Scoped strictly to the transient artifacts `data/agentic/{eligibility,log,cache}` — it never touches the colocated
+inputs/resources/outputs (`trial_universe/`, `resources/`, `drug_annotations/`, `analysis/`).

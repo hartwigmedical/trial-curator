@@ -13,7 +13,7 @@
 #             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
 #   drug-ref-build  Build/refresh the drug reference resource (spec §6.1). Incremental (existing drugs
 #             reused). Vars: DRUGS="a; b" | IDS=NCT1,NCT2 | ALL_TRIALS=1 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL.
-#   clean   Delete all run outputs under data/agentic/ (output/, log/, cache/).
+#   clean   Delete transient run artifacts under data/agentic/ (eligibility/, log/, cache/).
 #           No API/Python needed; handy for clearing test runs.
 
 set -euo pipefail
@@ -24,17 +24,18 @@ AGENTIC_DATA="${REPO_ROOT}/data/agentic"
 LOG_DIR="${AGENTIC_DATA}/log"
 
 # `clean` needs neither Python nor .env; handle it before the interpreter pick.
-# Scoped strictly to data/agentic/{output,log,cache} so it can never touch other data.
+# Scoped STRICTLY to transient run artifacts (eligibility/, log/, cache/) — it must NEVER touch the colocated
+# INPUTS/OUTPUTS (trial_universe/, resources/, drug_annotations/, analysis/) now living under data/agentic/.
 if [[ "${1:-}" == "clean" ]]; then
-  for sub in output log cache; do
+  for sub in eligibility log cache; do
     dir="${AGENTIC_DATA}/${sub}"
     if [[ -d "${dir}" ]]; then
       echo "removing ${dir}" >&2
       rm -rf "${dir}"
     fi
   done
-  mkdir -p "${AGENTIC_DATA}/output" "${AGENTIC_DATA}/log"
-  echo "cleaned: data/agentic/{output,log,cache}" >&2
+  mkdir -p "${AGENTIC_DATA}/eligibility" "${AGENTIC_DATA}/log"
+  echo "cleaned: data/agentic/{eligibility,log,cache}" >&2
   exit 0
 fi
 
@@ -133,8 +134,12 @@ case "${CMD}" in
     printf '\n==> drug-ref-build (logging to %s)\n' "${log_file}" >&2
     "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_ref.build "${dargs[@]}" 2>&1 | tee "${log_file}"
     ;;
+  drug-ref-refresh-pottr)
+    # Download the current POTTR files from GitHub -> resources/drug_utility/pottr/current_version/ (archives old).
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_ref.pottr
+    ;;
   *)
-    echo "Unknown command: '${CMD}'. Use one of: run | tests | validate | drug-ref-build" >&2
+    echo "Unknown command: '${CMD}'. Use: run | tests | validate | drug-ref-build | drug-ref-refresh-pottr" >&2
     exit 2
     ;;
 esac

@@ -17,9 +17,9 @@ import logging
 from aus_trial_universe.agentic.run import _load_openai_key
 
 
-def _collect(names: list[str], occ: list[tuple[str, str, str]], trial_id: str, registry: str, tokens) -> list[str]:
-    """Record each drug token as a global distinct name AND as a (trial, registry, name) occurrence (provenance).
-    Returns this trial's distinct tokens (for the per-trial log line — the traceability the aggregate count lost)."""
+def _collect(names, occ, trial_id, registry, arm, arm_type, tokens) -> list[str]:
+    """Record each drug token as a global distinct name AND as a (trial, registry, arm, arm_type, name) occurrence
+    (provenance). Returns this arm's distinct tokens (for the per-trial log line — the traceability lost otherwise)."""
     seen: list[str] = []
     for d in tokens:
         d = d.strip()
@@ -27,31 +27,34 @@ def _collect(names: list[str], occ: list[tuple[str, str, str]], trial_id: str, r
             continue
         if d not in names:
             names.append(d)
-        occ.append((trial_id, registry, d))
+        occ.append((trial_id, registry, arm, arm_type, d))
         if d not in seen:
             seen.append(d)
     return seen
 
 
-def _drugs_from_trials(ids: list[str]) -> tuple[list[str], list[tuple[str, str, str]]]:
-    """(distinct names, occurrences) from CTGov trials (ANZCTR drugs are LLM-derived at run time -> skipped)."""
+def _drugs_from_trials(ids: list[str]) -> tuple[list[str], list[tuple]]:
+    """(distinct names, occurrences) from CTGov trials (ANZCTR drugs are LLM-derived at run time -> skipped).
+    Each occurrence carries the armGroup label + type (deterministic)."""
     from aus_trial_universe.agentic.tasks.extraction.loaders import load_trials
 
     log = logging.getLogger("agentic.drug_ref")
     names: list[str] = []
-    occ: list[tuple[str, str, str]] = []
+    occ: list[tuple] = []
     for source, tid, _text, cohorts in load_trials(ids=ids):
         if cohorts is None:
             log.warning("skip %s: ANZCTR drugs are extracted during a run, not available for --from-trials", tid)
             continue
-        toks = _collect(names, occ, tid, source, [d for c in cohorts for d in (c.drug or "").split(";")])
-        log.info("  [%s] %s → %s", source, tid, "; ".join(toks) or "(none)")
+        toks: list[str] = []
+        for c in cohorts:                                    # one armGroup = one arm (label + type)
+            toks += _collect(names, occ, tid, source, c.label, c.arm_type, (c.drug or "").split(";"))
+        log.info("  [%s] %s → %s", source, tid, "; ".join(dict.fromkeys(toks)) or "(none)")
     return names, occ
 
 
-def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tuple[str, str, str]]]:
+def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tuple]]:
     """(distinct names, occurrences) across ALL ctgov + anzctr trials: CTGov deterministic (armGroups);
-    ANZCTR via the drug doer->reviewer agent (parallel). Every drug is attributed to its trial + registry in
+    ANZCTR via the drug doer->reviewer agent (parallel). Every drug is attributed to its trial + registry + ARM in
     `occurrences` (the trial_to_intervention provenance) and logged per trial (traceability)."""
     from aus_trial_universe.agentic.core.workflow import fan_out
     from aus_trial_universe.agentic.tasks.extraction.loaders import (
@@ -62,11 +65,13 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tup
 
     log = logging.getLogger("agentic.drug_ref")
     names: list[str] = []
-    occ: list[tuple[str, str, str]] = []
+    occ: list[tuple] = []
     ctgov = load_all_ctgov_trials()
     for nct, _text, cohorts in ctgov:
-        toks = _collect(names, occ, nct, "ctgov", [d for c in (cohorts or []) for d in (c.drug or "").split(";")])
-        log.info("  [ctgov] %s → %s", nct, "; ".join(toks) or "(none)")
+        toks: list[str] = []
+        for c in (cohorts or []):                            # per armGroup: label + arm_type (deterministic)
+            toks += _collect(names, occ, nct, "ctgov", c.label, c.arm_type, (c.drug or "").split(";"))
+        log.info("  [ctgov] %s → %s", nct, "; ".join(dict.fromkeys(toks)) or "(none)")
     log.info("collected %d distinct CTGov drug(s) from %d trials", len(names), len(ctgov))
 
     anz = load_all_anzctr_trials()
@@ -86,8 +91,10 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tup
             log.info("  [anzctr] %s → (extraction failed: %s)", actrn,
                      type(dr).__name__ if isinstance(dr, Exception) else "none")
             continue
-        toks = _collect(names, occ, actrn, "anzctr", list(dr.intervention_drugs) + list(dr.comparator_drugs))
-        log.info("  [anzctr] %s → %s", actrn, "; ".join(toks) or "(none)")
+        # ANZCTR has no arm structure: intervention regime vs comparator regime (spec §6.1)
+        toks = _collect(names, occ, actrn, "anzctr", "intervention", "EXPERIMENTAL", list(dr.intervention_drugs))
+        toks += _collect(names, occ, actrn, "anzctr", "comparator", "ACTIVE_COMPARATOR", list(dr.comparator_drugs))
+        log.info("  [anzctr] %s → %s", actrn, "; ".join(dict.fromkeys(toks)) or "(none)")
     log.info("collected %d new distinct ANZCTR drug(s) (%d trials failed); %d distinct drugs total",
              len(names) - before, failed, len(names))
     return names, occ
@@ -121,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
 
     client = LlmClient(model=args.model) if args.model else LlmClient()
 
-    occurrences: list[tuple[str, str, str]] = []
+    occurrences: list[tuple] = []
     if args.drugs:
         names = [d.strip() for d in args.drugs.split(";") if d.strip()]
     elif args.from_trials:
@@ -131,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit:
         names = names[: args.limit]
         keep = set(names)
-        occurrences = [o for o in occurrences if o[2] in keep]
+        occurrences = [o for o in occurrences if o[-1] in keep]   # o = (trialId, registry, arm, arm_type, name)
     if not names:
         parser.error("no drug names to build")
 

@@ -14,14 +14,16 @@ import csv
 import json
 from pathlib import Path
 
+from aus_trial_universe.agentic.core.paths import ANZCTR_ROOT, CTGOV_ROOT, ELIGIBILITY_OUTPUT
 from aus_trial_universe.agentic.core.pipeline_io import find_best_file, latest_version_dir
 from aus_trial_universe.agentic.tasks.extraction.workflow import Cohort
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-CTGOV_INPUT_ROOT = REPO_ROOT / "data/trial_inputs/ctgov/input_trials"
-CTGOV_LATEST_JSON = REPO_ROOT / "data/trial_inputs/ctgov/download_state/ctgov_trials_latest.json"
-ANZCTR_CSV = REPO_ROOT / "data/trial_inputs/anzctr/extracted_trials/anzctr_field_extractions.csv"
-DEFAULT_OUT_DIR = REPO_ROOT / "data/agentic/output"
+# ctgov input_trials keeps its own version_<ddmmyyyy>/ dirs (managed by the download pipeline, read via
+# latest_version_dir); only the roots move under the consolidated trial_universe/ tree.
+CTGOV_INPUT_ROOT = CTGOV_ROOT / "input_trials"
+CTGOV_LATEST_JSON = CTGOV_ROOT / "download_state/ctgov_trials_latest.json"
+ANZCTR_CSV = ANZCTR_ROOT / "extracted_trials/anzctr_field_extractions.csv"
+DEFAULT_OUT_DIR = ELIGIBILITY_OUTPUT
 
 
 def _assemble(sections: list[tuple[str, str | None]]) -> str:

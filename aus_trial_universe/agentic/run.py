@@ -21,8 +21,10 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from aus_trial_universe.agentic.core.paths import ELIGIBILITY_OUTPUT
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUT_DIR = REPO_ROOT / "data/agentic/output"
+OUT_DIR = ELIGIBILITY_OUTPUT   # per-run regime/eligibility/combined (consolidated structure, spec §6.1)
 
 
 def _load_openai_key() -> None:

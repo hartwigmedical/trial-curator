@@ -100,6 +100,9 @@ def _mock_deterministic(monkeypatch):
     monkeypatch.setattr(rxnorm, "resolve_rxcui", lambda n: rx.get(n.strip().lower(), ""))
     monkeypatch.setattr(rxnorm, "atc_code_for", lambda n: atc.get(n.strip().lower(), ""))
     monkeypatch.setattr(pottr, "pottr_class_for", lambda n: pt.get(n.strip().lower(), ""))
+    # the build now looks up POTTR via canonical name + aliases (first match wins)
+    monkeypatch.setattr(pottr, "pottr_class_for_any",
+                        lambda names: next((pt[n.strip().lower()] for n in names if n.strip().lower() in pt), ""))
 
 
 def test_build_dedups_researches_once_and_wires_deterministic_facts():

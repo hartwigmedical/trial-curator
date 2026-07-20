@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-validate drug-ref-build
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-validate drug-ref-build drug-ref-refresh-pottr
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -69,3 +69,9 @@ agentic-validate:
 #   optional: LIMIT=<n>  WORKERS=<n> (concurrency, default 8)  REFRESH_DRUGS=1  NO_REVIEW=1  MODEL=<name>
 drug-ref-build:
 	DRUGS="$(DRUGS)" IDS="$(IDS)" ALL_TRIALS="$(ALL_TRIALS)" LIMIT="$(LIMIT)" WORKERS="$(WORKERS)" REFRESH_DRUGS="$(REFRESH_DRUGS)" NO_REVIEW="$(NO_REVIEW)" MODEL="$(MODEL)" scripts/agentic/pipeline.sh drug-ref-build
+
+# Refresh the POTTR reference data from GitHub (public) into resources/drug_utility/pottr/current_version/,
+# archiving the previous version. RxNorm stays a manual drop-in (UMLS-licensed).
+#   make drug-ref-refresh-pottr
+drug-ref-refresh-pottr:
+	scripts/agentic/pipeline.sh drug-ref-refresh-pottr

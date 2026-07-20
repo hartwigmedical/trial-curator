@@ -77,7 +77,7 @@ SELECT/ASSEMBLE ─▶ REGIMES ─▶ EXTRACT ─▶ (rule-check + REVIEW panel)
 ```
 
 Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Options: `MODEL=` · `NO_JUDGE=1` ·
-`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: `data/agentic/output/<YYYYMMDD_HHMMSS>/` holding
+`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` holding
 `regime.tsv` + `eligibility.tsv` + `combined.tsv` (§9).
 
 ## 6. The relational data model
@@ -104,7 +104,7 @@ The normalized relations (the flat TSV is their **materialized join**):
 |---|---|---|---|
 | **regime** (the axis) | (trialId, regime_id) | arm_type (flags control) | CTGov: `armGroups` filtered to `{Drug, Biological}` · ANZCTR: INTERVENTIONS/COMPARATOR |
 | **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
-| **drug_ref** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
+| **drug_annotations_core** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
 \* **Built standalone (2026-07-13; table 1 split into 3NF 2026-07-17).** The drug dimension is **five** 3NF tables in
 `aus_trial_universe/agentic/tasks/drug_ref/`:
@@ -113,29 +113,32 @@ The normalized relations (the flat TSV is their **materialized join**):
   molecule like an ADC/bispecific stays one; carries `raw_name_to_map` = the input fragment each canonical came from),
 - `trial_to_intervention` ((trialId, registry) → input intervention name — the **provenance / traceability** record:
   which trials used each name; deterministic, populated at collection time so it is never lost),
-- `drug_ref` (canonical → intrinsic facts), `drug_target` (canonical → (target, action) pairs — the mechanism),
-- `drug_indication` (canonical → TGA/PBS approval, **indication-specific**, verified against the live TGA/PBS sites).
+- `drug_annotations_core` (canonical → intrinsic facts), `drug_target_actions` (canonical → (target, action) pairs — the mechanism),
+- `drug_regulatory_approvals` (canonical → TGA/PBS approval, **indication-specific**, verified against the live TGA/PBS sites).
 
 **Division of labour:** LLM doer→reviewer does the *judgement* (canonical identity, modality/target/class, approvals);
 the *deterministic* facts — `rxcui` + `atc_code` (RxNorm RRF), `pottr_drug_class` (POTTR ontology walk), and the
 trial→intervention provenance — are offline (`rxnorm.py` / `pottr.py` / collection), not LLM guesses.
 Built via `make drug-ref-build DRUGS=.. | IDS=.. | ALL_TRIALS=1`; incremental + batched-with-checkpoint;
 `--refresh-drugs` to re-research. The build **logs per-trial drug attribution** (traceability) and persists at
-`data/agentic/resources/drug_ref/version_<ddmmyyyy>/` (5 TSVs).
+`<DATA_ROOT>/drug_annotations/current_version/` (5 TSVs; superseded builds under `archive/`). All data paths derive
+from one relocatable `DATA_ROOT` (`core/paths.py`; = `data/agentic/` now → `data/` later). Reference data lives under
+`resources/drug_utility/{pottr,rxnorm}/current_version/`; refresh POTTR with `make drug-ref-refresh-pottr`. Full
+layout: `docs/agentic/drug_ref_schema.md`.
 *Deferred (user):* mapping each indication's free-text cancer/biomarker into the eligibility vocabulary
-(OncoTree + finding-model) and joining `drug_ref` back into `combined` — done *after* the standalone tables.
+(OncoTree + finding-model) and joining `drug_annotations_core` back into `combined` — done *after* the standalone tables.
 | **eligibility** (assigned to a regime) | (trialId, regime_id, conj_id) | 5 eligibility columns (+prov, inline NOT()) | LLM extract; trial-wide by default |
 
 **Row grain = (trialId, regime_id, conj_id).** For a given `(trialId, regime_id)` the drug columns are
 constant — a functional dependency, by design (not an accident). Mapping/annotation/enrichment are *just more
-columns* hanging off this grain (§8) — keyed by the source cell (mapping) or by `drug` (drug_ref).
+columns* hanging off this grain (§8) — keyed by the source cell (mapping) or by `drug` (drug_annotations_core).
 
 **Output = normalized masters + a combined view (locked 2026-07-13).** Each run writes a timestamped directory
 with the 3NF masters — `regime.tsv` (`(trialId, cohort) → arm_type, drug`) and `eligibility.tsv`
 (`(trialId, cohort, conj_id) → cells`) — plus `combined.tsv`, their materialized join (the flat, self-contained
-rows the matching engine reads). `drug_ref` is a *further* separate, **persisted, datestamped** table (global
+rows the matching engine reads). `drug_annotations_core` is a *further* separate, **persisted, datestamped** table (global
 drug facts, built once per unique drug, looked up by name — the drug-stage throughput win); it is now **built
-standalone** (see the drug_ref note above), and only its *join* into `combined` remains deferred. Full column lists in §9.
+standalone** (see the drug_annotations_core note above), and only its *join* into `combined` remains deferred. Full column lists in §9.
 
 **Locked design decisions (2026-07-13) — do not re-litigate:**
 1. **Regime membership** = any armGroup with ≥1 pharmacological agent `{Drug, Biological}`; exclude
@@ -321,7 +324,7 @@ legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would 
 The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
 
 ## 9. Output — normalized masters + combined view (§6.1)
-Each run writes a **timestamped directory** `data/agentic/output/<YYYYMMDD_HHMMSS>/` with three TSVs:
+Each run writes a **timestamped directory** `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` with three TSVs:
 
 - **`regime.tsv`** (master, Table 1) — PK `(trialId, cohort)`: `arm_type`, `drug`, and the per-regime drug
   enrichment (`main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status, tga_detail, pbs_detail`).
@@ -334,7 +337,7 @@ Each run writes a **timestamped directory** `data/agentic/output/<YYYYMMDD_HHMMS
   prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status, tga_detail, pbs_detail`.
 
 `drug` + the enrichment are per **regime** (functionally dependent on `(trialId, cohort)`; §6.1) — the intrinsic
-drug facts will come from the global datestamped `drug_ref` table (deferred). `tga_status`/`pbs_status` are per
+drug facts will come from the global datestamped `drug_annotations_core` table (deferred). `tga_status`/`pbs_status` are per
 main drug (`<drug>: Approved/Not approved`); `tga_detail`/`pbs_detail` carry the evidence (year + link).
 The `eligibility.tsv` master stores each regime's distributed rows (self-contained; clean FK to `regime.tsv`);
 trial-wide criteria are AND-combined into each regime by `_distribute` upstream.

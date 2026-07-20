@@ -16,23 +16,20 @@ from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
 
-from aus_trial_universe.agentic.core.pipeline_io import latest_version_dir
+from aus_trial_universe.agentic.core.paths import CURRENT_VERSION, DRUG_ANNOTATIONS_ROOT, current_version_dir
 from aus_trial_universe.agentic.tasks.drug_ref.schema import (
-    DRUG_INDICATION_COLUMNS,
-    DRUG_REF_COLUMNS,
-    DRUG_TARGET_COLUMNS,
+    DRUG_REGULATORY_APPROVALS_COLUMNS,
+    DRUG_ANNOTATIONS_CORE_COLUMNS,
+    DRUG_TARGET_ACTIONS_COLUMNS,
     INTERVENTION_TO_CANONICAL_COLUMNS,
     TABLE_FILES,
     TRIAL_TO_INTERVENTION_COLUMNS,
-    DrugIndication,
-    DrugRef,
-    DrugTarget,
+    DrugRegulatoryApproval,
+    DrugAnnotationsCore,
+    DrugTargetAction,
     InterventionToCanonical,
     TrialToIntervention,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-DRUG_REF_ROOT = REPO_ROOT / "data/agentic/resources/drug_ref"
 
 
 def _read_tsv(path: Path) -> list[dict]:
@@ -64,16 +61,16 @@ class DrugRefStore:
         self.mappings: dict[str, list[InterventionToCanonical]] = {}
         # (trialId, registry, input_intervention_name) -> row (deduped provenance / traceability)
         self.occurrences: dict[tuple[str, str, str], TrialToIntervention] = {}
-        self.refs: dict[str, DrugRef] = {}                      # canonical_id -> DrugRef
-        self.targets: dict[str, list[DrugTarget]] = {}         # canonical_id -> (target, action) rows
-        self.indications: dict[str, list[DrugIndication]] = {}  # canonical_id -> rows
+        self.refs: dict[str, DrugAnnotationsCore] = {}                      # canonical_id -> DrugAnnotationsCore
+        self.targets: dict[str, list[DrugTargetAction]] = {}         # canonical_id -> (target, action) rows
+        self.indications: dict[str, list[DrugRegulatoryApproval]] = {}  # canonical_id -> rows
 
     # --- load -------------------------------------------------------------- #
     @classmethod
-    def load(cls, root: Path = DRUG_REF_ROOT) -> "DrugRefStore":
+    def load(cls, root: Path = DRUG_ANNOTATIONS_ROOT) -> "DrugRefStore":
         store = cls()
         try:
-            vdir = latest_version_dir(root)
+            vdir = current_version_dir(root)
         except FileNotFoundError:
             return store  # first build — empty reference
         for row in _read_tsv(vdir / TABLE_FILES["intervention_to_canonical"]):
@@ -89,17 +86,17 @@ class DrugRefStore:
         for row in _read_tsv(vdir / TABLE_FILES["trial_to_intervention"]):
             o = TrialToIntervention(**{k: row.get(k, "") for k in TRIAL_TO_INTERVENTION_COLUMNS})
             if o.trialId and o.input_intervention_name:
-                store.occurrences[(o.trialId, o.registry, o.input_intervention_name)] = o
-        for row in _read_tsv(vdir / TABLE_FILES["drug_ref"]):
-            r = DrugRef(**{k: row.get(k, "") for k in DRUG_REF_COLUMNS})
+                store.occurrences[(o.trialId, o.registry, o.arm, o.input_intervention_name)] = o
+        for row in _read_tsv(vdir / TABLE_FILES["drug_annotations_core"]):
+            r = DrugAnnotationsCore(**{k: row.get(k, "") for k in DRUG_ANNOTATIONS_CORE_COLUMNS})
             if r.canonical_id:
                 store.refs[r.canonical_id] = r
-        for row in _read_tsv(vdir / TABLE_FILES["drug_target"]):
-            t = DrugTarget(**{k: row.get(k, "") for k in DRUG_TARGET_COLUMNS})
+        for row in _read_tsv(vdir / TABLE_FILES["drug_target_actions"]):
+            t = DrugTargetAction(**{k: row.get(k, "") for k in DRUG_TARGET_ACTIONS_COLUMNS})
             if t.canonical_id:
                 store.targets.setdefault(t.canonical_id, []).append(t)
-        for row in _read_tsv(vdir / TABLE_FILES["drug_indication"]):
-            i = DrugIndication(**{k: row.get(k, "") for k in DRUG_INDICATION_COLUMNS})
+        for row in _read_tsv(vdir / TABLE_FILES["drug_regulatory_approvals"]):
+            i = DrugRegulatoryApproval(**{k: row.get(k, "") for k in DRUG_REGULATORY_APPROVALS_COLUMNS})
             if i.canonical_id:
                 store.indications.setdefault(i.canonical_id, []).append(i)
         return store
@@ -116,13 +113,13 @@ class DrugRefStore:
     def has_ref(self, canonical_id: str) -> bool:
         return canonical_id in self.refs
 
-    def ref(self, canonical_id: str) -> DrugRef | None:
+    def ref(self, canonical_id: str) -> DrugAnnotationsCore | None:
         return self.refs.get(canonical_id)
 
-    def targets_for(self, canonical_id: str) -> list[DrugTarget]:
+    def targets_for(self, canonical_id: str) -> list[DrugTargetAction]:
         return self.targets.get(canonical_id, [])
 
-    def indications_for(self, canonical_id: str) -> list[DrugIndication]:
+    def indications_for(self, canonical_id: str) -> list[DrugRegulatoryApproval]:
         return self.indications.get(canonical_id, [])
 
     def is_stale(self, canonical_id: str, max_age_days: int, *, today: date | None = None) -> bool:
@@ -153,33 +150,37 @@ class DrugRefStore:
         self.mappings[input_name] = rows or [
             InterventionToCanonical(input_intervention_name=input_name, raw_name_to_map=input_name, canonical_id="")]
 
-    def add_occurrence(self, trial_id: str, registry: str, input_name: str) -> None:
-        """Record that a trial used an input intervention name (deduped provenance / traceability)."""
+    def add_occurrence(self, trial_id: str, registry: str, arm: str, arm_type: str, input_name: str) -> None:
+        """Record that a trial used an input intervention name in a specific arm (deduped provenance / traceability)."""
         if trial_id and input_name:
-            self.occurrences[(trial_id, registry, input_name)] = TrialToIntervention(
-                trialId=trial_id, registry=registry, input_intervention_name=input_name)
+            self.occurrences[(trial_id, registry, arm, input_name)] = TrialToIntervention(
+                trialId=trial_id, registry=registry, arm=arm, arm_type=arm_type, input_intervention_name=input_name)
 
-    def put_ref(self, ref: DrugRef) -> None:
+    def put_ref(self, ref: DrugAnnotationsCore) -> None:
         self.refs[ref.canonical_id] = ref
 
-    def put_targets(self, canonical_id: str, rows: list[DrugTarget]) -> None:
+    def put_targets(self, canonical_id: str, rows: list[DrugTargetAction]) -> None:
         self.targets[canonical_id] = list(rows)
 
-    def put_indications(self, canonical_id: str, rows: list[DrugIndication]) -> None:
+    def put_indications(self, canonical_id: str, rows: list[DrugRegulatoryApproval]) -> None:
         self.indications[canonical_id] = list(rows)
 
     # --- save -------------------------------------------------------------- #
-    def save(self, root: Path = DRUG_REF_ROOT, *, on: date | None = None) -> Path:
-        vdir = root / f"version_{(on or date.today()).strftime('%d%m%Y')}"
+    def save(self, root: Path = DRUG_ANNOTATIONS_ROOT, *, on: date | None = None) -> Path:
+        """Write the full current state to ``root/current_version/`` (overwrites — incremental checkpoints re-save
+        the same dir). A `.version` file records the build date; archiving a superseded set is a separate step
+        (`paths.archive_current_version`), so per-batch checkpoints do not spawn archive entries."""
+        vdir = root / CURRENT_VERSION
         vdir.mkdir(parents=True, exist_ok=True)
+        (vdir / ".version").write_text((on or date.today()).isoformat() + "\n", encoding="utf-8")
         _write_tsv(vdir / TABLE_FILES["intervention_to_canonical"], INTERVENTION_TO_CANONICAL_COLUMNS,
                    [asdict(m) for rows in self.mappings.values() for m in rows])
         _write_tsv(vdir / TABLE_FILES["trial_to_intervention"], TRIAL_TO_INTERVENTION_COLUMNS,
                    [asdict(o) for o in self.occurrences.values()])
-        _write_tsv(vdir / TABLE_FILES["drug_ref"], DRUG_REF_COLUMNS,
+        _write_tsv(vdir / TABLE_FILES["drug_annotations_core"], DRUG_ANNOTATIONS_CORE_COLUMNS,
                    [asdict(r) for r in self.refs.values()])
-        _write_tsv(vdir / TABLE_FILES["drug_target"], DRUG_TARGET_COLUMNS,
+        _write_tsv(vdir / TABLE_FILES["drug_target_actions"], DRUG_TARGET_ACTIONS_COLUMNS,
                    [asdict(t) for rows in self.targets.values() for t in rows])
-        _write_tsv(vdir / TABLE_FILES["drug_indication"], DRUG_INDICATION_COLUMNS,
+        _write_tsv(vdir / TABLE_FILES["drug_regulatory_approvals"], DRUG_REGULATORY_APPROVALS_COLUMNS,
                    [asdict(i) for rows in self.indications.values() for i in rows])
         return vdir

@@ -39,9 +39,9 @@ from aus_trial_universe.agentic.tasks.drug_ref.schema import (
     ApprovalByIndication,
     Canonicalization,
     DrugAnnotation,
-    DrugIndication,
-    DrugRef,
-    DrugTarget,
+    DrugRegulatoryApproval,
+    DrugAnnotationsCore,
+    DrugTargetAction,
     canonical_id_for,
 )
 from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
@@ -159,8 +159,8 @@ def approvals(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, 
 # --------------------------------------------------------------------------- #
 # Row builders
 # --------------------------------------------------------------------------- #
-def _to_ref(cid: str, cn: str, seed: DrugRef, ann: DrugAnnotation, pottr_cls: str, atc: str, stamp: str) -> DrugRef:
-    return DrugRef(
+def _to_ref(cid: str, cn: str, seed: DrugAnnotationsCore, ann: DrugAnnotation, pottr_cls: str, atc: str, stamp: str) -> DrugAnnotationsCore:
+    return DrugAnnotationsCore(
         canonical_id=cid, canonical_name=cn, rxcui=seed.rxcui, aliases=seed.aliases,
         modality=ann.modality, drug_class=ann.drug_class,
         pottr_drug_class=pottr_cls, atc_code=atc,          # deterministic lookups
@@ -168,8 +168,8 @@ def _to_ref(cid: str, cn: str, seed: DrugRef, ann: DrugAnnotation, pottr_cls: st
     )
 
 
-def _to_targets(cid: str, ann: DrugAnnotation) -> list[DrugTarget]:
-    return [DrugTarget(canonical_id=cid, target=t.target.strip(), action=t.action.strip(), note=t.note.strip())
+def _to_targets(cid: str, ann: DrugAnnotation) -> list[DrugTargetAction]:
+    return [DrugTargetAction(canonical_id=cid, target=t.target.strip(), action=t.action.strip(), note=t.note.strip())
             for t in ann.targets if t.target.strip()]
 
 
@@ -179,9 +179,9 @@ def _clean_pp(value: str) -> str:
     return "" if v.lower() == "patients" else v
 
 
-def _to_indications(cid: str, appr: ApprovalByIndication, stamp: str) -> list[DrugIndication]:
+def _to_indications(cid: str, appr: ApprovalByIndication, stamp: str) -> list[DrugRegulatoryApproval]:
     return [
-        DrugIndication(
+        DrugRegulatoryApproval(
             canonical_id=cid, indication_id=str(i + 1), indication_raw=ind.indication_raw,
             cancer_type=ind.cancer_type, biomarker=ind.biomarker, stage=ind.stage,
             line_of_therapy=ind.line_of_therapy, prior_therapy=ind.prior_therapy,
@@ -241,8 +241,8 @@ def build_drug_ref(
     stamp = (today or date.today()).isoformat()
     summary = BuildSummary()
     raws = _dedup(raw_names)
-    for trial_id, registry, name in (occurrences or []):     # provenance (traceability) — deterministic, no LLM
-        store.add_occurrence(trial_id, registry, name)
+    for trial_id, registry, arm, arm_type, name in (occurrences or []):   # provenance (traceability) — deterministic
+        store.add_occurrence(trial_id, registry, arm, arm_type, name)
 
     # --- Stage 1: canonicalize (LLM judgement) -> mapping + deterministic rxcui + seeded identity ---
     # Batched with a checkpoint after each batch, so a long Stage 1 persists progress (resilient to interruption).
@@ -275,7 +275,7 @@ def build_drug_ref(
                 cid = canonical_id_for(cn, rxcui)
                 pairs.append((comp.raw_name_to_map, cid))
                 if not store.has_ref(cid):
-                    store.put_ref(DrugRef(canonical_id=cid, canonical_name=cn, rxcui=rxcui,
+                    store.put_ref(DrugAnnotationsCore(canonical_id=cid, canonical_name=cn, rxcui=rxcui,
                                           aliases=" | ".join(comp.aliases)))
             store.set_mapping(raw, pairs)
             logger.info(line(f"{raw}  →  {' + '.join(comp.canonical_name.strip() for comp in comps)}", indent=4))
@@ -307,7 +307,9 @@ def build_drug_ref(
                 continue
             cid, cn, ann, appr = res
             base = store.ref(cid)
-            store.put_ref(_to_ref(cid, cn, base, ann, pottr.pottr_class_for(cn), rxnorm.atc_code_for(cn), stamp))
+            # POTTR: try the canonical name then each alias in order (POTTR's spelling may differ from ours)
+            pottr_cls = pottr.pottr_class_for_any([cn, *(a.strip() for a in base.aliases.split("|") if a.strip())])
+            store.put_ref(_to_ref(cid, cn, base, ann, pottr_cls, rxnorm.atc_code_for(cn), stamp))
             store.put_targets(cid, _to_targets(cid, ann))
             store.put_indications(cid, _to_indications(cid, appr, stamp))
             summary.researched += 1
@@ -315,7 +317,7 @@ def build_drug_ref(
             logger.info(line(f"{cn}", indent=2))
             logger.info(kv("modality", ann.modality, indent=4, pad=12))
             logger.info(kv("targets", "; ".join(f"{t.target}:{t.action}" for t in ann.targets) or "(none)", indent=4, pad=12))
-            logger.info(kv("pottr", pottr.pottr_class_for(cn) or "(not in POTTR)", indent=4, pad=12))
+            logger.info(kv("pottr", pottr_cls or "(not in POTTR)", indent=4, pad=12))
             logger.info(kv("atc", rxnorm.atc_code_for(cn) or "(none)", indent=4, pad=12))
             logger.info(kv("indications", str(len(appr.indications)), indent=4, pad=12))
             for ind in appr.indications:

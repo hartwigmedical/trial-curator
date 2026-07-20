@@ -42,24 +42,27 @@ class InterventionToCanonical:
     raw_name_to_map: str = ""           # the drug fragment of the input mapped to THIS canonical (= the whole
     #                                     input for a single-drug name; the split component for a combination;
     #                                     "" when the input is an undecomposable regimen acronym, e.g. "CAPEOX")
-    canonical_id: str = ""              # FK -> DrugRef.canonical_id (namespaced: rxcui:<n> | name:<x>); "" if non-drug
+    canonical_id: str = ""              # FK -> DrugAnnotationsCore.canonical_id (namespaced: rxcui:<n> | name:<x>); "" if non-drug
 
 
 # --- Table 1b: which trial (and registry) each intervention name came from ---- #
 @dataclass
 class TrialToIntervention:
-    """Provenance (the traceability record): a trial used an intervention name. Many-to-many — one input name can
-    appear in several trials, and a trial has several intervention names. FK input_intervention_name ->
-    InterventionToCanonical (the mapping is looked up once per string and reused across every trial that uses it)."""
+    """Provenance (the traceability record): a trial used an intervention name IN A SPECIFIC ARM. Many-to-many —
+    one input name can appear in several trials/arms, and a trial arm has several intervention names. FK
+    input_intervention_name -> InterventionToCanonical (mapping looked up once per string, reused across every use)."""
 
     trialId: str = ""                   # NCT... (ctgov) or ACTRN... (anzctr)
     registry: str = ""                  # "ctgov" | "anzctr"
+    arm: str = ""                       # CTGov armGroup label; ANZCTR "intervention" | "comparator" (deterministic)
+    arm_type: str = ""                  # CTGov armGroups[].type (EXPERIMENTAL / ACTIVE_COMPARATOR / …); ANZCTR
+    #                                     EXPERIMENTAL (intervention) | ACTIVE_COMPARATOR (comparator). Flags control arms.
     input_intervention_name: str = ""   # FK -> InterventionToCanonical.input_intervention_name
 
 
 # --- Table 2: canonical drug -> intrinsic, drug-level facts ------------------ #
 @dataclass
-class DrugRef:
+class DrugAnnotationsCore:
     canonical_id: str = ""       # rxcui:<n> when RxNorm-resolved, else name:<normalized canonical name>
     canonical_name: str = ""     # RxNorm ingredient name / best canonical name
     rxcui: str = ""              # RxNorm identity ONLY — presence means "in RxNorm", NOT "approved". "" if none.
@@ -76,12 +79,12 @@ class DrugRef:
 
 # --- Table 3: canonical drug -> (molecular target, action) pairs ------------- #
 @dataclass
-class DrugTarget:
+class DrugTargetAction:
     """One (target, action) pair — a drug acts on each target via a specific action, and a multi-target
     drug has different actions per target (dordaviprone: ClpP=activator, DRD2=antagonist), so they are kept
     PAIRED, one row per target. `target` is the queryable matching dimension."""
 
-    canonical_id: str = ""   # FK -> DrugRef.canonical_id
+    canonical_id: str = ""   # FK -> DrugAnnotationsCore.canonical_id
     target: str = ""         # molecular target / pathway, e.g. "PD-1", "TOP1", "ClpP", "B7-H3"
     action: str = ""         # inhibitor / antagonist / agonist / activator / degrader / ADC-binding / …
     note: str = ""           # nuance, e.g. "payload" / "antigen" / "dual"
@@ -89,14 +92,14 @@ class DrugTarget:
 
 # --- Table 4: (canonical, indication) -> TGA/PBS approval (indication-specific) #
 @dataclass
-class DrugIndication:
+class DrugRegulatoryApproval:
     """One approved indication, captured AS THE REGULATOR STATES IT, decomposed into a static, comprehensive
     set of free-text components (an indication is often cancer + biomarker + line/stage + combination, etc.).
     TGA and PBS are independent columns on the same row (both depend fully on the key; only two fixed AU
     agencies). DEFERRED (user): mapping the components into the eligibility vocabulary (OncoTree + finding-model)
     for symmetric matching — comes with the trial-link."""
 
-    canonical_id: str = ""       # FK -> DrugRef.canonical_id
+    canonical_id: str = ""       # FK -> DrugAnnotationsCore.canonical_id
     indication_id: str = ""      # surrogate id, unique within a canonical
     indication_raw: str = ""     # the indication exactly as the regulator states it (full text, audit)
     # --- static, comprehensive as-stated components (free text) ---
@@ -124,16 +127,16 @@ def _columns(dc) -> list[str]:
 
 INTERVENTION_TO_CANONICAL_COLUMNS = _columns(InterventionToCanonical)
 TRIAL_TO_INTERVENTION_COLUMNS = _columns(TrialToIntervention)
-DRUG_REF_COLUMNS = _columns(DrugRef)
-DRUG_TARGET_COLUMNS = _columns(DrugTarget)
-DRUG_INDICATION_COLUMNS = _columns(DrugIndication)
+DRUG_ANNOTATIONS_CORE_COLUMNS = _columns(DrugAnnotationsCore)
+DRUG_TARGET_ACTIONS_COLUMNS = _columns(DrugTargetAction)
+DRUG_REGULATORY_APPROVALS_COLUMNS = _columns(DrugRegulatoryApproval)
 
 TABLE_FILES = {
     "intervention_to_canonical": "intervention_to_canonical.tsv",
     "trial_to_intervention": "trial_to_intervention.tsv",
-    "drug_ref": "drug_ref.tsv",
-    "drug_target": "drug_target.tsv",
-    "drug_indication": "drug_indication.tsv",
+    "drug_annotations_core": "drug_annotations_core.tsv",
+    "drug_target_actions": "drug_target_actions.tsv",
+    "drug_regulatory_approvals": "drug_regulatory_approvals.tsv",
 }
 
 

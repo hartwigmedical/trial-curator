@@ -13,8 +13,12 @@ import functools
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-ONCOTREE_CSV = REPO_ROOT / "data/eligibility_path/resources/oncotree/oncotree.csv"
+from aus_trial_universe.agentic.core.paths import ONCOTREE_ROOT, current_version_dir
+
+
+def _oncotree_csv() -> Path:
+    """Path to the live OncoTree CSV (resolved lazily so importing this module never requires the file)."""
+    return current_version_dir(ONCOTREE_ROOT) / "oncotree.csv"
 
 _CODE_RE = re.compile(r"\(([^()]+)\)\s*$")   # trailing "(CODE)" in a "Name (CODE)" cell
 _LEVELS = [f"level_{i}" for i in range(1, 8)]
@@ -31,7 +35,7 @@ SENTINELS = (PAN_CANCER, SOLID_TUMOUR, HAEM_MALIGNANCY)
 def oncotree_vocab() -> dict[str, str]:
     """``{code: name}`` for every OncoTree node (~865)."""
     vocab: dict[str, str] = {}
-    with open(ONCOTREE_CSV, newline="", encoding="utf-8-sig") as f:
+    with open(_oncotree_csv(), newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             for lvl in _LEVELS:
                 cell = (row.get(lvl) or "").strip()
@@ -51,7 +55,7 @@ def valid_codes() -> frozenset[str]:
 def oncotree_ancestors() -> dict[str, frozenset[str]]:
     """``{code: ancestor codes}`` from the OncoTree level hierarchy (level_1..level_7)."""
     anc: dict[str, set[str]] = {}
-    with open(ONCOTREE_CSV, newline="", encoding="utf-8-sig") as f:
+    with open(_oncotree_csv(), newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             path: list[str] = []
             for lvl in _LEVELS:

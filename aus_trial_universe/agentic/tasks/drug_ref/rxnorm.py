@@ -14,10 +14,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from aus_trial_universe.agentic.core.pipeline_io import latest_version_dir
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-RXNORM_ROOT = REPO_ROOT / "data/drug_utility_path/drug_ontology/raw_inputs/RxNorm"
+from aus_trial_universe.agentic.core.paths import RXNORM_ROOT, current_version_dir
 
 # RXNCONSO.RRF is pipe-delimited; 0-indexed columns used here:
 _RXCUI, _LAT, _SAB, _TTY, _CODE, _STR = 0, 1, 11, 12, 13, 14
@@ -51,7 +48,7 @@ def _parse_rrf(path: Path) -> tuple[dict[str, str], dict[str, str]]:
 @lru_cache(maxsize=1)
 def _index() -> tuple[dict[str, str], dict[str, str]]:
     """(name -> RXCUI, RXCUI -> ATC) from the newest RXNCONSO.RRF. Cached (parsed once)."""
-    return _parse_rrf(latest_version_dir(RXNORM_ROOT) / "RXNCONSO.RRF")
+    return _parse_rrf(current_version_dir(RXNORM_ROOT) / "RXNCONSO.RRF")
 
 
 def resolve_rxcui(name: str) -> str:

@@ -1,0 +1,278 @@
+<title>Drug utility path &mdash; Workflow</title>
+<style>
+  :root {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7;
+    --ink: #16212e; --ink-soft: #4d5e70; --ink-faint: #7b8a9a;
+    --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2;
+    --gen: #b0741d; --gen-bg: #f6ecd9;
+    --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 20px rgba(20,35,55,.05);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825;
+      --ink: #dde7f1; --ink-soft: #9fb0c1; --ink-faint: #6d7f91;
+      --border: #26333f; --border-strong: #364857;
+      --code: #4fc2cf; --code-bg: #10312f; --gen: #e0a53f; --gen-bg: #3a2e17;
+      --rev: #e08079; --rev-bg: #3a201d;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7; --ink: #16212e; --ink-soft: #4d5e70;
+    --ink-faint: #7b8a9a; --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2; --gen: #b0741d; --gen-bg: #f6ecd9; --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 20px rgba(20,35,55,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825; --ink: #dde7f1; --ink-soft: #9fb0c1;
+    --ink-faint: #6d7f91; --border: #26333f; --border-strong: #364857;
+    --code: #4fc2cf; --code-bg: #10312f; --gen: #e0a53f; --gen-bg: #3a2e17; --rev: #e08079; --rev-bg: #3a201d;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 44px 24px 64px; }
+  .date { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px; }
+  h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -.01em; text-wrap: balance; }
+  .thesis { font-size: 17px; color: var(--ink-soft); max-width: 66ch; margin: 0; }
+  .thesis b { color: var(--ink); font-weight: 600; }
+  .inline-code { font-family: var(--mono); font-size: .88em; background: var(--code-bg); color: var(--code); padding: 1px 6px; border-radius: 5px; }
+
+  .principle { margin: 22px 0 8px; border: 1px solid color-mix(in srgb, var(--code) 40%, var(--border)); border-left: 4px solid var(--code);
+    border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); padding: 14px 16px; }
+  .principle .h { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--code); font-weight: 700; margin-bottom: 5px; }
+  .principle p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .principle b { color: var(--ink); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 18px 0 30px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .legend .item { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-soft); }
+  .dot { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+  .dot.code { background: var(--code); } .dot.gen { background: var(--gen); } .dot.rev { background: var(--rev); }
+
+  .spine { display: flex; flex-direction: column; gap: 0; }
+  .conn { width: 2px; height: 20px; background: var(--border-strong); margin: 0 auto; }
+  .stage { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 15px 18px 15px 22px; box-shadow: var(--shadow); }
+  .stage .rail { position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 4px; background: var(--code); }
+  .stage.gen .rail { background: var(--gen); } .stage.mix .rail { background: linear-gradient(var(--gen), var(--code)); }
+  .stage .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .stage .tag { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+  .stage h3 { margin: 0; font-size: 16px; flex: 1 1 auto; }
+  .stage > p { margin: 8px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+  .badge { font-family: var(--mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border-radius: 999px; }
+  .badge.code { color: var(--code); background: var(--code-bg); } .badge.gen { color: var(--gen); background: var(--gen-bg); }
+  .badge.rev { color: var(--rev); background: var(--rev-bg); } .badge.mix { color: var(--gen); background: var(--gen-bg); }
+
+  .branch { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  .b { border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; background: var(--panel-2); }
+  .b .src { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
+  .b.ct .src { color: var(--code); } .b.an .src { color: var(--gen); }
+  .b p { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* doer -> reviewer stage box */
+  .dr { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 620px) { .dr, .branch { grid-template-columns: 1fr; } }
+  .slot { border: 1.5px solid var(--border); border-radius: 11px; padding: 11px 13px; background: var(--panel-2); }
+  .slot .rl { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+  .slot.gen { border-color: color-mix(in srgb, var(--gen) 45%, var(--border)); } .slot.gen .rl { color: var(--gen); }
+  .slot.rev { border-color: color-mix(in srgb, var(--rev) 45%, var(--border)); } .slot.rev .rl { color: var(--rev); }
+  .slot ul { margin: 7px 0 0; padding-left: 17px; }
+  .slot li { font-size: 12px; color: var(--ink-soft); margin: 3px 0; }
+  .slot li b { color: var(--ink); }
+
+  .lookup { margin-top: 12px; border: 1px dashed color-mix(in srgb, var(--code) 50%, var(--border)); border-radius: 10px; padding: 10px 13px; background: var(--code-bg); }
+  .lookup .h { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--code); }
+  .lookup p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+  .lookup b { color: var(--ink); }
+
+  .out { margin-top: 11px; display: flex; flex-wrap: wrap; gap: 7px; }
+  .out .t { font-family: var(--mono); font-size: 11px; padding: 4px 9px; border-radius: 7px; background: var(--panel-2); border: 1px solid var(--border); color: var(--ink); }
+  .out .arrow { font-size: 12px; color: var(--ink-faint); align-self: center; }
+
+  .tables { margin-top: 40px; }
+  .tables h2 { font-size: 13px; font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 6px; }
+  .tables .sub { font-size: 13px; color: var(--ink-soft); margin: 0 0 16px; max-width: 66ch; }
+  .tgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .tbl { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .tbl .stg { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); }
+  .tbl .name { font-family: var(--mono); font-size: 13px; color: var(--code); font-weight: 600; margin: 3px 0 0; word-break: break-word; }
+  .tbl .key { font-size: 11px; color: var(--ink-faint); margin: 4px 0 0; font-style: italic; }
+  .tbl p { margin: 6px 0 0; font-size: 12px; color: var(--ink-soft); }
+
+  .foot { margin-top: 34px; border-top: 1px solid var(--border); padding-top: 16px; font-size: 12.5px; color: var(--ink-faint); }
+  .foot b { color: var(--ink-soft); }
+</style>
+
+<div class="wrap">
+  <p class="date">20 July 2026 &middot; v2 agentic pipeline</p>
+  <h1>Drug utility path &mdash; how the modules interact</h1>
+  <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
+    <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop, and the trustworthy facts
+    (<span class="inline-code">rxcui</span>, ATC, POTTR class) are <b>deterministic lookups, never LLM guesses</b>.
+    Each distinct drug is resolved and researched <b>once</b> and reused across every trial. Output = <b>five 3NF
+    relational tables</b>.</p>
+
+  <div class="principle">
+    <div class="h">Guiding principle &mdash; research once per drug, reuse everywhere</div>
+    <p>A drug's intrinsic facts depend only on the <b>drug</b>, not the trial or the raw string &mdash; so they live
+      <b>once</b>, keyed by a namespaced <span class="inline-code">canonical_id</span>, and every trial that uses the
+      drug is a <b>pure lookup</b>. The expensive LLM + web search runs once per distinct drug (~2,400 raw tokens
+      &rarr; ~1,300 canonicals); an existing, non-stale drug is never re-researched. Normalization <i>is</i> the speed win.</p>
+  </div>
+
+  <div class="principle">
+    <div class="h">Guiding principle &mdash; the reviewer only advises; deterministic facts aren't LLM'd</div>
+    <p>Each judgement stage pairs a <b>doer</b> (web search) with an adversarial <b>reviewer</b> that returns only a
+      <b>verdict + problems</b>, never a rewritten value; on a failure the critique feeds back to the doer (bounded,
+      &le;3 attempts). The reviewer judges plausibility from its own knowledge &mdash; it does <b>not</b> re-search.
+      The identity/classification facts that must be exact &mdash; <span class="inline-code">rxcui</span> + ATC (RxNorm),
+      POTTR drug class, trial provenance &mdash; bypass the LLM entirely.</p>
+  </div>
+
+  <div class="legend">
+    <div class="item"><span class="dot code"></span> Deterministic code / lookup</div>
+    <div class="item"><span class="dot gen"></span> LLM &middot; doer (web search)</div>
+    <div class="item"><span class="dot rev"></span> LLM &middot; reviewer</div>
+  </div>
+
+  <div class="spine">
+
+    <section class="stage mix">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Collect</span><h3>Every drug across the trial universe, with its arm</h3><span class="badge mix">code + llm</span></div>
+      <div class="branch">
+        <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
+          <p>each drug-bearing <span class="inline-code">armGroups</span> entry &rarr; a
+            <span class="inline-code">(trialId, arm, arm_type, drug)</span> occurrence. Exact, per-arm, no LLM.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; LLM doer&rarr;reviewer</span>
+          <p>names the drugs in <span class="inline-code">INTERVENTIONS</span> (arm = intervention) +
+            <span class="inline-code">COMPARATOR</span> (arm = comparator); non-drug modalities filtered out by a
+            deterministic backstop.</p></div>
+      </div>
+      <div class="out"><span class="t">&rarr; trial_to_intervention</span><span class="arrow">+ distinct raw names &rarr; Stage 1</span></div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage gen">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 1 &middot; identity</span><h3>Canonicalize &mdash; raw name &rarr; the standalone drug(s)</h3><span class="badge gen">doer &rarr; reviewer</span></div>
+      <div class="dr">
+        <div class="slot gen"><span class="rl">doer &middot; web search</span>
+          <ul>
+            <li>brand / code &rarr; INN (<span class="inline-code">Keytruda</span>, <span class="inline-code">MK-3475</span> &rarr; pembrolizumab)</li>
+            <li>a combination / regimen splits into its component drugs (<b>1 raw &rarr; N</b>); a single engineered molecule (ADC, bispecific, fusion) stays <b>one</b></li>
+            <li>records <span class="inline-code">raw_name_to_map</span> &mdash; the input fragment for each component</li>
+            <li>a non-drug (procedure / placebo) &rarr; empty</li>
+          </ul>
+        </div>
+        <div class="slot rev"><span class="rl">reviewer + deterministic guards</span>
+          <ul>
+            <li>split correct? INN correct? investigational flag right?</li>
+            <li>comma-<i>list</i> of drugs splits; a descriptive comma (<span class="inline-code">immune globulin, human</span>) stays one</li>
+            <li>no specific drug <b>invented</b> from a generic word ("chemotherapy")</li>
+            <li><span class="inline-code">_COMBO_LEFTOVER</span> backstop rejects an unsplit join word</li>
+          </ul>
+        </div>
+      </div>
+      <div class="lookup"><div class="h">deterministic &middot; RxNorm</div>
+        <p><span class="inline-code">resolve_rxcui(name)</span> &rarr; the namespaced id: <b><span class="inline-code">rxcui:&lt;n&gt;</span></b>
+          when in RxNorm, else <b><span class="inline-code">name:&lt;x&gt;</span></b> (investigational). The web search
+          gives the <i>name</i>; the id is a pure lookup.</p></div>
+      <div class="out"><span class="t">&rarr; intervention_to_canonical</span></div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage gen">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 2 &middot; enrichment</span><h3>Annotate &mdash; the drug's intrinsic facts + mechanism</h3><span class="badge gen">doer &rarr; reviewer</span></div>
+      <div class="dr">
+        <div class="slot gen"><span class="rl">doer &middot; web search</span>
+          <ul>
+            <li><b>modality</b> &mdash; exactly one of a controlled 12-term vocabulary</li>
+            <li><b>(target, action) pairs</b> &mdash; one per target (an ADC lists antigen + payload)</li>
+            <li><span class="inline-code">drug_class</span>, coarse FDA / EMA status, per-fact <span class="inline-code">sources</span></li>
+          </ul>
+        </div>
+        <div class="slot rev"><span class="rl">reviewer</span>
+          <ul>
+            <li>modality valid &amp; correct; targets correct <b>and complete</b></li>
+            <li>class sensible; FDA/EMA coarse + correctly formatted; sources present</li>
+          </ul>
+        </div>
+      </div>
+      <div class="lookup"><div class="h">deterministic &middot; POTTR + RxNorm/ATC</div>
+        <p><b>POTTR drug class</b> (trace every leaf-line to root, classes joined by <span class="inline-code">|</span>) and the
+          <b>ATC code</b> (from <span class="inline-code">RXNCONSO.RRF</span>) are added by lookup on the canonical name + aliases &mdash; not LLM-derived.</p></div>
+      <div class="out"><span class="t">&rarr; drug_annotations_core</span><span class="arrow">+</span><span class="t">&rarr; drug_target_actions</span></div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage gen">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 3 &middot; regulatory</span><h3>Approvals &mdash; TGA / PBS, per indication</h3><span class="badge gen">doer &rarr; reviewer</span></div>
+      <div class="dr">
+        <div class="slot gen"><span class="rl">doer &middot; web search (official sources)</span>
+          <ul>
+            <li>one entry per distinct oncology indication, <b>as the regulator states it</b> (cancer + biomarker + line + combination &hellip;)</li>
+            <li>per-agency <b>TGA</b> and <b>PBS</b> status / date / evidence link, set independently</li>
+            <li>investigational drug &rarr; empty list (no invented approvals)</li>
+          </ul>
+        </div>
+        <div class="slot rev"><span class="rl">reviewer</span>
+          <ul>
+            <li>right specificity &mdash; biomarker / combination qualifiers not dropped</li>
+            <li>official evidence link on every asserted status; TGA &amp; PBS independent</li>
+          </ul>
+        </div>
+      </div>
+      <div class="out"><span class="t">&rarr; drug_regulatory_approvals</span><span class="arrow">draft &mdash; pending human review</span></div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Persist</span><h3>Five 3NF tables &mdash; incremental, versioned</h3><span class="badge code">code</span></div>
+      <p>Written to <span class="inline-code">drug_annotations/current_version/</span> (superseded builds &rarr; <span class="inline-code">archive/</span>),
+        batched with a checkpoint save (resumable) and soft-failing per drug so one bad drug can't kill a long run.
+        Reference data lives under <span class="inline-code">resources/drug_utility/{pottr,rxnorm}/current_version/</span>;
+        <span class="inline-code">make drug-ref-refresh-pottr</span> pulls the latest POTTR from GitHub (archiving the previous).</p>
+    </section>
+
+  </div>
+
+  <div class="tables">
+    <h2>The relational model &mdash; two stages, five tables</h2>
+    <p class="sub">Identity (which drug is this?) is separated from enrichment (what is this drug?). Trial provenance
+      joins to the mapping by input name; everything downstream joins by <span class="inline-code">canonical_id</span>.</p>
+    <div class="tgrid">
+      <div class="tbl"><span class="stg">Stage 1 &middot; identity</span>
+        <p class="name">intervention_to_canonical</p>
+        <p class="key">input_intervention_name &rarr; canonical_id</p>
+        <p>the mapping (+ <span class="inline-code">raw_name_to_map</span>); a combination is 1 input &rarr; N rows.</p></div>
+      <div class="tbl"><span class="stg">Stage 1 &middot; provenance</span>
+        <p class="name">trial_to_intervention</p>
+        <p class="key">(trialId, registry, arm) &rarr; input name</p>
+        <p>which trials / arms used each name &mdash; arm + arm_type; deterministic.</p></div>
+      <div class="tbl"><span class="stg">Stage 2 &middot; core</span>
+        <p class="name">drug_annotations_core</p>
+        <p class="key">canonical_id (PK)</p>
+        <p>modality, class, rxcui, atc, POTTR class, FDA/EMA, aliases, researched_on.</p></div>
+      <div class="tbl"><span class="stg">Stage 2 &middot; mechanism</span>
+        <p class="name">drug_target_actions</p>
+        <p class="key">(canonical_id, target, action)</p>
+        <p>the mechanism as (target, action) pairs &mdash; the queryable dimension.</p></div>
+      <div class="tbl"><span class="stg">Stage 2 &middot; regulatory</span>
+        <p class="name">drug_regulatory_approvals</p>
+        <p class="key">(canonical_id, indication)</p>
+        <p>TGA / PBS approval per as-stated indication + evidence links.</p></div>
+    </div>
+  </div>
+
+  <p class="foot">Deterministic orchestration (Pattern B): plain Python owns the control flow; the LLM fills only the
+    doer / reviewer slots. Single relocatable <b>DATA_ROOT</b> (<span class="inline-code">core/paths.py</span>).
+    Full schema &amp; design: <b>docs/agentic/drug_ref_schema.md</b> &middot; <b>docs/v2_agentic_pipeline_spec.md</b> &sect;6.1.</p>
+</div>
