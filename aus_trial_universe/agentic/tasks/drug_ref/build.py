@@ -7,7 +7,7 @@ canonical is a pure lookup; only new (or --refresh) drugs are researched.
   python -m aus_trial_universe.agentic.tasks.drug_ref.build --from-trials NCT07099898,NCT05009992 --limit 5
   options: --refresh-drugs  --refresh-days N  --no-review  --model <name>
 
-Writes data/agentic/resources/drug_ref/version_<ddmmyyyy>/. Requires OPENAI_API_KEY. Run via `make drug-ref-build`.
+Writes data/agentic/drug_annotations/current_version/. Requires OPENAI_API_KEY. Run via `make drug-ref-build`.
 """
 from __future__ import annotations
 

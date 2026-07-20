@@ -90,13 +90,15 @@ splits `1 input → N` rows; a non-drug is one row with an empty `canonical_id`.
 | `raw_name_to_map` | the fragment of the input that names *this* canonical (`Palbociclib` from `Arm A: Gedatolisib + Palbociclib + Fulvestrant`; the drug name minus dose/arm/setting noise; the whole code when the code *is* the drug) |
 | `canonical_id` | FK → `drug_annotations_core.canonical_id` (`rxcui:<n>` \| `name:<x>`); empty for a non-drug |
 
-**`trial_to_intervention`** — the provenance / traceability record. Grain: one row per (trial × input string);
-many-to-many (a string can appear in many trials; a trial has many interventions).
+**`trial_to_intervention`** — the provenance / traceability record. Grain: one row per (trial × arm × input
+string); many-to-many (a string can appear in many trials/arms; a trial arm has many interventions).
 
 | column | meaning |
 |---|---|
 | `trialId` | `NCT…` (ctgov) or `ACTRN…` (anzctr) |
 | `registry` | `ctgov` \| `anzctr` |
+| `arm` | CTGov armGroup label; ANZCTR `intervention` \| `comparator` (deterministic) |
+| `arm_type` | CTGov `armGroups[].type` (`EXPERIMENTAL` / `ACTIVE_COMPARATOR` / …); ANZCTR `EXPERIMENTAL` (intervention) \| `ACTIVE_COMPARATOR` (comparator) — flags control arms |
 | `input_intervention_name` | FK → `intervention_to_canonical.input_intervention_name` |
 
 ### Stage 2 — drug enrichment (keyed by `canonical_id`)
@@ -199,8 +201,9 @@ fields have no reviewer because there is no judgement to check.
 - *(`rxcui` is then a deterministic RxNorm lookup on the accepted name — not reviewed.)*
 
 ### `trial_to_intervention` — deterministic, **no reviewer**
-Which trial + registry each input name came from is recorded at collection time (the loader knows it), so it is a
-pure deterministic fact — no doer, no reviewer. Its integrity is a property of the collection code, not a judgement.
+Which trial + registry + arm (label and type) each input name came from is recorded at collection time (the loader
+knows it), so it is a pure deterministic fact — no doer, no reviewer. Its integrity is a property of the collection
+code, not a judgement.
 
 ### `drug_annotations_core` + `drug_target_actions` — annotator + `drug_annotator_reviewer`
 Both tables come from the **one** `annotate` call (the scalar facts land in `drug_annotations_core`; the

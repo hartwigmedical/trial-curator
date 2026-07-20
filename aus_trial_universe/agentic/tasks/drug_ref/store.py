@@ -1,9 +1,10 @@
 """Persistence for the drug reference (spec §6.1).
 
-An in-memory view of the five tables, loaded from the newest `version_<ddmmyyyy>` dir under
-`data/agentic/resources/drug_ref/`. The build is **incremental**: an existing, non-stale canonical is a
-pure lookup (no LLM). `save()` writes a fresh version dir holding the full current state — a self-contained,
-datestamped snapshot (same-day rebuilds overwrite that day's version, matching the other resources).
+An in-memory view of the five tables, loaded from `current_version/` under
+`data/agentic/drug_annotations/` (`paths.DRUG_ANNOTATIONS_ROOT`). The build is **incremental**: an existing,
+non-stale canonical is a pure lookup (no LLM). `save()` writes the full current state to `current_version/`
+(overwriting), recording the build date in a `.version` file; a superseded set is moved to `archive/<label>/`
+via `paths.archive_current_version` — matching the other versioned resources.
 
 Table 1 is split (3NF): `intervention_to_canonical` (input string -> canonical drug(s), deduped by string) and
 `trial_to_intervention` (which trials used each input string — the provenance/traceability record). A legacy

@@ -3,7 +3,8 @@
 The persisted TSV tables are plain dataclasses (one row each); their column order derives from the field
 order so the schema is the single source of truth. LLM I/O schemas (pydantic) drive the *judgement* stages
 (canonicalize / annotate / approvals); the *deterministic* facts (rxcui / pottr_drug_class / atc_code) are
-NOT produced by the LLM — they come from the RxNorm / POTTR / ATC lookups (see pottr.py / rxnorm.py / atc.py).
+NOT produced by the LLM — they come from the RxNorm / POTTR / ATC lookups (rxnorm.py resolves both rxcui and
+the ATC code from RXNCONSO.RRF; pottr.py resolves the drug class).
 
 Conventions:
 - `canonical_id` is a NAMESPACED, self-describing string: ``rxcui:<n>`` when RxNorm-resolved, else

@@ -62,7 +62,7 @@ agentic-validate:
 	OUT="$(OUT)" scripts/agentic/pipeline.sh validate
 
 # Standalone drug-reference builder (spec §6.1). Incremental — existing drugs are reused (pure lookup);
-# only new (or REFRESH_DRUGS=1) drugs are researched. Writes data/agentic/resources/drug_ref/version_<ddmmyyyy>/.
+# only new (or REFRESH_DRUGS=1) drugs are researched. Writes data/agentic/drug_annotations/current_version/.
 #   make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"
 #   make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5
 #   make drug-ref-build ALL_TRIALS=1                 # every distinct drug across all ctgov + anzctr

@@ -5,8 +5,8 @@ RXNCONSO.RRF (ATC is integrated into RxNorm as the ``SAB=ATC`` source, so both c
 *judgement* — what canonical drug a raw name refers to — stays with the LLM; this only does the deterministic
 identity lookup on the canonical name the LLM produced.
 
-Data is read in place from the (legacy) drug_ontology raw inputs; if that path retires, move the RRF into an
-agentic-owned resource dir. Parsed once and cached (RXNCONSO is ~1.2M rows).
+The RRF is read from the agentic-owned resource dir (`RXNORM_ROOT/current_version/RXNCONSO.RRF`, a
+UMLS-licensed drop-in). Parsed once and cached (RXNCONSO is ~1.2M rows).
 """
 from __future__ import annotations
 

@@ -15,6 +15,12 @@
     `current_version/` (not `latest_version_dir`). `make drug-ref-refresh-pottr` refreshes POTTR from GitHub.
   - **Current build:** `data/agentic/drug_annotations/current_version/` (1282 drugs; metadata in `RESOURCE_INFO.md`).
   - **95 unit tests pass.**
+  - **Doc-currency pass (2026-07-20):** re-verified tests + docs + diagram at sign-off. Fixed stale references left
+    over from the data restructure — `drug_ref_schema.md` `trial_to_intervention` was missing the `arm`/`arm_type`
+    columns; `store.py`/`build.py`/`__init__.py`/`Makefile` still pointed at the retired
+    `resources/drug_ref/version_<ddmmyyyy>/` path (now `drug_annotations/current_version/`); `schema.py` cited a
+    non-existent `atc.py` (ATC is in `rxnorm.py`); `rxnorm.py` still described reading the RRF "in place" from the
+    legacy tree (it reads the agentic resource dir). Diagram + `combined_agentic_run.md` were already current.
 - **Pre-rewrite fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only — NOT data).
 - **Run/setup guide:** `docs/agentic/combined_agentic_run.md` (all make commands + environment).
 - **Design + fields + schema:** `docs/v2_agentic_pipeline_spec.md` (single spec) + `docs/agentic/drug_ref_schema.md`
@@ -317,10 +323,22 @@ Former TODOs now closed:
   `faithful=False` even with incremental repair. Deeper fix pending (more attempts / per-dimension resolved /
   up-front subcohort split).
 - **Run-comparison method** (spec §12) — still deferred; verification of the mapping is currently manual.
-- **Legacy-path retirement** — shared inputs/resources are now consolidated under `data/agentic/` (memory
-  `agentic-data-root-temporary`); the legacy `data/{drug_utility_path,eligibility_path,trial_inputs}/` trees hold
-  only remnants awaiting removal. `data/agentic/` itself is a TEMPORARY root — promotable to top-level `data/` by
-  changing the one `DATA_ROOT` line in `core/paths.py`.
+- **Legacy-path retirement — DEFERRED to the eligibility-path work (decided 2026-07-20, user-approved).** Shared
+  inputs/resources are consolidated under `data/agentic/` (memory `agentic-data-root-temporary`), and `data/agentic/`
+  is a TEMPORARY root — promotable to top-level `data/` by changing the one `DATA_ROOT` line in `core/paths.py`.
+  BUT the legacy `drug_utility_path` is **NOT a pure remnant**: the still-live `eligibility_path` (the next focus)
+  has a hard dependency on it — `eligibility_path/anzctr/.../iii_extract_drugs.py` (run by `make
+  eligibility-path-anzctr`, `pipeline.sh:80`) **imports** `aus_trial_universe.drug_utility_path.ctgov.drug_ontology.
+  identity.rxnorm.matcher` and, together with `eligibility_path/shared/workflow/recursive_end_to_end_workflow.py`,
+  **reads** `data/drug_utility_path/drug_ontology/raw_inputs/RxNorm`. So removing `aus_trial_universe/drug_utility_path/`
+  (+ `tests/drug_utility_path/`) or `data/drug_utility_path/` now would break `make eligibility-path-anzctr`. The
+  agentic drug path itself is fully decoupled (imports nothing from the legacy tree). Retire the whole legacy
+  `drug_utility_path` (code + data + tests) together with the eligibility rewrite — either drop the RxNorm-matcher
+  dependency (agentic already does ANZCTR drugs via LLM) or copy `matcher.py` (self-contained, stdlib-only) into an
+  agentic-owned home per the copy-don't-import rule. Also already dead (fix or drop when convenient): the Makefile
+  `drug-ontology-pipeline-tsvs` / `drug-ontology-analysis-tsvs` targets point at a non-existent
+  `aus_trial_universe.ctgov.drug_ontology.*` module path. Benign leftover: `data/agentic/trial_universe/ctgov/
+  extracted_trials/ctgov_field_extractions.csv` is not read by agentic (CTGov reads `input_trials/` + `download_state/`).
 
 ## Gotchas
 - **SDK:** `openai 2.44.0`. `.parse()` uses `chat.completions.parse`; `.research()` uses the Responses API

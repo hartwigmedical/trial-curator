@@ -7,6 +7,6 @@ Five 3NF tables, built once per unique drug and reused across the whole universe
   drug_target_actions                (canonical_id, target, action) -> the mechanism as (target, action) pairs
   drug_regulatory_approvals            (canonical_id, indication) -> TGA/PBS approval (indication-specific)
 
-Persisted as a datestamped versioned resource (data/agentic/resources/drug_ref/version_<ddmmyyyy>/);
+Persisted under data/agentic/drug_annotations/current_version/ (superseded builds -> archive/);
 incremental — an existing (non-stale) canonical is a pure lookup. See schema.py / store.py.
 """
