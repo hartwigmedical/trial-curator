@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     MODALITIES,
     ApprovalByIndication,
     Canonicalization,

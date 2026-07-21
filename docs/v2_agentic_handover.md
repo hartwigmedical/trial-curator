@@ -165,23 +165,23 @@ aus_trial_universe/agentic/
     agent.py                 # Agent = prompt + schema + model (+ web_search flag) bound to the client
     workflow.py              # generic fan_out() + refine() (bounded check->repair loop)
     pipeline_io.py           # dated-file / version-dir selection (copied from eligibility_path); versioned datasets now read current_version/ via paths.py
-  tasks/drug_ref/            # DRUG UTILITY PATH (signed off) — 5 3NF tables; see docs/agentic/drug_ref_schema.md
+  tasks/drug_utility/        # DRUG UTILITY PATH (signed off) — 5 3NF tables; see docs/agentic/drug_ref_schema.md
     schema.py, store.py      # 5-table schema + DrugRefStore (writes drug_annotations/current_version/)
     rxnorm.py, pottr.py      # DETERMINISTIC offline lookups (rxcui+atc; POTTR class walk); pottr.refresh_pottr() downloads POTTR
     agents.py, workflow.py, build.py  # 3 LLM doer->reviewer pairs (web_search) + build_drug_ref + CLI collection
-  tasks/extraction/          # STAGE I: free text -> DNF eligibility rows
-    loaders.py               # ctgov/anzctr assembly + cohort enumeration (arm_type, drug); load_trials(id/ids/all)
-    agents.py                # cohort-aware extractor + 5-reviewer panel + anzctr drug/cohort agents
-    schema.py, workflow.py   # DnfRow / Cohort; extract_trial() = extract -> panel -> refine -> distribute
-  tasks/mapping/             # STAGE II: enrich the DNF rows (LLM mapper -> reviewer each)
-    agents.py, schema.py     # oncotree / gene / signature mappers + drug curator (web search) + reviewers
-    workflow.py              # map_cancer_types, map_gene_alterations, map_molecular_signatures, curate_drugs
+  tasks/eligibility/         # ELIGIBILITY PATH (extraction + mapping + tools + qa)
+    extraction/              # STAGE I: free text -> DNF eligibility rows
+      loaders.py             # ctgov/anzctr assembly + cohort enumeration (arm_type, drug); load_trials(id/ids/all)
+      agents.py              # cohort-aware extractor + 5-reviewer panel + anzctr drug/cohort agents
+      schema.py, workflow.py # DnfRow / Cohort; extract_trial() = extract -> panel -> refine -> distribute
+    mapping/                 # STAGE II: map the DNF cells -> vocab (LLM mapper -> reviewer each)
+      agents.py, schema.py   # oncotree / gene / signature mappers + reviewers
+      workflow.py            # map_cancer_types, map_gene_alterations, map_molecular_signatures
+    tools/
+      oncotree.py            # OncoTree vocab + code validator + hierarchy (ancestors/is_subcode); 3 sentinels
+      finding_model.py       # finding-model grammar + syntax/logic validator (dup + self-contradiction)
+    qa/validate_output.py    # INDEPENDENT output validator ("review of the reviewers"); make agentic-validate
   core/logfmt.py             # shared run-log formatting (stage banners + doer/reviewer blocks)
-  tools/
-    oncotree.py              # OncoTree vocab + code validator + hierarchy (ancestors/is_subcode); 3 sentinels
-    finding_model.py         # finding-model grammar + syntax/logic validator (dup + self-contradiction)
-  qa/
-    validate_output.py       # INDEPENDENT output validator ("review of the reviewers"); make agentic-validate
 tests/agentic/               # 95 tests (fake-client)
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|clean|tests|drug-ref-build|drug-ref-refresh-pottr
 docs/agentic/combined_agentic_run.md   # run/setup guide

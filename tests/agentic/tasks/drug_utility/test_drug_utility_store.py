@@ -7,8 +7,8 @@ from datetime import date
 import pytest
 
 from aus_trial_universe.agentic.core.paths import archive_current_version, current_version_dir
-from aus_trial_universe.agentic.tasks.drug_ref.schema import DrugRegulatoryApproval, DrugAnnotationsCore, DrugTargetAction
-from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
+from aus_trial_universe.agentic.tasks.drug_utility.schema import DrugRegulatoryApproval, DrugAnnotationsCore, DrugTargetAction
+from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
 
 
 def test_current_version_and_archive_helpers(tmp_path):

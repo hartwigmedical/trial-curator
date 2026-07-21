@@ -3,8 +3,8 @@
 Builds / incrementally tops up the drug_ref resource from a list of raw drug names. An existing, non-stale
 canonical is a pure lookup; only new (or --refresh) drugs are researched.
 
-  python -m aus_trial_universe.agentic.tasks.drug_ref.build --drugs "pembrolizumab; Keytruda; Ris-Rez"
-  python -m aus_trial_universe.agentic.tasks.drug_ref.build --from-trials NCT07099898,NCT05009992 --limit 5
+  python -m aus_trial_universe.agentic.tasks.drug_utility.build --drugs "pembrolizumab; Keytruda; Ris-Rez"
+  python -m aus_trial_universe.agentic.tasks.drug_utility.build --from-trials NCT07099898,NCT05009992 --limit 5
   options: --refresh-drugs  --refresh-days N  --no-review  --model <name>
 
 Writes data/agentic/drug_annotations/current_version/. Requires OPENAI_API_KEY. Run via `make drug-ref-build`.
@@ -36,7 +36,7 @@ def _collect(names, occ, trial_id, registry, arm, arm_type, tokens) -> list[str]
 def _drugs_from_trials(ids: list[str]) -> tuple[list[str], list[tuple]]:
     """(distinct names, occurrences) from CTGov trials (ANZCTR drugs are LLM-derived at run time -> skipped).
     Each occurrence carries the armGroup label + type (deterministic)."""
-    from aus_trial_universe.agentic.tasks.extraction.loaders import load_trials
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import load_trials
 
     log = logging.getLogger("agentic.drug_ref")
     names: list[str] = []
@@ -57,11 +57,11 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tup
     ANZCTR via the drug doer->reviewer agent (parallel). Every drug is attributed to its trial + registry + ARM in
     `occurrences` (the trial_to_intervention provenance) and logged per trial (traceability)."""
     from aus_trial_universe.agentic.core.workflow import fan_out
-    from aus_trial_universe.agentic.tasks.extraction.loaders import (
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import (
         load_all_anzctr_trials,
         load_all_ctgov_trials,
     )
-    from aus_trial_universe.agentic.tasks.extraction.workflow import extract_anzctr_drugs
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import extract_anzctr_drugs
 
     log = logging.getLogger("agentic.drug_ref")
     names: list[str] = []
@@ -123,8 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     _load_openai_key()
 
     from aus_trial_universe.agentic.core.client import LlmClient
-    from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
-    from aus_trial_universe.agentic.tasks.drug_ref.workflow import build_drug_ref
+    from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
+    from aus_trial_universe.agentic.tasks.drug_utility.workflow import build_drug_ref
 
     client = LlmClient(model=args.model) if args.model else LlmClient()
 

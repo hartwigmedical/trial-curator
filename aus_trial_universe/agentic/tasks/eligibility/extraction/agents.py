@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.tasks.extraction.schema import (
+from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
     DrugExtraction,
     EligibilityExtraction,
     JudgeVerdict,
@@ -259,3 +259,41 @@ def build_reviewer_agents(client: LlmClient, *, model: str | None = None) -> lis
                      output_schema=JudgeVerdict, client=client, model=model))
         for spec in REVIEWERS
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Enumeration-plausibility reviewer — the ONE lens that sees the ASSEMBLED DNF.
+# The per-dimension panel above audits the pre-distribution scoped rows cell-by-cell; none of them ever sees the
+# final cross-multiplied, de-duplicated row SET or asks "is this row count plausible vs. the source's alternative
+# structure?". That blind spot is exactly how OR-alternatives of ONE criterion get fabricated into AND-combinations
+# (e.g. "MYCN amp AND MYCL amp" from a source "MYCN, MYC OR MYCL amp") and the table blows up. This reviewer is
+# given the assembled table + the source and closes that gap (verifying « generating; spec principle #5).
+# --------------------------------------------------------------------------- #
+ENUMERATION_REVIEWER_INSTRUCTIONS = """\
+You audit the ASSEMBLED eligibility DNF table (one row = one satisfiable AND-conjunction; the rows are
+OR-alternatives) against the trial text, with ONE lens: ENUMERATION PLAUSIBILITY. Checking is far cheaper than
+generating — your job is to catch OR-alternatives that were fabricated into AND-combinations, and any implausible
+row-count blow-up.
+
+For EACH criterion column (cancer_type, gene_alteration, molecular_signature, molecular_biomarker, prior_therapy):
+1. Read the source and count the distinct ALTERNATIVES it actually states for that criterion. A list phrased with
+   "or" / "and/or" / commas ("A, B, or C") = mutually-substitutable alternatives — a patient needs just ONE.
+2. A single cell must NEVER AND-together the mutually-substitutable alternatives of ONE criterion. If a cell reads
+   like "MYCN amplification AND MYCL amplification" but the source says "MYCN, MYC OR MYCL amplification", that is a
+   FABRICATED conjunction — flag it and say the alternatives belong on SEPARATE OR-rows, not ANDed in one cell.
+3. If the table enumerates MORE distinct combinations for a criterion than the source's alternatives support
+   (tell-tale signs: AND-pairs of same-criterion alternatives, or both orderings of a pair), an OR was fabricated
+   into an AND — flag it, naming the criterion and the offending cells.
+4. If the source's true structure is a handful of OR-paths but the table has many times more rows, flag the
+   implausible total and name the criterion driving the blow-up.
+
+Set faithful=false with concrete, actionable problems (name the offending column/cells and the correct alternative
+structure) so the extractor can split them onto separate rows. Otherwise faithful=true. Do NOT flag genuine
+independent AND-requirements ACROSS DIFFERENT criteria (e.g. a cancer_type AND a required biomarker) — those are
+correct conjunctions.
+"""
+
+
+def build_enumeration_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[JudgeVerdict]:
+    return Agent(name="reviewer_enumeration", instructions=ENUMERATION_REVIEWER_INSTRUCTIONS,
+                 output_schema=JudgeVerdict, client=client, model=model)

@@ -18,7 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import CURRENT_VERSION, DRUG_ANNOTATIONS_ROOT, current_version_dir
-from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     DRUG_REGULATORY_APPROVALS_COLUMNS,
     DRUG_ANNOTATIONS_CORE_COLUMNS,
     DRUG_TARGET_ACTIONS_COLUMNS,

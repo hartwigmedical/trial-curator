@@ -20,13 +20,13 @@ from dataclasses import dataclass, field
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import ADVISORY, FAIL, PASS, bullet, kv, line
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
-from aus_trial_universe.agentic.tasks.extraction.agents import (
+from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
     build_drug_agent,
     build_drug_reviewer_agent,
     build_extractor_agent,
     build_reviewer_agents,
 )
-from aus_trial_universe.agentic.tasks.extraction.schema import (
+from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
     DnfRow,
     DrugExtraction,
     EligibilityExtraction,
@@ -204,6 +204,7 @@ _NON_DRUG_MODALITIES = frozenset({
 })
 _PAREN_RE = re.compile(r"\([^)]*\)")
 _WS_RE = re.compile(r"\s+")
+_PROVENANCE_RE = re.compile(r"\s*\[[^\]]*\]\s*$")   # trailing "[SECTION; ...]" tag added by _with_sources
 
 
 def _is_non_drug_modality(name: str) -> bool:
@@ -312,11 +313,6 @@ def _to_raw(r: ExtractedRow, cohort_index: dict[str, Cohort]) -> _EligRaw:
         molecular_biomarker=_Cell(r.molecular_biomarker, r.molecular_biomarker_sources),
         prior_therapy=_Cell(r.prior_therapy, r.prior_therapy_sources),
     )
-
-
-def _cohort_display(label: str) -> str:
-    """Render the synthetic single-cohort label in brackets, e.g. 'all' -> '(all)'."""
-    return "(all)" if label.strip().lower() == "all" else label
 
 
 def _render_prior_table(eligs: list[_EligRaw]) -> str:
@@ -442,7 +438,7 @@ def _distribute(eligs: list[_EligRaw], cohort_index: dict[str, Cohort], trial_id
             rows.append(
                 DnfRow(
                     trialId=trial_id,
-                    cohort=_cohort_display(cohort.label),
+                    cohort=cohort.label,   # raw arm label — the (trialId, arm) join key to the drug utility path
                     arm_type=cohort.arm_type,
                     cancer_type=_with_sources(e.cancer_type.value, e.cancer_type.sources),
                     gene_alteration=_with_sources(e.gene_alteration.value, e.gene_alteration.sources),
@@ -455,16 +451,24 @@ def _distribute(eligs: list[_EligRaw], cohort_index: dict[str, Cohort], trial_id
     return _dedup_rows(rows)
 
 
-def _dedup_rows(rows: list[DnfRow]) -> list[DnfRow]:
-    """Drop exact-duplicate DNF rows (cohort label is part of the key), preserving first-seen order.
+def _canon_cell(value: str) -> str:
+    """Order-independent form of a cell for de-duplication: top-level AND-terms sorted (AND is commutative), the
+    provenance tag stripped. So `A AND B` and `B AND A` — and the same conjunction re-provenanced — share a key."""
+    body = _PROVENANCE_RE.sub("", value or "").strip()
+    return " AND ".join(sorted(_top_level_and(body)))
 
-    After the cohort-wins merge, distinct trial-wide OR-rows can collapse to the same self-contained row;
-    genuinely different sub-populations are kept."""
+
+def _dedup_rows(rows: list[DnfRow]) -> list[DnfRow]:
+    """Drop duplicate DNF rows, preserving first-seen order + text. The key canonicalizes each cell
+    (AND-terms sorted, provenance stripped), so COMMUTATIVE duplicates (`A AND B` + `B AND A`) collapse — a
+    forward generator can emit both orderings of a fabricated conjunction. Genuinely different sub-populations
+    are kept (cohort label is part of the key)."""
     seen: set[tuple] = set()
     out: list[DnfRow] = []
     for r in rows:
-        key = (r.trialId, r.cohort, r.arm_type, r.cancer_type, r.gene_alteration,
-               r.molecular_signature, r.molecular_biomarker, r.prior_therapy, r.drug)
+        key = (r.trialId, r.cohort, r.arm_type, _canon_cell(r.cancer_type), _canon_cell(r.gene_alteration),
+               _canon_cell(r.molecular_signature), _canon_cell(r.molecular_biomarker),
+               _canon_cell(r.prior_therapy), _canon_cell(r.drug))
         if key not in seen:
             seen.add(key)
             out.append(r)

@@ -7,14 +7,14 @@ loop, and the ANZCTR path (single eligibility cohort; regimes from the drug agen
 from __future__ import annotations
 
 from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.extraction.agents import REVIEWERS
-from aus_trial_universe.agentic.tasks.extraction.schema import (
+from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import REVIEWERS
+from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
     DrugExtraction,
     EligibilityExtraction,
     ExtractedRow,
     JudgeVerdict,
 )
-from aus_trial_universe.agentic.tasks.extraction.workflow import (
+from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import (
     Cohort,
     extract_trial,
 )
@@ -147,7 +147,7 @@ def test_cohort_wins_preserves_trialwide_cancer_type_exclusion():
 def test_top_level_and_splitter_respects_paren_depth():
     """The exclusion-preservation merge relies on this: split top-level ' AND ' but keep NOT(...) bodies
     (incl. an ' AND ' or ' OR ' inside them) intact."""
-    from aus_trial_universe.agentic.tasks.extraction.workflow import _top_level_and
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import _top_level_and
     assert _top_level_and("DMG") == ["DMG"]
     assert _top_level_and("") == []
     assert _top_level_and("DMG AND NOT(thalamic DMG)") == ["DMG", "NOT(thalamic DMG)"]
@@ -160,7 +160,7 @@ def test_top_level_and_splitter_respects_paren_depth():
 def test_extraction_judgement_prompt_decisions_present():
     """Prompt-only judgement rules (2026-07-10) can't be caught by fake-client behaviour tests — guard the
     strings so a future prompt edit can't silently drop them. See memory v2-stage2-extraction-decisions."""
-    from aus_trial_universe.agentic.tasks.extraction.agents import EXTRACTOR_INSTRUCTIONS, REVIEWERS
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import EXTRACTOR_INSTRUCTIONS, REVIEWERS
     rv = {s.key: s.instructions for s in REVIEWERS}
     # (1) capture tumour-type exclusions as NOT(); (2) no subsuming over-enumeration; (3) one-scope assignment
     assert "except" in EXTRACTOR_INSTRUCTIONS and "excluding" in EXTRACTOR_INSTRUCTIONS
@@ -254,7 +254,7 @@ def test_anzctr_comparator_drug_becomes_its_own_control_regime():
 
 def test_extract_anzctr_drugs_doer_reviewer():
     """ANZCTR drug identification is a doer->reviewer step (spec §6.1); returns intervention + comparator drugs."""
-    from aus_trial_universe.agentic.tasks.extraction.workflow import extract_anzctr_drugs
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import extract_anzctr_drugs
     client = _ScriptedClient(extractions=[], intervention_drugs=["capecitabine", "bevacizumab"],
                              comparator_drugs=["chemotherapy"])
     dr = extract_anzctr_drugs(client, "...trial text...", use_reviewer=True)   # fake reviewer -> faithful
@@ -269,7 +269,7 @@ def test_anzctr_no_drugs_falls_back_to_single_regime():
                                               cancer_type_sources=["HEALTH CONDITION"]))],
     )
     result = extract_trial(client, trial_id="ACTRN3", source_text="...", cohorts=None)
-    assert len(result.rows) == 1 and result.rows[0].cohort == "(all)"
+    assert len(result.rows) == 1 and result.rows[0].cohort == "all"  # raw label (join key); no "(all)" transform
     assert result.rows[0].cancer_type == "melanoma [HEALTH CONDITION]"
 
 
@@ -277,7 +277,7 @@ def test_anzctr_no_drugs_falls_back_to_single_regime():
 def test_drop_non_drug_modalities_filters_only_exact_modalities():
     """Deterministic backstop: enumerable non-drug modalities are removed (paren-stripped, case/space-insensitive),
     while real drug names — even ones whose text merely contains a modality word — are kept (no substring clipping)."""
-    from aus_trial_universe.agentic.tasks.extraction.workflow import _drop_non_drug_modalities
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import _drop_non_drug_modalities
     got = _drop_non_drug_modalities([
         "Total Body Irradiation (TBI)", "TBI", "Surgery", "observation", "Placebo", "best supportive care",
         "Fludarabine", "Melphalan", "Radium-223 dichloride", "radiosensitising agent XYZ",
@@ -288,7 +288,7 @@ def test_drop_non_drug_modalities_filters_only_exact_modalities():
 def test_extract_anzctr_drugs_strips_non_drug_modalities():
     """The doer->reviewer output is passed through the modality backstop: TBI/Surgery/Placebo never survive as
     drugs, while the real conditioning drugs do (regression guard for the ANZCTR leak fix)."""
-    from aus_trial_universe.agentic.tasks.extraction.workflow import extract_anzctr_drugs
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import extract_anzctr_drugs
     client = _ScriptedClient(
         extractions=[],
         intervention_drugs=["Fludarabine", "Melphalan", "Total Body Irradiation", "Surgery"],
@@ -302,7 +302,7 @@ def test_extract_anzctr_drugs_strips_non_drug_modalities():
 def test_anzctr_drug_extractor_prompt_decisions_present():
     """Prompt-only tightening (2026-07-17) — guard the exclusion rules so a future edit can't silently drop them.
     Grounded in observed ANZCTR leaks: TBI (modality), AL (disease abbrev), nizatidine (title-only), PA (fragment)."""
-    from aus_trial_universe.agentic.tasks.extraction.agents import (
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
         DRUG_EXTRACTOR_INSTRUCTIONS as D, DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS as R)
     for text in (D, R):
         low = text.lower()

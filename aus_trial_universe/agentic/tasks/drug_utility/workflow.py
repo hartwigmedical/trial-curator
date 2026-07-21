@@ -22,8 +22,8 @@ from typing import Callable
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import kv, line, stage
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
-from aus_trial_universe.agentic.tasks.drug_ref import pottr, rxnorm
-from aus_trial_universe.agentic.tasks.drug_ref.agents import (
+from aus_trial_universe.agentic.tasks.drug_utility import pottr, rxnorm
+from aus_trial_universe.agentic.tasks.drug_utility.agents import (
     build_annotator,
     build_annotator_reviewer,
     build_approval_agent,
@@ -31,7 +31,7 @@ from aus_trial_universe.agentic.tasks.drug_ref.agents import (
     build_canonicalizer,
     build_canonicalizer_reviewer,
 )
-from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     MODALITIES,
     UNKNOWN,
     APPROVED,
@@ -44,7 +44,7 @@ from aus_trial_universe.agentic.tasks.drug_ref.schema import (
     DrugTargetAction,
     canonical_id_for,
 )
-from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
+from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
 
 logger = logging.getLogger(__name__)
 

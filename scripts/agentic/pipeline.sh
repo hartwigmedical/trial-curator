@@ -114,7 +114,7 @@ case "${CMD}" in
     # Independent output validator (review of the reviewer agents). OUT=<tsv> or newest.
     vargs=()
     if [[ -n "${OUT:-}" ]]; then vargs=("${OUT}"); fi
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.qa.validate_output "${vargs[@]}"
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.eligibility.qa.validate_output "${vargs[@]}"
     ;;
   drug-ref-build)
     # Standalone drug-reference builder (spec §6.1). Incremental: existing drugs are reused (lookup).
@@ -132,11 +132,11 @@ case "${CMD}" in
     mkdir -p "${LOG_DIR}"
     log_file="${LOG_DIR}/drug_ref_build_$(date +%Y%m%d_%H%M%S).log"
     printf '\n==> drug-ref-build (logging to %s)\n' "${log_file}" >&2
-    "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_ref.build "${dargs[@]}" 2>&1 | tee "${log_file}"
+    "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.build "${dargs[@]}" 2>&1 | tee "${log_file}"
     ;;
   drug-ref-refresh-pottr)
     # Download the current POTTR files from GitHub -> resources/drug_utility/pottr/current_version/ (archives old).
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_ref.pottr
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.pottr
     ;;
   *)
     echo "Unknown command: '${CMD}'. Use: run | tests | validate | drug-ref-build | drug-ref-refresh-pottr" >&2

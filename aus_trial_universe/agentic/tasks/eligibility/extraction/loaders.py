@@ -16,7 +16,7 @@ from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import ANZCTR_ROOT, CTGOV_ROOT, ELIGIBILITY_OUTPUT
 from aus_trial_universe.agentic.core.pipeline_io import find_best_file, latest_version_dir
-from aus_trial_universe.agentic.tasks.extraction.workflow import Cohort
+from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import Cohort
 
 # ctgov input_trials keeps its own version_<ddmmyyyy>/ dirs (managed by the download pipeline, read via
 # latest_version_dir); only the roots move under the consolidated trial_universe/ tree.

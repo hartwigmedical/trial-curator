@@ -19,9 +19,12 @@ keep their own `version_<ddmmyyyy>/` dirs, managed by the download pipeline and 
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+_TIMESTAMP_RE = re.compile(r"^\d{8}_\d{6}$")
 
 # The single relocatable root. Promote to `REPO_ROOT / "data"` when the legacy trees are removed.
 DATA_ROOT = REPO_ROOT / "data/agentic"
@@ -57,6 +60,19 @@ def current_version_dir(root: Path) -> Path:
     if not d.exists():
         raise FileNotFoundError(f"no {CURRENT_VERSION}/ under {root}")
     return d
+
+
+def latest_snapshot_dir(root: Path) -> Path | None:
+    """Newest timestamped snapshot subdir (``<YYYYMMDD_HHMMSS>``) under a per-run output root, or None.
+
+    Interim accumulating-store convention (eligibility): each run writes a fresh full-state snapshot into a new
+    timestamp dir, and the newest one is the current state. Lexicographic max works — the timestamps sort by time.
+    (Promotable to the ``current_version/`` + ``archive/`` pattern at finalization, like the versioned resources.)"""
+    root = Path(root)
+    if not root.exists():
+        return None
+    subs = [d for d in root.iterdir() if d.is_dir() and _TIMESTAMP_RE.match(d.name)]
+    return max(subs, key=lambda d: d.name) if subs else None
 
 
 def archive_current_version(root: Path, label: str) -> Path | None:

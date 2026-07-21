@@ -16,8 +16,8 @@ Two layers of checks:
    rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 
 Usage:
-    python -m aus_trial_universe.agentic.qa.validate_output [COMBINED.tsv]
-    (no arg -> newest data/agentic/output/<timestamp>/combined.tsv)
+    python -m aus_trial_universe.agentic.tasks.eligibility.qa.validate_output [COMBINED.tsv]
+    (no arg -> newest data/agentic/eligibility/<timestamp>/combined.tsv)
 """
 from __future__ import annotations
 
@@ -29,9 +29,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import ELIGIBILITY_OUTPUT
-from aus_trial_universe.agentic.tasks.mapping.workflow import _oncotree_logic_problems, strip_provenance
-from aus_trial_universe.agentic.tools.finding_model import finding_model_problems
-from aus_trial_universe.agentic.tools.oncotree import invalid_codes
+from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import _oncotree_logic_problems, strip_provenance
+from aus_trial_universe.agentic.tasks.eligibility.tools.finding_model import finding_model_problems
+from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import invalid_codes
 
 OUTPUT_DIR = ELIGIBILITY_OUTPUT
 ELIGIBILITY_COLUMNS = ("cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy")
@@ -118,10 +118,11 @@ def validate_rows(rows: list[dict]) -> list[TrialReport]:
                     if body and re.search(r"\b" + re.escape(body) + r"\b", rest):
                         problems.append(f"[logic] row {i} {col}: X AND NOT(X) self-contradiction: {v[:80]!r}")
 
-        # prior_therapy subsuming-twin over-enumeration (per cohort × other eligibility cols)
+        # prior_therapy subsuming-twin over-enumeration (per arm × other eligibility cols)
         groups: dict[tuple, list[str]] = defaultdict(list)
         for r in trows:
-            k = (r["cohort"], *(strip_provenance(r.get(c, "")) for c in ELIGIBILITY_COLUMNS if c != "prior_therapy"))
+            arm = r.get("arm", r.get("cohort", ""))   # combined.tsv uses `arm`; tolerate legacy `cohort`
+            k = (arm, *(strip_provenance(r.get(c, "")) for c in ELIGIBILITY_COLUMNS if c != "prior_therapy"))
             groups[k].append(strip_provenance(r.get("prior_therapy", "")))
         for k, pts in groups.items():
             tsets = [_and_terms(p) for p in pts]
@@ -145,7 +146,7 @@ def _newest_output() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent validator (review of the reviewer agents) for an agentic output TSV.")
-    parser.add_argument("output", nargs="?", help="combined-view TSV (default: newest <timestamp>/combined.tsv under data/agentic/output/)")
+    parser.add_argument("output", nargs="?", help="combined-view TSV (default: newest <timestamp>/combined.tsv under data/agentic/eligibility/)")
     args = parser.parse_args(argv)
 
     path = Path(args.output) if args.output else _newest_output()

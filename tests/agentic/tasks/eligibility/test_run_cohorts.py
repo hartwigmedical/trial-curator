@@ -1,7 +1,7 @@
 """Regime (cohort) enumeration from CTGov armGroups (spec §6.1 — the drug-regime axis)."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.tasks.extraction.loaders import (
+from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import (
     _clean_intervention_name,
     _ctgov_cohorts,
     _pharmacological_drugs,

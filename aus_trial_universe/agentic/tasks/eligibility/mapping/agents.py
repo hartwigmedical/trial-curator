@@ -9,14 +9,13 @@ from __future__ import annotations
 
 from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.tasks.mapping.schema import (
-    DrugCuration,
+from aus_trial_universe.agentic.tasks.eligibility.mapping.schema import (
     FindingModelMapping,
     OncotreeMapping,
     ReviewVerdict,
 )
-from aus_trial_universe.agentic.tools.finding_model import GRAMMAR_REFERENCE
-from aus_trial_universe.agentic.tools.oncotree import vocab_reference
+from aus_trial_universe.agentic.tasks.eligibility.tools.finding_model import GRAMMAR_REFERENCE
+from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import vocab_reference
 
 _ONCOTREE_RULES = """\
 You map a clinical trial's cancer/tumour-type expression to OncoTree. Return TWO renderings of the
@@ -215,57 +214,3 @@ def build_molecular_signature_reviewer(client: LlmClient, *, model: str | None =
         client=client,
         model=model,
     )
-
-
-# --------------------------------------------------------------------------- #
-# drug enrichment (main/auxiliary + POTTR/general class + TGA/PBS via web search)
-# --------------------------------------------------------------------------- #
-DRUG_CURATOR_INSTRUCTIONS = """\
-You curate the DRUG information for one clinical trial. You are given the trial's title/summary, its
-interventions/arms, and the drugs administered. Use WEB SEARCH for the Australian regulatory lookups
-(TGA/ARTG and PBS) and for the general drug class when unsure. Return:
-
-- main_drugs: the drug(s) the trial is actually TESTING — the investigational agent(s) under evaluation for
-  efficacy. Use JUDGEMENT; this is NOT a copy of the whole drug regimen. Identify the novel/experimental
-  agent(s) (usually named in the title / the experimental arm) and EXCLUDE the chemo backbone,
-  standard-of-care, comparators, placebo and supportive meds. If the novel intervention IS a combination,
-  name that combination as one element (e.g. "pembrolizumab + lenvatinib"). If several distinct experimental
-  agents are tested across arms/cohorts, list each ('; '-joined). Keep it to the agent(s) genuinely under study.
-- auxiliary_drugs: the remaining drugs (comparators, chemo backbone, standard-of-care, placebo, premedication).
-- pottr_drug_class: the POTTR drug-class hierarchy of the MAIN drug(s), root -> leaf joined by " -> "
-  (e.g. "cancer_therapy -> cancer_therapy,EGFR-targeting -> EGFR_inhibitor"). "" if not in POTTR.
-- drug_class: a concise GENERAL (non-POTTR) class/mechanism of the MAIN drug(s) (e.g. "PARP inhibitor",
-  "anti-PD-1 monoclonal antibody"), per main drug, '; '-joined. ALWAYS fill this (web search if unsure).
-- tga_status: for EACH main drug, "<drug>: Approved" or "<drug>: Not approved" ('; '-joined). "Approved" =
-  the drug has a current ARTG registration (any indication). Do NOT count SAS / Authorised Prescriber /
-  clinical-trial / section 19A supply. Use "<drug>: Unclear" only if genuinely undeterminable.
-- pbs_status: for EACH main drug, "<drug>: Approved" (PBS-listed for any indication) or "<drug>: Not approved"
-  ('; '-joined); "<drug>: Unclear" if undeterminable.
-- tga_detail: for EACH main drug, the EVIDENCE behind tga_status — year of ARTG approval (or "no ARTG entry"),
-  a brief rationale, and an official source LINK (tga.gov.au / ARTG). '; '-joined per drug.
-- pbs_detail: for EACH main drug, the EVIDENCE behind pbs_status — year/indication of PBS listing (or "not
-  listed"), a brief rationale, and an official source LINK (pbs.gov.au). '; '-joined per drug.
-
-Base main/auxiliary + POTTR + drug_class on the trial text and your knowledge; use web search for the TGA and
-PBS lookups (both the status and the detail/evidence).
-"""
-
-DRUG_REVIEWER_INSTRUCTIONS = """\
-You audit a proposed drug curation for a trial (plausibility + format — you are NOT re-doing the web search).
-Given the trial text + drug list and the proposed fields, set faithful=true only if: main_drugs names ONLY
-the investigational agent(s) genuinely under study (judgement — NOT the whole regimen; backbone / SoC /
-comparators / placebo are excluded and sit in auxiliary_drugs); drug_class is sensible for the main drug(s);
-tga_status and pbs_status give a per-drug "<drug>: Approved / Not approved / Unclear" for EVERY main drug;
-and tga_detail / pbs_detail give per-drug evidence (year + rationale + official link). Otherwise
-faithful=false with concrete, actionable problems.
-"""
-
-
-def build_drug_curator(client: LlmClient, *, model: str | None = None) -> Agent[DrugCuration]:
-    return Agent(name="drug_curator", instructions=DRUG_CURATOR_INSTRUCTIONS,
-                 output_schema=DrugCuration, client=client, model=model, web_search=True)
-
-
-def build_drug_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
-    return Agent(name="drug_reviewer", instructions=DRUG_REVIEWER_INSTRUCTIONS,
-                 output_schema=ReviewVerdict, client=client, model=model)

@@ -58,7 +58,7 @@ rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 make agentic-validate                 # newest data/agentic/eligibility/<timestamp>/combined.tsv
 make agentic-validate OUT=<path.tsv>  # a specific run
 ```
-Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/qa/validate_output.py`.
+Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/tasks/eligibility/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
 Builds the standalone drug reference (5 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,
@@ -86,7 +86,7 @@ make drug-ref-refresh-pottr
 ```
 
 `WORKERS` sets both concurrency and checkpoint-batch size (output identical regardless — see memory
-`feedback-max-allowable-concurrency`). Entry: `aus_trial_universe/agentic/tasks/drug_ref/build.py`.
+`feedback-max-allowable-concurrency`). Entry: `aus_trial_universe/agentic/tasks/drug_utility/build.py`.
 
 ---
 

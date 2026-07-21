@@ -8,8 +8,8 @@ from datetime import date
 import pytest
 
 from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.drug_ref import pottr, rxnorm
-from aus_trial_universe.agentic.tasks.drug_ref.schema import (
+from aus_trial_universe.agentic.tasks.drug_utility import pottr, rxnorm
+from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     ApprovalByIndication,
     ApprovedIndication,
     CanonicalComponent,
@@ -18,8 +18,8 @@ from aus_trial_universe.agentic.tasks.drug_ref.schema import (
     ReviewVerdict,
     TargetAction,
 )
-from aus_trial_universe.agentic.tasks.drug_ref.store import DrugRefStore
-from aus_trial_universe.agentic.tasks.drug_ref.workflow import build_drug_ref
+from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
+from aus_trial_universe.agentic.tasks.drug_utility.workflow import build_drug_ref
 
 
 class _FakeClient:
@@ -169,7 +169,7 @@ def test_checkpoint_called_per_batch():
 
 def test_patient_population_generic_patients_normalized_to_empty():
     """The uninformative generic 'patients' population value is dropped; real values are kept (spec §6.1)."""
-    from aus_trial_universe.agentic.tasks.drug_ref.workflow import _clean_pp
+    from aus_trial_universe.agentic.tasks.drug_utility.workflow import _clean_pp
     assert _clean_pp("patients") == "" and _clean_pp("  Patients ") == ""
     assert _clean_pp("adult") == "adult" and _clean_pp("pediatric >=1 year") == "pediatric >=1 year"
 
@@ -177,7 +177,7 @@ def test_patient_population_generic_patients_normalized_to_empty():
 def test_combo_leftover_backstop_flags_unsplit_names():
     """The deterministic backstop rejects a component whose name still holds a multi-drug join word, while
     NOT false-positiving on real single-ingredient INNs (word-boundaried and/or/plus)."""
-    from aus_trial_universe.agentic.tasks.drug_ref.workflow import _COMBO_LEFTOVER
+    from aus_trial_universe.agentic.tasks.drug_utility.workflow import _COMBO_LEFTOVER
     for bad in ("a + b", "a / b", "a; b", "a and b", "a plus b", "x OR y"):
         assert _COMBO_LEFTOVER.search(bad), bad
     for ok in ("pembrolizumab", "trastuzumab deruxtecan", "folinic acid", "sorafenib", "5-fluorouracil"):
@@ -188,7 +188,7 @@ def test_canonicalizer_comma_list_split_decision_present():
     """Guard the comma-list splitting decision (2026-07-17): a comma-separated drug LIST splits into each drug,
     but a descriptive comma (form/strain/source) stays ONE component. Prompt-only judgement — lock against silent
     edits (grounded in the 'anastrozole, exemestane, letrozole' combo that escaped the +/;/or backstop)."""
-    from aus_trial_universe.agentic.tasks.drug_ref.agents import (
+    from aus_trial_universe.agentic.tasks.drug_utility.agents import (
         CANONICALIZER_INSTRUCTIONS as C, CANONICALIZER_REVIEWER_INSTRUCTIONS as R)
     assert "COMMA-SEPARATED LIST" in C                       # split a comma list of drugs
     assert "immune globulin, human" in C and "immune globulin, human" in R   # descriptive-comma exception (keep one)
@@ -198,7 +198,7 @@ def test_canonicalizer_comma_list_split_decision_present():
 def test_canonicalizer_no_fabrication_from_generic_word_decision_present():
     """Guard (2026-07-17): a generic word ('chemotherapy', 'standard of care') must NOT be expanded into specific
     invented drugs. Grounded in 'Lorlatinib with chemotherapy1' -> LLM fabricated vincristine/cyclophosphamide/cisplatin."""
-    from aus_trial_universe.agentic.tasks.drug_ref.agents import (
+    from aus_trial_universe.agentic.tasks.drug_utility.agents import (
         CANONICALIZER_INSTRUCTIONS as C, CANONICALIZER_REVIEWER_INSTRUCTIONS as R)
     assert "NEVER invent" in C and "chemotherapy" in C.lower() and "Lorlatinib with chemotherapy" in C
     assert "invented from a generic word" in R.lower() or "invented" in R.lower()
