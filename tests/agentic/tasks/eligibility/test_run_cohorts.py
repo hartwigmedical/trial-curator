@@ -80,3 +80,17 @@ def test_ctgov_fallback_filters_typed_non_drugs():
     ]}
     cohorts = _ctgov_cohorts(ai)
     assert len(cohorts) == 1 and cohorts[0].drug == "pembrolizumab"
+
+
+def test_ctgov_drops_closed_not_enrolling_arms():
+    # A drug-bearing arm whose label marks it closed / not-recruiting is not a matchable regime -> dropped
+    # (NCT05009992 shape: several "NOT CURRENTLY ENROLLING - ARM ..." arms alongside open cohorts).
+    ai = {"armGroups": [
+        {"label": "NOT CURRENTLY ENROLLING - ARM 2: ONC201", "type": "EXPERIMENTAL",
+         "interventionNames": ["Drug: ONC201"]},
+        {"label": "Cohort 5 - ONC201 + Targeted therapies", "type": "EXPERIMENTAL",
+         "interventionNames": ["Drug: ONC201"]},
+        {"label": "Arm X (withdrawn)", "type": "EXPERIMENTAL", "interventionNames": ["Drug: Paxalisib"]},
+    ], "interventions": []}
+    cohorts = _ctgov_cohorts(ai)
+    assert [c.label for c in cohorts] == ["Cohort 5 - ONC201 + Targeted therapies"]  # closed + withdrawn dropped

@@ -7,7 +7,10 @@ loop, and the ANZCTR path (single eligibility cohort; regimes from the drug agen
 from __future__ import annotations
 
 from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import REVIEWERS
+from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
+    ENUMERATION_REVIEWER_INSTRUCTIONS,
+    REVIEWERS,
+)
 from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
     DrugExtraction,
     EligibilityExtraction,
@@ -21,6 +24,8 @@ from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import (
 
 
 def _reviewer_key(instructions: str) -> str | None:
+    if instructions == ENUMERATION_REVIEWER_INSTRUCTIONS:
+        return "enumeration"
     for spec in REVIEWERS:
         if spec.instructions == instructions:
             return spec.key
@@ -271,6 +276,38 @@ def test_anzctr_no_drugs_falls_back_to_single_regime():
     result = extract_trial(client, trial_id="ACTRN3", source_text="...", cohorts=None)
     assert len(result.rows) == 1 and result.rows[0].cohort == "all"  # raw label (join key); no "(all)" transform
     assert result.rows[0].cancer_type == "melanoma [HEALTH CONDITION]"
+
+
+# --- over-enumeration fixes ------------------------------------------------- #
+def test_commutative_duplicate_and_cells_are_deduped():
+    """`A AND B` and `B AND A` are the same conjunction — a forward generator can emit both orderings of a
+    fabricated pair; _dedup_rows canonicalizes AND-terms so the commutative twin collapses (deterministic guard)."""
+    client = _ScriptedClient(extractions=[_extraction(
+        ExtractedRow(cohort="trial-wide", gene_alteration="MYCN amp AND MYCL amp", gene_alteration_sources=["X"]),
+        ExtractedRow(cohort="trial-wide", gene_alteration="MYCL amp AND MYCN amp", gene_alteration_sources=["X"]),
+    )])
+    result = extract_trial(client, trial_id="NCT1", source_text="...", cohorts=[Cohort(label="all")], use_judge=False)
+    assert len(result.rows) == 1                                   # commutative twin collapsed
+    assert result.rows[0].gene_alteration == "MYCN amp AND MYCL amp [X]"   # first-seen text preserved
+
+
+def test_enumeration_reviewer_gates_then_refine_splits_fabricated_conjunction():
+    """The in-loop enumeration reviewer sees the ASSEMBLED table; an OR->AND fabrication gates the refine loop, and
+    the extractor's revision (splitting into OR-rows) then passes — the vantage point is inside the loop."""
+    fabricated = _extraction(
+        ExtractedRow(cohort="trial-wide", gene_alteration="MYCN amp AND MYCL amp", gene_alteration_sources=["X"]))
+    split = _extraction(
+        ExtractedRow(cohort="trial-wide", gene_alteration="MYCN amp", gene_alteration_sources=["X"]),
+        ExtractedRow(cohort="trial-wide", gene_alteration="MYCL amp", gene_alteration_sources=["X"]))
+    client = _ScriptedClient(
+        extractions=[fabricated, split],
+        verdicts={"enumeration": [JudgeVerdict(faithful=False, problems=[
+            "gene_alteration ANDs the OR-alternatives MYCN/MYCL — split into separate rows"]),
+            JudgeVerdict(faithful=True)]},
+    )
+    result = extract_trial(client, trial_id="NCT1", source_text="...", cohorts=[Cohort(label="all")])
+    assert result.attempts == 2                                    # gated once, fixed on the revision
+    assert {r.gene_alteration for r in result.rows} == {"MYCN amp [X]", "MYCL amp [X]"}
 
 
 # --- ANZCTR drug-extractor tightening (non-drug modality backstop + prompt exclusions) --------------- #

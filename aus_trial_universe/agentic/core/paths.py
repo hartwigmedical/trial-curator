@@ -47,8 +47,10 @@ ELIGIBILITY_OUTPUT = DATA_ROOT / "eligibility"
 # --- operational ------------------------------------------------------------ #
 LOG_DIR = DATA_ROOT / "log"
 ANALYSIS_DIR = DATA_ROOT / "analysis"
+CACHE_DIR = DATA_ROOT / "cache"   # LLM response DiskCache (run-to-run reuse); safe to wipe (make agentic-clean)
 
 CURRENT_VERSION = "current_version"
+ELIG_CURRENT_OUTPUT = "current_output"   # eligibility live store (current/archive pattern; parallels current_version)
 ARCHIVE = "archive"
 
 

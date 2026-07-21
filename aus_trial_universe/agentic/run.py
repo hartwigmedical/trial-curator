@@ -26,10 +26,11 @@ import argparse
 import csv
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 
-from aus_trial_universe.agentic.core.paths import ELIGIBILITY_OUTPUT
+from aus_trial_universe.agentic.core.paths import CACHE_DIR, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -99,8 +100,12 @@ def _drug_occurrences(result, registry, strip_provenance):
     return occ, names
 
 
-def _map_new_values(client, elig_store, elig_rows, strip_provenance, kw):
-    """Lookup-first mapping: map only the distinct values NOT already in the store, append results (spec §6.1)."""
+def _compute_new_maps(client, elig_store, elig_rows, strip_provenance, kw):
+    """Lookup-first mapping (COMPUTE ONLY — no store mutation, so it is safe to call from a worker thread).
+
+    Reads the store to skip values already mapped (lookup-first; the DiskCache dedups any identical value mapped
+    concurrently by another trial), maps the rest, and RETURNS the new mappings as ready-to-store rows. The caller
+    applies + persists them in the single-threaded per-item sink."""
     from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import (
         map_cancer_types, map_gene_alterations, map_molecular_signatures,
     )
@@ -112,17 +117,16 @@ def _map_new_values(client, elig_store, elig_rows, strip_provenance, kw):
         vals = list(dict.fromkeys(strip_provenance(c) for c in cells if strip_provenance(c)))
         return [v for v in vals if lookup(v) is None]
 
-    ct_new = _new([r.cancer_type for r in elig_rows], elig_store.lookup_cancer_type)
-    for v, res in map_cancer_types(client, ct_new, **kw).items():
-        elig_store.put_cancer_type(CancerTypeMap(cancer_type=v, oncotree_name=res.oncotree_name,
-                                                 oncotree_code=res.oncotree_code))
-    ga_new = _new([r.gene_alteration for r in elig_rows], elig_store.lookup_gene_alteration)
-    for v, res in map_gene_alterations(client, ga_new, **kw).items():
-        elig_store.put_gene_alteration(GeneAlterationMap(gene_alteration=v, finding_model=res.finding_model))
-    sig_new = _new([r.molecular_signature for r in elig_rows], elig_store.lookup_molecular_signature)
-    for v, res in map_molecular_signatures(client, sig_new, **kw).items():
-        elig_store.put_molecular_signature(MolecularSignatureMap(molecular_signature=v, finding_model=res.finding_model))
-    return len(ct_new), len(ga_new), len(sig_new)
+    ct = [CancerTypeMap(cancer_type=v, oncotree_name=r.oncotree_name, oncotree_code=r.oncotree_code)
+          for v, r in map_cancer_types(client, _new([r.cancer_type for r in elig_rows],
+                                                    elig_store.lookup_cancer_type), **kw).items()]
+    ga = [GeneAlterationMap(gene_alteration=v, finding_model=r.finding_model)
+          for v, r in map_gene_alterations(client, _new([r.gene_alteration for r in elig_rows],
+                                                        elig_store.lookup_gene_alteration), **kw).items()]
+    sig = [MolecularSignatureMap(molecular_signature=v, finding_model=r.finding_model)
+           for v, r in map_molecular_signatures(client, _new([r.molecular_signature for r in elig_rows],
+                                                             elig_store.lookup_molecular_signature), **kw).items()]
+    return ct, ga, sig
 
 
 def _arm_drug_facts(drug_store, trial_id, arm):
@@ -191,7 +195,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="Extraction only — skip mapping + drug top-up.")
     parser.add_argument("--skip-drug", action="store_true",
                         help="Skip the incremental drug-annotation top-up (still joins existing drug data).")
-    parser.add_argument("--max-attempts", type=int, default=3)
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Disable the on-disk LLM response cache (default: cache under data/agentic/cache/, "
+                             "so re-runs of unchanged trials/values are near-instant).")
+    parser.add_argument("--workers", type=int, default=8,
+                        help="Trials extracted in PARALLEL (default 8 — highest reasonable concurrency; each trial "
+                             "is independent). Logs interleave at >1 — review the output TSVs, not the live log. "
+                             "Use 1 for a readable single-trial log.")
+    parser.add_argument("--max-attempts", type=int, default=6,
+                        help="UPPER bound on refine attempts (default 6). Not a fixed count: lenient reviewers let "
+                             "standard trials pass in 1, and refine returns the best attempt + stops early once it "
+                             "stops converging — so only genuinely-hard trials use the full budget.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -199,8 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger(_noisy).setLevel(logging.WARNING)
     _load_openai_key()
 
-    from aus_trial_universe.agentic.core.client import LlmClient
+    from aus_trial_universe.agentic.core.client import DiskCache, LlmClient
     from aus_trial_universe.agentic.core.logfmt import FAIL, PASS, stage
+    from aus_trial_universe.agentic.core.workflow import run_parallel
     from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
     from aus_trial_universe.agentic.tasks.drug_utility.workflow import build_drug_ref
     from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import load_trials
@@ -214,16 +229,20 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("no trials with usable text found")
 
     store_root = Path(args.store_root) if args.store_root else ELIGIBILITY_OUTPUT
-    run_dir = Path(args.out_dir) if args.out_dir else store_root / datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # The live accumulating store is `current_output/` (current/archive pattern, parallels drug_annotations'
+    # current_version/): each run loads it, upserts, and writes it back in place. Superseded runs are archived
+    # manually (move current_output/ -> archive/<date>/). `--out-dir` overrides for a one-off/isolated run.
+    run_dir = Path(args.out_dir) if args.out_dir else store_root / ELIG_CURRENT_OUTPUT
 
-    client = LlmClient(model=args.model) if args.model else LlmClient()
+    cache = None if args.no_cache else DiskCache(CACHE_DIR)
+    client = LlmClient(model=args.model, cache=cache) if args.model else LlmClient(cache=cache)
     kw = dict(max_attempts=args.max_attempts, use_reviewer=not args.no_review)
     log = logging.getLogger("agentic.pipeline")
     log.info("run · %d trial(s) · judge=%s · review=%s · extract_only=%s · skip_drug=%s → %s/",
              len(trials), not args.no_judge, not args.no_review, args.extract_only, args.skip_drug, run_dir.name)
 
-    elig_store = EligStore.load(store_root)
+    elig_store = EligStore.load(store_root)   # load the latest EXISTING snapshot before creating this run's dir
+    run_dir.mkdir(parents=True, exist_ok=True)
     drug_store = DrugRefStore.load() if not args.extract_only else None
     all_occ: list[tuple] = []
     all_drug_names: list[str] = []
@@ -231,48 +250,69 @@ def main(argv: list[str] | None = None) -> int:
     total = 0
     summaries: list[tuple] = []
     failures: list[tuple[str, str]] = []
-    for i, (source, trial_id, base_text, cohorts) in enumerate(trials, 1):
-        log.info("")
-        log.info("═" * 70)
-        log.info("TRIAL %d/%d · %s · %s", i, len(trials), source, trial_id)
-        log.info("═" * 70)
-        try:
-            log.info("")
-            log.info(stage("EXTRACTION"))
-            result = extract_trial(client, trial_id=trial_id, source_text=base_text, cohorts=cohorts,
-                                   max_attempts=args.max_attempts, use_judge=not args.no_judge)
-            regime_rows, elig_rows = _regimes_and_rows(result)
+    trial_times: list[tuple[str, float, int]] = []          # (trial_id, work_s, n_conj)
+    t_phase = time.perf_counter()
 
-            if not args.extract_only:
-                log.info("")
-                log.info(stage("MAPPING"))
-                nct, nga, nsig = _map_new_values(client, elig_store, elig_rows, strip_provenance, kw)
-                log.info("mapping · new values sent to LLM · cancer=%d gene=%d signature=%d "
-                         "(others reused from cache)", nct, nga, nsig)
-                occ, names = _drug_occurrences(result, source, strip_provenance)
-                all_occ += occ
-                for n in names:
-                    if n not in all_drug_names:
-                        all_drug_names.append(n)
+    # Each trial is extracted + mapped in a WORKER thread (parallel); the finished trial is then applied to the
+    # store and SAVED in this thread, one at a time, the moment it completes (run_parallel's per-item sink). So a
+    # completed trial is written straightaway — a crash / lost connection loses only the still-running trials,
+    # never a finished one. (The DiskCache also preserves every LLM response, so a re-run resumes the rest cheaply.)
+    log.info("")
+    log.info(stage(f"EXTRACTION + MAPPING · {len(trials)} trial(s) · {args.workers} parallel · per-trial checkpoint"))
 
-            elig_store.set_trial(trial_id, regime_rows, elig_rows)
-            total += len(elig_rows)
-            summaries.append((source, trial_id, len(elig_rows), result.faithful, result.attempts))
-            log.info("")
-            log.info("done · %s · %d conjunction(s) · %d arm(s)", trial_id, len(elig_rows), len(regime_rows))
-        except Exception as exc:  # one flaky/API-failing trial must not kill the whole batch
-            failures.append((trial_id, f"{type(exc).__name__}: {exc}"))
-            log.info("")
-            log.info("FAILED · %s · %s (skipped; continuing)", trial_id, f"{type(exc).__name__}: {exc}")
+    def _work(item):
+        source, trial_id, base_text, cohorts = item
+        t0 = time.perf_counter()
+        result = extract_trial(client, trial_id=trial_id, source_text=base_text, cohorts=cohorts,
+                               max_attempts=args.max_attempts, use_judge=not args.no_judge)
+        maps = None if args.extract_only else _compute_new_maps(client, elig_store, result.rows, strip_provenance, kw)
+        return result, maps, time.perf_counter() - t0
+
+    def _sink(item, res, exc):   # runs single-threaded, in completion order — the durable write point
+        source, trial_id, _text, _cohorts = item
+        if exc is not None or res is None:
+            failures.append((trial_id, f"{type(exc).__name__}: {exc}" if exc else "no result"))
+            log.info("  FAILED · %s · %s (skipped)", trial_id, type(exc).__name__ if exc else "no result")
+            return
+        result, maps, t_work = res
+        if maps is not None:
+            ct, ga, sig = maps
+            for m in ct:
+                elig_store.put_cancer_type(m)
+            for m in ga:
+                elig_store.put_gene_alteration(m)
+            for m in sig:
+                elig_store.put_molecular_signature(m)
+        regime_rows, elig_rows = _regimes_and_rows(result)
+        elig_store.set_trial(trial_id, regime_rows, elig_rows)
+        if not args.extract_only:
+            occ, names = _drug_occurrences(result, source, strip_provenance)
+            all_occ.extend(occ)
+            for n in names:
+                if n not in all_drug_names:
+                    all_drug_names.append(n)
+        elig_store.save(run_dir)   # PER-TRIAL CHECKPOINT — the completed trial is now durably on disk
+        nonlocal_total[0] += len(elig_rows)
+        summaries.append((source, trial_id, len(elig_rows), result.faithful, result.attempts))
+        trial_times.append((trial_id, t_work, len(elig_rows)))
+        log.info("  ✓ %s · %d conjunction(s) · %d arm(s) · %.0fs · %d/%d saved → %s/", trial_id, len(elig_rows),
+                 len(regime_rows), t_work, len(summaries), len(trials), run_dir.name)
+
+    nonlocal_total = [0]   # mutable cell (assigned inside the nested sink)
+    run_parallel(trials, _work, _sink, max_workers=args.workers)
+    total = nonlocal_total[0]
+    timing = {"extract_map": time.perf_counter() - t_phase, "drug": 0.0}
 
     # --- incremental drug-annotation top-up (only NEW drugs are researched) --- #
     if not args.extract_only and not args.skip_drug and all_drug_names:
         log.info("")
         log.info(stage("DRUG top-up (incremental)"))
+        t2 = time.perf_counter()
         build_drug_ref(client, all_drug_names, drug_store, occurrences=all_occ,
                        use_reviewer=not args.no_review, max_attempts=args.max_attempts,
                        checkpoint=lambda: drug_store.save())
         drug_store.save()
+        timing["drug"] = time.perf_counter() - t2
 
     # --- persist the eligibility snapshot + the grand flat view --------------- #
     elig_store.save(run_dir)
@@ -289,6 +329,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {PASS if faithful else FAIL}  {trial_id} · conjunctions={n} · attempts={attempts}")
     for trial_id, err in failures:
         print(f"  FAILED  {trial_id} · {err[:90]}")
+
+    # Timing breakdown — which stage dominates. extract+map is the parallel per-trial phase (its wall-clock ≈ the
+    # slowest trial, not the sum); drug enrichment is now a SEPARATE stage that only researches genuinely-new drugs.
+    print(f"\n  timing (wall-clock) · extract+map {timing['extract_map']:.0f}s (parallel x{args.workers}) · "
+          f"drug-topup {timing['drug']:.0f}s")
+    for trial_id, t_work, n in sorted(trial_times, key=lambda x: -x[1])[:5]:
+        print(f"    slowest trial: {trial_id} · {t_work:.0f}s · {n} conjunction(s)")
     return 0
 
 

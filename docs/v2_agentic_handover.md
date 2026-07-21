@@ -1,10 +1,14 @@
 # v2 Agentic Pipeline — Handover
 
-- **As of:** 2026-07-20. **Branch:** `AUS-328-Aus-trial-universe-v2`. **NEW CHAT — the DRUG UTILITY PATH is
-  SIGNED OFF.** The 5 drug tables were reviewed + corrected with the user (table renames, POTTR class fix, arm
-  provenance, etc.); the data was consolidated into a clean relocatable structure; docs/tests/diagram done. **Next
-  focus: the ELIGIBILITY PATH — address the outstanding issues (⓿ speed, ① over-enumeration / doer-reviewer vantage
-  point, ② convergence, ③ fresh-eyes review; see the sections below).**
+- **As of:** 2026-07-21. **Branch:** `AUS-328-Aus-trial-universe-v2`. **NEW CHAT — BOTH paths are built.** The
+  DRUG UTILITY PATH was signed off (2026-07-20); the ELIGIBILITY PATH v2 was rewritten + validated (2026-07-21):
+  decoupled from drug enrichment, reshaped into 3NF relational tables, parallelised + cached + per-item-durable,
+  and the **over-enumeration bug is fixed** (in-loop enumeration reviewer + commutative-dedup; SIOPEN `NCT04221035`
+  218→45 rows, no fabrication; no explosion anywhere). **104 unit tests pass.** Validated on 10 complex + 50 standard
+  trials → a unified 60-trial store at `data/agentic/eligibility/current_output/` (the user is reviewing it).
+  **Likely next foci:** (a) the user's review findings on `current_output/`; (b) PARKED drug Phase 2 (main/auxiliary
+  role); (c) minor residuals — see "ELIGIBILITY PATH v2" + "Residual / deferred" below. Full detail: memory
+  `v2-eligibility-orchestration-model`.
 - **Drug path final state (2026-07-20):**
   - **5 3NF tables** (spec §6.1; layout `docs/agentic/drug_ref_schema.md`): `intervention_to_canonical`,
     `trial_to_intervention` (now with `arm`/`arm_type`), `drug_annotations_core`, `drug_target_actions`,
@@ -30,14 +34,12 @@
   (https://claude.ai/code/artifact/6c944fe1-2df6-4641-9ed2-7dca1db03b60).
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`,
   `v2-drug-regime-axis`, `v2-drug-ref-table`, `feedback-max-allowable-concurrency`.
-- **Git:** the user makes all commits. **Uncommitted in the tree (drug-path sign-off + restructure):** new
-  `core/paths.py`, `docs/agentic/drug_ref_schema.md`, `docs/v2_drug_workflow_diagram.html`; modified drug_ref
-  `schema/store/pottr/rxnorm/workflow/build/__init__` + `loaders`, `oncotree`, `run`, `validate_output`, `Makefile`,
-  `pipeline.sh`, the drug_ref tests, and the docs above. The **data moves are on disk** (gitignored) — trial_universe /
-  resources / drug_annotations reorganised. The session's one-off migration scripts (`backfill_v2_llm.py`,
-  `refine_colB_all.py`, `regen_pottr.py`, `regen_trial_to_intervention.py`, `patch_generic_fragment_guard.py`) are in
-  the **scratchpad** — they were legacy-data migrations; a fresh `make drug-ref-build` now produces everything
-  natively, so they need NOT be homed.
+- **Git:** the user makes all commits. Drug-path work + the eligibility reorg are committed (through 52417bc).
+  **Uncommitted in the tree (eligibility v2 — Phase 5 + speed + durability, 2026-07-21):** `core/paths.py`,
+  `core/workflow.py` (new `run_parallel`), `run.py`, `tasks/drug_utility/{build,workflow}.py`,
+  `tasks/eligibility/extraction/{agents,loaders,workflow}.py`, `tasks/eligibility/mapping/workflow.py`, and the
+  matching tests. Data moves are on disk (gitignored): `data/agentic/eligibility/` is now `current_output/` +
+  `archive/`. Scratchpad has one-off analysis scripts (`enum_triage.py`) — not to be homed.
 
 ## ✅ DRUG UTILITY PATH — SIGNED OFF (2026-07-13 → 07-20). Not the focus of the new chat.
 The drug-regime axis (CTGov `armGroups`) is the locked output **spine**; eligibility is *assigned* to it (9 locked
@@ -50,45 +52,61 @@ drug-side is outstanding** except two PARKED integration pieces to revisit AFTER
 - (b) join `drug_annotations` back into the trial `combined` output (by canonical_id + approval-for-this-cancer);
   this also lets the per-trial run **look up** the drug reference instead of a live per-trial `web_search` (a ⓿ speed win).
 
-## Next up — THE ELIGIBILITY PATH (start here, in this order)
-The new chat's focus. These are the outstanding eligibility-extraction/mapping issues (the per-trial `make agentic-run`
-pipeline: extract → map → drug), unchanged by the drug-path work.
+## ✅ ELIGIBILITY PATH v2 — DONE + VALIDATED (2026-07-21). Full detail: memory `v2-eligibility-orchestration-model`.
+The per-trial pipeline is now **extract → map (lookup-first) → grand-flat join**; drug enrichment is a SEPARATE
+incremental build that joins in via `(trialId, arm)`. `make agentic-run` (see Quickstart). Output: the accumulating
+`data/agentic/eligibility/current_output/` store — 5 3NF tables + `combined.tsv` (see "Output schema"). The three
+originally-outstanding issues were all addressed:
 
-**⓿ FIRST: SPEED / EFFICIENCY (do this before anything else).** A complex trial currently takes **>20 min**
-end-to-end — far too slow to run the full universe (thousands of trials). Attack throughput/latency BEFORE the
-correctness work below. Likely levers (investigate, don't assume): the bounded-refine loop re-generates the
-WHOLE table each attempt (up to 3× full extraction) even when only a few cells are flagged; the 5-reviewer panel
-+ mapping reviewers add many sequential-ish LLM round-trips per trial; trials run **sequentially** (only
-within-trial `fan_out` is parallel — `DEFAULT_MAX_WORKERS=8`); the drug stage does live `web_search` (slow); the
-default cache is **in-memory only** (no run-to-run reuse — a `DiskCache` would make re-runs near-instant); model
-choice / `max_completion_tokens`. Measure first (add per-stage timing), then decide: parallelise across trials,
-DiskCache, cheaper/faster model per stage, fewer/thinner reviewer calls, or partial re-gen on refine. Keep the
-lean/Pattern-B ethos. **This is the agreed first task in the new window.**
+**⓿ SPEED — done.** Root cause measured: extraction is ~85% of wall-clock (a hard trial ≈ 1000s at the 6-attempt
+cap; standard ≈ 30–150s). Levers applied: (1) **trial-level parallelism** (`run_parallel`, `--workers` default 8);
+(2) **`DiskCache`** under `data/agentic/cache/` — run-to-run reuse makes re-runs near-instant (proven: 9/10 complex
+re-ran in ~1s); (3) drug enrichment removed from the per-trial path (no per-trial `web_search`); (4) enum reviewer
+folded into the panel `fan_out`. Nested-concurrency sweep (trials × 6-reviewer fan_out) still owed — see memory
+`feedback-max-allowable-concurrency`.
 
-**① Over-enumeration + the doer/reviewer VANTAGE-POINT lesson (the big correctness item).** See the dedicated
-section **“Design discussion — over-enumeration & the doer/reviewer vantage point”** below. A source-grounded
-review found a *systematic* extraction error (OR-alternatives fabricated into AND-combinations) that the
-in-loop reviewers AND the deterministic validator both missed. The durable fix is architectural (move the
-“aggregate-output-vs-source” vantage point INTO the loop), not just a sterner extractor prompt. Concrete fixes
-are listed there. Pick this up after speed.
+**① Over-enumeration — FIXED (the vantage-point lesson applied).** The durable architectural fix: an in-loop
+**enumeration reviewer** (`tasks/eligibility/extraction/agents.build_enumeration_reviewer`) sees the ASSEMBLED,
+de-duplicated DNF (via `_distribute` run inside `check()`), counts alternatives-vs-source, and flags OR→AND
+fabrication — the panel never saw the assembled set. Plus a deterministic **commutative-duplicate dedup** (`A AND
+B` == `B AND A`) in `_dedup_rows`. Verified: SIOPEN `NCT04221035` 218-row MYCN∧MYCL fabrication → 45 clean rows,
+the 3 amplifications as separate OR-values; no explosion on any of the 60 validated trials (max ~45).
 
-**② Extraction convergence on hard trials.** `NCT05009992` still finishes `faithful=False` after 3 attempts —
-deep sub-cohort scoping (1A/1B/2A/2B…). Incremental repair helped but didn't fully converge. Consider more
-attempts, per-dimension "resolved" tracking, or splitting sub-cohorts up front. (Related: enumeration-granularity
-non-determinism — same trial/code gives 32 vs 218 rows across runs; see the design section.)
+**② Convergence — addressed.** `refine()` now returns the **BEST** attempt (fewest gating problems) + stops on an
+exact problem-set repeat (cycling), so the cap is no longer arbitrary; reviewers were made **lenient** (gate only
+on material errors) and the cap raised to **6** → emergent 1–2 attempts for standard trials, up to 6 for hard ones.
+Hard multi-subcohort trials (`NCT05009992`) still finish `faithful=False` (best-of-6) — inherent; see Residual.
 
-**③ Fresh-eyes review still owed** (was in progress when we stopped). Compare highly-granular cases against the
-ORIGINAL input text for systematic errors (not just the programmatic validator — it can't see faithfulness).
-Sets: `data/agentic/analysis/complex_trials_ids.txt` + `typical_trials_ids.txt`. The last run FAILED 16/20 on a
-transient API rate/capacity wall (batch-resilience skipped + continued; API healthy again). Deliverable = one
-merged 20-trial TSV, reviewed. Run: `make agentic-run IDS=$(cat …/complex_trials_ids.txt),$(cat …/typical_trials_ids.txt)`
-then `make agentic-validate`.
+**③ Fresh-eyes validation — done.** Ran 10 complex (`analysis/complex_trials_ids.txt`) + 50 standard
+(`analysis/standard_50_ids.txt`) → unified 60-trial `current_output/`. `make agentic-validate` → ~43/50
+validator-clean; remaining flags are mostly VALIDATOR crudeness (same-type histology+stage ANDs like "clear cell
+RCC AND pT2 RCC" — satisfiable/faithful). Fixed en route: closed-arm leakage (`loaders._CLOSED_ARM_RE` drops
+`NOT CURRENTLY ENROLLING`/withdrawn arms — `NCT05009992` 6→2 arms), OncoTree `NOT(A OR B)` validator false-positive
+(paren-aware OR-split), and a store-accumulation bug (load before creating run_dir).
+
+**Durability (user requirement):** per-item save on BOTH paths via `core/workflow.run_parallel` — a finished
+trial/drug is written to disk immediately; a crash loses only in-flight items. `current_output/` accumulates
+in-place; supersede by moving it to `archive/<date>/`.
+
+### Residual / deferred (eligibility) — for the review chat
+- **Hard-trial non-convergence** — deep sub-cohort trials return best-of-6 (`faithful=False`); reviewers flag real
+  gaps (missing cohorts, over-scoping) the extractor doesn't fully repair. A "patience" early-stop (stop after K
+  non-improving attempts) would trim the wasteful tail + speed.
+- **`cancer_type` purity** — occasionally ANDs a same-type refinement (histology+stage) or a specimen/status
+  criterion into `cancer_type` (schema-fit edge; the 5-column schema has no home for e.g. a tissue-availability
+  rule). Partly non-deterministic. Not the enumeration failure — that's resolved.
+- **Verbose `prior_therapy`** — many shared exclusions ANDed into each row (faithful but heavy).
+- **Weighted "best attempt"** in `refine()` (currently raw gating-problem count) — parked (see Shelved/open).
+- **Drug join in `combined.tsv`** carries `arm_drugs`/`drug_class`/`pottr_drug_class` only; TGA/PBS + main/auxiliary
+  role come with drug Phase 2.
 
    *(The `H3K27-altered` mapping + the acceptable-simplification rule are done; see "Ticked off".)*
 
 ## Design discussion — over-enumeration & the doer/reviewer vantage point
-*(Captured 2026-07-12/13 from a live source-grounded review of `NCT04221035` (SIOPEN HR-NBL2). Preserve for the
-new chat — this is the reasoning behind priority ① above, not just a bug list.)*
+**✅ RESOLVED 2026-07-21** (see "ELIGIBILITY PATH v2" §①: in-loop enumeration reviewer + commutative-dedup; SIOPEN
+verified 218→45, no fabrication). Kept below as the REASONING behind the fix — a durable lesson on why moving the
+aggregate-output-vs-source vantage point into the loop matters.
+*(Captured 2026-07-12/13 from a live source-grounded review of `NCT04221035` (SIOPEN HR-NBL2).)*
 
 **The serious errors found (source-confirmed):**
 1. **OR-alternatives fabricated into AND-combinations.** Source states the gene criterion as *"MYCN
@@ -135,30 +153,38 @@ output vs. source) INTO the loop.** Concrete fixes:
   enumeration exceeds that, an OR was fabricated into an AND. Give a reviewer the *aggregate* view.
 
 ## TL;DR
-The v2 rewrite is a **complete two-stage agentic pipeline**, end-to-end verified on ctgov + anzctr:
-**extract → map → drug enrichment**, in one streamed pass, via a single command (`make agentic-run`).
-Pattern B throughout: deterministic Python owns control flow; the LLM fills the doer/reviewer slots.
-**95 unit tests pass** (all fake-client, no API). Output is a **DNF (disjunctive normal form)** table — one row =
-one satisfiable (trial, cohort) conjunction; rows are ORed, cells within a row ANDed, exclusions inline `NOT(...)`.
+The v2 rewrite is a **two-domain agentic pipeline**: the ELIGIBILITY path (`make agentic-run`: extract → map, per
+trial) and the DRUG UTILITY path (`make drug-ref-build`: a separate incremental drug-annotation build). Both emit
+**3NF relational tables**; they join on `(trialId, arm)`, and `combined.tsv` is the grand flat view. Pattern B
+throughout: deterministic Python owns control flow (parallelism, refine loop, per-item durable saves); the LLM
+fills the doer/reviewer slots. **104 unit tests pass** (fake-client, no API). Eligibility output is a **DNF** table
+— one row = one satisfiable (trial, arm) conjunction; rows ORed, cells ANDed, exclusions inline `NOT(...)`.
 
 ## Quickstart
 Conda env `trial_curator` (auto-selected); `OPENAI_API_KEY` auto-loaded from `.env`. Needs `openai>=2.x`.
+**Wrap live runs in `caffeinate -i …`** so laptop sleep doesn't drop the connection (memory `feedback-caffeinate-long-jobs`).
 ```bash
 make agentic-run ID=NCT06881784                 # one trial (source auto-detected)
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
 make agentic-run                                # ALL trials
-make agentic-clean                              # wipe the transient data/agentic/{eligibility,log,cache} only
-make agentic-tests                              # 95 unit tests, no API
-#   options: MODEL=<name>  NO_JUDGE=1 (skip extraction panel)  NO_REVIEW=1 (skip mapping/drug reviewers)
+make agentic-clean                              # wipe the transient data/agentic/{log,cache} only
+make agentic-tests                              # 104 unit tests, no API
+make agentic-validate                           # QA the newest combined.tsv (review-of-the-reviewers)
+# run.py flags (via `python -m aus_trial_universe.agentic.run`): --workers N (parallel trials, default 8) ·
+#   --skip-drug (skip the drug top-up; still joins existing drug data) · --no-cache · --extract-only ·
+#   --no-judge (skip extraction panel) · --no-review (skip mapping reviewers) · --store-root DIR · --max-attempts N
 ```
-One run → **one output dir** `data/agentic/eligibility/<timestamp>/{regime,eligibility,combined}.tsv` + **one log**
-`data/agentic/log/…`. Drug reference is a SEPARATE build: `make drug-ref-build …` → `data/agentic/drug_annotations/`.
-Full detail: `docs/agentic/combined_agentic_run.md`; drug path: `docs/agentic/drug_ref_schema.md`.
+Eligibility output → the accumulating `data/agentic/eligibility/current_output/` store (5 3NF tables +
+`combined.tsv`); each run loads it, upserts the run's trials, and writes it back in place (supersede by moving
+`current_output/` → `archive/<date>/`). Log → `data/agentic/log/…`. Drug reference is a SEPARATE build:
+`make drug-ref-build …` → `data/agentic/drug_annotations/current_version/`.
+Full detail: `docs/agentic/combined_agentic_run.md`; drug path: `docs/agentic/drug_ref_schema.md`;
+eligibility design: memory `v2-eligibility-orchestration-model`.
 
 ## What's built
 ```
 aus_trial_universe/agentic/
-  run.py                     # PIPELINE ORCHESTRATOR: per trial extract -> map -> drug, stream one output; a failing trial is logged & skipped (batch continues)
+  run.py                     # ELIGIBILITY ORCHESTRATOR: trials in PARALLEL (run_parallel, --workers) — per trial extract -> map (lookup-first) -> per-trial checkpoint to current_output/; then optional incremental drug top-up + grand combined.tsv join. DiskCache; a failing trial is logged & skipped
   core/
     paths.py                 # SINGLE relocatable DATA_ROOT (=data/agentic/) + all derived paths + current_version_dir()/archive_current_version()
     client.py                # LlmClient: .parse() (chat.completions) + .research() (Responses API web_search); cache, retries, tracing
@@ -182,18 +208,23 @@ aus_trial_universe/agentic/
       finding_model.py       # finding-model grammar + syntax/logic validator (dup + self-contradiction)
     qa/validate_output.py    # INDEPENDENT output validator ("review of the reviewers"); make agentic-validate
   core/logfmt.py             # shared run-log formatting (stage banners + doer/reviewer blocks)
-tests/agentic/               # 95 tests (fake-client)
+tests/agentic/               # 104 tests (fake-client); mirrors tasks/ layout (core, tasks/eligibility, tasks/drug_utility)
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|clean|tests|drug-ref-build|drug-ref-refresh-pottr
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
-## Output schema (21 columns)
-`trialId, cohort, arm_type, cancer_type, oncotree_name, oncotree_code, gene_alteration,
-gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
-prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status,
-tga_detail, pbs_detail`.
-`tga_status`/`pbs_status` are now **per main drug** (`<drug>: Approved` / `<drug>: Not approved`);
-`tga_detail`/`pbs_detail` (new) carry the **year + evidence + official source link** per drug.
+## Output schema (v2 — 3NF relational tables + a grand flat view; rewritten 2026-07-20/21)
+Each run writes a date-stamped full-state snapshot to `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` (accumulating
+store — re-running a trial replaces its rows). Eligibility tables hold **NO drug info**; drugs join via
+`(trialId, arm)` to the drug utility path. The 5 relational masters + the grand flat view:
+- `regime.tsv` — `(trialId, arm)` → `arm_type`. The arm spine; the join key to `trial_to_intervention`.
+- `extracted_eligibility.tsv` — `(trialId, arm, conj_id)` → `cancer_type, gene_alteration, molecular_signature,
+  molecular_biomarker, prior_therapy` (raw cells, inline `[source]` + `NOT()`; rows sharing (trialId, arm) are ORed).
+- `cancer_type_map.tsv` — `cancer_type` value → `oncotree_name, oncotree_code` (deduped; lookup-first cache).
+- `gene_alteration_map.tsv` / `molecular_signature_map.tsv` — value → `finding_model` (deduped).
+- `combined.tsv` — the grand flat join (eligibility ⋈ maps ⋈ drug annotations on `(trialId, arm)`): the eligibility
+  columns above + `oncotree_name/code`, `*_findingmodel`, and `arm_drugs, drug_class, pottr_drug_class` from the drug
+  store. (TGA/PBS + main/auxiliary role come with Phase 2/finalization.)
 See `combined_agentic_run.md` §Output Schema for per-column notes.
 
 ## Locked decisions (don't re-litigate)
@@ -314,6 +345,21 @@ Former TODOs now closed:
 - **Docs consolidated** → one spec (`v2_agentic_pipeline_spec.md`, absorbed the field-source audit); diagram rebuilt.
 
 ## Shelved / open
+- **DRUG PATH Phase 2 — main vs auxiliary role (POSTPONED; the main deferred feature).** Per trial-arm, distinguish
+  the **investigational/defining** drug(s) (`main`) from backbone / standard-of-care / comparator / placebo
+  (`auxiliary`). Plan: add a `role` (`main` | `auxiliary`) column to the drug path's `trial_to_intervention`
+  (keyed `trialId, registry, arm, input_intervention_name`), populated by a **cheap per-arm classifier** (judge
+  from the arm title/description — **no web_search**). Touch: `tasks/drug_utility/{schema,store,build,agents}.py`,
+  `RESOURCE_INFO.md`, the drug tests, `docs/agentic/drug_ref_schema.md` + the drug diagram. The main/aux
+  **judgement rules already exist in git history** — the old eligibility `tasks/eligibility/mapping/agents.py
+  DRUG_CURATOR_INSTRUCTIONS` (deleted when drug enrichment was decoupled, ≤ commit 52417bc) — reuse them. Once
+  landed, the eligibility `combined.tsv` drug join can surface the role, and the drug reference is complete.
+  Deliberately deferred (2026-07-20) as not on the critical path to the eligibility over-enumeration work.
+- **Weighted "best attempt" in `refine()` (future).** `refine()` currently returns the attempt with the fewest
+  **gating** problems — a raw COUNT (all material issues weigh the same; ties → earliest). A severity- or
+  dimension-weighted measure would be more principled, but the hard part is getting the LLM reviewers to emit a
+  *calibrated, reliable* per-problem severity (a great deal of work to teach the model what's severe vs minor);
+  parked until then. `core/workflow.py:refine`. (User-agreed 2026-07-21: keep raw count for now.)
 - **Stage-I ingestion** — download → drug-filter + POTTR-append → retire-missing is **not yet in agentic**; the
   pipeline currently reads the versioned inputs the legacy path produces. (Biggest remaining piece.)
 - **ANZCTR `DRUG_rxnorm_matched`** shelved — ANZCTR drug is now LLM-extracted; revisit RxNorm as a cross-check.

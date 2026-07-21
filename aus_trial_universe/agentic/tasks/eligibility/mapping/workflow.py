@@ -134,9 +134,30 @@ def _log_doer_reviewer(distinct, results, *, use_reviewer, render) -> None:
 
 _CODE_TOKEN_RE = re.compile(r"[A-Z][A-Z0-9_]+")
 _NOT_BODY_RE = re.compile(r"NOT\(([^)]*)\)")
-_OR_SPLIT_RE = re.compile(r"\bOR\b")
 _KW = {"AND", "OR", "NOT"}
 _SENTINEL_NAMES = ("Pan-cancer", "Solid tumour", "Haematological malignancy")
+
+
+def _top_level_or(expr: str) -> list[str]:
+    """Split on ' OR ' at paren-depth 0 only, so an OR inside a NOT(...) carve-out (e.g. NOT(A OR B)) stays intact
+    — otherwise a valid exclusion like 'Solid tumour AND NOT(NSCLC OR THYROID)' is split mid-NOT() and misread as a
+    positive broad-ANDed-subtype."""
+    parts: list[str] = []
+    depth = start = i = 0
+    while i < len(expr):
+        c = expr[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and expr[i:i + 4] == " OR ":
+            parts.append(expr[start:i])
+            i += 4
+            start = i
+            continue
+        i += 1
+    parts.append(expr[start:])
+    return [p for p in parts if p.strip()]
 
 
 def _oncotree_logic_problems(code_expr: str) -> list[str]:
@@ -150,7 +171,7 @@ def _oncotree_logic_problems(code_expr: str) -> list[str]:
     expr = code_expr or ""
     if "[None]" in expr:
         problems.append("remove [None] — a non-cancer term is not allowed in cancer_type; leave the mapping empty instead")
-    for group in _OR_SPLIT_RE.split(expr):
+    for group in _top_level_or(expr):
         neg = {t for body in _NOT_BODY_RE.findall(group) for t in _CODE_TOKEN_RE.findall(body)} - _KW
         positive_text = _NOT_BODY_RE.sub("", group)
         pos = [t for t in _CODE_TOKEN_RE.findall(positive_text) if t not in _KW]

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import ANZCTR_ROOT, CTGOV_ROOT, ELIGIBILITY_OUTPUT
@@ -132,20 +133,32 @@ def _assemble_ctgov_text(protocol_section: dict) -> str:
     )
 
 
+# An armGroup whose label announces it is not recruiting is not a matchable regime — drop it (spec §6.1: closed /
+# retired cohorts are dropped). Heuristic on the LABEL text: a few trials (e.g. NCT05009992) encode arm status
+# there ("NOT CURRENTLY ENROLLING - ARM 2 ..."); the standard schema has no per-arm status field.
+_CLOSED_ARM_RE = re.compile(
+    r"not currently enrolling|no longer enrolling|closed to (?:accrual|enrol|recruit)|"
+    r"\bwithdrawn\b|\bsuspended\b|\bterminated\b", re.I)
+
+
 def _ctgov_cohorts(ai: dict) -> list[Cohort]:
-    """One regime per DRUG-BEARING armGroup (spec §6.1 — the regime axis).
+    """One regime per DRUG-BEARING, OPEN armGroup (spec §6.1 — the regime axis).
 
     A regime = an armGroup with >=1 pharmacological agent ({Drug, Biological}); placebo-only / pure-radiation /
-    procedure-only arms carry no drug and are dropped (not a drug regime). Each regime carries arm_type (which
-    flags control arms) and the armGroup `description` — the best signal for eligibility->regime assignment.
+    procedure-only arms carry no drug and are dropped (not a drug regime), and arms whose label marks them
+    closed/not-recruiting are dropped (not a matchable regime). Each regime carries arm_type (which flags control
+    arms) and the armGroup `description` — the best signal for eligibility->regime assignment.
     """
     cohorts: list[Cohort] = []
     for arm in ai.get("armGroups") or []:
+        label = (arm.get("label") or "").strip()
+        if _CLOSED_ARM_RE.search(label):  # closed / not-recruiting arm -> not a matchable regime, drop it
+            continue
         drugs = _pharmacological_drugs(arm.get("interventionNames"))
         if not drugs:  # no pharmacological agent -> not a drug regime
             continue
         cohorts.append(Cohort(
-            label=(arm.get("label") or "").strip() or "arm",
+            label=label or "arm",
             drug="; ".join(drugs),
             drug_source="INTERVENTIONS MODULE",
             description=(arm.get("description") or "").strip(),

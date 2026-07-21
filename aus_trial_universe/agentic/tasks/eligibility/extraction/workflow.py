@@ -23,6 +23,7 @@ from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refin
 from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
     build_drug_agent,
     build_drug_reviewer_agent,
+    build_enumeration_reviewer,
     build_extractor_agent,
     build_reviewer_agents,
 )
@@ -102,6 +103,7 @@ def extract_trial(
         logger.info(line(f"{cid}  {c.label}{arm}"))
     extractor = build_extractor_agent(client)
     reviewers = build_reviewer_agents(client) if use_judge else []
+    enum_reviewer = build_enumeration_reviewer(client) if use_judge else None
     extractor_input = f"{source_text}\n\n{_cohorts_section(cohort_index)}"
     advisory: list[str] = []  # drug (non-gating) reviewer problems from the last check
     attempt = {"n": 0}
@@ -149,12 +151,21 @@ def extract_trial(
             logger.info("")
             logger.info("reviewer · skipped (--no-judge)")
             return CheckResult(ok=True)
+        # One fan_out for the WHOLE panel: the 5 per-dimension reviewers (on the scoped rows) PLUS the
+        # enumeration reviewer (on the ASSEMBLED, cross-multiplied + de-duplicated DNF — the aggregate vantage
+        # point, in-loop) all run in parallel. The enum lens is the only one that sees the final row SET and
+        # audits count-vs-source, catching OR-alternatives fabricated into AND-combinations.
         review_input = _review_input(source_text, cohort_index, eligs)
-        verdicts = fan_out([(lambda a=agent: a(review_input)) for _, agent in reviewers])
+        thunks = [(lambda a=agent: a(review_input)) for _, agent in reviewers]
+        assembled = _distribute(eligs, cohort_index, trial_id) if enum_reviewer is not None else []
+        if enum_reviewer is not None:
+            agg_input = _aggregate_input(source_text, assembled)
+            thunks.append(lambda: enum_reviewer(agg_input))
+        verdicts = fan_out(thunks)
         gating: list[str] = []
         advisory.clear()
         logger.info("")
-        logger.info("reviewer · panel of %d", len(reviewers))
+        logger.info("reviewer · panel of %d%s", len(reviewers), " + enumeration" if enum_reviewer is not None else "")
         for (spec, _), verdict in zip(reviewers, verdicts):
             probs = [] if verdict.faithful else (verdict.problems or ["flagged (no detail)"])
             if verdict.faithful:
@@ -170,6 +181,15 @@ def extract_trial(
             for p in probs:
                 logger.info(bullet(p))
                 (gating if spec.gating else advisory).append(f"[{spec.key}] {p}")
+        if enum_reviewer is not None:
+            v = verdicts[-1]
+            probs = [] if v.faithful else (v.problems or ["flagged (no detail)"])
+            logger.info("")
+            logger.info(line(f"enumeration: {PASS if v.faithful else FAIL}"
+                             + (f" · {len(probs)} issue(s)" if probs else "") + f" · {len(assembled)} assembled row(s)"))
+            for p in probs:
+                logger.info(bullet(p))
+                gating.append(f"[enumeration] {p}")
         return CheckResult(ok=not gating, problems=gating)
 
     result = refine(
@@ -490,4 +510,19 @@ def _review_input(source_text: str, cohort_index: dict[str, Cohort], eligs: list
         f"SOURCE TRIAL TEXT (all relevant sections):\n{source_text}\n\n"
         f"COHORTS:\n{cohorts_txt}\n\n"
         f"EXTRACTED DNF TABLE (rows ORed; cells within a row ANDed; NOT(...) = exclusion):\n{table}"
+    )
+
+
+def _aggregate_input(source_text: str, rows: list[DnfRow]) -> str:
+    """The ASSEMBLED DNF table (post-distribute, de-duplicated) rendered for the enumeration reviewer — the whole
+    row set it needs to judge count-vs-source (which no per-dimension reviewer ever sees)."""
+    lines = []
+    for i, r in enumerate(rows, 1):
+        cells = ", ".join(f"{col}={getattr(r, col)}" for col in ELIGIBILITY_COLUMNS if getattr(r, col).strip())
+        lines.append(f"{i}. [{r.cohort}] {cells or '(empty)'}")
+    table = "\n".join(lines) or "(no rows)"
+    return (
+        f"TRIAL TEXT:\n{source_text}\n\n"
+        f"ASSEMBLED DNF TABLE — {len(rows)} row(s) (each row = one AND-conjunction; the rows are OR-alternatives; "
+        f"NOT(...) = exclusion):\n{table}"
     )

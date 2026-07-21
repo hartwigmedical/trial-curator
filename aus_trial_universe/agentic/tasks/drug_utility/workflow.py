@@ -21,7 +21,7 @@ from typing import Callable
 
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import kv, line, stage
-from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
+from aus_trial_universe.agentic.core.workflow import CheckResult, refine, run_parallel
 from aus_trial_universe.agentic.tasks.drug_utility import pottr, rxnorm
 from aus_trial_universe.agentic.tasks.drug_utility.agents import (
     build_annotator,
@@ -58,21 +58,6 @@ _COMBO_LEFTOVER = re.compile(r"\+|/|;|&|\bor\b|\band\b|\bplus\b", re.I)
 
 def _dedup(names) -> list[str]:
     return list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
-
-
-def _chunks(seq: list, n: int):
-    for i in range(0, len(seq), max(1, n)):
-        yield seq[i:i + n]
-
-
-def _safe(label: str, fn):
-    """Run fn(); on ANY exception log it and return None. `fan_out` re-raises thunk exceptions, so every
-    per-drug thunk is wrapped in this — one bad drug (e.g. a persistent API error) must not kill a long run."""
-    try:
-        return fn()
-    except Exception as exc:  # noqa: BLE001 — soft failure by design
-        logger.info(line(f"FAILED · {label} · {type(exc).__name__}: {exc}", indent=4))
-        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -245,50 +230,56 @@ def build_drug_ref(
         store.add_occurrence(trial_id, registry, arm, arm_type, name)
 
     # --- Stage 1: canonicalize (LLM judgement) -> mapping + deterministic rxcui + seeded identity ---
-    # Batched with a checkpoint after each batch, so a long Stage 1 persists progress (resilient to interruption).
+    # Parallel across drugs; each finished drug is applied + CHECKPOINTED straightaway (run_parallel per-item sink),
+    # so a crash / lost connection loses only the still-running drugs, never a finished one.
     to_canon = [r for r in raws if refresh or not store.has_mapping(r)]
     summary.reused_alias = len(raws) - len(to_canon)
     logger.info(stage("DRUG-REF · canonicalize"))
-    logger.info(line(f"{len(to_canon)} new · {summary.reused_alias} reused · workers={workers}"))
-    for batch in _chunks(to_canon, workers):
-        results = fan_out([
-            (lambda r=r: _safe(f"canonicalize {r}", lambda r=r: (
-                r, canonicalize(client, r, max_attempts=max_attempts, use_reviewer=use_reviewer))))
-            for r in batch
-        ], max_workers=workers)
-        for res in results:
-            if res is None:
-                summary.failed += 1
-                continue
-            raw, c = res
-            summary.canonicalized += 1
-            comps = [comp for comp in c.components if comp.canonical_name.strip()]
-            if not comps:                                    # a non-drug (procedure / placebo / …)
-                summary.non_drug += 1
-                store.set_mapping(raw, [])                   # record input as processed-but-not-a-drug (skip next run)
-                logger.info(line(f"{raw}  →  (not a drug)", indent=4))
-                continue
-            pairs: list[tuple[str, str]] = []                # (raw_name_to_map, canonical_id) per component
-            for comp in comps:                               # 1 input -> N canonicals (combination split into atoms)
+    logger.info(line(f"{len(to_canon)} new · {summary.reused_alias} reused · workers={workers} · per-drug checkpoint"))
+
+    def _canon_sink(raw, c, exc):
+        if exc is not None or c is None:
+            summary.failed += 1
+            logger.info(line(f"FAILED · canonicalize {raw} · {type(exc).__name__ if exc else 'none'}", indent=4))
+            return
+        summary.canonicalized += 1
+        comps = [comp for comp in c.components if comp.canonical_name.strip()]
+        if not comps:                                        # a non-drug (procedure / placebo / …)
+            summary.non_drug += 1
+            store.set_mapping(raw, [])                        # record input as processed-but-not-a-drug (skip next run)
+            logger.info(line(f"{raw}  →  (not a drug)", indent=4))
+        else:
+            pairs: list[tuple[str, str]] = []                 # (raw_name_to_map, canonical_id) per component
+            for comp in comps:                                # 1 input -> N canonicals (combination split into atoms)
                 cn = comp.canonical_name.strip()
-                rxcui = rxnorm.resolve_rxcui(cn)             # DETERMINISTIC
+                rxcui = rxnorm.resolve_rxcui(cn)              # DETERMINISTIC
                 cid = canonical_id_for(cn, rxcui)
                 pairs.append((comp.raw_name_to_map, cid))
                 if not store.has_ref(cid):
                     store.put_ref(DrugAnnotationsCore(canonical_id=cid, canonical_name=cn, rxcui=rxcui,
                                           aliases=" | ".join(comp.aliases)))
+                elif comp.aliases:   # already seeded by another raw name — UNION the aliases (order-independent,
+                    ref = store.ref(cid)                      # so parallel completion order doesn't change output)
+                    have = [a.strip() for a in ref.aliases.split("|") if a.strip()]
+                    ref.aliases = " | ".join(have + [a.strip() for a in comp.aliases
+                                                     if a.strip() and a.strip() not in have])
             store.set_mapping(raw, pairs)
             logger.info(line(f"{raw}  →  {' + '.join(comp.canonical_name.strip() for comp in comps)}", indent=4))
         if checkpoint:
             checkpoint()
 
-    # --- Stage 2+3: annotate + approvals (LLM) + deterministic pottr/atc, in batches with checkpoints ---
+    run_parallel(to_canon,
+                 lambda r: canonicalize(client, r, max_attempts=max_attempts, use_reviewer=use_reviewer),
+                 _canon_sink, max_workers=workers)
+
+    # --- Stage 2+3: annotate + approvals (LLM) + deterministic pottr/atc; parallel, per-drug checkpoint ---
     cids = list(dict.fromkeys(cid for r in raws for cid in store.canonical_ids_for(r)))
     to_research = [cid for cid in cids if _needs(cid, store, refresh, refresh_days, today)]
     summary.reused_ref = len(cids) - len(to_research)
     logger.info("")
     logger.info(stage("DRUG-REF · annotate + approvals"))
-    logger.info(line(f"{len(to_research)} to research · {summary.reused_ref} reused (fresh) · workers={workers}"))
+    logger.info(line(f"{len(to_research)} to research · {summary.reused_ref} reused (fresh) · workers={workers} · "
+                     f"per-drug checkpoint"))
 
     def _research(cid: str):
         cn = store.ref(cid).canonical_name
@@ -296,35 +287,31 @@ def build_drug_ref(
         appr = approvals(client, cn, max_attempts=max_attempts, use_reviewer=use_reviewer)
         return cid, cn, ann, appr
 
-    for bi, batch in enumerate(_chunks(to_research, workers), 1):
-        results = fan_out([
-            (lambda c=c: _safe(f"research {store.ref(c).canonical_name}", lambda c=c: _research(c)))
-            for c in batch
-        ], max_workers=workers)
-        for res in results:
-            if res is None:
-                summary.failed += 1
-                continue
-            cid, cn, ann, appr = res
-            base = store.ref(cid)
-            # POTTR: try the canonical name then each alias in order (POTTR's spelling may differ from ours)
-            pottr_cls = pottr.pottr_class_for_any([cn, *(a.strip() for a in base.aliases.split("|") if a.strip())])
-            store.put_ref(_to_ref(cid, cn, base, ann, pottr_cls, rxnorm.atc_code_for(cn), stamp))
-            store.put_targets(cid, _to_targets(cid, ann))
-            store.put_indications(cid, _to_indications(cid, appr, stamp))
-            summary.researched += 1
-            logger.info("")
-            logger.info(line(f"{cn}", indent=2))
-            logger.info(kv("modality", ann.modality, indent=4, pad=12))
-            logger.info(kv("targets", "; ".join(f"{t.target}:{t.action}" for t in ann.targets) or "(none)", indent=4, pad=12))
-            logger.info(kv("pottr", pottr_cls or "(not in POTTR)", indent=4, pad=12))
-            logger.info(kv("atc", rxnorm.atc_code_for(cn) or "(none)", indent=4, pad=12))
-            logger.info(kv("indications", str(len(appr.indications)), indent=4, pad=12))
-            for ind in appr.indications:
-                bio = f" [{ind.biomarker}]" if ind.biomarker else ""
-                logger.info(line(f"· {ind.cancer_type}{bio} — TGA {ind.tga_status}, PBS {ind.pbs_status}", indent=8))
+    def _research_sink(cid, res, exc):
+        if exc is not None or res is None:
+            summary.failed += 1
+            logger.info(line(f"FAILED · research {cid} · {type(exc).__name__ if exc else 'none'}", indent=4))
+            return
+        _cid, cn, ann, appr = res
+        base = store.ref(cid)
+        # POTTR: try the canonical name then each alias in order (POTTR's spelling may differ from ours)
+        pottr_cls = pottr.pottr_class_for_any([cn, *(a.strip() for a in base.aliases.split("|") if a.strip())])
+        store.put_ref(_to_ref(cid, cn, base, ann, pottr_cls, rxnorm.atc_code_for(cn), stamp))
+        store.put_targets(cid, _to_targets(cid, ann))
+        store.put_indications(cid, _to_indications(cid, appr, stamp))
+        summary.researched += 1
+        logger.info("")
+        logger.info(line(f"{cn}", indent=2))
+        logger.info(kv("modality", ann.modality, indent=4, pad=12))
+        logger.info(kv("targets", "; ".join(f"{t.target}:{t.action}" for t in ann.targets) or "(none)", indent=4, pad=12))
+        logger.info(kv("pottr", pottr_cls or "(not in POTTR)", indent=4, pad=12))
+        logger.info(kv("atc", rxnorm.atc_code_for(cn) or "(none)", indent=4, pad=12))
+        logger.info(kv("indications", str(len(appr.indications)), indent=4, pad=12))
+        for ind in appr.indications:
+            bio = f" [{ind.biomarker}]" if ind.biomarker else ""
+            logger.info(line(f"· {ind.cancer_type}{bio} — TGA {ind.tga_status}, PBS {ind.pbs_status}", indent=8))
         if checkpoint:
             checkpoint()
-            logger.info(line(f"— checkpoint saved (batch {bi})", indent=2))
 
+    run_parallel(to_research, _research, _research_sink, max_workers=workers)
     return summary

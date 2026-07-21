@@ -198,6 +198,12 @@ Cells may hold inline logic (ANDed terms; exclusions wrapped in NOT()) and a tra
 provenance tag — the tag is an annotation, not a criterion. Judge only your dimension below; set \
 faithful=false with concrete, actionable problems if anything is missing, invented, mis-paired, \
 mis-columned, or mis-scoped for YOUR dimension; otherwise faithful=true.
+
+BE LENIENT — gate ONLY on MATERIAL errors, i.e. ones that change WHICH PATIENTS the criteria match (a \
+missing/invented/mis-columned/mis-scoped criterion, a dropped exclusion, a fabricated conjunction). Do NOT set \
+faithful=false for trivial wording, phrasing, formatting, ordering, granularity of a source-faithful paraphrase, \
+or anything you would merely "prefer" differently — if the extraction is substantively correct, return \
+faithful=true. Sending an already-correct trial back for a nitpick wastes a whole refine cycle.
 """
 
 REVIEWERS: tuple[ReviewerSpec, ...] = (

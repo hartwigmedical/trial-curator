@@ -50,3 +50,26 @@ def test_run_writes_3nf_masters_and_combined_view(tmp_path, monkeypatch):
     assert (combined[0]["arm"], combined[0]["arm_type"], combined[0]["gene_alteration"], combined[0]["conj_id"]) == \
         ("Arm A", "EXPERIMENTAL", "EGFR", "1")
     assert combined[0]["oncotree_code"] == "" and combined[0]["arm_drugs"] == ""   # no mapping/drug under extract-only
+
+
+def _fake_extract_by_id(client, *, trial_id, source_text, cohorts, max_attempts, use_judge):
+    row = DnfRow(trialId=trial_id, cohort="all", arm_type="", cancer_type="NSCLC", gene_alteration="",
+                 molecular_signature="", molecular_biomarker="", prior_therapy="", drug="")
+    return ExtractionResult(rows=[row], faithful=True, attempts=1)
+
+
+def test_run_accumulates_trials_across_runs(tmp_path, monkeypatch):
+    """The accumulating store: a 2nd run into the same store-root LOADS the 1st run's snapshot and carries its
+    trials forward (regression — run_dir must be created AFTER load, or the empty new dir shadows the latest)."""
+    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+                        lambda **kw: [("ctgov", i, "text", None) for i in (kw.get("ids") or [])])
+    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
+                        _fake_extract_by_id)
+
+    run.main(["--ids", "NCTA", "--store-root", str(tmp_path),
+              "--out-dir", str(tmp_path / "20260101_000001"), "--extract-only"])
+    run.main(["--ids", "NCTB", "--store-root", str(tmp_path),
+              "--out-dir", str(tmp_path / "20260101_000002"), "--extract-only"])
+
+    regime = list(csv.DictReader(open(tmp_path / "20260101_000002" / "regime.tsv"), delimiter="\t"))
+    assert {r["trialId"] for r in regime} == {"NCTA", "NCTB"}   # 2nd run carried the 1st forward

@@ -115,6 +115,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Parallel drugs + checkpoint batch size (default 8). Higher = faster, same output "
                              "(may hit API rate limits).")
     parser.add_argument("--model", default=None, help="Override the OpenAI model.")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Disable the on-disk LLM response cache (default: cache under data/agentic/cache/, so "
+                             "a re-run after an interruption resumes near-instantly on the drugs already researched).")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -122,11 +125,13 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger(_n).setLevel(logging.WARNING)
     _load_openai_key()
 
-    from aus_trial_universe.agentic.core.client import LlmClient
+    from aus_trial_universe.agentic.core.client import DiskCache, LlmClient
+    from aus_trial_universe.agentic.core.paths import CACHE_DIR
     from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
     from aus_trial_universe.agentic.tasks.drug_utility.workflow import build_drug_ref
 
-    client = LlmClient(model=args.model) if args.model else LlmClient()
+    cache = None if args.no_cache else DiskCache(CACHE_DIR)
+    client = LlmClient(model=args.model, cache=cache) if args.model else LlmClient(cache=cache)
 
     occurrences: list[tuple] = []
     if args.drugs:

@@ -100,6 +100,9 @@ def test_oncotree_logic_problems_catches_logic_errors():
     assert any("duplicate" in p for p in _oncotree_logic_problems("NBL AND NBL"))            # X AND X
     assert any("broad" in p for p in _oncotree_logic_problems("Solid tumour AND MEL"))       # sentinel AND specific
     assert any("parent" in p for p in _oncotree_logic_problems("NSCLC AND LUAD"))            # subtype AND parent
+    # an OR INSIDE a NOT() carve-out must not be split mid-NOT() and misread as a positive broad-ANDed-subtype
+    assert _oncotree_logic_problems("Solid tumour AND NOT(NSCLC OR THYROID)") == []
+    assert _oncotree_logic_problems("Pan-cancer AND NOT(MEL OR SCLC OR GCT)") == []
 
 
 def test_map_oncotree_refines_on_contradiction():
