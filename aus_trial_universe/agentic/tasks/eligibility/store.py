@@ -1,13 +1,12 @@
 """Persistence for the eligibility relational tables (spec §6.1).
 
-An accumulating versioned store (mirrors `DrugRefStore`): `load()` reads the newest date-stamped snapshot under
-`data/agentic/eligibility/`, the orchestrator upserts a trial's regimes + eligibility conjunctions (re-running a
-trial REPLACES its rows) and appends new value->vocabulary mappings (the lookup-first cache), then `save()` writes
-a fresh full-state snapshot into that run's timestamp dir. Date-stamped snapshots for now; the `current_version/`
-+ `archive/` pattern comes at finalization (see `core/paths.latest_snapshot_dir`).
+An accumulating store (mirrors `DrugRefStore`): `load()` reads the newest snapshot under
+`data/agentic/eligibility/`, the orchestrator upserts a trial's arms + raw text + interpreted conjunctions
+(re-running a trial REPLACES its rows) and appends new value->vocabulary mappings (the lookup-first cache),
+then `save()` writes a fresh full-state snapshot into that run's dir (`current_output/`).
 
 The value->vocab map tables (`cancer_type_map` / `gene_alteration_map` / `molecular_signature_map`) accumulate
-across every run — a distinct extracted value is mapped ONCE and reused (the map-once/reuse efficiency win).
+across every run — a distinct interpreted value is mapped ONCE and reused (the map-once/reuse efficiency win).
 """
 from __future__ import annotations
 
@@ -17,17 +16,19 @@ from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT, latest_snapshot_dir
 from aus_trial_universe.agentic.tasks.eligibility.schema import (
+    ARM_ELIGIBILITY_RAW_COLUMNS,
     CANCER_TYPE_MAP_COLUMNS,
-    EXTRACTED_ELIGIBILITY_COLUMNS,
     GENE_ALTERATION_MAP_COLUMNS,
+    INTERPRETED_ELIGIBILITY_COLUMNS,
     MOLECULAR_SIGNATURE_MAP_COLUMNS,
-    REGIME_COLUMNS,
     TABLE_FILES,
+    TRIAL_ARMS_COLUMNS,
+    ArmEligibilityRaw,
     CancerTypeMap,
-    ExtractedEligibility,
     GeneAlterationMap,
+    InterpretedEligibility,
     MolecularSignatureMap,
-    Regime,
+    TrialArm,
 )
 
 
@@ -46,11 +47,12 @@ def _write_tsv(path: Path, columns: list[str], rows: list[dict]) -> None:
 
 
 class EligStore:
-    """In-memory view of the five eligibility tables; load newest snapshot, upsert, then save a new snapshot."""
+    """In-memory view of the six eligibility tables; load newest snapshot, upsert, then save a new snapshot."""
 
     def __init__(self) -> None:
-        self.regimes: dict[str, list[Regime]] = {}                     # trialId -> its arms
-        self.eligibility: dict[str, list[ExtractedEligibility]] = {}   # trialId -> its DNF conjunctions
+        self.arms: dict[str, list[TrialArm]] = {}                      # trialId -> its arms
+        self.raw: dict[str, list[ArmEligibilityRaw]] = {}              # trialId -> its per-arm verbatim raw text
+        self.interpreted: dict[str, list[InterpretedEligibility]] = {} # trialId -> its DNF conjunctions
         self.cancer_map: dict[str, CancerTypeMap] = {}                 # cancer_type value -> mapping
         self.gene_map: dict[str, GeneAlterationMap] = {}               # gene_alteration value -> mapping
         self.signature_map: dict[str, MolecularSignatureMap] = {}      # molecular_signature value -> mapping
@@ -63,15 +65,19 @@ class EligStore:
         vdir = cur if cur.exists() else latest_snapshot_dir(root)   # prefer current_output/; else newest snapshot
         if vdir is None:
             return store  # first run — empty store
-        for row in _read_tsv(vdir / TABLE_FILES["regime"]):
-            r = Regime(**{k: row.get(k, "") for k in REGIME_COLUMNS})
+        for row in _read_tsv(vdir / TABLE_FILES["trial_arms"]):
+            a = TrialArm(**{k: row.get(k, "") for k in TRIAL_ARMS_COLUMNS})
+            if a.trialId:
+                store.arms.setdefault(a.trialId, []).append(a)
+        for row in _read_tsv(vdir / TABLE_FILES["arm_eligibility_raw"]):
+            r = ArmEligibilityRaw(**{k: row.get(k, "") for k in ARM_ELIGIBILITY_RAW_COLUMNS})
             if r.trialId:
-                store.regimes.setdefault(r.trialId, []).append(r)
-        for row in _read_tsv(vdir / TABLE_FILES["extracted_eligibility"]):
-            e = ExtractedEligibility(**{k: row.get(k, "") for k in EXTRACTED_ELIGIBILITY_COLUMNS})
-            e.conj_id = int(e.conj_id or 0)
+                store.raw.setdefault(r.trialId, []).append(r)
+        for row in _read_tsv(vdir / TABLE_FILES["interpreted_eligibility"]):
+            e = InterpretedEligibility(**{k: row.get(k, "") for k in INTERPRETED_ELIGIBILITY_COLUMNS})
+            e.conjunction_index = int(e.conjunction_index or 0)
             if e.trialId:
-                store.eligibility.setdefault(e.trialId, []).append(e)
+                store.interpreted.setdefault(e.trialId, []).append(e)
         for row in _read_tsv(vdir / TABLE_FILES["cancer_type_map"]):
             m = CancerTypeMap(**{k: row.get(k, "") for k in CANCER_TYPE_MAP_COLUMNS})
             if m.cancer_type:
@@ -97,13 +103,15 @@ class EligStore:
         return self.signature_map.get(value)
 
     def has_trial(self, trial_id: str) -> bool:
-        return trial_id in self.eligibility or trial_id in self.regimes
+        return trial_id in self.interpreted or trial_id in self.arms
 
     # --- upserts ----------------------------------------------------------- #
-    def set_trial(self, trial_id: str, regimes: list[Regime], rows: list[ExtractedEligibility]) -> None:
-        """Replace a trial's regimes + eligibility conjunctions (re-running a trial updates its rows in place)."""
-        self.regimes[trial_id] = list(regimes)
-        self.eligibility[trial_id] = list(rows)
+    def set_trial(self, trial_id: str, arms: list[TrialArm], raw: list[ArmEligibilityRaw],
+                  interpreted: list[InterpretedEligibility]) -> None:
+        """Replace a trial's arms + raw text + interpreted conjunctions (re-running a trial updates its rows)."""
+        self.arms[trial_id] = list(arms)
+        self.raw[trial_id] = list(raw)
+        self.interpreted[trial_id] = list(interpreted)
 
     def put_cancer_type(self, m: CancerTypeMap) -> None:
         self.cancer_map[m.cancer_type] = m
@@ -119,10 +127,12 @@ class EligStore:
         """Write the full current state as a snapshot into ``run_dir`` (the run's timestamp dir)."""
         vdir = Path(run_dir)
         vdir.mkdir(parents=True, exist_ok=True)
-        _write_tsv(vdir / TABLE_FILES["regime"], REGIME_COLUMNS,
-                   [asdict(r) for rows in self.regimes.values() for r in rows])
-        _write_tsv(vdir / TABLE_FILES["extracted_eligibility"], EXTRACTED_ELIGIBILITY_COLUMNS,
-                   [asdict(e) for rows in self.eligibility.values() for e in rows])
+        _write_tsv(vdir / TABLE_FILES["trial_arms"], TRIAL_ARMS_COLUMNS,
+                   [asdict(a) for rows in self.arms.values() for a in rows])
+        _write_tsv(vdir / TABLE_FILES["arm_eligibility_raw"], ARM_ELIGIBILITY_RAW_COLUMNS,
+                   [asdict(r) for rows in self.raw.values() for r in rows])
+        _write_tsv(vdir / TABLE_FILES["interpreted_eligibility"], INTERPRETED_ELIGIBILITY_COLUMNS,
+                   [asdict(e) for rows in self.interpreted.values() for e in rows])
         _write_tsv(vdir / TABLE_FILES["cancer_type_map"], CANCER_TYPE_MAP_COLUMNS,
                    [asdict(m) for m in self.cancer_map.values()])
         _write_tsv(vdir / TABLE_FILES["gene_alteration_map"], GENE_ALTERATION_MAP_COLUMNS,

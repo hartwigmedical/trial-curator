@@ -1,16 +1,19 @@
 """Specialist agents for the extraction task (see docs/v2_agentic_pipeline_spec.md §7).
 
-Extraction agents (source-dependent):
-- extractor:        relevant trial text + COHORTS (regime) list -> scoped DNF rows (5 eligibility columns).
-- drug (ANZCTR):    INTERVENTIONS/COMPARATOR text -> raw intervention + comparator drug names (the regime axis;
-                    ANZCTR has a single eligibility cohort, so there is no cohort-detection agent — spec §6.1).
+Two-sub-stage extraction (raw text vs. its interpretation are different jobs → different agents):
 
-Review panel (source-independent), run in parallel; each has full context, focused prompt:
-- cancer_type (strengthened false-positive check), molecular (+ column correctness),
-  prior_therapy, drug (advisory), structural (DNF integrity + cohort assignment).
+Stage I-a — RAW (source-dependent):
+- raw_extractor:   relevant trial text + COHORTS -> VERBATIM criterion spans (criterion + scope + one source).
+- raw_reviewer:    completeness gate — every relevant span captured, nothing extraneous, verbatim, right bucket.
 
-Column taxonomy mirrors pydantic_curator/criterion_schema.py. No OncoTree / finding-model
-conversion here — this stage extracts normalized human descriptions only.
+Stage I-b — INTERPRETATION (grounded in the raw spans):
+- interpreter:     raw spans (+ source + COHORTS) -> scoped DNF rows (5 eligibility columns; NO source tags).
+- review panel:    cancer_type / molecular / prior_therapy / structural (gating) + drug (advisory) + enumeration.
+
+ANZCTR regime axis:
+- drug:            INTERVENTIONS/COMPARATOR text -> raw intervention + comparator drug names (single cohort).
+
+Column taxonomy mirrors pydantic_curator/criterion_schema.py.
 """
 from __future__ import annotations
 
@@ -22,104 +25,163 @@ from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
     DrugExtraction,
     EligibilityExtraction,
     JudgeVerdict,
+    RawExtraction,
 )
 
 # --------------------------------------------------------------------------- #
-# Extraction agents
+# Shared column taxonomy (both sub-stages reference the same 5 criteria)
 # --------------------------------------------------------------------------- #
-EXTRACTOR_INSTRUCTIONS = """\
-You are given the relevant sections of a clinical trial (titles, summary, description, conditions, \
-keywords, eligibility/inclusion/exclusion criteria, interventions) and a COHORTS list. From ALL the \
-text, extract the trial's eligibility into a normalized table of DNF rows over these FIVE columns ONLY:
-
-- cancer_type: the required cancer/tumour type under study (site + histology + stage/extent), in the \
-trial's own words (e.g. "metastatic NSCLC"). Do NOT put other/prior malignancies here, and do NOT \
-treat a tumour mentioned only in a prior-therapy or medical-history phrase as the cancer type. \
-NEVER AND two DIFFERENT cancer types in one cell — a patient has ONE tumour type. The CONDITIONS section \
-is AUTHORITATIVE for the tumour type(s): if the eligibility text uses a broad umbrella ("advanced solid \
-tumours", "any cancer") but the CONDITIONS + description + drugs make clear the trial is about ONE specific \
-type, use only that specific type and DROP the umbrella. Only when the trial genuinely enrols a broad group \
-with a subtype named do you keep both — as separate OR rows, never ANDed. Genuinely different eligible \
-tumour types are separate OR rows. \
-CAPTURE EXCLUDED tumour types: when the eligibility text carves OUT a specific tumour subtype / histology / \
-anatomic location ("except ...", "excluding ...", "other than ...", "not ... tumours"), that exclusion is a \
-REAL eligibility criterion — encode it as a same-cell NOT() carve-out and NEVER drop it (e.g. a DMG trial that \
-excludes thalamic/cerebellar DMG → cancer_type = "DMG AND NOT(thalamic and cerebellar DMG)"; \
-"grade III/IV glioma, not histone-H3-wildtype grade II astrocytoma" → keep the NOT() term). Losing a stated \
-tumour-type exclusion is a serious error.
+_COLUMN_TAXONOMY = """\
+- cancer_type: the required cancer/tumour type under study (site + histology + stage/extent), in the trial's \
+own words (e.g. "metastatic NSCLC"). NOT other/prior malignancies, and NOT a tumour named only in a \
+prior-therapy or medical-history phrase. The CONDITIONS section is AUTHORITATIVE for the tumour type(s). \
+"except / excluding / other than ..." tumour carve-outs ARE eligibility criteria and must be kept.
 - gene_alteration: a required SPECIFIC gene + alteration, DNA/mRNA-level (e.g. "EGFR exon 19 deletion", \
 "KRAS G12C", "ALK fusion", "ERBB2 amplification").
 - molecular_signature: a required COMPOSITE/genomic signature not tied to one gene's variant \
 (e.g. "MSI-H", "TMB-high", "HRD", "genomic instability", "1p/19q codeletion").
 - molecular_biomarker: a required EXPRESSION-based biomarker, mostly protein/IHC \
 (e.g. "PD-L1 >=1% (IHC)", "HER2 IHC 3+", "ER positive", "dMMR (IHC)").
-- prior_therapy: a prior-treatment condition that CONSTRAINS eligibility — either REQUIRED (e.g. \
-">=1 prior platinum line", "treatment-naive") or EXCLUDED (wrap in NOT(), e.g. "NOT(prior anti-PD-1)"). \
-A prior therapy that is merely PERMITTED/ALLOWED (neither required nor disqualifying) does NOT restrict \
-eligibility — OMIT it.
+- prior_therapy: a prior-treatment condition that CONSTRAINS eligibility — REQUIRED (e.g. ">=1 prior platinum \
+line", "treatment-naive") or EXCLUDED. A merely PERMITTED/ALLOWED prior therapy does NOT constrain eligibility.
 
 Column edge rules:
 - HER2/ERBB2: expression or IHC -> molecular_biomarker; gene amplification -> gene_alteration.
 - MMR: dMMR/pMMR by IHC -> molecular_biomarker; MSI-H (genomic) -> molecular_signature.
-- Histology (adenocarcinoma, squamous, etc.) -> fold into cancer_type.
+- Histology (adenocarcinoma, squamous, etc.) -> part of cancer_type.
 - Ignore everything else (age, labs, performance status, comorbidities, other/prior malignancy, \
-reproductive status, drug/intervention names) — only the five columns above.
+reproductive status, drug/intervention names) — only the five criteria above."""
 
-Cohort assignment — set each row's `cohort` (this is a PRIMARY task, not an afterthought):
-The COHORTS list is the trial's FIXED, KNOWN set of DRUG REGIMES (each cohort = an arm/regime with its own
-drug(s), already identified from the trial's structure). You do NOT identify or invent cohorts — you ASSIGN
-each eligibility criterion to the regime(s) it actually governs, using each regime's arm_type / drug /
-description to decide. Each `trial-wide` row is AND-combined onto EVERY regime's rows downstream to build that
-regime's complete, self-contained eligibility — so assign each criterion to EXACTLY ONE scope; NEVER state the
-same criterion in two scopes.
-- "trial-wide" (the DEFAULT — when in doubt, use this): a criterion shared by ALL regimes (the common disease
-  definition, a trial-wide exclusion, a shared prior-therapy rule). State it ONCE — do NOT also repeat it
-  inside a regime's rows.
-- a cohort id (e.g. "C1"): ONLY a criterion the text CLEARLY ties to that specific regime — one that DEFINES,
-  is SPECIFIC to, or DIFFERS for it (a per-regime tumour/staging selection, a per-regime prior-therapy /
-  treatment-phase condition). If a criterion applies to several — but not all — regimes, emit it once per
-  applicable regime.
-- DROP criteria for groups NOT in the COHORTS list: the eligibility text often describes cohorts/arms that are
-  NOT among the listed regimes — closed, withdrawn, or not-yet-open groups (e.g. the text details "Cohort
-  1A/1B/2A/2B" but only "Cohort 4/5/6" are listed). Those regimes are not in this trial's output: DISCARD their
-  criteria entirely. Never invent a cohort id for them, and never fold their regime-specific criteria into
-  trial-wide (that would wrongly impose a closed cohort's selection on every real regime).
+_COHORT_SCOPE_RULES = """\
+The COHORTS list is the trial's FIXED, KNOWN set of DRUG REGIMES (each = an arm/regime with its own drug(s)). \
+You do NOT invent cohorts — you ASSIGN each criterion to the scope it governs:
+- "trial-wide" (the DEFAULT): a criterion shared by ALL regimes (the common disease definition, a shared \
+exclusion, a shared prior-therapy rule). State it ONCE.
+- a cohort id (e.g. "C1"): ONLY a criterion the text CLEARLY ties to that specific regime (a per-regime \
+tumour/staging selection or prior-therapy condition). If it applies to several — but not all — regimes, \
+assign it once per applicable regime.
+- DROP criteria for groups NOT in the COHORTS list (closed / withdrawn / not-yet-open cohorts) — never invent \
+an id, never fold them into trial-wide.
 - Single-regime trial: everything is "trial-wide".
-CRITICAL — do NOT restate a shared criterion in both scopes, and do NOT put a cohort-defining criterion in
-trial-wide. In particular, a single-valued axis like cancer_type / tumour-stage must appear in ONE scope only:
-if it varies between cohorts, put each cohort's value in that cohort's rows (NOT trial-wide); if it is the same
-for all, state it once trial-wide. Restating it in both scopes creates impossible combinations
-("Stage A AND Stage B") when the scopes are AND-combined downstream.
+Assign each criterion to EXACTLY ONE scope. A single-valued axis (cancer_type / tumour-stage) must appear in \
+ONE scope only — restating it in two scopes creates impossible AND-combinations downstream."""
+
+
+# --------------------------------------------------------------------------- #
+# Stage I-a — RAW extractor
+# --------------------------------------------------------------------------- #
+RAW_EXTRACTOR_INSTRUCTIONS = f"""\
+You are given the relevant sections of a clinical trial (each headed "## <LABEL>") and a COHORTS list. Your job \
+is to COPY OUT, VERBATIM, every source span that states an eligibility criterion of these FIVE kinds — nothing \
+more. This is faithful copying, NOT interpretation: do not paraphrase, normalize, summarize, translate, or add \
+any words; you may only quote contiguous source text.
+
+The five criteria:
+{_COLUMN_TAXONOMY}
+
+For EACH relevant span, emit one fragment with:
+- criterion: which of the five it informs (exactly one).
+- text: the source span copied VERBATIM. Copy the COMPLETE clause so its logic survives — keep connectives \
+("or", "and", "and/or", commas) and any "except / excluding / other than" carve-out. Prefer one coherent clause \
+per fragment; if one sentence states several DIFFERENT criteria, split it so each fragment is single-criterion, \
+but never drop words WITHIN the span you keep. Do not truncate mid-clause.
+- source: the ONE section LABEL (the "## <LABEL>") you copied it from.
+- scope: which regime it governs (see below).
+
+{_COHORT_SCOPE_RULES}
+
+Completeness + cleanliness (both matter — the reviewer checks both):
+- Capture EVERY relevant span for the five criteria, including exclusions ("except ...", "not ... tumours", \
+"NOT prior anti-PD-1"). A dropped tumour-type exclusion or a dropped required prior therapy is a serious miss.
+- Do NOT copy irrelevant text: age, labs, performance status, comorbidities, consent, reproductive status, \
+other/prior malignancies (unless the tumour under study), or drug/dosing prose. If a criterion type is not \
+stated for the trial, emit no fragment for it.
+- If the same criterion is stated in several sections, copy it once from the MOST authoritative/complete section \
+(CONDITIONS is authoritative for the tumour type).
+"""
+
+RAW_REVIEWER_INSTRUCTIONS = f"""\
+You audit a RAW extraction: verbatim source spans copied out for five eligibility criteria (cancer_type, \
+gene_alteration, molecular_signature, molecular_biomarker, prior_therapy), each tagged with its source section \
+and scope. You are given the full trial text and the proposed fragments. Set faithful=true ONLY if ALL hold:
+
+1. VERBATIM — each fragment's text appears in the cited section essentially word-for-word: not paraphrased, not \
+   translated, no added words, and NOT truncated in a way that changes meaning or drops a connective/carve-out.
+2. COMPLETE — every source span that states one of the five criteria is captured. Flag anything MISSING, \
+   especially a stated tumour-type exclusion ("except / excluding / other than ...") or a required/excluded \
+   prior therapy.
+3. CLEAN — no extraneous fragment: nothing that is age / labs / performance status / comorbidity / consent / \
+   reproductive / other-or-prior malignancy / drug-dosing prose, and no text mis-assigned to the wrong criterion \
+   (e.g. an IHC biomarker copied under gene_alteration).
+4. SCOPE — each fragment's scope is a listed cohort id or trial-wide, and matches what the text ties it to; \
+   nothing assigned to a cohort NOT in the COHORTS list.
+
+Otherwise faithful=false with concrete, actionable problems (name the missing span, the extraneous/mis-bucketed \
+fragment, or the truncation). Do NOT nitpick which authoritative section was chosen when the text is faithful.
+"""
+
+
+def build_raw_extractor_agent(client: LlmClient, *, model: str | None = None) -> Agent[RawExtraction]:
+    return Agent(name="raw_extractor", instructions=RAW_EXTRACTOR_INSTRUCTIONS,
+                 output_schema=RawExtraction, client=client, model=model)
+
+
+def build_raw_reviewer_agent(client: LlmClient, *, model: str | None = None) -> Agent[JudgeVerdict]:
+    return Agent(name="raw_reviewer", instructions=RAW_REVIEWER_INSTRUCTIONS,
+                 output_schema=JudgeVerdict, client=client, model=model)
+
+
+# --------------------------------------------------------------------------- #
+# Stage I-b — interpreter (raw spans -> DNF logic)
+# --------------------------------------------------------------------------- #
+INTERPRETER_INSTRUCTIONS = f"""\
+You are given (1) the VERBATIM raw source spans already extracted for a trial's eligibility, grouped by criterion \
+and scope, and (2) the full trial text as context, and (3) a COHORTS list. INTERPRET the raw spans into a \
+normalized DNF table over these FIVE columns ONLY. Work FROM the raw spans (they are the authoritative set of \
+relevant text); use the full text only to resolve logic (which alternatives are OR vs AND, which scope applies).
+
+{_COLUMN_TAXONOMY}
+
+cancer_type specifics:
+- NEVER AND two DIFFERENT cancer types in one cell — a patient has ONE tumour type. If the raw shows a broad \
+umbrella ("advanced solid tumours") but CONDITIONS + description + drugs make clear the trial is ONE specific \
+type, use only that type and DROP the umbrella. Genuinely different eligible types are separate OR rows.
+- CAPTURE EXCLUDED tumour types as a same-cell NOT() carve-out and NEVER drop them (e.g. "DMG AND \
+NOT(thalamic and cerebellar DMG)"). Losing a stated tumour-type exclusion is a serious error.
+
+{_COHORT_SCOPE_RULES}
 
 DNF rules:
 - One row = one satisfiable combination of requirements (a conjunction: all cells ANDed).
-- If eligibility offers alternatives (OR), emit one row per alternative.
+- If eligibility offers alternatives (OR), emit one row per alternative. A raw span phrased with "or" / \
+"and/or" / commas ("A, B, or C") is mutually-substitutable ALTERNATIVES — split them into OR rows; do NOT AND \
+them together in one cell.
 - Conditionals become co-occurrence: "if <cancer A> then <mutation X>; if <cancer B> then <mutation Y>" \
 -> two rows: (cancer=A, gene=X) and (cancer=B, gene=Y).
 - Use "" for any column not required by a row.
-- Split into separate OR rows ONLY for GENUINELY distinct eligibility paths a patient chooses between. Do NOT \
-emit near-duplicate rows that differ only by a TRIVIAL or SUBSUMING variation of the SAME criterion — e.g. two \
-rows identical except one adds "AND refractory to standard therapy" to prior_therapy, or one prior_therapy \
-that is a strict superset of another's terms. These are NOT real alternatives (the stricter row is subsumed by \
-the looser one, so it adds nothing). Apply JUDGEMENT and read the text: decide whether that extra clause is \
-actually REQUIRED for the cohort — if it applies to the MAJORITY of eligible patients keep only the version \
-WITH it; if not, keep only the version WITHOUT it — but keep exactly ONE. Never emit both.
+- Do NOT emit near-duplicate OR rows that differ only by a TRIVIAL or SUBSUMING variation of the SAME criterion \
+(e.g. one adds "AND refractory to standard therapy"). Apply JUDGEMENT: keep exactly ONE — the version applying \
+to the majority of eligible patients.
 
 Negation (inclusion AND exclusion are BOTH in scope):
 - Wrap an excluded criterion in NOT(...), e.g. prior_therapy = "NOT(prior EGFR TKI)".
-- A single cell holds the FULL requirement for its criterion in that row and may hold several ANDed \
-terms; wrap excluded ones in NOT(). Same-column carve-outs stay in ONE cell: \
-"solid tumours except melanoma" -> cancer_type = "solid tumour AND NOT(melanoma)". Only genuine \
-OR-alternatives split into rows.
-- NEVER write a self-contradiction in one cell — no "X AND NOT(X)". If the SAME thing (e.g. an H3K27M \
-mutation) is REQUIRED for one tumour/cohort but EXCLUDED for another, those belong on DIFFERENT DNF rows: \
-split them (X on one row's cell, NOT(X) on the other), never combine them in a single cell.
+- A single cell holds the FULL requirement for its criterion in that row and may hold several ANDed terms; \
+same-column carve-outs stay in ONE cell: "solid tumours except melanoma" -> "solid tumour AND NOT(melanoma)".
+- NEVER write a self-contradiction "X AND NOT(X)" in one cell. If the SAME thing is REQUIRED for one \
+tumour/cohort but EXCLUDED for another, split them onto DIFFERENT rows.
 
-Provenance — for EVERY non-empty value, list which input section(s) it came from:
-- Sections are headed "## <LABEL>". Put the exact LABEL(s) into that column's *_sources list; if a value \
-is supported by several sections, list ALL of them. Leave *_sources empty for empty columns.
+Output ONLY the five columns + the cohort scope. Do NOT add source tags — provenance is tracked separately.
 """
 
+
+def build_interpreter_agent(client: LlmClient, *, model: str | None = None) -> Agent[EligibilityExtraction]:
+    return Agent(name="eligibility_interpreter", instructions=INTERPRETER_INSTRUCTIONS,
+                 output_schema=EligibilityExtraction, client=client, model=model)
+
+
+# --------------------------------------------------------------------------- #
+# ANZCTR drug extractor (regime axis)
+# --------------------------------------------------------------------------- #
 DRUG_EXTRACTOR_INSTRUCTIONS = """\
 This is an ANZCTR trial (a single eligibility cohort); its drug regimes come from the drugs it ADMINISTERS AS THE \
 STUDY INTERVENTION. Return drug/treatment names as stated (RAW — no normalization, no RxNorm; exclude \
@@ -145,11 +207,6 @@ compound or combination (e.g. a herbal combination composed of two named herbs),
 not the bare code; and do NOT emit a stray abbreviation, cohort / part label, or sentence fragment that is not \
 clearly a drug name. Return [] for a list with none.
 """
-
-
-def build_extractor_agent(client: LlmClient, *, model: str | None = None) -> Agent[EligibilityExtraction]:
-    return Agent(name="eligibility_extractor", instructions=EXTRACTOR_INSTRUCTIONS,
-                 output_schema=EligibilityExtraction, client=client, model=model)
 
 
 def build_drug_agent(client: LlmClient, *, model: str | None = None) -> Agent[DrugExtraction]:
@@ -182,7 +239,7 @@ def build_drug_reviewer_agent(client: LlmClient, *, model: str | None = None) ->
 
 
 # --------------------------------------------------------------------------- #
-# Reviewer panel
+# Stage I-b — interpretation reviewer panel
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class ReviewerSpec:
@@ -193,31 +250,29 @@ class ReviewerSpec:
 
 
 _REVIEW_PREAMBLE = """\
-You audit ONE dimension of an extracted eligibility DNF table against the provided trial text. \
-Cells may hold inline logic (ANDed terms; exclusions wrapped in NOT()) and a trailing "[SECTION; ...]" \
-provenance tag — the tag is an annotation, not a criterion. Judge only your dimension below; set \
-faithful=false with concrete, actionable problems if anything is missing, invented, mis-paired, \
-mis-columned, or mis-scoped for YOUR dimension; otherwise faithful=true.
+You audit ONE dimension of an INTERPRETED eligibility DNF table against the VERBATIM raw source spans it was \
+built from (and the trial text as context). Cells may hold inline logic (ANDed terms; exclusions wrapped in \
+NOT()). Judge only your dimension below: set faithful=false with concrete, actionable problems if the \
+interpretation is unfaithful to the raw spans — anything missing, invented, mis-paired, mis-columned, or \
+mis-scoped for YOUR dimension; otherwise faithful=true.
 
 BE LENIENT — gate ONLY on MATERIAL errors, i.e. ones that change WHICH PATIENTS the criteria match (a \
 missing/invented/mis-columned/mis-scoped criterion, a dropped exclusion, a fabricated conjunction). Do NOT set \
-faithful=false for trivial wording, phrasing, formatting, ordering, granularity of a source-faithful paraphrase, \
-or anything you would merely "prefer" differently — if the extraction is substantively correct, return \
-faithful=true. Sending an already-correct trial back for a nitpick wastes a whole refine cycle.
+faithful=false for a faithful paraphrase of the raw span (wording, phrasing, formatting, ordering, granularity) \
+or anything you would merely "prefer" differently. Sending an already-correct trial back for a nitpick wastes a \
+whole refine cycle.
 """
 
 REVIEWERS: tuple[ReviewerSpec, ...] = (
     ReviewerSpec("cancer_type", "cancer type", True, _REVIEW_PREAMBLE + """
-DIMENSION = cancer_type. Check every row's cancer_type is faithful AND is genuinely the trial's tumour \
-UNDER STUDY. Flag FALSE POSITIVES: a tumour that appears only inside a prior-therapy phrase, medical \
-history, an exclusion of other malignancies, or an example is NOT the trial's cancer type (e.g. \
-"progressed after therapy for melanoma" in a lung trial -> melanoma must NOT be a cancer_type). Also flag \
-missing tumour types and mis-placed histology/stage. Flag any cell that ANDs two DIFFERENT cancer types \
-(a patient has one tumour — different types are OR-alternatives on separate rows), and flag a broad umbrella \
-("solid tumours", "any cancer") left in when the CONDITIONS/description show the trial is about ONE specific \
-type (the umbrella should be dropped). Flag a MISSING tumour-type EXCLUSION: if the eligibility text carves out \
-a specific tumour subtype / histology / anatomic location ("except ...", "excluding ...", "other than ..."), it \
-MUST appear as a NOT() carve-out in cancer_type — a dropped tumour-type exclusion is a serious faithfulness error."""),
+DIMENSION = cancer_type. Check every row's cancer_type is faithful to the raw spans AND is genuinely the trial's \
+tumour UNDER STUDY. Flag FALSE POSITIVES: a tumour that appears only inside a prior-therapy phrase, medical \
+history, an exclusion of other malignancies, or an example is NOT the trial's cancer type. Also flag missing \
+tumour types and mis-placed histology/stage. Flag any cell that ANDs two DIFFERENT cancer types (a patient has \
+one tumour — different types are OR-alternatives on separate rows), and flag a broad umbrella ("solid tumours", \
+"any cancer") left in when the CONDITIONS/description show the trial is about ONE specific type. Flag a MISSING \
+tumour-type EXCLUSION: if a raw span carves out a specific tumour subtype / histology / anatomic location \
+("except ...", "excluding ...", "other than ..."), it MUST appear as a NOT() carve-out in cancer_type."""),
     ReviewerSpec("molecular", "molecular columns (gene / signature / biomarker)", True, _REVIEW_PREAMBLE + """
 DIMENSION = gene_alteration + molecular_signature + molecular_biomarker. Check faithfulness AND that each \
 value is in the RIGHT column: specific gene+alteration -> gene_alteration; composite/genomic signature -> \
@@ -245,17 +300,14 @@ alternative is missing or wrongly merged, and each requirement's scope is right.
 trial's FIXED set of DRUG REGIMES — audit the ASSIGNMENT of eligibility to it (this is a primary check): \
 (a) a regime-specific criterion must sit on the regime the text actually ties it to (use each regime's \
 arm_type / drug / description to judge); (b) a criterion the text attaches to a group that is NOT in the \
-COHORTS list — a closed / withdrawn / not-yet-open cohort (e.g. "Cohort 1A/1B" when only Cohorts 4/5/6 are \
-listed) — must be DROPPED: flag it if it was invented as a cohort id, mis-assigned to a listed regime, or \
-folded into trial-wide; (c) the default scope is trial-wide. \
+COHORTS list — a closed / withdrawn / not-yet-open cohort — must be DROPPED: flag it if it was invented as a \
+cohort id, mis-assigned to a listed regime, or folded into trial-wide; (c) the default scope is trial-wide. \
 Each trial-wide row is AND-combined onto EVERY regime downstream, so flag a criterion DUPLICATED across scopes \
-(stated both trial-wide AND in a regime) — it must live in exactly ONE scope. In particular flag a single-valued axis (cancer_type / \
-tumour-stage) populated in BOTH trial-wide and cohort rows: that produces impossible AND-combinations \
-("Stage A AND Stage B") when scopes combine — a per-cohort tumour/stage belongs in that cohort's rows only, \
-a shared one trial-wide only. Also flag any cell holding a self-contradiction "X AND NOT(X)" — that conflates \
-two cohorts and must be split so X is on one row and NOT(X) on another. Flag REDUNDANT near-duplicate OR rows \
-that differ only by a subsuming variation of one criterion (the stricter row just adds an extra AND-clause to \
-an otherwise identical row): they are not distinct alternatives — keep the single majority-applicable version."""),
+(stated both trial-wide AND in a regime) — it must live in exactly ONE scope. In particular flag a single-valued \
+axis (cancer_type / tumour-stage) populated in BOTH trial-wide and cohort rows: that produces impossible \
+AND-combinations ("Stage A AND Stage B") when scopes combine. Also flag any cell holding a self-contradiction \
+"X AND NOT(X)" — that conflates two cohorts and must be split. Flag REDUNDANT near-duplicate OR rows that differ \
+only by a subsuming variation of one criterion — keep the single majority-applicable version."""),
 )
 
 
@@ -269,11 +321,9 @@ def build_reviewer_agents(client: LlmClient, *, model: str | None = None) -> lis
 
 # --------------------------------------------------------------------------- #
 # Enumeration-plausibility reviewer — the ONE lens that sees the ASSEMBLED DNF.
-# The per-dimension panel above audits the pre-distribution scoped rows cell-by-cell; none of them ever sees the
-# final cross-multiplied, de-duplicated row SET or asks "is this row count plausible vs. the source's alternative
-# structure?". That blind spot is exactly how OR-alternatives of ONE criterion get fabricated into AND-combinations
-# (e.g. "MYCN amp AND MYCL amp" from a source "MYCN, MYC OR MYCL amp") and the table blows up. This reviewer is
-# given the assembled table + the source and closes that gap (verifying « generating; spec principle #5).
+# The per-dimension panel above audits the scoped rows cell-by-cell; none sees the final cross-multiplied,
+# de-duplicated row SET or asks "is this row count plausible vs. the raw's alternative structure?". That blind
+# spot is how OR-alternatives of ONE criterion get fabricated into AND-combinations and the table blows up.
 # --------------------------------------------------------------------------- #
 ENUMERATION_REVIEWER_INSTRUCTIONS = """\
 You audit the ASSEMBLED eligibility DNF table (one row = one satisfiable AND-conjunction; the rows are
@@ -294,7 +344,7 @@ For EACH criterion column (cancer_type, gene_alteration, molecular_signature, mo
    implausible total and name the criterion driving the blow-up.
 
 Set faithful=false with concrete, actionable problems (name the offending column/cells and the correct alternative
-structure) so the extractor can split them onto separate rows. Otherwise faithful=true. Do NOT flag genuine
+structure) so the interpreter can split them onto separate rows. Otherwise faithful=true. Do NOT flag genuine
 independent AND-requirements ACROSS DIFFERENT criteria (e.g. a cancer_type AND a required biomarker) — those are
 correct conjunctions.
 """

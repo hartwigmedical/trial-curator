@@ -10,7 +10,7 @@ import csv
 
 from aus_trial_universe.agentic import run
 from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import DnfRow
-from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import ExtractionResult
+from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import ArmRaw, ExtractionResult
 
 
 def _fake_trials():
@@ -27,7 +27,8 @@ def _fake_extract(client, *, trial_id, source_text, cohorts, max_attempts, use_j
     row = DnfRow(trialId=trial_id, cohort="all", arm_type="", cancer_type="NSCLC",
                  gene_alteration="", molecular_signature="", molecular_biomarker="",
                  prior_therapy="", drug="")
-    return ExtractionResult(rows=[row], faithful=True, attempts=1)
+    return ExtractionResult(arm_raw=[ArmRaw(arm="all", cancer_type_raw="NSCLC [CONDITIONS]")],
+                            rows=[row], faithful=True, attempts=1)
 
 
 def test_batch_continues_past_a_failing_trial(tmp_path, monkeypatch):
@@ -39,8 +40,7 @@ def test_batch_continues_past_a_failing_trial(tmp_path, monkeypatch):
 
     assert rc == 0                                  # batch completes despite the failure
     snap = tmp_path / "current_output"              # the 3NF store
-    rows = list(csv.DictReader(open(tmp_path / "combined" / "combined.tsv"), delimiter="\t"))
-    assert sorted({r["trialId"] for r in rows}) == ["GOOD1", "GOOD2"]   # both good trials written, bad one skipped
-    # the 3NF masters live in the store; the joined view is written OUTSIDE it (spec §6.1)
-    assert (snap / "regime.tsv").exists() and (snap / "extracted_eligibility.tsv").exists()
-    assert not (snap / "combined.tsv").exists()
+    interp = list(csv.DictReader(open(snap / "interpreted_eligibility.tsv"), delimiter="\t"))
+    assert sorted({r["trialId"] for r in interp}) == ["GOOD1", "GOOD2"]   # both good written, bad one skipped
+    assert (snap / "trial_arms.tsv").exists() and (snap / "arm_eligibility_raw.tsv").exists()
+    assert not (snap / "combined.tsv").exists()     # combined parked under --extract-only

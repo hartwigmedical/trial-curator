@@ -20,8 +20,10 @@ def live_agents(client: LlmClient | None = None):
     from aus_trial_universe.agentic.tasks.eligibility.mapping import agents as mp
 
     agents = [
-        # eligibility · extraction
-        ex.build_extractor_agent(client),
+        # eligibility · extraction (two sub-stages: raw + interpret)
+        ex.build_raw_extractor_agent(client),
+        ex.build_raw_reviewer_agent(client),
+        ex.build_interpreter_agent(client),
         ex.build_drug_agent(client),
         ex.build_drug_reviewer_agent(client),
         ex.build_enumeration_reviewer(client),

@@ -1,17 +1,17 @@
 """Output schemas for the extraction task (see docs/v2_agentic_pipeline_spec.md §7).
 
-The product is a DNF table: one row = one satisfiable conjunction; rows sharing a
-(trialId, cohort) are ORed. Cells hold pre-curation *normalized human descriptions*
-(NO OncoTree / finding-model conversion yet — that is a later stage).
+Extraction runs in TWO sub-stages (the verbatim text and its logical interpretation are different entities):
 
-Each extracted cell carries:
-- inline ``NOT(...)`` for excluded criteria; a cell may hold several ANDed terms
-  (e.g. ``solid tumour AND NOT(melanoma)``) — only OR-alternatives split into rows.
-- a provenance tag ``[SRC1; SRC2]`` naming every input section it was found in.
+  I-a  RAW extraction  — copy the VERBATIM relevant source span(s) for each criterion, tagged with the ONE
+                         section each came from and the scope (a cohort id or trial-wide). No logic, no
+                         paraphrase. Product: ``RawExtraction`` -> the ``arm_eligibility_raw`` table.
+  I-b  INTERPRETATION  — read the raw spans and produce the DNF table: one row = one satisfiable conjunction,
+                         rows sharing a (trialId, cohort) are ORed, cells hold normalized human descriptions
+                         with inline ``NOT(...)`` exclusions (NO source tags — those live in the raw table).
+                         Product: ``EligibilityExtraction`` -> the ``interpreted_eligibility`` table.
 
-Each extracted row also carries a ``cohort`` scope: a cohort id from the supplied
-list (e.g. ``C1``) or ``trial-wide``. Cohort-specific criteria are AND-combined with
-the trial-wide criteria per cohort downstream (representation A).
+The OR-branch structure is decided in I-b (interpretation), which is exactly why the raw text (per arm) and the
+interpreted conjunctions (per conjunction) are separate tables.
 """
 from __future__ import annotations
 
@@ -19,55 +19,88 @@ from pydantic import BaseModel, Field
 
 TRIAL_WIDE = "trial-wide"
 
+# The five eligibility criterion stems (shared by both sub-stages).
+CRITERION_STEMS = [
+    "cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy",
+]
 
-# --- Eligibility extractor I/O ---------------------------------------------- #
+
+# --- Stage I-a: RAW extractor I/O ------------------------------------------- #
+class RawFragment(BaseModel):
+    """One verbatim source span relevant to one criterion, with its single source section and scope."""
+
+    criterion: str = Field(
+        description=(
+            "Which criterion column this span informs — EXACTLY one of: cancer_type, gene_alteration, "
+            "molecular_signature, molecular_biomarker, prior_therapy."
+        ),
+    )
+    scope: str = Field(
+        default=TRIAL_WIDE,
+        description=(
+            "Scope of this span: a cohort id from the COHORTS list (e.g. 'C1') if it applies ONLY to that "
+            "cohort/regime, or 'trial-wide' if it applies to the whole trial / all cohorts."
+        ),
+    )
+    text: str = Field(
+        description=(
+            "The relevant source span copied VERBATIM (the complete clause, keeping connectives like "
+            "'or' / 'and' / commas and any 'except/excluding' carve-out). Do NOT paraphrase, summarize, "
+            "truncate, or add words."
+        ),
+    )
+    source: str = Field(
+        description="The ONE input section header (the '## <LABEL>') this span was copied from.",
+    )
+
+
+class RawExtraction(BaseModel):
+    """The raw extractor's output: every relevant verbatim span, classified to a criterion + scope + source."""
+
+    fragments: list[RawFragment]
+
+
+# --- Stage I-b: interpreter I/O --------------------------------------------- #
 class ExtractedRow(BaseModel):
-    """One DNF conjunction. Every cell is the *complete* requirement for its
-    criterion type within this conjunction: multiple ANDed terms allowed, excluded
-    terms wrapped in NOT(), "" when not required. Each value has a parallel
-    ``*_sources`` list of input section header(s) it was drawn from."""
+    """One DNF conjunction (the INTERPRETATION of the raw spans). Every cell is the *complete* requirement for
+    its criterion within this conjunction: several ANDed terms allowed, excluded terms wrapped in NOT(), "" when
+    not required. No source tags — provenance lives in the raw table."""
 
     cohort: str = Field(
         default=TRIAL_WIDE,
         description=(
-            "Scope of this requirement: a cohort id from the supplied COHORTS list "
-            "(e.g. 'C1') if it applies ONLY to that cohort, or 'trial-wide' if it "
-            "applies to the whole trial / all cohorts."
+            "Scope of this requirement: a cohort id from the supplied COHORTS list (e.g. 'C1') if it applies "
+            "ONLY to that cohort, or 'trial-wide' if it applies to the whole trial / all cohorts."
         ),
     )
     cancer_type: str = Field(
         default="",
         description=(
-            "Required cancer/tumour type under study (site + histology + stage/extent), "
-            "in the trial's words, e.g. 'metastatic NSCLC'. Exclude other/prior malignancies. "
-            "Carve-outs use NOT(), e.g. 'solid tumour AND NOT(melanoma)'."
+            "Required cancer/tumour type under study (site + histology + stage/extent), e.g. 'metastatic NSCLC'. "
+            "Exclude other/prior malignancies. Carve-outs use NOT(), e.g. 'solid tumour AND NOT(melanoma)'."
         ),
     )
-    cancer_type_sources: list[str] = Field(default_factory=list)
     gene_alteration: str = Field(
         default="",
         description=(
-            "Required specific gene + alteration (DNA/mRNA-level), e.g. 'EGFR exon 19 deletion', "
-            "'KRAS G12C', 'ALK fusion', 'ERBB2 amplification'. \"\" if none."
+            "Required specific gene + alteration (DNA/mRNA-level), e.g. 'EGFR exon 19 deletion', 'KRAS G12C', "
+            "'ALK fusion', 'ERBB2 amplification'. \"\" if none."
         ),
     )
-    gene_alteration_sources: list[str] = Field(default_factory=list)
     molecular_signature: str = Field(
         default="",
         description=(
-            "Required composite/genomic signature not tied to one gene's variant, "
-            "e.g. 'MSI-H', 'TMB-high', 'HRD', 'genomic instability', '1p/19q codeletion'. \"\" if none."
+            "Required composite/genomic signature not tied to one gene's variant, e.g. 'MSI-H', 'TMB-high', "
+            "'HRD', 'genomic instability', '1p/19q codeletion'. \"\" if none."
         ),
     )
-    molecular_signature_sources: list[str] = Field(default_factory=list)
     molecular_biomarker: str = Field(
         default="",
         description=(
-            "Required expression-based biomarker (mostly protein/IHC), e.g. 'PD-L1 >=1% (IHC)', "
-            "'HER2 IHC 3+', 'ER positive', 'dMMR (IHC)'. \"\" if none."
+            "Required expression-based biomarker (mostly protein/IHC), e.g. 'PD-L1 >=1% (IHC)', 'HER2 IHC 3+', "
+            "'ER positive', 'dMMR (IHC)'. \"\" if none."
         ),
     )
-    molecular_biomarker_sources: list[str] = Field(default_factory=list)
     prior_therapy: str = Field(
         default="",
         description=(
@@ -75,15 +108,13 @@ class ExtractedRow(BaseModel):
             "'treatment-naive'. \"\" if none."
         ),
     )
-    prior_therapy_sources: list[str] = Field(default_factory=list)
 
 
 class EligibilityExtraction(BaseModel):
-    """The extractor's output: the trial's eligibility as scoped DNF rows.
+    """The interpreter's output: the trial's eligibility as scoped DNF rows.
 
-    Each row is a conjunction (all cells ANDed); the set of rows is the OR of the
-    alternatives. Conditionals become co-occurrence: 'if cancer A then mutation X;
-    if cancer B then mutation Y' -> two rows (A,X) and (B,Y).
+    Each row is a conjunction (all cells ANDed); the set of rows is the OR of the alternatives. Conditionals
+    become co-occurrence: 'if cancer A then mutation X; if cancer B then mutation Y' -> two rows (A,X) and (B,Y).
     """
 
     rows: list[ExtractedRow]
@@ -121,13 +152,10 @@ class JudgeVerdict(BaseModel):
     )
 
 
-# --- Final table row -------------------------------------------------------- #
+# --- Final table row (interpreted DNF; internal) ---------------------------- #
 class DnfRow(BaseModel):
-    """A row of the final eligibility DNF table (one satisfiable conjunction).
-
-    Eligibility cells are rendered ``value [sources]``; ``drug`` is the cohort's
-    intervention (raw, not normalized).
-    """
+    """A row of the interpreted eligibility DNF table (one satisfiable conjunction). Eligibility cells are the
+    interpreted logic (no source tags); ``drug`` is the cohort's intervention (raw, tagged, for the drug path)."""
 
     trialId: str
     cohort: str

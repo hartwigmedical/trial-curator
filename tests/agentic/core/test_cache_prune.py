@@ -61,6 +61,6 @@ def test_missing_cache_dir_is_safe(tmp_path):
 def test_live_prompt_shas_covers_both_paths():
     """Smoke: the registry enumerates agents from eligibility AND drug-utility, offline."""
     live = live_prompt_shas()
-    assert "eligibility_extractor" in live          # eligibility path
+    assert "eligibility_interpreter" in live and "raw_extractor" in live   # eligibility path (two sub-stages)
     assert "drug_annotator" in live                 # drug-utility path
     assert all(isinstance(v, str) and len(v) == 64 for v in live.values())  # sha256 hex

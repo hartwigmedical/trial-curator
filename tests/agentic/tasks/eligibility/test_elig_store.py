@@ -4,18 +4,27 @@ from __future__ import annotations
 
 from aus_trial_universe.agentic.core.paths import latest_snapshot_dir
 from aus_trial_universe.agentic.tasks.eligibility.schema import (
+    ArmEligibilityRaw,
     CancerTypeMap,
-    ExtractedEligibility,
     GeneAlterationMap,
+    InterpretedEligibility,
     MolecularSignatureMap,
-    Regime,
+    TrialArm,
 )
 from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
 
 
+def _arms(trial, *labels):
+    return [TrialArm(trialId=trial, arm=l, arm_type="EXPERIMENTAL") for l in labels]
+
+
+def _raw(trial, arm, cancer):
+    return ArmEligibilityRaw(trialId=trial, arm=arm, cancer_type_raw=cancer)
+
+
 def test_empty_load_when_no_snapshot(tmp_path):
     store = EligStore.load(tmp_path)
-    assert store.regimes == {} and store.eligibility == {} and store.cancer_map == {}
+    assert store.arms == {} and store.raw == {} and store.interpreted == {} and store.cancer_map == {}
     assert store.lookup_cancer_type("melanoma") is None
 
 
@@ -31,11 +40,17 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
     s = EligStore()
     s.set_trial(
         "NCT01",
-        regimes=[Regime(trialId="NCT01", arm="Arm A", arm_type="EXPERIMENTAL"),
-                 Regime(trialId="NCT01", arm="Arm B", arm_type="ACTIVE_COMPARATOR")],
-        rows=[ExtractedEligibility(trialId="NCT01", arm="Arm A", conj_id=1,
-                                   cancer_type="metastatic NSCLC [TITLE]", gene_alteration="EGFR exon 19 del [CRITERIA]"),
-              ExtractedEligibility(trialId="NCT01", arm="Arm A", conj_id=2, cancer_type="metastatic NSCLC [TITLE]")],
+        arms=[TrialArm(trialId="NCT01", arm="Arm A", arm_type="EXPERIMENTAL"),
+              TrialArm(trialId="NCT01", arm="Arm B", arm_type="ACTIVE_COMPARATOR")],
+        raw=[_raw("NCT01", "Arm A", "metastatic NSCLC [ELIGIBILITY CRITERIA]"),
+             _raw("NCT01", "Arm B", "metastatic NSCLC [ELIGIBILITY CRITERIA]")],
+        interpreted=[
+            InterpretedEligibility(trialId="NCT01", arm="Arm A", conjunction_index=1,
+                                   cancer_type_interpreted="metastatic NSCLC",
+                                   gene_alteration_interpreted="EGFR exon 19 del"),
+            InterpretedEligibility(trialId="NCT01", arm="Arm A", conjunction_index=2,
+                                   cancer_type_interpreted="metastatic NSCLC"),
+        ],
     )
     s.put_cancer_type(CancerTypeMap(cancer_type="metastatic NSCLC", oncotree_name="Lung Adenocarcinoma", oncotree_code="LUAD"))
     s.put_gene_alteration(GeneAlterationMap(gene_alteration="EGFR exon 19 del", finding_model="SmallVariant[gene=EGFR]"))
@@ -43,13 +58,14 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
 
     run_dir = tmp_path / "20260720_120000"
     s.save(run_dir)
-    assert (run_dir / "regime.tsv").exists() and (run_dir / "extracted_eligibility.tsv").exists()
-    assert (run_dir / "cancer_type_map.tsv").exists()
+    assert (run_dir / "trial_arms.tsv").exists() and (run_dir / "interpreted_eligibility.tsv").exists()
+    assert (run_dir / "arm_eligibility_raw.tsv").exists() and (run_dir / "cancer_type_map.tsv").exists()
 
     loaded = EligStore.load(tmp_path)
-    assert {r.arm for r in loaded.regimes["NCT01"]} == {"Arm A", "Arm B"}
-    rows = loaded.eligibility["NCT01"]
-    assert len(rows) == 2 and rows[0].conj_id == 1 and isinstance(rows[0].conj_id, int)
+    assert {a.arm for a in loaded.arms["NCT01"]} == {"Arm A", "Arm B"}
+    assert {r.arm for r in loaded.raw["NCT01"]} == {"Arm A", "Arm B"}
+    rows = loaded.interpreted["NCT01"]
+    assert len(rows) == 2 and rows[0].conjunction_index == 1 and isinstance(rows[0].conjunction_index, int)
     # lookup-first cache round-trips
     assert loaded.lookup_cancer_type("metastatic NSCLC").oncotree_code == "LUAD"
     assert loaded.lookup_gene_alteration("EGFR exon 19 del").finding_model == "SmallVariant[gene=EGFR]"
@@ -58,22 +74,22 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
 
 def test_set_trial_replaces_rows_on_rerun(tmp_path):
     s = EligStore()
-    s.set_trial("NCT01", [Regime(trialId="NCT01", arm="all")],
-                [ExtractedEligibility(trialId="NCT01", arm="all", conj_id=1, cancer_type="melanoma")])
-    s.set_trial("NCT02", [Regime(trialId="NCT02", arm="all")],
-                [ExtractedEligibility(trialId="NCT02", arm="all", conj_id=1, cancer_type="NSCLC")])
+    s.set_trial("NCT01", _arms("NCT01", "all"), [_raw("NCT01", "all", "melanoma [CONDITIONS]")],
+                [InterpretedEligibility(trialId="NCT01", arm="all", conjunction_index=1, cancer_type_interpreted="melanoma")])
+    s.set_trial("NCT02", _arms("NCT02", "all"), [_raw("NCT02", "all", "NSCLC [CONDITIONS]")],
+                [InterpretedEligibility(trialId="NCT02", arm="all", conjunction_index=1, cancer_type_interpreted="NSCLC")])
     s.save(tmp_path / "20260720_100000")
 
-    # re-run NCT01 with FEWER rows -> its old rows are replaced, NCT02 untouched
+    # re-run NCT01 with a fixed value -> its old rows are replaced, NCT02 untouched
     s2 = EligStore.load(tmp_path)
-    s2.set_trial("NCT01", [Regime(trialId="NCT01", arm="all")],
-                 [ExtractedEligibility(trialId="NCT01", arm="all", conj_id=1, cancer_type="melanoma [fixed]")])
+    s2.set_trial("NCT01", _arms("NCT01", "all"), [_raw("NCT01", "all", "melanoma [CONDITIONS]")],
+                 [InterpretedEligibility(trialId="NCT01", arm="all", conjunction_index=1, cancer_type_interpreted="melanoma (fixed)")])
     s2.save(tmp_path / "20260720_110000")
 
     latest = EligStore.load(tmp_path)
-    assert len(latest.eligibility["NCT01"]) == 1
-    assert latest.eligibility["NCT01"][0].cancer_type == "melanoma [fixed]"
-    assert latest.eligibility["NCT02"][0].cancer_type == "NSCLC"    # other trials preserved
+    assert len(latest.interpreted["NCT01"]) == 1
+    assert latest.interpreted["NCT01"][0].cancer_type_interpreted == "melanoma (fixed)"
+    assert latest.interpreted["NCT02"][0].cancer_type_interpreted == "NSCLC"    # other trials preserved
 
 
 def test_map_lookup_first_dedups_by_value(tmp_path):

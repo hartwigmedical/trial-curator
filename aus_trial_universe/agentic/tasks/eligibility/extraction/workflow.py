@@ -1,15 +1,20 @@
 """Extraction workflow (see docs/v2_agentic_pipeline_spec.md §7).
 
-Deterministic orchestrator; the LLM only fills the agent steps. Per trial:
+Deterministic orchestrator; the LLM only fills the agent steps. Per trial, extraction runs in TWO sub-stages:
 
   resolve regimes + drug  (CTGov: given/deterministic from armGroups · ANZCTR: single eligibility cohort,
                            regimes from the INTERVENTIONS/COMPARATOR drug agent — spec §6.1)
-  -> regime-aware extractor -> scoped DNF rows
-  -> parallel reviewer panel (gating: cancer_type/molecular/prior_therapy/structural; advisory: drug)
-  -> bounded refine (re-extract on gating problems)
-  -> distribute: per cohort, rows = trial-wide  x  cohort-specific  (representation A), attach drug
 
-No OncoTree / finding-model conversion — cells are normalized human descriptions with provenance.
+  I-a RAW      -> raw_extractor copies VERBATIM criterion spans (criterion + scope + source)
+               -> raw_reviewer gates on completeness/cleanliness (bounded refine)
+               -> assemble the per-arm `arm_eligibility_raw` table (trial-wide spans replicated onto each arm)
+
+  I-b INTERPRET-> interpreter reads the raw spans (+ source) -> scoped DNF rows (paraphrase logic, NO sources)
+               -> parallel reviewer panel (gating: cancer_type/molecular/prior_therapy/structural + enumeration;
+                  advisory: drug) (bounded refine)
+               -> distribute: per cohort, rows = trial-wide x cohort-specific, cells ANDed, de-duplicated
+
+No OncoTree / finding-model conversion — that is a later mapping stage.
 """
 from __future__ import annotations
 
@@ -24,23 +29,24 @@ from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
     build_drug_agent,
     build_drug_reviewer_agent,
     build_enumeration_reviewer,
-    build_extractor_agent,
+    build_interpreter_agent,
+    build_raw_extractor_agent,
+    build_raw_reviewer_agent,
     build_reviewer_agents,
 )
 from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
+    CRITERION_STEMS,
     DnfRow,
     DrugExtraction,
     EligibilityExtraction,
     ExtractedRow,
+    RawFragment,
     TRIAL_WIDE,
 )
 
 logger = logging.getLogger(__name__)
 
-ELIGIBILITY_COLUMNS = [
-    "cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy",
-]
-TSV_COLUMNS = ["trialId", "cohort", "arm_type"] + ELIGIBILITY_COLUMNS + ["drug"]
+ELIGIBILITY_COLUMNS = list(CRITERION_STEMS)
 
 
 @dataclass
@@ -55,6 +61,19 @@ class Cohort:
 
 
 @dataclass
+class ArmRaw:
+    """The verbatim raw text for one arm (grain of the `arm_eligibility_raw` table). One string per criterion:
+    `text [source] | text [source] | ...` (trial-wide spans are replicated onto every arm)."""
+
+    arm: str
+    cancer_type_raw: str = ""
+    gene_alteration_raw: str = ""
+    molecular_signature_raw: str = ""
+    molecular_biomarker_raw: str = ""
+    prior_therapy_raw: str = ""
+
+
+@dataclass
 class _Cell:
     value: str = ""
     sources: list[str] = field(default_factory=list)
@@ -62,7 +81,7 @@ class _Cell:
 
 @dataclass
 class _EligRaw:
-    """A scoped eligibility conjunction, cells still raw (value + sources)."""
+    """A scoped eligibility conjunction from the interpreter (cells are interpreted logic, no sources)."""
 
     cohort: str = TRIAL_WIDE  # a cohort id (e.g. "C1") or TRIAL_WIDE
     cancer_type: _Cell = field(default_factory=_Cell)
@@ -74,7 +93,8 @@ class _EligRaw:
 
 @dataclass
 class ExtractionResult:
-    rows: list[DnfRow]
+    arm_raw: list[ArmRaw]        # the per-arm verbatim raw text (arm_eligibility_raw table)
+    rows: list[DnfRow]           # the interpreted DNF conjunctions (interpreted_eligibility table)
     faithful: bool
     attempts: int
     problems: list[str] = field(default_factory=list)
@@ -89,7 +109,7 @@ def extract_trial(
     max_attempts: int = 3,
     use_judge: bool = True,
 ) -> ExtractionResult:
-    """Extract a trial's eligibility into a DNF table (see module docstring).
+    """Extract a trial's eligibility (two sub-stages: raw copy -> interpret; see module docstring).
 
     cohorts=None triggers the ANZCTR path (single eligibility cohort; drug doer->reviewer);
     a provided list is the CTGov path (deterministic regimes/drug).
@@ -101,35 +121,163 @@ def extract_trial(
     for cid, c in cohort_index.items():
         arm = f"  [{c.arm_type}]" if c.arm_type else ""
         logger.info(line(f"{cid}  {c.label}{arm}"))
-    extractor = build_extractor_agent(client)
+
+    base_input = f"{source_text}\n\n{_cohorts_section(cohort_index)}"
+
+    # --- STAGE I-a: RAW extraction -> per-arm verbatim table ---------------- #
+    fragments, raw_faithful, raw_attempts = _extract_raw(
+        client, source_text, cohort_index, base_input, max_attempts=max_attempts, use_judge=use_judge)
+    arm_raw = _assemble_arm_raw(cohort_index, fragments)
+
+    # --- STAGE I-b: interpretation -> DNF conjunctions ---------------------- #
+    rows, interp_faithful, interp_attempts, problems = _interpret(
+        client, trial_id, source_text, cohort_index, fragments, base_input,
+        max_attempts=max_attempts, use_judge=use_judge)
+
+    logger.info("")
+    logger.info("result · raw(faithful=%s, attempts=%d) · interpret(faithful=%s, attempts=%d) · %d arm(s) → %d DNF row(s)",
+                raw_faithful, raw_attempts, interp_faithful, interp_attempts, len(cohort_index), len(rows))
+    # `attempts` = the INTERPRETATION refine count (the meaningful loop); raw attempts are logged above.
+    return ExtractionResult(arm_raw=arm_raw, rows=rows, faithful=raw_faithful and interp_faithful,
+                            attempts=interp_attempts, problems=problems)
+
+
+# --------------------------------------------------------------------------- #
+# Stage I-a — raw extraction
+# --------------------------------------------------------------------------- #
+def _extract_raw(client: LlmClient, source_text: str, cohort_index: dict[str, "Cohort"], base_input: str,
+                 *, max_attempts: int, use_judge: bool) -> tuple[list[RawFragment], bool, int]:
+    """Copy verbatim criterion spans, gated by the completeness reviewer (bounded refine)."""
+    extractor = build_raw_extractor_agent(client)
+    reviewer = build_raw_reviewer_agent(client) if use_judge else None
+    logger.info("")
+    logger.info(line("Stage I-a · RAW extraction (verbatim source spans)"))
+    attempt = {"n": 0}
+
+    def produce(feedback: str = "") -> list[RawFragment]:
+        attempt["n"] += 1
+        prompt = base_input if not feedback else (
+            f"{base_input}\n\n[REVISION — a reviewer flagged these; fix ONLY these, keep the rest verbatim]:\n{feedback}")
+        frags = extractor(prompt).fragments
+        logger.info("")
+        logger.info("raw doer · attempt %d · %d fragment(s)%s", attempt["n"], len(frags),
+                    " · refined" if feedback else "")
+        return frags
+
+    def check(frags: list[RawFragment]) -> CheckResult:
+        if not frags:
+            logger.info("raw rules · %s · no fragments", FAIL)
+            return CheckResult(ok=False, problems=["no raw fragments were extracted"])
+        if reviewer is None:
+            return CheckResult(ok=True)
+        v = reviewer(_raw_review_input(source_text, cohort_index, frags))
+        probs = [] if v.faithful else (v.problems or ["raw extraction flagged (no detail)"])
+        logger.info("raw reviewer · %s%s", PASS if v.faithful else FAIL,
+                    f" · {len(probs)} issue(s)" if probs else "")
+        for p in probs:
+            logger.info(bullet(p))
+        return CheckResult(ok=v.faithful, problems=probs)
+
+    result = refine(produce=lambda: produce(""), check=check,
+                    repair=lambda _f, probs: produce("\n".join(f"- {p}" for p in probs)),
+                    max_attempts=max_attempts)
+    return result.value, result.ok, result.attempts
+
+
+def _assemble_arm_raw(cohort_index: dict[str, "Cohort"], fragments: list[RawFragment]) -> list[ArmRaw]:
+    """Per arm, per criterion: `text [source] | ...` from the trial-wide + that-arm fragments (spec: trial-wide
+    spans are replicated onto every arm). Grain: (arm)."""
+    arms: list[ArmRaw] = []
+    for cid, cohort in cohort_index.items():
+        row = ArmRaw(arm=cohort.label)
+        for stem in CRITERION_STEMS:
+            frags = [f for f in fragments
+                     if _norm_criterion(f.criterion) == stem
+                     and _resolve_scope(f.scope, cohort_index) in (TRIAL_WIDE, cid)]
+            rendered = " | ".join(
+                f"{f.text.strip()} [{(f.source or '').strip()}]" if (f.source or "").strip() else f.text.strip()
+                for f in frags if (f.text or "").strip()
+            )
+            setattr(row, f"{stem}_raw", rendered)
+        arms.append(row)
+    return arms
+
+
+def _norm_criterion(name: str) -> str:
+    """Map a raw fragment's `criterion` onto one of the 5 stems (lenient: case/space/substring)."""
+    low = (name or "").strip().lower().replace(" ", "_")
+    for stem in CRITERION_STEMS:
+        if low == stem or stem in low or low in stem:
+            return stem
+    return ""
+
+
+def _raw_review_input(source_text: str, cohort_index: dict[str, "Cohort"], fragments: list[RawFragment]) -> str:
+    cohorts_txt = "\n".join(_regime_line(cid, c) for cid, c in cohort_index.items()) or "(single trial-wide cohort)"
+    frags_txt = "\n".join(
+        f"- criterion={f.criterion}, scope={f.scope}, source={f.source!r}: {f.text!r}" for f in fragments
+    ) or "(no fragments)"
+    return (
+        f"SOURCE TRIAL TEXT (all relevant sections):\n{source_text}\n\n"
+        f"COHORTS:\n{cohorts_txt}\n\n"
+        f"PROPOSED RAW FRAGMENTS (verbatim spans copied per criterion):\n{frags_txt}"
+    )
+
+
+def _render_raw_grouped(cohort_index: dict[str, "Cohort"], fragments: list[RawFragment]) -> str:
+    """Render the raw spans grouped by scope then criterion, for the interpreter + review input."""
+    scopes = [TRIAL_WIDE] + list(cohort_index.keys())
+    lines: list[str] = []
+    for scope in scopes:
+        scoped = [f for f in fragments if _resolve_scope(f.scope, cohort_index) == scope]
+        if not scoped:
+            continue
+        header = "trial-wide" if scope == TRIAL_WIDE else f"{scope} = {cohort_index[scope].label}"
+        lines.append(f"[{header}]")
+        for stem in CRITERION_STEMS:
+            texts = [f"{f.text.strip()} [{(f.source or '').strip()}]" for f in scoped
+                     if _norm_criterion(f.criterion) == stem and (f.text or "").strip()]
+            if texts:
+                lines.append(f"  {stem}: " + " ; ".join(texts))
+    return "\n".join(lines) or "(no raw spans)"
+
+
+# --------------------------------------------------------------------------- #
+# Stage I-b — interpretation
+# --------------------------------------------------------------------------- #
+def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index: dict[str, "Cohort"],
+               fragments: list[RawFragment], base_input: str, *, max_attempts: int, use_judge: bool,
+               ) -> tuple[list[DnfRow], bool, int, list[str]]:
+    interpreter = build_interpreter_agent(client)
     reviewers = build_reviewer_agents(client) if use_judge else []
     enum_reviewer = build_enumeration_reviewer(client) if use_judge else None
-    extractor_input = f"{source_text}\n\n{_cohorts_section(cohort_index)}"
-    advisory: list[str] = []  # drug (non-gating) reviewer problems from the last check
+    raw_grouped = _render_raw_grouped(cohort_index, fragments)
+    interpreter_input = (
+        f"RAW ELIGIBILITY SPANS (verbatim, grouped by scope then criterion — interpret THESE):\n{raw_grouped}\n\n"
+        f"FULL TRIAL TEXT (context for resolving OR/AND and scope):\n{base_input}"
+    )
+    advisory: list[str] = []
     attempt = {"n": 0}
+    logger.info("")
+    logger.info(line("Stage I-b · INTERPRETATION (raw spans -> DNF)"))
 
     def produce(feedback: str = "", prior: list[_EligRaw] | None = None) -> list[_EligRaw]:
         attempt["n"] += 1
-        prompt = extractor_input
+        prompt = interpreter_input
         if feedback:
-            # Incremental repair: give the doer its OWN prior table + only the flagged
-            # issues, and tell it to keep everything unflagged verbatim. This preserves
-            # correct rows and lets the loop converge instead of re-deriving from scratch.
             prior_table = _render_prior_table(prior) if prior else "(previous table unavailable)"
             prompt = (
-                f"{extractor_input}\n\n"
-                f"[REVISION MODE] Your previous extraction produced this table:\n{prior_table}\n\n"
+                f"{interpreter_input}\n\n"
+                f"[REVISION MODE] Your previous interpretation produced this table:\n{prior_table}\n\n"
                 f"A reviewer flagged ONLY the following issues:\n{feedback}\n\n"
-                f"Return the FULL corrected table. KEEP every row and cell that was NOT flagged EXACTLY "
-                f"as-is (same values, same [SECTION] provenance); apply ONLY the fixes above (correct, add, "
-                f"split, re-scope, or move to the right column as each issue requires). Do not re-derive or "
-                f"re-word the rows that were already correct."
+                f"Return the FULL corrected table. KEEP every row and cell that was NOT flagged EXACTLY as-is; "
+                f"apply ONLY the fixes above (correct, add, split, re-scope, or move to the right column as each "
+                f"issue requires). Do not re-derive or re-word the rows that were already correct."
             )
-        extraction: EligibilityExtraction = extractor(prompt)
-        eligs = [_to_raw(r, cohort_index) for r in extraction.rows]
-        refined = " · refined on reviewer feedback" if feedback else ""
+        eligs = [_to_raw(r, cohort_index) for r in interpreter(prompt).rows]
         logger.info("")
-        logger.info("doer · attempt %d · %d row(s)%s", attempt["n"], len(eligs), refined)
+        logger.info("interp doer · attempt %d · %d row(s)%s", attempt["n"], len(eligs),
+                    " · refined on reviewer feedback" if feedback else "")
         for idx, e in enumerate(eligs, 1):
             logger.info("")
             logger.info(line(f"row {idx} · cohort {e.cohort}"))
@@ -151,11 +299,7 @@ def extract_trial(
             logger.info("")
             logger.info("reviewer · skipped (--no-judge)")
             return CheckResult(ok=True)
-        # One fan_out for the WHOLE panel: the 5 per-dimension reviewers (on the scoped rows) PLUS the
-        # enumeration reviewer (on the ASSEMBLED, cross-multiplied + de-duplicated DNF — the aggregate vantage
-        # point, in-loop) all run in parallel. The enum lens is the only one that sees the final row SET and
-        # audits count-vs-source, catching OR-alternatives fabricated into AND-combinations.
-        review_input = _review_input(source_text, cohort_index, eligs)
+        review_input = _review_input(source_text, cohort_index, eligs, raw_grouped)
         thunks = [(lambda a=agent: a(review_input)) for _, agent in reviewers]
         assembled = _distribute(eligs, cohort_index, trial_id) if enum_reviewer is not None else []
         if enum_reviewer is not None:
@@ -198,14 +342,8 @@ def extract_trial(
         repair=lambda eligs, problems: produce("\n".join(f"- {p}" for p in problems), prior=eligs),
         max_attempts=max_attempts,
     )
-
     rows = _distribute(result.value, cohort_index, trial_id)
-    all_problems = list(result.problems) + advisory
-    adv = f" · {len(advisory)} advisory drug note(s)" if advisory else ""
-    logger.info("")
-    logger.info("result · faithful=%s · attempts=%d · %d cohort(s) → %d DNF row(s)%s",
-                result.ok, result.attempts, len(cohort_index), len(rows), adv)
-    return ExtractionResult(rows=rows, faithful=result.ok, attempts=result.attempts, problems=all_problems)
+    return rows, result.ok, result.attempts, list(result.problems) + advisory
 
 
 # --------------------------------------------------------------------------- #
@@ -213,8 +351,7 @@ def extract_trial(
 # --------------------------------------------------------------------------- #
 # Deterministic backstop to the drug reviewer: an enumerable set of NON-DRUG modalities that must never surface as
 # a drug regime, however the LLM phrases it. Matched on the parenthetical-stripped, lowercased, whitespace-collapsed
-# FULL name (exact phrase — never a substring, so a real drug name is never clipped). The prompt still handles the
-# judgement cases (disease abbreviations, opaque codes, prior/concomitant meds); this guarantees the clear ones.
+# FULL name (exact phrase — never a substring, so a real drug name is never clipped).
 _NON_DRUG_MODALITIES = frozenset({
     "surgery", "surgical resection", "resection",
     "radiotherapy", "radiation therapy", "radiation", "radiation treatment", "total body irradiation", "tbi",
@@ -224,7 +361,7 @@ _NON_DRUG_MODALITIES = frozenset({
 })
 _PAREN_RE = re.compile(r"\([^)]*\)")
 _WS_RE = re.compile(r"\s+")
-_PROVENANCE_RE = re.compile(r"\s*\[[^\]]*\]\s*$")   # trailing "[SECTION; ...]" tag added by _with_sources
+_PROVENANCE_RE = re.compile(r"\s*\[[^\]]*\]\s*$")   # trailing "[SECTION; ...]" tag (still used for the drug cell)
 
 
 def _is_non_drug_modality(name: str) -> bool:
@@ -240,11 +377,7 @@ def _drop_non_drug_modalities(names: list[str]) -> list[str]:
 
 def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: int = 3,
                          use_reviewer: bool = True) -> DrugExtraction:
-    """ANZCTR drug identification (doer -> reviewer): intervention + comparator drug names from the text.
-
-    INTERVENTIONS is the doer's primary source but a drug named only in the study/scientific title still counts;
-    the prompt excludes non-drug modalities / disease names / prior-concomitant meds, and a deterministic backstop
-    (`_drop_non_drug_modalities`) strips the enumerable non-drug modalities the LLM may still let through."""
+    """ANZCTR drug identification (doer -> reviewer): intervention + comparator drug names from the text."""
     doer = build_drug_agent(client)
     reviewer = build_drug_reviewer_agent(client) if use_reviewer else None
 
@@ -273,9 +406,8 @@ def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] 
                      *, use_reviewer: bool = True) -> list[Cohort]:
     if cohorts is not None:  # CTGov: deterministic regimes from armGroups
         return cohorts or [Cohort("all")]
-    # ANZCTR: a SINGLE eligibility cohort (all criteria are trial-wide — no cohort detection); the regime axis
-    # comes from the drugs — an experimental regime (INTERVENTIONS) + a control regime (COMPARATOR) only when the
-    # comparator names an actual drug. Same data structure as CTGov (spec §6.1).
+    # ANZCTR: a SINGLE eligibility cohort (all criteria are trial-wide); the regime axis comes from the drugs —
+    # an experimental regime (INTERVENTIONS) + a control regime (COMPARATOR) only when it names an actual drug.
     dr = extract_anzctr_drugs(client, source_text, use_reviewer=use_reviewer)
     main = "; ".join(dict.fromkeys(d.strip() for d in dr.intervention_drugs if d and d.strip()))
     comp = "; ".join(dict.fromkeys(d.strip() for d in dr.comparator_drugs if d and d.strip()))
@@ -291,8 +423,7 @@ def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] 
 
 
 def _regime_line(cid: str, c: Cohort) -> str:
-    """One regime rendered for the extractor/reviewer: id, label, arm_type, drug, description (the
-    arm_type/drug/description are the signals used to ASSIGN eligibility to the right regime)."""
+    """One regime rendered for the extractor/reviewer: id, label, arm_type, drug, description."""
     arm = f" [{c.arm_type}]" if c.arm_type else ""
     drug = f" · drug: {c.drug}" if c.drug else ""
     desc = f" — {c.description}" if c.description else ""
@@ -302,8 +433,8 @@ def _regime_line(cid: str, c: Cohort) -> str:
 def _cohorts_section(cohort_index: dict[str, Cohort]) -> str:
     lines = [_regime_line(cid, c) for cid, c in cohort_index.items()]
     return (
-        "## COHORTS — the FIXED, KNOWN set of drug regimes for this trial. Assign each row's `cohort` to one of "
-        "these ids, or 'trial-wide' (the default). A criterion the text ties to a group NOT listed here (a "
+        "## COHORTS — the FIXED, KNOWN set of drug regimes for this trial. Assign each row's `cohort`/`scope` to "
+        "one of these ids, or 'trial-wide' (the default). A criterion the text ties to a group NOT listed here (a "
         "closed/withdrawn cohort) must be DROPPED — never invented as a new id.\n" + "\n".join(lines)
     )
 
@@ -322,44 +453,28 @@ def _resolve_scope(raw: str, cohort_index: dict[str, Cohort]) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Rendering / consolidation
+# Rendering / consolidation (interpreted DNF; cells carry no source)
 # --------------------------------------------------------------------------- #
 def _to_raw(r: ExtractedRow, cohort_index: dict[str, Cohort]) -> _EligRaw:
     return _EligRaw(
         cohort=_resolve_scope(r.cohort, cohort_index),
-        cancer_type=_Cell(r.cancer_type, r.cancer_type_sources),
-        gene_alteration=_Cell(r.gene_alteration, r.gene_alteration_sources),
-        molecular_signature=_Cell(r.molecular_signature, r.molecular_signature_sources),
-        molecular_biomarker=_Cell(r.molecular_biomarker, r.molecular_biomarker_sources),
-        prior_therapy=_Cell(r.prior_therapy, r.prior_therapy_sources),
+        cancer_type=_Cell(r.cancer_type),
+        gene_alteration=_Cell(r.gene_alteration),
+        molecular_signature=_Cell(r.molecular_signature),
+        molecular_biomarker=_Cell(r.molecular_biomarker),
+        prior_therapy=_Cell(r.prior_therapy),
     )
 
 
 def _render_prior_table(eligs: list[_EligRaw]) -> str:
-    """Render the previous extraction as an editable numbered table for REVISION MODE."""
+    """Render the previous interpretation as an editable numbered table for REVISION MODE."""
     lines: list[str] = []
     for i, e in enumerate(eligs, 1):
         cells = "; ".join(
-            f"{col}={_with_sources(getattr(e, col).value, getattr(e, col).sources)}"
-            for col in ELIGIBILITY_COLUMNS
-            if getattr(e, col).value.strip()
+            f"{col}={getattr(e, col).value}" for col in ELIGIBILITY_COLUMNS if getattr(e, col).value.strip()
         ) or "(all columns empty)"
         lines.append(f"{i}. [cohort={e.cohort}] {cells}")
     return "\n".join(lines)
-
-
-def _with_sources(value: str, sources: list[str]) -> str:
-    value = (value or "").strip()
-    if not value:
-        return ""
-    seen: set[str] = set()
-    labels: list[str] = []
-    for s in sources or []:
-        s = (s or "").strip()
-        if s and s not in seen:
-            seen.add(s)
-            labels.append(s)
-    return f"{value} [{'; '.join(labels)}]" if labels else value
 
 
 # Single-valued axes: a patient has exactly ONE of these, so a trial-wide value and a cohort-specific
@@ -390,12 +505,8 @@ def _top_level_and(expr: str) -> list[str]:
 def _merge_cell(a: _Cell, b: _Cell, *, exclusive: bool = False) -> _Cell:
     """AND-combine two same-column cells (trial-wide `a` x cohort-specific `b`).
 
-    exclusive=True (a single-valued axis like cancer_type): the two values cannot both hold for one
-    patient, so ANDing the positive types ("Stage A AND Stage B") would be unsatisfiable — the
-    cohort-specific value `b` WINS. But any trial-wide NOT(...) EXCLUSIONS are carve-outs (compatible
-    with any positive type), so they are PRESERVED, never silently dropped. This is the safety net for
-    an extractor that restates the axis in both scopes; the extractor is separately instructed to keep
-    each criterion in exactly one scope.
+    exclusive=True (a single-valued axis like cancer_type): the cohort-specific value `b` WINS (ANDing two
+    positive types would be unsatisfiable), but trial-wide NOT(...) exclusions are carve-outs and are PRESERVED.
     """
     av, bv = a.value.strip(), b.value.strip()
     if not av:
@@ -427,17 +538,17 @@ def _rule_problems(eligs: list[_EligRaw]) -> list[str]:
     return problems
 
 
-# A trial-wide x cohort-specific product beyond this is almost always the extractor mis-scoping
-# OR-alternatives into both scopes (they should live in one) — surfaced as a WARN, never silently emitted.
+# A trial-wide x cohort-specific product beyond this is almost always the interpreter mis-scoping OR-alternatives
+# into both scopes (they should live in one) — surfaced as a WARN, never silently emitted.
 _CROSS_PRODUCT_WARN = 50
 
 
 def _distribute(eligs: list[_EligRaw], cohort_index: dict[str, Cohort], trial_id: str) -> list[DnfRow]:
     """Per cohort: rows = (trial-wide OR-rows) x (cohort-specific OR-rows), cells ANDed, then de-duplicated.
 
-    Each output row is a self-contained cohort row (shared trial-wide criteria merged in). A single-valued
-    axis (cancer_type) is never ANDed across scopes — the cohort value wins (see _merge_cell).
-    """
+    Each output row is a self-contained cohort row. A single-valued axis (cancer_type) is never ANDed across
+    scopes — the cohort value wins (see _merge_cell). Eligibility cells carry NO source tag (provenance is in the
+    raw table); only the drug cell keeps its source (for the drug path)."""
     trial_wide = [e for e in eligs if e.cohort == TRIAL_WIDE]
     rows: list[DnfRow] = []
     for cid, cohort in cohort_index.items():
@@ -460,29 +571,32 @@ def _distribute(eligs: list[_EligRaw], cohort_index: dict[str, Cohort], trial_id
                     trialId=trial_id,
                     cohort=cohort.label,   # raw arm label — the (trialId, arm) join key to the drug utility path
                     arm_type=cohort.arm_type,
-                    cancer_type=_with_sources(e.cancer_type.value, e.cancer_type.sources),
-                    gene_alteration=_with_sources(e.gene_alteration.value, e.gene_alteration.sources),
-                    molecular_signature=_with_sources(e.molecular_signature.value, e.molecular_signature.sources),
-                    molecular_biomarker=_with_sources(e.molecular_biomarker.value, e.molecular_biomarker.sources),
-                    prior_therapy=_with_sources(e.prior_therapy.value, e.prior_therapy.sources),
-                    drug=_with_sources(cohort.drug, [cohort.drug_source]),
+                    cancer_type=e.cancer_type.value.strip(),
+                    gene_alteration=e.gene_alteration.value.strip(),
+                    molecular_signature=e.molecular_signature.value.strip(),
+                    molecular_biomarker=e.molecular_biomarker.value.strip(),
+                    prior_therapy=e.prior_therapy.value.strip(),
+                    drug=_with_drug_source(cohort.drug, cohort.drug_source),
                 )
             )
     return _dedup_rows(rows)
 
 
+def _with_drug_source(value: str, source: str) -> str:
+    value = (value or "").strip()
+    src = (source or "").strip()
+    return f"{value} [{src}]" if value and src else value
+
+
 def _canon_cell(value: str) -> str:
-    """Order-independent form of a cell for de-duplication: top-level AND-terms sorted (AND is commutative), the
-    provenance tag stripped. So `A AND B` and `B AND A` — and the same conjunction re-provenanced — share a key."""
+    """Order-independent form of a cell for de-duplication: top-level AND-terms sorted (AND is commutative), any
+    trailing provenance tag stripped. So `A AND B` and `B AND A` share a key."""
     body = _PROVENANCE_RE.sub("", value or "").strip()
     return " AND ".join(sorted(_top_level_and(body)))
 
 
 def _dedup_rows(rows: list[DnfRow]) -> list[DnfRow]:
-    """Drop duplicate DNF rows, preserving first-seen order + text. The key canonicalizes each cell
-    (AND-terms sorted, provenance stripped), so COMMUTATIVE duplicates (`A AND B` + `B AND A`) collapse — a
-    forward generator can emit both orderings of a fabricated conjunction. Genuinely different sub-populations
-    are kept (cohort label is part of the key)."""
+    """Drop duplicate DNF rows, preserving first-seen order + text (commutative duplicates collapse)."""
     seen: set[tuple] = set()
     out: list[DnfRow] = []
     for r in rows:
@@ -495,27 +609,26 @@ def _dedup_rows(rows: list[DnfRow]) -> list[DnfRow]:
     return out
 
 
-def _review_input(source_text: str, cohort_index: dict[str, Cohort], eligs: list[_EligRaw]) -> str:
+def _review_input(source_text: str, cohort_index: dict[str, Cohort], eligs: list[_EligRaw], raw_grouped: str) -> str:
     cohorts_txt = "\n".join(
         _regime_line(cid, c) for cid, c in cohort_index.items()
     ) or "(single trial-wide cohort)"
     table = "\n".join(
         f"- cohort={e.cohort}, " + ", ".join(
-            f"{col}={_with_sources(getattr(e, col).value, getattr(e, col).sources)!r}"
-            for col in ELIGIBILITY_COLUMNS
+            f"{col}={getattr(e, col).value!r}" for col in ELIGIBILITY_COLUMNS
         )
         for e in eligs
     ) or "(no rows)"
     return (
-        f"SOURCE TRIAL TEXT (all relevant sections):\n{source_text}\n\n"
+        f"VERBATIM RAW SPANS (the interpretation must be faithful to THESE):\n{raw_grouped}\n\n"
+        f"SOURCE TRIAL TEXT (context):\n{source_text}\n\n"
         f"COHORTS:\n{cohorts_txt}\n\n"
-        f"EXTRACTED DNF TABLE (rows ORed; cells within a row ANDed; NOT(...) = exclusion):\n{table}"
+        f"INTERPRETED DNF TABLE (rows ORed; cells within a row ANDed; NOT(...) = exclusion):\n{table}"
     )
 
 
 def _aggregate_input(source_text: str, rows: list[DnfRow]) -> str:
-    """The ASSEMBLED DNF table (post-distribute, de-duplicated) rendered for the enumeration reviewer — the whole
-    row set it needs to judge count-vs-source (which no per-dimension reviewer ever sees)."""
+    """The ASSEMBLED DNF table (post-distribute, de-duplicated) rendered for the enumeration reviewer."""
     lines = []
     for i, r in enumerate(rows, 1):
         cells = ", ".join(f"{col}={getattr(r, col)}" for col in ELIGIBILITY_COLUMNS if getattr(r, col).strip())

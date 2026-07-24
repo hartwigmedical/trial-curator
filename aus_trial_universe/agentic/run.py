@@ -8,8 +8,8 @@ eligibility ⋈ vocab maps ⋈ drug annotations on the (trialId, arm) key.
 
 The eligibility relational tables are an accumulating store at `data/agentic/eligibility/current_output/`,
 holding ONLY the pure-3NF masters:
-    regime.tsv · extracted_eligibility.tsv · cancer_type_map.tsv · gene_alteration_map.tsv ·
-    molecular_signature_map.tsv
+    trial_arms.tsv · arm_eligibility_raw.tsv · interpreted_eligibility.tsv · cancer_type_map.tsv ·
+    gene_alteration_map.tsv · molecular_signature_map.tsv
 The grand flat view (`combined.tsv` — the masters joined, for consumers) is DENORMALIZED, not 3NF, so it is
 written OUTSIDE the store, to `data/agentic/eligibility/combined/combined.tsv` (single overwritten file).
 Re-running a trial replaces its rows in place. The drug store persists to `drug_annotations/current_version/`.
@@ -51,36 +51,47 @@ def _load_openai_key() -> None:
 
 
 # The grand flat view (combined.tsv): eligibility ⋈ vocab maps ⋈ drug annotations, one row per DNF conjunction.
+# PARKED (2026-07-24): only built for non-extract-only runs; the current focus is the 3 masters below.
 COMBINED_COLUMNS = [
-    "trialId", "arm", "arm_type", "conj_id",
-    "cancer_type", "oncotree_name", "oncotree_code",
-    "gene_alteration", "gene_alteration_findingmodel",
-    "molecular_signature", "molecular_signature_findingmodel",
-    "molecular_biomarker", "prior_therapy",
+    "trialId", "arm", "arm_type", "conjunction_index",
+    "cancer_type_interpreted", "oncotree_name", "oncotree_code",
+    "gene_alteration_interpreted", "gene_alteration_findingmodel",
+    "molecular_signature_interpreted", "molecular_signature_findingmodel",
+    "molecular_biomarker_interpreted", "prior_therapy_interpreted",
     "arm_drugs", "drug_class", "pottr_drug_class",
 ]
 
 
-def _regimes_and_rows(result):
-    """DnfRow list -> (Regime rows, ExtractedEligibility rows). conj_id numbers conjunctions within (trialId, arm)."""
-    from aus_trial_universe.agentic.tasks.eligibility.schema import ExtractedEligibility, Regime
+def _arm_rows(trial_id, result):
+    """ExtractionResult -> (TrialArm rows, ArmEligibilityRaw rows, InterpretedEligibility rows).
 
-    regimes: dict[tuple, str] = {}
+    Arms + raw come from result.arm_raw (one per cohort); conjunction_index numbers the DNF conjunctions
+    within (trialId, arm) from result.rows."""
+    from aus_trial_universe.agentic.tasks.eligibility.schema import (
+        ArmEligibilityRaw, InterpretedEligibility, TrialArm,
+    )
+
+    arm_type = {}
     for r in result.rows:
-        regimes.setdefault((r.trialId, r.cohort), r.arm_type)
-    regime_rows = [Regime(trialId=t, arm=a, arm_type=at) for (t, a), at in regimes.items()]
+        arm_type.setdefault(r.cohort, r.arm_type)
+    arms = [TrialArm(trialId=trial_id, arm=ar.arm, arm_type=arm_type.get(ar.arm, "")) for ar in result.arm_raw]
+    raw = [ArmEligibilityRaw(
+        trialId=trial_id, arm=ar.arm, cancer_type_raw=ar.cancer_type_raw,
+        gene_alteration_raw=ar.gene_alteration_raw, molecular_signature_raw=ar.molecular_signature_raw,
+        molecular_biomarker_raw=ar.molecular_biomarker_raw, prior_therapy_raw=ar.prior_therapy_raw,
+    ) for ar in result.arm_raw]
 
     conj: dict[tuple, int] = {}
-    elig_rows: list[ExtractedEligibility] = []
+    interp: list[InterpretedEligibility] = []
     for r in result.rows:
         key = (r.trialId, r.cohort)
         conj[key] = conj.get(key, 0) + 1
-        elig_rows.append(ExtractedEligibility(
-            trialId=r.trialId, arm=r.cohort, conj_id=conj[key],
-            cancer_type=r.cancer_type, gene_alteration=r.gene_alteration,
-            molecular_signature=r.molecular_signature, molecular_biomarker=r.molecular_biomarker,
-            prior_therapy=r.prior_therapy))
-    return regime_rows, elig_rows
+        interp.append(InterpretedEligibility(
+            trialId=r.trialId, arm=r.cohort, conjunction_index=conj[key],
+            cancer_type_interpreted=r.cancer_type, gene_alteration_interpreted=r.gene_alteration,
+            molecular_signature_interpreted=r.molecular_signature,
+            molecular_biomarker_interpreted=r.molecular_biomarker, prior_therapy_interpreted=r.prior_therapy))
+    return arms, raw, interp
 
 
 def _drug_occurrences(result, registry, strip_provenance):
@@ -155,28 +166,32 @@ def _arm_drug_facts(drug_store, trial_id, arm):
 
 
 def _build_combined(elig_store, drug_store, strip_provenance) -> list[dict]:
-    """Materialize the grand flat view: eligibility ⋈ vocab maps ⋈ drug annotations on (trialId, arm)."""
+    """Materialize the grand flat view: interpreted eligibility ⋈ vocab maps ⋈ drug annotations on (trialId, arm).
+
+    PARKED (2026-07-24) — regenerated only for non-extract-only runs; kept correct so `make agentic-run` works."""
     rows: list[dict] = []
-    arm_type = {(r.trialId, r.arm): r.arm_type for regs in elig_store.regimes.values() for r in regs}
+    arm_type = {(a.trialId, a.arm): a.arm_type for arms in elig_store.arms.values() for a in arms}
     drug_cache: dict[tuple, tuple] = {}
-    for _trial_id, elig_rows in elig_store.eligibility.items():
+    for _trial_id, elig_rows in elig_store.interpreted.items():
         for e in elig_rows:
-            ct = elig_store.lookup_cancer_type(strip_provenance(e.cancer_type))
-            ga = elig_store.lookup_gene_alteration(strip_provenance(e.gene_alteration))
-            sig = elig_store.lookup_molecular_signature(strip_provenance(e.molecular_signature))
+            ct = elig_store.lookup_cancer_type(strip_provenance(e.cancer_type_interpreted))
+            ga = elig_store.lookup_gene_alteration(strip_provenance(e.gene_alteration_interpreted))
+            sig = elig_store.lookup_molecular_signature(strip_provenance(e.molecular_signature_interpreted))
             key = (e.trialId, e.arm)
             if key not in drug_cache:
                 drug_cache[key] = _arm_drug_facts(drug_store, e.trialId, e.arm)
             arm_drugs, drug_class, pottr = drug_cache[key]
             rows.append({
-                "trialId": e.trialId, "arm": e.arm, "arm_type": arm_type.get(key, ""), "conj_id": e.conj_id,
-                "cancer_type": e.cancer_type,
+                "trialId": e.trialId, "arm": e.arm, "arm_type": arm_type.get(key, ""),
+                "conjunction_index": e.conjunction_index,
+                "cancer_type_interpreted": e.cancer_type_interpreted,
                 "oncotree_name": ct.oncotree_name if ct else "", "oncotree_code": ct.oncotree_code if ct else "",
-                "gene_alteration": e.gene_alteration,
+                "gene_alteration_interpreted": e.gene_alteration_interpreted,
                 "gene_alteration_findingmodel": ga.finding_model if ga else "",
-                "molecular_signature": e.molecular_signature,
+                "molecular_signature_interpreted": e.molecular_signature_interpreted,
                 "molecular_signature_findingmodel": sig.finding_model if sig else "",
-                "molecular_biomarker": e.molecular_biomarker, "prior_therapy": e.prior_therapy,
+                "molecular_biomarker_interpreted": e.molecular_biomarker_interpreted,
+                "prior_therapy_interpreted": e.prior_therapy_interpreted,
                 "arm_drugs": arm_drugs, "drug_class": drug_class, "pottr_drug_class": pottr,
             })
     return rows
@@ -300,8 +315,8 @@ def main(argv: list[str] | None = None) -> int:
                 elig_store.put_gene_alteration(m)
             for m in sig:
                 elig_store.put_molecular_signature(m)
-        regime_rows, elig_rows = _regimes_and_rows(result)
-        elig_store.set_trial(trial_id, regime_rows, elig_rows)
+        arm_rows, raw_rows, interp_rows = _arm_rows(trial_id, result)
+        elig_store.set_trial(trial_id, arm_rows, raw_rows, interp_rows)
         if not args.extract_only:
             occ, names = _drug_occurrences(result, source, strip_provenance)
             all_occ.extend(occ)
@@ -309,11 +324,11 @@ def main(argv: list[str] | None = None) -> int:
                 if n not in all_drug_names:
                     all_drug_names.append(n)
         elig_store.save(run_dir)   # PER-TRIAL CHECKPOINT — the completed trial is now durably on disk
-        nonlocal_total[0] += len(elig_rows)
-        summaries.append((source, trial_id, len(elig_rows), result.faithful, result.attempts))
-        trial_times.append((trial_id, t_work, len(elig_rows)))
-        log.info("  ✓ %s · %d conjunction(s) · %d arm(s) · %.0fs · %d/%d saved → %s/", trial_id, len(elig_rows),
-                 len(regime_rows), t_work, len(summaries), len(trials), run_dir.name)
+        nonlocal_total[0] += len(interp_rows)
+        summaries.append((source, trial_id, len(interp_rows), result.faithful, result.attempts))
+        trial_times.append((trial_id, t_work, len(interp_rows)))
+        log.info("  ✓ %s · %d conjunction(s) · %d arm(s) · %.0fs · %d/%d saved → %s/", trial_id, len(interp_rows),
+                 len(arm_rows), t_work, len(summaries), len(trials), run_dir.name)
 
     nonlocal_total = [0]   # mutable cell (assigned inside the nested sink)
     run_parallel(trials, _work, _sink, max_workers=args.workers)
@@ -332,17 +347,22 @@ def main(argv: list[str] | None = None) -> int:
         timing["drug"] = time.perf_counter() - t2
 
     # --- persist the 3NF store snapshot, then the joined flat view (elsewhere) - #
-    elig_store.save(run_dir)                       # the 5 pure-3NF masters -> run_dir (current_output/)
-    combined = _build_combined(elig_store, drug_store, strip_provenance)  # drug_store None (extract-only) -> no drug cols
-    combined_dir.mkdir(parents=True, exist_ok=True)
-    with open(combined_dir / COMBINED_FILE, "w", newline="", encoding="utf-8") as fc:
-        w = csv.DictWriter(fc, fieldnames=COMBINED_COLUMNS, delimiter="\t", lineterminator="\n",
-                           extrasaction="ignore")
-        w.writeheader()
-        w.writerows(combined)
+    elig_store.save(run_dir)                       # the pure-3NF masters -> run_dir (current_output/)
+    # combined.tsv is PARKED (2026-07-24): the grand flat join is being reworked, so it is skipped for
+    # extraction-only runs (the current 3-table focus). Non-extract-only runs still materialize it.
+    combined_note = " · combined SKIPPED (parked)"
+    if not args.extract_only:
+        combined = _build_combined(elig_store, drug_store, strip_provenance)
+        combined_dir.mkdir(parents=True, exist_ok=True)
+        with open(combined_dir / COMBINED_FILE, "w", newline="", encoding="utf-8") as fc:
+            w = csv.DictWriter(fc, fieldnames=COMBINED_COLUMNS, delimiter="\t", lineterminator="\n",
+                               extrasaction="ignore")
+            w.writeheader()
+            w.writerows(combined)
+        combined_note = f" · combined → {combined_dir}/"
 
     print(f"\n{'═' * 70}\n{len(trials)} trial(s): {len(summaries)} ok, {len(failures)} failed · "
-          f"{total} conjunction(s) · 3NF → {run_dir}/ · combined → {combined_dir}/\n")
+          f"{total} conjunction(s) · 3NF → {run_dir}/{combined_note}\n")
     for source, trial_id, n, faithful, attempts in summaries[:40]:
         print(f"  {PASS if faithful else FAIL}  {trial_id} · conjunctions={n} · attempts={attempts}")
     for trial_id, err in failures:
