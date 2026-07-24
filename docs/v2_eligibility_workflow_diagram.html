@@ -142,6 +142,26 @@
   .layer { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; box-shadow: var(--shadow); }
   .layer .name { font-family: var(--mono); font-size: 13px; color: var(--code); font-weight: 600; }
   .layer p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* cross-cutting -- response cache & pruning (deterministic infra: teal identity) */
+  .cache-band { margin-top: 20px; border: 2px solid color-mix(in srgb, var(--code) 35%, var(--border)); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); padding: 18px; }
+  .cache-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cache-title .t { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--code); font-weight: 700; }
+  .cache-title .s { font-size: 13px; color: var(--ink-faint); }
+  .cache-sub { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 6px; max-width: 80ch; }
+  .cache-sub b { color: var(--ink); }
+  .cache-io { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); padding: 2px 0; }
+  .cache-io b { color: var(--gen); }
+  .cache-core { border: 1.5px solid color-mix(in srgb, var(--code) 55%, var(--border)); border-radius: 12px; background: var(--code-bg); padding: 14px 16px; }
+  .cache-core .b-head { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--code); }
+  .cache-core .b-lead { font-size: 12.5px; color: var(--ink-soft); margin: 4px 0 0; }
+  .cache-core .b-lead b { color: var(--ink); }
+  .cache-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 11px; }
+  .cache-fact { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; font-size: 12px; color: var(--ink-soft); }
+  .cache-fact .fl { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--code); font-weight: 700; display: block; margin-bottom: 3px; }
+  .cache-prune { border: 1px dashed color-mix(in srgb, var(--code) 45%, var(--border)); border-radius: 10px; background: var(--panel-2); padding: 10px 13px; font-size: 12.5px; color: var(--ink-soft); }
+  .cache-prune .pl { font-family: var(--mono); font-weight: 700; color: var(--code); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+  .cache-prune b { color: var(--ink); }
 </style>
 
 <div class="wrap">
@@ -297,12 +317,32 @@
 
   </div>
 
+  <!-- ===== CROSS-CUTTING: RESPONSE CACHE & PRUNING ===== -->
+  <section class="cache-band">
+    <div class="cache-title"><span class="t">Cross-cutting &mdash; response cache &amp; pruning</span><span class="s">wraps every LLM call &middot; deterministic infra &middot; shared with the drug path</span></div>
+    <p class="cache-sub">Every agent call is served through one content-addressed cache (<span class="inline-code">data/agentic/cache/</span>) &mdash; the <b>determinism layer</b> (identical request &rarr; identical output) and the fast-re-run mechanism.</p>
+
+    <div class="cache-io">every agent&rsquo;s <b>.parse()</b> / <b>.research()</b> call</div>
+    <div class="conn"></div>
+    <div class="cache-core">
+      <div class="b-head">response cache &middot; content-addressed</div>
+      <p class="b-lead"><b>hit</b> &rarr; return the stored response, <b>no API call</b> (determinism + near-instant re-runs); <b>miss</b> &rarr; call the model, then store. Only grows &mdash; no eviction.</p>
+      <div class="cache-facts">
+        <div class="cache-fact"><span class="fl">key</span>sha256 of <span class="inline-code">{model, instructions, input, schema}</span> &mdash; a changed <b>prompt</b> &rArr; a new key</div>
+        <div class="cache-fact"><span class="fl">entry = envelope</span>the <span class="inline-code">response</span> + <b>provenance</b>: agent <span class="inline-code">name</span> + <span class="inline-code">prompt_sha</span> <span style="color:var(--ink-faint)">(legacy bare entries still read)</span></div>
+      </div>
+    </div>
+    <div class="conn"></div>
+    <div class="cache-prune"><span class="pl">prune &middot; auto at each run / build start</span><br><span class="inline-code">prompt_registry</span> lists the <b>live</b> agents (offline &mdash; construction never calls the LLM); <span class="inline-code">cache_prune</span> drops every entry whose prompt is <b>outdated</b> &mdash; its <span class="inline-code">prompt_sha</span> changed, or the agent was removed &mdash; keeping live + legacy. Manual: <span class="inline-code">make agentic-cache-prune</span> (dry-run &middot; <span class="inline-code">APPLY=1</span> &middot; <span class="inline-code">PURGE_UNKNOWN=1</span>); skip auto with <span class="inline-code">--no-cache-prune</span>.</div>
+  </section>
+
   <div class="layers">
     <h2>Supporting layers &middot; core/ + tools/</h2>
     <div class="layer-grid">
-      <div class="layer"><span class="name">client.py</span><p>One door to OpenAI: <span class="inline-code">.parse()</span> (structured) + <span class="inline-code">.research()</span> (web_search); cache, retries, tracing.</p></div>
+      <div class="layer"><span class="name">client.py</span><p>One door to OpenAI: <span class="inline-code">.parse()</span> (structured) + <span class="inline-code">.research()</span> (web_search); response cache (see below), retries, tracing.</p></div>
       <div class="layer"><span class="name">agent.py</span><p>Agent = prompt + schema + model (+ web_search flag), bound to the client.</p></div>
       <div class="layer"><span class="name">workflow.py</span><p><span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;incremental-repair loop).</p></div>
+      <div class="layer"><span class="name">cache_prune.py + prompt_registry.py</span><p>Cache pruning &mdash; see the <b>Response cache &amp; pruning</b> panel below.</p></div>
       <div class="layer"><span class="name">logfmt.py</span><p>Shared run-log formatting: stage banners + doer/reviewer blocks (one field per line, spelled-out PASS/FAIL).</p></div>
       <div class="layer"><span class="name">tools/</span><p>oncotree.py (vocab + validator + hierarchy/is_subcode, 3 sentinels) &middot; finding_model.py (grammar + syntax/logic validator).</p></div>
     </div>

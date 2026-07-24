@@ -3,13 +3,23 @@
 - **As of:** 2026-07-24. **Branch:** `AUS-328-Aus-trial-universe-v2`. **BOTH paths are built.** The DRUG UTILITY
   PATH was signed off (2026-07-20); the ELIGIBILITY PATH v2 was rewritten + validated (2026-07-21): decoupled from
   drug enrichment, reshaped into 3NF relational tables, parallelised + cached + per-item-durable, over-enumeration
-  fixed (SIOPEN `NCT04221035` 218→45 rows, no explosion anywhere). **104 unit tests pass.** Validated on 10 complex
+  fixed (SIOPEN `NCT04221035` 218→45 rows, no explosion anywhere). **113 unit tests pass.** Validated on 10 complex
   + 50 standard trials → a unified 60-trial store at `data/agentic/eligibility/current_output/`.
 - **3NF-purity relocation (2026-07-24):** the store dirs now hold ONLY pure-3NF tables. The denormalized joined
   view `combined.tsv` was moved OUT of `eligibility/current_output/` to **`eligibility/combined/combined.tsv`**
   (`combined_dir = store_root / COMBINED` in `run.py`; `COMBINED_OUTPUT`/`COMBINED`/`COMBINED_FILE` in
   `core/paths.py`; validator + 2 tests repointed; docs updated). The drug `current_version/` was already pure 3NF.
-  104 tests pass; easily hoisted to a top-level `data/agentic/combined/` if preferred (one line).
+  Easily hoisted to a top-level `data/agentic/combined/` if preferred (one line).
+- **Prunable response cache (2026-07-24):** the shared `DiskCache` (`data/agentic/cache/`, used by BOTH paths)
+  now stores each entry as a provenance envelope — agent `name` + `prompt_sha` (sha256 of `instructions`) — with
+  back-compat reads of legacy bare-JSON entries. New `core/prompt_registry.py` enumerates live agents offline;
+  new `core/cache_prune.py` GCs entries from **outdated prompts** (agent's `prompt_sha` changed / agent removed).
+  `make agentic-cache-prune` (dry-run; `APPLY=1`, `PURGE_UNKNOWN=1`) + auto-prune (stale-only) at the start of
+  every `agentic-run` / `drug-ref-build` (`--no-cache-prune` to skip). Corrections doctrine documented: fix the
+  **prompt** (fingerprint changes → live recompute + auto-prune) or edit a **map table** (lookup-first honours
+  it); hand-edits to extraction/regime tables do NOT survive a trial re-run. Touched `core/client.py`,
+  `core/agent.py`, `run.py`, `tasks/drug_utility/build.py`, Makefile, `pipeline.sh`, + tests; docs (spec §4.1,
+  `combined_agentic_run.md`) + both diagrams (republished to the same artifact URLs). **113 unit tests pass.**
 - **THE FOCUS NOW — awaiting the user's eligibility-output feedback** on `current_output/` (they review it; the
   fresh chat will carry their findings — pick that up FIRST). The standing backlog behind it:
   - **A. Finalize the flat-file contract** — the exact columns the matching engine needs, produced robustly.
@@ -44,7 +54,7 @@
 - **Run/setup guide:** `docs/agentic/combined_agentic_run.md` (all make commands + environment).
 - **Design + fields + schema:** `docs/v2_agentic_pipeline_spec.md` (single spec) + `docs/agentic/drug_ref_schema.md`
   (drug tables + data layout). **Diagrams** (each overwrites its own Artifact URL on change — see memory
-  `workflow-diagram-artifact`): eligibility `docs/v2_workflow_diagram.html`
+  `workflow-diagram-artifact`): eligibility `docs/v2_eligibility_workflow_diagram.html`
   (https://claude.ai/code/artifact/671df104-6474-4c32-b78c-45f4b65d063f) · drug `docs/v2_drug_workflow_diagram.html`
   (https://claude.ai/code/artifact/6c944fe1-2df6-4641-9ed2-7dca1db03b60).
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`,
@@ -175,7 +185,7 @@ The v2 rewrite is a **two-domain agentic pipeline**: the ELIGIBILITY path (`make
 trial) and the DRUG UTILITY path (`make drug-ref-build`: a separate incremental drug-annotation build). Both emit
 **3NF relational tables**; they join on `(trialId, arm)`, and `combined.tsv` is the grand flat view. Pattern B
 throughout: deterministic Python owns control flow (parallelism, refine loop, per-item durable saves); the LLM
-fills the doer/reviewer slots. **104 unit tests pass** (fake-client, no API). Eligibility output is a **DNF** table
+fills the doer/reviewer slots. **113 unit tests pass** (fake-client, no API). Eligibility output is a **DNF** table
 — one row = one satisfiable (trial, arm) conjunction; rows ORed, cells ANDed, exclusions inline `NOT(...)`.
 
 ## Quickstart
@@ -186,7 +196,7 @@ make agentic-run ID=NCT06881784                 # one trial (source auto-detecte
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
 make agentic-run                                # ALL trials
 make agentic-clean                              # wipe the transient data/agentic/{log,cache} only
-make agentic-tests                              # 104 unit tests, no API
+make agentic-tests                              # 113 unit tests, no API
 make agentic-validate                           # QA the newest combined.tsv (review-of-the-reviewers)
 # run.py flags (via `python -m aus_trial_universe.agentic.run`): --workers N (parallel trials, default 8) ·
 #   --skip-drug (skip the drug top-up; still joins existing drug data) · --no-cache · --extract-only ·
@@ -226,7 +236,7 @@ aus_trial_universe/agentic/
       finding_model.py       # finding-model grammar + syntax/logic validator (dup + self-contradiction)
     qa/validate_output.py    # INDEPENDENT output validator ("review of the reviewers"); make agentic-validate
   core/logfmt.py             # shared run-log formatting (stage banners + doer/reviewer blocks)
-tests/agentic/               # 104 tests (fake-client); mirrors tasks/ layout (core, tasks/eligibility, tasks/drug_utility)
+tests/agentic/               # 113 tests (fake-client); mirrors tasks/ layout (core, tasks/eligibility, tasks/drug_utility)
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|clean|tests|drug-ref-build|drug-ref-refresh-pottr
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```

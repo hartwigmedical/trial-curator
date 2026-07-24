@@ -56,7 +56,7 @@ class _SeqClient:
         self.reviewer_calls = 0
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
-              temperature=None, seed=None, max_completion_tokens=None):
+              temperature=None, seed=None, max_completion_tokens=None, **_):
         if output_schema is OncotreeMapping:
             i = min(self.mapper_calls, len(self._mappings) - 1)
             self.mapper_calls += 1
@@ -133,7 +133,7 @@ class _SrcClient:
         self._by_source = by_source
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
-              temperature=None, seed=None, max_completion_tokens=None):
+              temperature=None, seed=None, max_completion_tokens=None, **_):
         if output_schema is OncotreeMapping:
             for key, m in self._by_source.items():
                 if key in user_input:

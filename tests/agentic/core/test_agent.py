@@ -19,7 +19,7 @@ class _FakeClient:
         self.calls: list[dict] = []
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
-              temperature=None, seed=None, max_completion_tokens=None):
+              temperature=None, seed=None, max_completion_tokens=None, **_):
         self.calls.append(
             {
                 "mode": "parse",
@@ -33,7 +33,7 @@ class _FakeClient:
         )
         return LlmResult(self._parsed, model or "fake", "{}", cache_hit=False, attempts=1)
 
-    def research(self, output_schema, *, instructions, user_input, model=None, max_completion_tokens=None):
+    def research(self, output_schema, *, instructions, user_input, model=None, max_completion_tokens=None, **_):
         self.calls.append({"mode": "research", "schema": output_schema, "user_input": user_input, "model": model})
         return LlmResult(self._parsed, model or "fake", "{}", cache_hit=False, attempts=1)
 

@@ -66,6 +66,21 @@ Two layers. The orchestrator is **code, not an LLM**.
 - **`tools/`** — reference data + validators agents lean on: `oncotree.py` (code vocab + validator),
   `finding_model.py` (grammar + syntax validator).
 
+### 4.1 Response cache — determinism, provenance & pruning
+One content-addressed `DiskCache` (`data/agentic/cache/`) is shared by **both** paths. The key is a SHA-256 of
+the full request `{model, instructions (the prompt), input, schema, …}` (identical request → cache hit → no API
+call); this **is** the determinism layer (principle #6) and the fast-re-run mechanism. The cache only grows
+(content-addressed, no eviction), so changing a prompt/schema orphans its old entries. To make those prunable,
+each entry is a self-describing envelope recording provenance — the agent `name` and `prompt_sha` (SHA-256 of
+its `instructions`); legacy bare-JSON entries still read fine (treated as unknown). `core/prompt_registry.py`
+enumerates the live agents offline (construction never calls the LLM), and `core/cache_prune.py`
+(`make agentic-cache-prune`; auto-runs at the start of every run/build, `--no-cache-prune` to skip) deletes
+entries whose prompt is **outdated** (agent's `prompt_sha` changed, or the agent was removed), keeping live and
+(unless `--purge-unknown`) legacy entries. Corrections flow: fix the **prompt** (fingerprint changes → live
+recompute + old entry auto-pruned) or hand-edit a **map table** (lookup-first honours it); hand-edits to the
+extraction/regime tables do **not** survive a re-run of that trial. See `combined_agentic_run.md` §"Response
+cache, corrections & pruning".
+
 ## 5. The pipeline (one command, one run directory)
 
 `make agentic-run` runs, per trial, in **one streamed pass** (partial results survive an interrupt); one

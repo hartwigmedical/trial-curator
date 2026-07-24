@@ -57,6 +57,7 @@ class Agent(Generic[TOut]):
                 user_input=user_input,
                 model=self.model,
                 max_completion_tokens=self.max_completion_tokens,
+                agent_name=self.name,
             )
         return self.client.parse(
             self.output_schema,
@@ -66,6 +67,7 @@ class Agent(Generic[TOut]):
             temperature=self.temperature,
             seed=self.seed,
             max_completion_tokens=self.max_completion_tokens,
+            agent_name=self.name,
         )
 
     def __call__(self, input_data: Any) -> TOut:

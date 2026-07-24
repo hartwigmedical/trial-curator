@@ -51,7 +51,7 @@ class _FMClient:
         self.reviewer_calls = 0
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
-              temperature=None, seed=None, max_completion_tokens=None):
+              temperature=None, seed=None, max_completion_tokens=None, **_):
         if output_schema is FindingModelMapping:
             i = min(self.mapper_calls, len(self._mappings) - 1)
             self.mapper_calls += 1
@@ -90,7 +90,7 @@ def test_gene_mapping_invalid_syntax_refines_before_reviewer():
 def test_signature_mapping_and_dedup():
     class _SrcClient:
         def parse(self, output_schema, *, instructions, user_input, model=None,
-                  temperature=None, seed=None, max_completion_tokens=None):
+                  temperature=None, seed=None, max_completion_tokens=None, **_):
             if output_schema is FindingModelMapping:
                 fm = "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]" if "MSI" in user_input \
                     else "homologousRecombination[ChordStatus=HR_DEFICIENT]"

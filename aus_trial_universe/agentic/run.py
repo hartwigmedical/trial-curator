@@ -201,6 +201,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-cache", action="store_true",
                         help="Disable the on-disk LLM response cache (default: cache under data/agentic/cache/, "
                              "so re-runs of unchanged trials/values are near-instant).")
+    parser.add_argument("--no-cache-prune", action="store_true",
+                        help="Skip the automatic prune of cache entries from OUTDATED prompts at run start "
+                             "(default: on when the cache is enabled; removes only stale entries, never live/legacy).")
     parser.add_argument("--workers", type=int, default=8,
                         help="Trials extracted in PARALLEL (default 8 — highest reasonable concurrency; each trial "
                              "is independent). Logs interleave at >1 — review the output TSVs, not the live log. "
@@ -245,6 +248,13 @@ def main(argv: list[str] | None = None) -> int:
     client = LlmClient(model=args.model, cache=cache) if args.model else LlmClient(cache=cache)
     kw = dict(max_attempts=args.max_attempts, use_reviewer=not args.no_review)
     log = logging.getLogger("agentic.pipeline")
+
+    # GC cache entries from outdated prompts before we start (only stale entries; never live/legacy).
+    if cache is not None and not args.no_cache_prune:
+        from aus_trial_universe.agentic.core.cache_prune import prune_cache, summary_line
+        rep = prune_cache(CACHE_DIR, apply=True)
+        if rep.removed:
+            log.info(summary_line(rep))
     log.info("run · %d trial(s) · judge=%s · review=%s · extract_only=%s · skip_drug=%s → %s/",
              len(trials), not args.no_judge, not args.no_review, args.extract_only, args.skip_drug, run_dir.name)
 

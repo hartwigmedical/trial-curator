@@ -41,10 +41,10 @@ class _FakeClient:
             self.calls[key] += 1
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
-              temperature=None, seed=None, max_completion_tokens=None):
+              temperature=None, seed=None, max_completion_tokens=None, **_):
         return self._dispatch(output_schema, user_input)
 
-    def research(self, output_schema, *, instructions, user_input, model=None, max_completion_tokens=None):
+    def research(self, output_schema, *, instructions, user_input, model=None, max_completion_tokens=None, **_):
         return self._dispatch(output_schema, user_input)
 
     def _dispatch(self, schema, user_input):

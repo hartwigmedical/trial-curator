@@ -118,6 +118,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-cache", action="store_true",
                         help="Disable the on-disk LLM response cache (default: cache under data/agentic/cache/, so "
                              "a re-run after an interruption resumes near-instantly on the drugs already researched).")
+    parser.add_argument("--no-cache-prune", action="store_true",
+                        help="Skip the automatic prune of cache entries from OUTDATED prompts at build start "
+                             "(default: on when the cache is enabled; removes only stale entries, never live/legacy).")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -132,6 +135,13 @@ def main(argv: list[str] | None = None) -> int:
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
     client = LlmClient(model=args.model, cache=cache) if args.model else LlmClient(cache=cache)
+
+    # GC cache entries from outdated prompts before we start (only stale entries; never live/legacy).
+    if cache is not None and not args.no_cache_prune:
+        from aus_trial_universe.agentic.core.cache_prune import prune_cache, summary_line
+        _rep = prune_cache(CACHE_DIR, apply=True)
+        if _rep.removed:
+            logging.getLogger("agentic.drug_ref").info(summary_line(_rep))
 
     occurrences: list[tuple] = []
     if args.drugs:

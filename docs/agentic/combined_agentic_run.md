@@ -16,6 +16,7 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 | `make agentic-run` | Full pipeline (extract → map → drug), streamed to one output + one log. Runs the unit tests first (aborts on failure). |
 | `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
 | `make agentic-clean` | Wipe transient run artifacts under `data/agentic/{eligibility,log,cache}` — never touches the colocated inputs/resources/drug_annotations. |
+| `make agentic-cache-prune` | **Prune the response cache of OUTDATED-prompt entries** (both paths share one cache). Dry-run by default; `APPLY=1` deletes, `PURGE_UNKNOWN=1` also drops legacy entries. See below. No API calls. |
 | `make drug-ref-build` | Build/refresh the drug reference (5 tables). See below. |
 | `make drug-ref-refresh-pottr` | Download the current POTTR files from GitHub (archives the previous). See below. |
 | `make agentic-tests` | Run the unit-test suite (no API calls). |
@@ -160,9 +161,52 @@ see the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-ro
 
 ---
 
+## Response cache, corrections & pruning
+The LLM response cache (`data/agentic/cache/`) is the pipeline's **determinism layer** and its
+**fast-re-run** mechanism — one directory shared by BOTH paths (eligibility `run.py` + drug `build.py`).
+Each entry is content-addressed: the filename is a SHA-256 of the full request `{model, instructions
+(the prompt), input, schema, …}`, and the file holds the validated response. Identical request → cache
+hit → no API call. Disable per-run with `--no-cache`.
+
+**Growth.** The cache only grows — it is content-addressed, has no eviction/TTL, and never self-prunes.
+Re-running the same trials adds zero files (same fingerprints → same files). A *new* file appears only for a
+new fingerprint: a new trial input, or **a changed prompt/schema/model**. So iterating on prompts leaves the
+old entries behind as **orphans from outdated prompts** — harmless but accumulating. The dir is fully
+disposable: `make agentic-clean` wipes it (next run just re-pays the API).
+
+**Provenance + pruning (`make agentic-cache-prune`).** Each entry records its provenance — the agent `name`
+and a `prompt_sha` (SHA-256 of that agent's `instructions`). The prune tool enumerates the *current* live
+agents across both paths (offline — building an agent never calls the LLM) and classifies every entry:
+`live` (its `(name, prompt_sha)` matches a current agent → keep), `stale` (the agent's prompt changed, or the
+agent was removed → an **outdated prompt** → remove), or `unknown` (legacy pre-provenance entry → kept unless
+`--purge-unknown`).
+```bash
+make agentic-cache-prune                       # dry-run report (scanned / live / stale / unknown)
+make agentic-cache-prune APPLY=1               # delete the outdated-prompt entries
+make agentic-cache-prune APPLY=1 PURGE_UNKNOWN=1   # also drop legacy/untagged entries
+```
+This also runs **automatically at the start of every `agentic-run` / `drug-ref-build`** (removing only `stale`
+entries, never `live` or legacy), so a prompt edit self-cleans its old cache on the next run. Skip it with
+`--no-cache-prune`.
+
+**Making corrections** (three channels — know which is durable):
+1. **Fix the prompt / validator / schema** — the intended channel. Changing an agent's `instructions` changes
+   its fingerprint, so those calls recompute live (and auto-prune drops the old entries); everything unchanged
+   stays cached. Applies the fix across all trials. This is how you fix a *systematic* error.
+2. **Hand-edit a map table** (`cancer_type_map.tsv` / `gene_alteration_map.tsv` / `molecular_signature_map.tsv`
+   in `current_output/`) — a durable curated override. Mapping is **lookup-first**: a value already in the map
+   is never recomputed, so your edit sticks and propagates to every trial sharing that value. Use for one-off
+   mapping errors.
+3. **Hand-editing `extracted_eligibility.tsv` / `regime.tsv` does NOT survive a re-run of that trial** —
+   re-running replaces the trial's rows wholesale, and the cache may re-serve the old (uncorrected) LLM
+   response. To force a specific trial to re-extract fresh without a prompt change, re-run it with `--no-cache`.
+   There is currently no curated-override layer for extraction rows (only for mappings).
+
+---
+
 ## Testing
 ```bash
-make agentic-tests        # 104 unit tests, no API, all fake-client
+make agentic-tests        # 113 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 

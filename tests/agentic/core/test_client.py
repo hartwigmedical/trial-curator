@@ -15,6 +15,8 @@ from aus_trial_universe.agentic.core.client import (
     DiskCache,
     LlmClient,
     LlmParseError,
+    prompt_sha,
+    read_cache_meta,
 )
 
 
@@ -112,6 +114,34 @@ def test_research_is_cached():
     first = client.research(_Out, instructions="s", user_input="u")
     second = client.research(_Out, instructions="s", user_input="u")
     assert first.cache_hit is False and second.cache_hit is True and fake.calls == 1
+
+
+def test_disk_cache_envelope_roundtrip_and_meta(tmp_path):
+    cache = DiskCache(tmp_path)
+    meta = {"name": "some_agent", "prompt_sha": "abc123", "model": "m", "mode": "parse"}
+    cache.set("k", '{"label":"x","score":1}', meta)
+    assert cache.get("k") == '{"label":"x","score":1}'          # response comes back verbatim
+    assert read_cache_meta(tmp_path / "k.json") == meta          # provenance is recoverable
+
+
+def test_disk_cache_reads_legacy_bare_file(tmp_path):
+    # A pre-envelope entry: the raw response written directly, with no provenance wrapper.
+    (tmp_path / "legacy.json").write_text('{"label":"y","score":2}', encoding="utf-8")
+    cache = DiskCache(tmp_path)
+    assert cache.get("legacy") == '{"label":"y","score":2}'      # still readable
+    assert read_cache_meta(tmp_path / "legacy.json") is None     # but has no provenance -> "unknown"
+
+
+def test_parse_records_prompt_provenance(tmp_path):
+    out = _Out(label="EGFR", score=3)
+    fake = _FakeOpenAI([_fake_response(out, content=out.model_dump_json())])
+    cache = DiskCache(tmp_path)
+    LlmClient(openai_client=fake, cache=cache).parse(
+        _Out, instructions="SYS-PROMPT", user_input="hi", agent_name="my_agent")
+    (meta,) = [read_cache_meta(p) for p in tmp_path.glob("*.json")]
+    assert meta["name"] == "my_agent"
+    assert meta["prompt_sha"] == prompt_sha("SYS-PROMPT")
+    assert meta["mode"] == "parse"
 
 
 def test_research_missing_parsed_raises():

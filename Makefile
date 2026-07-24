@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-validate drug-ref-build drug-ref-refresh-pottr
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-cache-prune agentic-validate drug-ref-build drug-ref-refresh-pottr
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -52,6 +52,15 @@ agentic-clean:
 
 agentic-tests:
 	scripts/agentic/pipeline.sh tests
+
+# Prune the LLM response cache (data/agentic/cache/) of entries from OUTDATED prompts — an entry whose agent
+# prompt has since changed (or whose agent was removed). Covers BOTH paths (they share one cache). Dry-run by
+# default; APPLY=1 to delete; PURGE_UNKNOWN=1 to also drop legacy/untagged (pre-provenance) entries.
+#   make agentic-cache-prune                        # dry-run report
+#   make agentic-cache-prune APPLY=1                # delete stale entries
+#   make agentic-cache-prune APPLY=1 PURGE_UNKNOWN=1
+agentic-cache-prune:
+	APPLY="$(APPLY)" PURGE_UNKNOWN="$(PURGE_UNKNOWN)" scripts/agentic/pipeline.sh cache-prune
 
 # Independent output validator — a "review of the reviewer agents". Deterministic, runs OUTSIDE
 # the workflow to catch what the in-loop reviewers let through. Testing-period QA step (not the

@@ -48,7 +48,7 @@ class _ScriptedClient:
         self.extractor_calls = 0
 
     def parse(self, output_schema, *, instructions, user_input, model=None,
-              temperature=None, seed=None, max_completion_tokens=None):
+              temperature=None, seed=None, max_completion_tokens=None, **_):
         if output_schema is EligibilityExtraction:
             idx = min(self.extractor_calls, len(self._extractions) - 1)
             self.extractor_calls += 1

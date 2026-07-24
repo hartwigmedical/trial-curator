@@ -9,6 +9,8 @@
 #           Vars: ID=<id> (one) | IDS=<a,b,c> (a set) | none = ALL trials
 #                 optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1  EXTRACT_ONLY=1
 #   tests   Run the agentic unit-test suite (no API calls).
+#   cache-prune  GC the shared LLM response cache of entries from OUTDATED prompts (both paths). Dry-run by
+#             default; APPLY=1 deletes, PURGE_UNKNOWN=1 also drops legacy/untagged entries. No API calls.
 #   validate  Independent output validator ("review of the reviewer agents"): re-checks a finished
 #             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
 #   drug-ref-build  Build/refresh the drug reference resource (spec §6.1). Incremental (existing drugs
@@ -110,6 +112,14 @@ case "${CMD}" in
   tests)
     exec "${PYTHON_BIN}" -m pytest tests/agentic -q
     ;;
+  cache-prune)
+    # Prune the shared LLM response cache of entries from OUTDATED prompts (both paths).
+    # Dry-run by default; APPLY=1 deletes; PURGE_UNKNOWN=1 also drops legacy/untagged entries.
+    cargs=()
+    if [[ -n "${APPLY:-}" ]]; then cargs+=(--apply); fi
+    if [[ -n "${PURGE_UNKNOWN:-}" ]]; then cargs+=(--purge-unknown); fi
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.core.cache_prune "${cargs[@]}"
+    ;;
   validate)
     # Independent output validator (review of the reviewer agents). OUT=<tsv> or newest.
     vargs=()
@@ -139,7 +149,7 @@ case "${CMD}" in
     exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.pottr
     ;;
   *)
-    echo "Unknown command: '${CMD}'. Use: run | tests | validate | drug-ref-build | drug-ref-refresh-pottr" >&2
+    echo "Unknown command: '${CMD}'. Use: run | tests | cache-prune | validate | drug-ref-build | drug-ref-refresh-pottr" >&2
     exit 2
     ;;
 esac

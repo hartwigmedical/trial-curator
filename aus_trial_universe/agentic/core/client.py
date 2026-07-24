@@ -28,6 +28,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Generic, Protocol, TypeVar
 
@@ -52,6 +53,8 @@ __all__ = [
     "InMemoryCache",
     "DiskCache",
     "DEFAULT_MODEL",
+    "prompt_sha",
+    "read_cache_meta",
 ]
 
 
@@ -69,15 +72,53 @@ class LlmParseError(LlmError):
 # --------------------------------------------------------------------------- #
 # Response cache
 # --------------------------------------------------------------------------- #
+# Each cache entry records not just the response but the PROVENANCE of the prompt
+# that produced it — the agent name and a `prompt_sha` (sha256 of the agent's
+# instructions). This is what lets `core/cache_prune` garbage-collect entries from
+# OUTDATED prompts (the prompt changed, so the old response is dead weight). The on-
+# disk format is a self-describing envelope; legacy bare-JSON files (pre-envelope)
+# still read fine and are treated as unknown-provenance (kept unless purged).
+_ENVELOPE_MARKER = "__agentic_cache_v1__"
+
+
+def prompt_sha(instructions: str) -> str:
+    """Stable identity of a prompt: sha256 of the agent's `instructions` text."""
+    return hashlib.sha256(instructions.encode("utf-8")).hexdigest()
+
+
+def _wrap_entry(response: str, meta: dict[str, Any] | None) -> str:
+    return json.dumps({_ENVELOPE_MARKER: 1, "meta": meta or {}, "response": response})
+
+
+def _unwrap_entry(text: str) -> tuple[str, dict[str, Any] | None]:
+    """Return (response_text, meta). A legacy bare-JSON file -> (text, None)."""
+    try:
+        obj = json.loads(text)
+    except (ValueError, TypeError):
+        return text, None
+    if isinstance(obj, dict) and _ENVELOPE_MARKER in obj:
+        return obj.get("response", ""), (obj.get("meta") or {})
+    return text, None
+
+
+def read_cache_meta(path: str | Path) -> dict[str, Any] | None:
+    """Read just the provenance meta of a cache file (None if legacy/untagged/unreadable)."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _unwrap_entry(text)[1]
+
+
 class ResponseCache(Protocol):
-    """Maps a request fingerprint -> the raw JSON output text."""
+    """Maps a request fingerprint -> the raw JSON output text (+ optional provenance meta)."""
 
     def get(self, key: str) -> str | None: ...
-    def set(self, key: str, value: str) -> None: ...
+    def set(self, key: str, value: str, meta: dict[str, Any] | None = None) -> None: ...
 
 
 class InMemoryCache:
-    """Process-local cache (fast; does not survive restarts)."""
+    """Process-local cache (fast; does not survive restarts). Meta is accepted but not used."""
 
     def __init__(self) -> None:
         self._store: dict[str, str] = {}
@@ -85,12 +126,17 @@ class InMemoryCache:
     def get(self, key: str) -> str | None:
         return self._store.get(key)
 
-    def set(self, key: str, value: str) -> None:
+    def set(self, key: str, value: str, meta: dict[str, Any] | None = None) -> None:
         self._store[key] = value
 
 
 class DiskCache:
-    """JSON-file cache under `cache_dir`; gives run-to-run determinism."""
+    """JSON-file cache under `cache_dir`; gives run-to-run determinism.
+
+    Entries are stored as a provenance envelope `{marker, meta, response}`; `get`
+    transparently reads both the envelope and legacy bare-JSON files, so upgrading
+    the format never orphans the (costly) responses already on disk.
+    """
 
     def __init__(self, cache_dir: str | Path) -> None:
         self._dir = Path(cache_dir)
@@ -101,10 +147,12 @@ class DiskCache:
 
     def get(self, key: str) -> str | None:
         path = self._path(key)
-        return path.read_text(encoding="utf-8") if path.exists() else None
+        if not path.exists():
+            return None
+        return _unwrap_entry(path.read_text(encoding="utf-8"))[0]
 
-    def set(self, key: str, value: str) -> None:
-        self._path(key).write_text(value, encoding="utf-8")
+    def set(self, key: str, value: str, meta: dict[str, Any] | None = None) -> None:
+        self._path(key).write_text(_wrap_entry(value, meta), encoding="utf-8")
 
 
 # --------------------------------------------------------------------------- #
@@ -149,6 +197,16 @@ class LlmClient:
         self._trace = trace
         self._sleep = sleep
 
+    def _entry_meta(self, *, agent_name: str | None, instructions: str, model: str, mode: str) -> dict[str, Any]:
+        """Provenance stored alongside a cached response (see cache_prune)."""
+        return {
+            "name": agent_name,
+            "prompt_sha": prompt_sha(instructions),
+            "model": model,
+            "mode": mode,
+            "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+
     def parse(
         self,
         output_schema: type[T],
@@ -159,11 +217,13 @@ class LlmClient:
         temperature: float | None = None,
         seed: int | None = None,
         max_completion_tokens: int | None = None,
+        agent_name: str | None = None,
     ) -> LlmResult[T]:
         """Call the model and return a validated `output_schema` instance.
 
         `instructions` is the system/role prompt; `user_input` is the content.
         Identical requests are served from the cache (the determinism guarantee).
+        `agent_name` is recorded as cache provenance (for prompt-aware pruning).
         """
         model = model or self.model
         key = _fingerprint(
@@ -199,7 +259,8 @@ class LlmClient:
             max_completion_tokens=max_completion_tokens,
         )
         latency_ms = (time.monotonic() - start) * 1000
-        self.cache.set(key, raw_text)
+        self.cache.set(key, raw_text, self._entry_meta(
+            agent_name=agent_name, instructions=instructions, model=model, mode="parse"))
         result = LlmResult(parsed, model, raw_text, cache_hit=False, attempts=attempts, usage=usage)
         self._emit_trace(key, result, latency_ms=latency_ms)
         return result
@@ -212,11 +273,13 @@ class LlmClient:
         user_input: str,
         model: str | None = None,
         max_completion_tokens: int | None = None,
+        agent_name: str | None = None,
     ) -> LlmResult[T]:
         """Like parse(), but answers via the Responses API with the web_search tool.
 
         For research tasks (e.g. TGA/PBS regulatory status) that need live web lookups.
         Cached on (mode, model, instructions, input, schema) for run-to-run reproducibility.
+        `agent_name` is recorded as cache provenance (for prompt-aware pruning).
         """
         model = model or self.model
         key = _fingerprint(
@@ -245,7 +308,8 @@ class LlmClient:
             user_input=user_input, max_completion_tokens=max_completion_tokens,
         )
         latency_ms = (time.monotonic() - start) * 1000
-        self.cache.set(key, raw_text)
+        self.cache.set(key, raw_text, self._entry_meta(
+            agent_name=agent_name, instructions=instructions, model=model, mode="research:web_search"))
         result = LlmResult(parsed, model, raw_text, cache_hit=False, attempts=attempts, usage=usage)
         self._emit_trace(key, result, latency_ms=latency_ms)
         return result
