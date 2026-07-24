@@ -71,9 +71,12 @@ JOIN drug_annotations_core r USING (canonical_id)
 WHERE t.registry = 'anzctr';
 ```
 
-The normalized tables are the **masters**; a denormalized, self-contained **flat view** (`drug_ref_combined.tsv`, one
-row per canonical with targets/indications collapsed into cells) can be *materialized* on top for consumers who want a
-single flat file — the same "normalized masters + combined view" pattern the trial pipeline uses.
+The normalized tables are the **masters**; a denormalized, self-contained **flat view** (one row per canonical
+with targets/indications collapsed into cells) can be *materialized* on top for consumers who want a single flat
+file — the same "normalized masters + combined view" pattern the trial pipeline uses. The drug build currently
+emits **only the 3NF masters** (`current_version/` holds no combined view); should a `drug_ref_combined.tsv` be
+materialized, it — like the trial pipeline's `combined.tsv` — is a denormalized join and is kept **outside** the
+`current_version/` store dir, which holds pure-3NF tables only.
 
 ---
 

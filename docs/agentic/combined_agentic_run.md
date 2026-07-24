@@ -55,7 +55,7 @@ pipeline's own OncoTree + finding-model validators on the final cells, and (2) a
 exclusion checks nothing else performs: unsatisfiable `A AND B` cancer_type, all-empty rows, exact-duplicate
 rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 ```bash
-make agentic-validate                 # newest data/agentic/eligibility/<timestamp>/combined.tsv
+make agentic-validate                 # data/agentic/eligibility/combined/combined.tsv
 make agentic-validate OUT=<path.tsv>  # a specific run
 ```
 Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/tasks/eligibility/qa/validate_output.py`.
@@ -118,41 +118,41 @@ completes (so partial results survive an interrupt):
    TGA approval (+year) and PBS reimbursement for the main drug(s).
 6. **WRITE** — the enriched rows stream to one TSV.
 
-**Output:** `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` holding `regime.tsv`, `eligibility.tsv`, and the
-materialized-join `combined.tsv` (the flat, self-contained rows the matching engine reads).
+**Output:** the pure-3NF store `data/agentic/eligibility/current_output/` (`regime.tsv`,
+`extracted_eligibility.tsv`, and the three `*_map.tsv` lookups). The materialized-join `combined.tsv` (the flat,
+self-contained rows the matching engine reads) is denormalized, not 3NF, so it is written OUTSIDE the store, to
+`data/agentic/eligibility/combined/combined.tsv`.
 **Log:** `data/agentic/log/agentic_run_<label>_<timestamp>.log` (the whole run, both stages).
 
 ---
 
 ## Output Schema
 
-One row per satisfiable (trial, cohort) conjunction (DNF: rows are ORed, cells within a row ANDed;
-exclusions inline as `NOT(...)`). Columns, in order:
+The pipeline emits **5 pure-3NF masters** (in `eligibility/current_output/`) and a **denormalized joined view**
+`combined.tsv` (in `eligibility/combined/` — outside the store). `combined.tsv` is the flat file the matching
+engine reads: one row per satisfiable `(trialId, arm, conj_id)` conjunction (DNF — rows sharing `(trialId, arm)`
+are ORed, cells within a row ANDed, exclusions inline as `NOT(...)`). Its **16 columns**, in order:
 
-| Column | Stage | Notes |
+| Column | Source | Notes |
 |---|---|---|
-| `trialId` | extract | NCT… or ACTRN… |
-| `cohort` | extract | arm label, or `(all)` for a single-cohort trial |
-| `arm_type` | extract | CTGov `armGroups[].type` (EXPERIMENTAL / ACTIVE_COMPARATOR / …) |
-| `cancer_type` | extract | trial's wording, `value [source]` |
-| `oncotree_name` / `oncotree_code` | map | OncoTree mapping of `cancer_type` |
+| `trialId` | regime/elig | NCT… or ACTRN… |
+| `arm` | regime/elig | CTGov `armGroups[].label`; ANZCTR `intervention`/`comparator`; `all` — the join key to the drug path |
+| `arm_type` | regime | CTGov `armGroups[].type` (EXPERIMENTAL / ACTIVE_COMPARATOR / …) |
+| `conj_id` | elig | conjunction index within `(trialId, arm)` |
+| `cancer_type` | extract | trial's wording, `value [source]`, inline `NOT()` |
+| `oncotree_name` / `oncotree_code` | map | OncoTree mapping of `cancer_type` (via `cancer_type_map`) |
 | `gene_alteration` | extract | trial's wording, `value [source]` |
-| `gene_alteration_findingmodel` | map | Hartwig finding-model syntax |
+| `gene_alteration_findingmodel` | map | Hartwig finding-model syntax (via `gene_alteration_map`) |
 | `molecular_signature` | extract | `value [source]` |
-| `molecular_signature_findingmodel` | map | finding-model syntax |
+| `molecular_signature_findingmodel` | map | finding-model syntax (via `molecular_signature_map`) |
 | `molecular_biomarker` | extract | `value [source]` |
 | `prior_therapy` | extract | `value [source]` |
-| `drug` | extract | the cohort's raw intervention drug(s) |
-| `main_drugs` / `auxiliary_drugs` | drug | the **investigational agent(s) under study by judgement** vs comparators/backbone/SoC/placebo |
-| `pottr_drug_class` | drug | POTTR class hierarchy of the main drug(s) |
-| `drug_class` | drug | general (non-POTTR) class/mechanism of the main drug(s) |
-| `tga_status` | drug | **per main drug**: `<drug>: Approved` / `<drug>: Not approved` (TGA/ARTG) |
-| `pbs_status` | drug | **per main drug**: `<drug>: Approved` / `<drug>: Not approved` (PBS) |
-| `tga_detail` | drug | per main drug: year + evidence + official source link (tga.gov.au / ARTG) |
-| `pbs_detail` | drug | per main drug: year/indication + evidence + official source link (pbs.gov.au) |
+| `arm_drugs` | drug join | distinct canonical drug names for the arm (`(trialId, arm)` → drug store), `; `-joined |
+| `drug_class` | drug join | general drug class(es) of the arm's drugs, `; `-joined |
+| `pottr_drug_class` | drug join | POTTR class hierarchy of the arm's drugs, ` | `-joined |
 
-`main_drugs` / `pottr_drug_class` / `drug_class` / `tga_status` / `pbs_status` / `tga_detail` / `pbs_detail` are
-trial-level (repeated across that trial's cohort rows); `arm_type` and `drug` are per cohort.
+Drug facts join in via the `(trialId, arm)` key to the drug utility path. **Not yet in `combined.tsv`** (owed —
+see the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
 
 > **Verification:** the finding-model / OncoTree / drug outputs are checked **manually** against the legacy
 > `data/eligibility_path/exports/final/eligibility_*_resource_*.tsv` and the hand-curated resource files.
@@ -162,7 +162,7 @@ trial-level (repeated across that trial's cohort rows); `arm_type` and `drug` ar
 
 ## Testing
 ```bash
-make agentic-tests        # 95 unit tests, no API, all fake-client
+make agentic-tests        # 104 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 
@@ -170,7 +170,8 @@ Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 
 ## Clean between runs
 ```bash
-make agentic-clean        # rm -rf data/agentic/{output,log,cache}; recreate output/ + log/
+make agentic-clean        # rm -rf data/agentic/{eligibility,log,cache}; recreate eligibility/ + log/
 ```
 Scoped strictly to the transient artifacts `data/agentic/{eligibility,log,cache}` — it never touches the colocated
-inputs/resources/outputs (`trial_universe/`, `resources/`, `drug_annotations/`, `analysis/`).
+inputs/resources (`trial_universe/`, `resources/`, `drug_annotations/`, `analysis/`). Note this wipes the whole
+`eligibility/` tree (the accumulating `current_output/` store, `combined/`, and `archive/`) — all regenerable.

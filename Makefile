@@ -37,8 +37,8 @@ eligibility-path-tests:
 	scripts/eligibility/pipeline.sh tests
 
 # --- v2 agentic pipeline (aus_trial_universe/agentic) ---
-# Full pipeline (extract -> map -> drug); one timestamped output dir (regime/eligibility/combined) + one
-# log per run. Runs unit tests first.
+# Full pipeline (extract -> map -> drug); the pure-3NF store in eligibility/current_output/ + the joined flat
+# view in eligibility/combined/combined.tsv (kept out of the store) + one log per run. Runs unit tests first.
 #   make agentic-run ID=NCT06881784          # one trial (source auto-detected)
 #   make agentic-run IDS=NCT1,ACTRN2,NCT3    # a specific set of trials
 #   make agentic-run                         # ALL trials (ctgov + anzctr)
@@ -56,7 +56,7 @@ agentic-tests:
 # Independent output validator — a "review of the reviewer agents". Deterministic, runs OUTSIDE
 # the workflow to catch what the in-loop reviewers let through. Testing-period QA step (not the
 # production path). OUT defaults to the newest output TSV.
-#   make agentic-validate                 # newest data/agentic/output/<timestamp>/combined.tsv
+#   make agentic-validate                 # data/agentic/eligibility/combined/combined.tsv
 #   make agentic-validate OUT=<combined.tsv>  # a specific run's combined view
 agentic-validate:
 	OUT="$(OUT)" scripts/agentic/pipeline.sh validate

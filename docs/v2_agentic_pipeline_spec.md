@@ -77,8 +77,8 @@ SELECT/ASSEMBLE ─▶ REGIMES ─▶ EXTRACT ─▶ (rule-check + REVIEW panel)
 ```
 
 Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Options: `MODEL=` · `NO_JUDGE=1` ·
-`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` holding
-`regime.tsv` + `eligibility.tsv` + `combined.tsv` (§9).
+`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: the 5 3NF masters in
+`data/agentic/eligibility/current_output/` + the joined `combined.tsv` in `eligibility/combined/` (§9).
 
 ## 6. The relational data model
 
@@ -133,10 +133,11 @@ layout: `docs/agentic/drug_ref_schema.md`.
 constant — a functional dependency, by design (not an accident). Mapping/annotation/enrichment are *just more
 columns* hanging off this grain (§8) — keyed by the source cell (mapping) or by `drug` (drug_annotations_core).
 
-**Output = normalized masters + a combined view (locked 2026-07-13).** Each run writes a timestamped directory
-with the 3NF masters — `regime.tsv` (`(trialId, cohort) → arm_type, drug`) and `eligibility.tsv`
-(`(trialId, cohort, conj_id) → cells`) — plus `combined.tsv`, their materialized join (the flat, self-contained
-rows the matching engine reads). `drug_annotations_core` is a *further* separate, **persisted, datestamped** table (global
+**Output = normalized masters + a combined view (locked 2026-07-13; decoupled + relocated 2026-07-21/24).** Each
+run writes the **5 3NF masters** to `eligibility/current_output/` — `regime.tsv` (`(trialId, arm) → arm_type`; NO
+drug), `extracted_eligibility.tsv` (`(trialId, arm, conj_id) → cells`), and the three `*_map.tsv` vocab lookups —
+plus `combined.tsv`, their materialized join (the flat rows the matching engine reads), written **outside the
+store** at `eligibility/combined/combined.tsv` (§9). `drug_annotations_core` is a *further* separate, **persisted, datestamped** table (global
 drug facts, built once per unique drug, looked up by name — the drug-stage throughput win); it is now **built
 standalone** (see the drug_annotations_core note above), and only its *join* into `combined` remains deferred. Full column lists in §9.
 
@@ -323,24 +324,28 @@ overwrites) are **held-out verification data**, checked **manually** later (esp.
 legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would degenerate into a mechanical vlookup).
 The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
 
-## 9. Output — normalized masters + combined view (§6.1)
-Each run writes a **timestamped directory** `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` with three TSVs:
+## 9. Output — normalized masters + combined view (§6.1; decoupled + relocated 2026-07-21/24)
+The accumulating store `data/agentic/eligibility/current_output/` holds **5 pure-3NF masters** (re-running a trial
+replaces its rows; superseded stores move to `archive/`). Eligibility masters hold **NO drug facts** — drugs join
+in via the `(trialId, arm)` key to the drug utility path (§6.1):
 
-- **`regime.tsv`** (master, Table 1) — PK `(trialId, cohort)`: `arm_type`, `drug`, and the per-regime drug
-  enrichment (`main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status, tga_detail, pbs_detail`).
-- **`eligibility.tsv`** (master, Table 2) — PK `(trialId, cohort, conj_id)`: `cancer_type, oncotree_name,
-  oncotree_code, gene_alteration, gene_alteration_findingmodel, molecular_signature,
-  molecular_signature_findingmodel, molecular_biomarker, prior_therapy`. `conj_id` numbers the OR-conjunctions within a regime.
-- **`combined.tsv`** (the materialized view) — the join of the two masters on `(trialId, cohort)`; all 22 columns:
-  `trialId, cohort, arm_type, conj_id, cancer_type, oncotree_name, oncotree_code, gene_alteration,
-  gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
-  prior_therapy, drug, main_drugs, auxiliary_drugs, pottr_drug_class, drug_class, tga_status, pbs_status, tga_detail, pbs_detail`.
+- **`regime.tsv`** — PK `(trialId, arm)` → `arm_type`. The arm spine; the join key to the drug path.
+- **`extracted_eligibility.tsv`** — PK `(trialId, arm, conj_id)` → the 5 raw cells (`cancer_type,
+  gene_alteration, molecular_signature, molecular_biomarker, prior_therapy`; inline `[source]` + `NOT()`).
+  `conj_id` numbers the OR-conjunctions within `(trialId, arm)`.
+- **`cancer_type_map.tsv`** — `cancer_type` value → `oncotree_name, oncotree_code` (deduped, universe-wide cache).
+- **`gene_alteration_map.tsv`** / **`molecular_signature_map.tsv`** — value → `finding_model` (deduped).
 
-`drug` + the enrichment are per **regime** (functionally dependent on `(trialId, cohort)`; §6.1) — the intrinsic
-drug facts will come from the global datestamped `drug_annotations_core` table (deferred). `tga_status`/`pbs_status` are per
-main drug (`<drug>: Approved/Not approved`); `tga_detail`/`pbs_detail` carry the evidence (year + link).
-The `eligibility.tsv` master stores each regime's distributed rows (self-contained; clean FK to `regime.tsv`);
-trial-wide criteria are AND-combined into each regime by `_distribute` upstream.
+The denormalized **`combined.tsv`** (the materialized join, for the matching engine) is NOT 3NF, so it is written
+**outside the store**, at `data/agentic/eligibility/combined/combined.tsv` (single overwritten file, regenerable).
+It joins eligibility ⋈ vocab maps ⋈ drug annotations on `(trialId, arm)` — **16 columns**: `trialId, arm,
+arm_type, conj_id, cancer_type, oncotree_name, oncotree_code, gene_alteration, gene_alteration_findingmodel,
+molecular_signature, molecular_signature_findingmodel, molecular_biomarker, prior_therapy, arm_drugs, drug_class,
+pottr_drug_class`.
+
+`extracted_eligibility` stores each arm's distributed rows (self-contained; clean FK to `regime.tsv`); trial-wide
+criteria are AND-combined into each arm by `_distribute` upstream. **Still owed** on `combined.tsv` (items A/B in
+the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
 
 ## 10. Repo layout & retirement
 

@@ -32,11 +32,13 @@ def test_run_writes_3nf_masters_and_combined_view(tmp_path, monkeypatch):
 
     rc = run.main(["--ids", "NCT1", "--store-root", str(tmp_path), "--extract-only"])
     assert rc == 0
-    snap = next(d for d in tmp_path.iterdir() if d.is_dir())   # the run's timestamp snapshot
+    snap = tmp_path / "current_output"                         # the 3NF store (pure-3NF masters only)
 
     regime = list(csv.DictReader(open(snap / "regime.tsv"), delimiter="\t"))
     elig = list(csv.DictReader(open(snap / "extracted_eligibility.tsv"), delimiter="\t"))
-    combined = list(csv.DictReader(open(snap / "combined.tsv"), delimiter="\t"))
+    # the joined view is written OUTSIDE the store, to store_root/combined/ (never inside current_output/)
+    assert not (snap / "combined.tsv").exists()
+    combined = list(csv.DictReader(open(tmp_path / "combined" / "combined.tsv"), delimiter="\t"))
 
     # regime master = distinct (trialId, arm, arm_type); NO drug, NO eligibility columns (join key to drug path)
     assert [(r["arm"], r["arm_type"]) for r in regime] == [

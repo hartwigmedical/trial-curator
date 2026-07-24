@@ -1,14 +1,29 @@
 # v2 Agentic Pipeline — Handover
 
-- **As of:** 2026-07-21. **Branch:** `AUS-328-Aus-trial-universe-v2`. **NEW CHAT — BOTH paths are built.** The
-  DRUG UTILITY PATH was signed off (2026-07-20); the ELIGIBILITY PATH v2 was rewritten + validated (2026-07-21):
-  decoupled from drug enrichment, reshaped into 3NF relational tables, parallelised + cached + per-item-durable,
-  and the **over-enumeration bug is fixed** (in-loop enumeration reviewer + commutative-dedup; SIOPEN `NCT04221035`
-  218→45 rows, no fabrication; no explosion anywhere). **104 unit tests pass.** Validated on 10 complex + 50 standard
-  trials → a unified 60-trial store at `data/agentic/eligibility/current_output/` (the user is reviewing it).
-  **Likely next foci:** (a) the user's review findings on `current_output/`; (b) PARKED drug Phase 2 (main/auxiliary
-  role); (c) minor residuals — see "ELIGIBILITY PATH v2" + "Residual / deferred" below. Full detail: memory
-  `v2-eligibility-orchestration-model`.
+- **As of:** 2026-07-24. **Branch:** `AUS-328-Aus-trial-universe-v2`. **BOTH paths are built.** The DRUG UTILITY
+  PATH was signed off (2026-07-20); the ELIGIBILITY PATH v2 was rewritten + validated (2026-07-21): decoupled from
+  drug enrichment, reshaped into 3NF relational tables, parallelised + cached + per-item-durable, over-enumeration
+  fixed (SIOPEN `NCT04221035` 218→45 rows, no explosion anywhere). **104 unit tests pass.** Validated on 10 complex
+  + 50 standard trials → a unified 60-trial store at `data/agentic/eligibility/current_output/`.
+- **3NF-purity relocation (2026-07-24):** the store dirs now hold ONLY pure-3NF tables. The denormalized joined
+  view `combined.tsv` was moved OUT of `eligibility/current_output/` to **`eligibility/combined/combined.tsv`**
+  (`combined_dir = store_root / COMBINED` in `run.py`; `COMBINED_OUTPUT`/`COMBINED`/`COMBINED_FILE` in
+  `core/paths.py`; validator + 2 tests repointed; docs updated). The drug `current_version/` was already pure 3NF.
+  104 tests pass; easily hoisted to a top-level `data/agentic/combined/` if preferred (one line).
+- **THE FOCUS NOW — awaiting the user's eligibility-output feedback** on `current_output/` (they review it; the
+  fresh chat will carry their findings — pick that up FIRST). The standing backlog behind it:
+  - **A. Finalize the flat-file contract** — the exact columns the matching engine needs, produced robustly.
+    `combined.tsv` is currently **16 columns** and is **missing TGA/PBS + the main/aux role**. The through-line.
+  - **B. Drug Phase 2 — main vs auxiliary role** (cheap per-arm classifier + `role` column). Prereq for A's
+    main/aux distinction; details in "Shelved / open".
+  - **C. Stage-I ingestion into agentic** (download → drug-filter → POTTR-append → retire-missing) — the pipeline
+    still reads legacy-produced inputs; the biggest piece for a self-contained periodic run.
+  - **D. Legacy-path retirement** (coupled to C).
+  - **Decision — SQL for the joined tables?** Context settled 2026-07-24: the matching engine consumes ONLY the
+    flat file (external user-querying was DROPPED), so any SQL engine is a purely INTERNAL batch compute step →
+    in-process **SQLite/DuckDB, NOT Postgres** (or keep the current Python join). Decide when tackling A. Full
+    reasoning: memory `v2-joined-tables-sql-decision`.
+  Full detail: memory `v2-eligibility-orchestration-model` + `v2-next-priorities`.
 - **Drug path final state (2026-07-20):**
   - **5 3NF tables** (spec §6.1; layout `docs/agentic/drug_ref_schema.md`): `intervention_to_canonical`,
     `trial_to_intervention` (now with `arm`/`arm_type`), `drug_annotations_core`, `drug_target_actions`,
@@ -38,8 +53,11 @@
   **Uncommitted in the tree (eligibility v2 — Phase 5 + speed + durability, 2026-07-21):** `core/paths.py`,
   `core/workflow.py` (new `run_parallel`), `run.py`, `tasks/drug_utility/{build,workflow}.py`,
   `tasks/eligibility/extraction/{agents,loaders,workflow}.py`, `tasks/eligibility/mapping/workflow.py`, and the
-  matching tests. Data moves are on disk (gitignored): `data/agentic/eligibility/` is now `current_output/` +
-  `archive/`. Scratchpad has one-off analysis scripts (`enum_triage.py`) — not to be homed.
+  matching tests. **Also uncommitted (3NF-purity relocation, 2026-07-24):** `core/paths.py`, `run.py`,
+  `tasks/eligibility/qa/validate_output.py`, `tests/agentic/tasks/eligibility/test_run_{output,resilience}.py`,
+  and docs (`combined_agentic_run.md`, `drug_ref_schema.md`, Makefile, this handover). Data moves are on disk
+  (gitignored): `data/agentic/eligibility/` is now `current_output/` (pure 3NF) + `combined/combined.tsv` +
+  `archive/`. Scratchpad has one-off analysis scripts (`enum_triage.py`, `big_combine.py`) — not to be homed.
 
 ## ✅ DRUG UTILITY PATH — SIGNED OFF (2026-07-13 → 07-20). Not the focus of the new chat.
 The drug-regime axis (CTGov `armGroups`) is the locked output **spine**; eligibility is *assigned* to it (9 locked
@@ -213,10 +231,11 @@ scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log t
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
-## Output schema (v2 — 3NF relational tables + a grand flat view; rewritten 2026-07-20/21)
-Each run writes a date-stamped full-state snapshot to `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/` (accumulating
-store — re-running a trial replaces its rows). Eligibility tables hold **NO drug info**; drugs join via
-`(trialId, arm)` to the drug utility path. The 5 relational masters + the grand flat view:
+## Output schema (v2 — 3NF relational tables + a grand flat view; rewritten 2026-07-20/21, relocated 2026-07-24)
+The accumulating store `data/agentic/eligibility/current_output/` holds ONLY the **5 pure-3NF masters**
+(re-running a trial replaces its rows). The denormalized **grand flat view `combined.tsv` lives OUTSIDE the
+store**, at `data/agentic/eligibility/combined/combined.tsv` (single overwritten file, regenerable). Eligibility
+tables hold **NO drug info**; drugs join via `(trialId, arm)` to the drug utility path. The 5 masters + the view:
 - `regime.tsv` — `(trialId, arm)` → `arm_type`. The arm spine; the join key to `trial_to_intervention`.
 - `extracted_eligibility.tsv` — `(trialId, arm, conj_id)` → `cancer_type, gene_alteration, molecular_signature,
   molecular_biomarker, prior_therapy` (raw cells, inline `[source]` + `NOT()`; rows sharing (trialId, arm) are ORed).

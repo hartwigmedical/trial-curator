@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Publish docs/v2_workflow_diagram.html to its Claude Artifact, OVERWRITING the existing one.
+# Publish docs/v2_eligibility_workflow_diagram.html to its Claude Artifact, OVERWRITING the existing one.
 #
 # The artifact URL below is the single canonical target: passing it as `url=` makes the publish
 # overwrite in place (keeping the shared link stable) instead of minting a new URL. Run this after
@@ -12,13 +12,13 @@
 # non-interactive (`-p`) Claude turn that calls the built-in Artifact tool.
 #
 # NOTE: if the Artifact tool isn't available in headless mode on your setup, the fallback is to
-# ask Claude in a normal session: "re-publish docs/v2_workflow_diagram.html, overwriting <URL>".
+# ask Claude in a normal session: "re-publish docs/v2_eligibility_workflow_diagram.html, overwriting <URL>".
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DIAGRAM="${REPO_ROOT}/docs/v2_workflow_diagram.html"
+DIAGRAM="${REPO_ROOT}/docs/v2_eligibility_workflow_diagram.html"
 
 # The one artifact this diagram maps to. Overwriting it keeps the shareable link stable.
 ARTIFACT_URL="https://claude.ai/code/artifact/671df104-6474-4c32-b78c-45f4b65d063f"

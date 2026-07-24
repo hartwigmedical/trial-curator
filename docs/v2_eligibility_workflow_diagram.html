@@ -148,7 +148,7 @@
   <p class="date">10 July 2026</p>
   <h1>Trial extraction &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
-    <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, streamed to a timestamped run directory (normalized masters + combined view).</p>
+    <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, writing normalized 3NF masters (the combined flat view is materialized separately &mdash; see Write).</p>
 
   <div class="principle">
     <div class="h">Guiding principle &mdash; one agent per independent task</div>
@@ -199,7 +199,7 @@
       <p class="loop-sub">One agent <b>generates</b> the candidate table; a panel of agents <b>verifies</b> it. Verification is an easier
         task than generation and runs on a fresh pass with the finished table in view &mdash; so it catches omissions the
         generator missed. On a gating failure the loop does <b>incremental repair</b>: the extractor gets its OWN previous
-        table + only the flagged issues and <b>keeps unflagged rows verbatim</b> (preserves correct work, aids convergence), up to 3 attempts.</p>
+        table + only the flagged issues and <b>keeps unflagged rows verbatim</b> (preserves correct work, aids convergence), up to 6 attempts.</p>
 
       <!-- DOER -->
       <div class="box extract">
@@ -248,13 +248,13 @@
       <div class="refine-bar">
         <span class="loop-ico">&#8634;</span>
         <div><b>Refine (incremental)</b> &mdash; any of the 4 gating reviewers fails &rarr; <b>Extract</b> re-runs with its OWN prior
-          table + only the flagged issues, keeping unflagged rows as-is (the drug reviewer is advisory, so it never blocks). Bounded at 3 attempts.</div>
+          table + only the flagged issues, keeping unflagged rows as-is (the drug reviewer is advisory, so it never blocks). Bounded at 6 attempts (returns the best attempt; stops early on convergence or an exact-repeat cycle).</div>
       </div>
 
       <div class="loop-exits">
         <div class="exit pass"><span class="n">&#10003; pass</span>rules pass <b>and</b> all 4 gating reviewers faithful &rarr; leave the loop.</div>
         <div class="exit loop"><span class="n">&#8634; redo</span>a gating reviewer fails &rarr; re-extract with its feedback, re-check.</div>
-        <div class="exit stop"><span class="n">&#9632; stop</span>after 3 attempts &rarr; exit as <b>faithful=False</b>, best effort, written &amp; logged.</div>
+        <div class="exit stop"><span class="n">&#9632; stop</span>after 6 attempts &rarr; exit as <b>faithful=False</b>, best effort, written &amp; logged.</div>
       </div>
     </section>
     <div class="conn"></div>
@@ -292,7 +292,7 @@
     <section class="stage">
       <span class="rail"></span>
       <div class="head"><span class="tag">Write</span><h3>Split into 3NF masters + combined view</h3><span class="badge code">code</span></div>
-      <p>Each run writes a timestamped dir with <b>regime.tsv</b> (<span class="inline-code">(trialId,cohort)&rarr;arm_type,drug</span>) + <b>eligibility.tsv</b> (<span class="inline-code">(trialId,cohort,conj_id)&rarr;cells</span>) &mdash; the normalized masters &mdash; plus <b>combined.tsv</b>, their materialized join (one row per satisfiable (trial, regime) conjunction; the flat rows the matcher reads). Rows appended as each trial completes; a trial that errors is logged &amp; <b>skipped</b> (batch continues, summary reports <span class="inline-code">N ok, M failed</span>). <span class="inline-code">drug_ref</span> (global datestamped drug facts) joins in later.</p>
+      <p>Each run writes <b>5 pure-3NF masters</b> to <span class="inline-code">eligibility/current_output/</span> &mdash; <b>regime.tsv</b> (<span class="inline-code">(trialId,arm)&rarr;arm_type</span>; no drug), <b>extracted_eligibility.tsv</b> (<span class="inline-code">(trialId,arm,conj_id)&rarr;cells</span>), and the three <span class="inline-code">*_map.tsv</span> vocab lookups. The denormalized <b>combined.tsv</b> (their materialized join on <span class="inline-code">(trialId,arm)</span>; one row per satisfiable (trial, arm) conjunction; the flat rows the matcher reads) is written <b>outside the store</b>, at <span class="inline-code">eligibility/combined/combined.tsv</span>. Rows appended as each trial completes; a trial that errors is logged &amp; <b>skipped</b> (batch continues, summary reports <span class="inline-code">N ok, M failed</span>). <span class="inline-code">drug_annotations</span> (global datestamped drug facts) joins in via <span class="inline-code">(trialId,arm)</span>.</p>
     </section>
 
   </div>

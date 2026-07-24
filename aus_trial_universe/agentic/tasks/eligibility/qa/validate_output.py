@@ -17,7 +17,7 @@ Two layers of checks:
 
 Usage:
     python -m aus_trial_universe.agentic.tasks.eligibility.qa.validate_output [COMBINED.tsv]
-    (no arg -> newest data/agentic/eligibility/<timestamp>/combined.tsv)
+    (no arg -> data/agentic/eligibility/combined/combined.tsv)
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aus_trial_universe.agentic.core.paths import ELIGIBILITY_OUTPUT
+from aus_trial_universe.agentic.core.paths import COMBINED_FILE, COMBINED_OUTPUT, ELIGIBILITY_OUTPUT
 from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import _oncotree_logic_problems, strip_provenance
 from aus_trial_universe.agentic.tasks.eligibility.tools.finding_model import finding_model_problems
 from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import invalid_codes
@@ -137,16 +137,20 @@ def validate_rows(rows: list[dict]) -> list[TrialReport]:
 
 
 def _newest_output() -> Path:
-    """Newest combined view: <timestamp>/combined.tsv (falls back to the legacy trial_resource_*.tsv)."""
+    """The combined view at `eligibility/combined/combined.tsv`; falls back to legacy in-store snapshots
+    (`<timestamp>/combined.tsv`) and the pre-v2 `trial_resource_*.tsv`."""
+    primary = COMBINED_OUTPUT / COMBINED_FILE
+    if primary.exists():
+        return primary
     candidates = list(OUTPUT_DIR.glob("*/combined.tsv")) + list(OUTPUT_DIR.glob("trial_resource_*.tsv"))
     if not candidates:
-        raise SystemExit(f"no <timestamp>/combined.tsv (or legacy trial_resource_*.tsv) under {OUTPUT_DIR}")
+        raise SystemExit(f"no combined view at {primary} (or legacy <timestamp>/combined.tsv / trial_resource_*.tsv under {OUTPUT_DIR})")
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent validator (review of the reviewer agents) for an agentic output TSV.")
-    parser.add_argument("output", nargs="?", help="combined-view TSV (default: newest <timestamp>/combined.tsv under data/agentic/eligibility/)")
+    parser.add_argument("output", nargs="?", help="combined-view TSV (default: data/agentic/eligibility/combined/combined.tsv)")
     args = parser.parse_args(argv)
 
     path = Path(args.output) if args.output else _newest_output()

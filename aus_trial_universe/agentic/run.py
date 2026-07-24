@@ -6,11 +6,12 @@ annotations are a SEPARATE incremental store (`drug_annotations/`), topped up he
 introduce (existing drugs = pure lookup — no web search). At the end, one grand flat file joins
 eligibility ⋈ vocab maps ⋈ drug annotations on the (trialId, arm) key.
 
-The eligibility relational tables are an accumulating store: each run writes a fresh date-stamped full-state
-snapshot to `data/agentic/eligibility/<YYYYMMDD_HHMMSS>/`:
+The eligibility relational tables are an accumulating store at `data/agentic/eligibility/current_output/`,
+holding ONLY the pure-3NF masters:
     regime.tsv · extracted_eligibility.tsv · cancer_type_map.tsv · gene_alteration_map.tsv ·
-    molecular_signature_map.tsv        (the 3NF masters)
-    combined.tsv                       (the grand flat view — masters joined, for consumers)
+    molecular_signature_map.tsv
+The grand flat view (`combined.tsv` — the masters joined, for consumers) is DENORMALIZED, not 3NF, so it is
+written OUTSIDE the store, to `data/agentic/eligibility/combined/combined.tsv` (single overwritten file).
 Re-running a trial replaces its rows in place. The drug store persists to `drug_annotations/current_version/`.
 
   python -m aus_trial_universe.agentic.run --id NCT06881784          # one trial
@@ -30,7 +31,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from aus_trial_universe.agentic.core.paths import CACHE_DIR, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT
+from aus_trial_universe.agentic.core.paths import (
+    CACHE_DIR, COMBINED, COMBINED_FILE, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -233,6 +236,10 @@ def main(argv: list[str] | None = None) -> int:
     # current_version/): each run loads it, upserts, and writes it back in place. Superseded runs are archived
     # manually (move current_output/ -> archive/<date>/). `--out-dir` overrides for a one-off/isolated run.
     run_dir = Path(args.out_dir) if args.out_dir else store_root / ELIG_CURRENT_OUTPUT
+    # The joined flat view is denormalized (NOT 3NF), so it is written OUTSIDE the store dir — into a sibling
+    # `combined/` under the store root (default: data/agentic/eligibility/combined/). current_output/ holds only
+    # the pure-3NF masters. Single overwritten file, regenerable from the store.
+    combined_dir = store_root / COMBINED
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
     client = LlmClient(model=args.model, cache=cache) if args.model else LlmClient(cache=cache)
@@ -314,17 +321,18 @@ def main(argv: list[str] | None = None) -> int:
         drug_store.save()
         timing["drug"] = time.perf_counter() - t2
 
-    # --- persist the eligibility snapshot + the grand flat view --------------- #
-    elig_store.save(run_dir)
+    # --- persist the 3NF store snapshot, then the joined flat view (elsewhere) - #
+    elig_store.save(run_dir)                       # the 5 pure-3NF masters -> run_dir (current_output/)
     combined = _build_combined(elig_store, drug_store, strip_provenance)  # drug_store None (extract-only) -> no drug cols
-    with open(run_dir / "combined.tsv", "w", newline="", encoding="utf-8") as fc:
+    combined_dir.mkdir(parents=True, exist_ok=True)
+    with open(combined_dir / COMBINED_FILE, "w", newline="", encoding="utf-8") as fc:
         w = csv.DictWriter(fc, fieldnames=COMBINED_COLUMNS, delimiter="\t", lineterminator="\n",
                            extrasaction="ignore")
         w.writeheader()
         w.writerows(combined)
 
     print(f"\n{'═' * 70}\n{len(trials)} trial(s): {len(summaries)} ok, {len(failures)} failed · "
-          f"{total} conjunction(s) → {run_dir}/\n")
+          f"{total} conjunction(s) · 3NF → {run_dir}/ · combined → {combined_dir}/\n")
     for source, trial_id, n, faithful, attempts in summaries[:40]:
         print(f"  {PASS if faithful else FAIL}  {trial_id} · conjunctions={n} · attempts={attempts}")
     for trial_id, err in failures:

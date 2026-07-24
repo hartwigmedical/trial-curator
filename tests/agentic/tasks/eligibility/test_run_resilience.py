@@ -38,8 +38,9 @@ def test_batch_continues_past_a_failing_trial(tmp_path, monkeypatch):
     rc = run.main(["--ids", "GOOD1,BADX,GOOD2", "--store-root", str(tmp_path), "--extract-only"])
 
     assert rc == 0                                  # batch completes despite the failure
-    snap = next(d for d in tmp_path.iterdir() if d.is_dir())
-    rows = list(csv.DictReader(open(snap / "combined.tsv"), delimiter="\t"))
+    snap = tmp_path / "current_output"              # the 3NF store
+    rows = list(csv.DictReader(open(tmp_path / "combined" / "combined.tsv"), delimiter="\t"))
     assert sorted({r["trialId"] for r in rows}) == ["GOOD1", "GOOD2"]   # both good trials written, bad one skipped
-    # the 3NF masters are written alongside the combined view (spec §6.1)
+    # the 3NF masters live in the store; the joined view is written OUTSIDE it (spec §6.1)
     assert (snap / "regime.tsv").exists() and (snap / "extracted_eligibility.tsv").exists()
+    assert not (snap / "combined.tsv").exists()

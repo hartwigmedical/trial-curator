@@ -10,7 +10,8 @@ Layout (see docs/agentic/drug_ref_schema.md):
       resources/drug_utility/{pottr,rxnorm}/         INPUT  reference data — current_version/ + archive/
       resources/eligibility/oncotree/                INPUT  reference data — current_version/ + archive/
       drug_annotations/                              OUTPUT the 5 relational tables — current_version/ + archive/
-      eligibility/                                   OUTPUT per-run regime/eligibility/combined
+      eligibility/                                   OUTPUT the pure-3NF store (current_output/ + archive/)
+      eligibility/combined/                          OUTPUT the joined flat view (NOT 3NF) — kept out of the store
       log/  analysis/                                operational
 
 Versioned datasets (resources + drug_annotations) use a fixed `current_version/` folder for the live data and
@@ -43,6 +44,14 @@ ONCOTREE_ROOT = RESOURCES / "eligibility/oncotree"
 # --- OUTPUT ----------------------------------------------------------------- #
 DRUG_ANNOTATIONS_ROOT = DATA_ROOT / "drug_annotations"
 ELIGIBILITY_OUTPUT = DATA_ROOT / "eligibility"
+
+# The joined flat view (`combined.tsv`) is a DENORMALIZED join, not a 3NF master — it is kept OUT of the
+# eligibility store dir (current_output/) so that dir holds only pure-3NF tables. `combined_dir` is derived per
+# run as `store_root / COMBINED`; COMBINED_OUTPUT is the default (real-run) location. Single overwritten file
+# (regenerable from the store), not versioned.
+COMBINED = "combined"
+COMBINED_OUTPUT = ELIGIBILITY_OUTPUT / COMBINED
+COMBINED_FILE = "combined.tsv"
 
 # --- operational ------------------------------------------------------------ #
 LOG_DIR = DATA_ROOT / "log"
