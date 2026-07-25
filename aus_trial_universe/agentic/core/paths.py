@@ -9,6 +9,7 @@ Layout (see docs/agentic/drug_ref_schema.md):
       trial_universe/{ctgov,anzctr}/                 INPUT  trials
       resources/drug_utility/{pottr,rxnorm}/         INPUT  reference data — current_version/ + archive/
       resources/eligibility/oncotree/                INPUT  reference data — current_version/ + archive/
+      trial_arms/                                    OUTPUT the SHARED arm registry — current_version/ + archive/
       drug_annotations/                              OUTPUT the 5 relational tables — current_version/ + archive/
       eligibility/                                   OUTPUT the pure-3NF store (current_output/ + archive/)
       eligibility/combined/                          OUTPUT the joined flat view (NOT 3NF) — kept out of the store
@@ -44,6 +45,9 @@ ONCOTREE_ROOT = RESOURCES / "eligibility/oncotree"
 # --- OUTPUT ----------------------------------------------------------------- #
 DRUG_ANNOTATIONS_ROOT = DATA_ROOT / "drug_annotations"
 ELIGIBILITY_OUTPUT = DATA_ROOT / "eligibility"
+# The SHARED arm registry (`trial_arms`): the central table both paths link to by `trial_arm_id`. Versioned
+# (current_version/ + archive/) like the other output stores; written by whichever path processes a trial.
+TRIAL_ARMS_ROOT = DATA_ROOT / "trial_arms"
 
 # The joined flat view (`combined.tsv`) is a DENORMALIZED join, not a 3NF master — it is kept OUT of the
 # eligibility store dir (current_output/) so that dir holds only pure-3NF tables. `combined_dir` is derived per

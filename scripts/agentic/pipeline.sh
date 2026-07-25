@@ -102,15 +102,39 @@ case "${CMD}" in
     if [[ -n "${NO_JUDGE:-}" ]]; then args+=(--no-judge); fi
     if [[ -n "${NO_REVIEW:-}" ]]; then args+=(--no-review); fi
     if [[ -n "${EXTRACT_ONLY:-}" ]]; then args+=(--extract-only); fi
+    if [[ -n "${WORKERS:-}" ]]; then args+=(--workers "${WORKERS}"); fi
+    if [[ -n "${MAX_CONCURRENCY:-}" ]]; then args+=(--max-concurrency "${MAX_CONCURRENCY}"); fi
 
-    # (b) One process (extract -> map -> drug), streamed to a timestamped output dir; teed to one log.
+    # (b) Stream to a timestamped log. RESUME=1 → auto-resuming loop: re-run --resume (skip done trials) until it
+    # reports COMPLETE (exit 0). Survives interruptions/outages — leave it running and it picks up on reconnect.
     mkdir -p "${LOG_DIR}"
     log_file="${LOG_DIR}/agentic_run_${label}_$(date +%Y%m%d_%H%M%S).log"
     printf '\n==> run (logging to %s)\n' "${log_file}" >&2
-    "${PYTHON_BIN}" -m "${PIPELINE_MODULE}" "${args[@]}" 2>&1 | tee "${log_file}"
+    if [[ -n "${RESUME:-}" ]]; then
+      args+=(--resume)
+      attempt=0
+      while true; do
+        attempt=$((attempt + 1))
+        printf '\n==> resume attempt %d\n' "${attempt}" >&2
+        set +e
+        "${PYTHON_BIN}" -m "${PIPELINE_MODULE}" "${args[@]}" 2>&1 | tee -a "${log_file}"
+        rc=${PIPESTATUS[0]}
+        set -e
+        [[ "${rc}" -eq 0 ]] && { printf '\n==> COMPLETE after %d attempt(s)\n' "${attempt}" >&2; break; }
+        printf '\n==> incomplete (rc=%s); waiting %ss before resuming …\n' "${rc}" "${RESUME_BACKOFF:-120}" >&2
+        sleep "${RESUME_BACKOFF:-120}"
+      done
+    else
+      "${PYTHON_BIN}" -m "${PIPELINE_MODULE}" "${args[@]}" 2>&1 | tee "${log_file}"
+    fi
     ;;
   tests)
     exec "${PYTHON_BIN}" -m pytest tests/agentic -q
+    ;;
+  arm-consistency)
+    # Verify the (trialId, arm) split is identical between the eligibility (trial_arms) and drug
+    # (trial_to_intervention) paths — the combined.tsv join key. No API calls.
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.eligibility.qa.arm_consistency
     ;;
   cache-prune)
     # Prune the shared LLM response cache of entries from OUTDATED prompts (both paths).
@@ -119,6 +143,13 @@ case "${CMD}" in
     if [[ -n "${APPLY:-}" ]]; then cargs+=(--apply); fi
     if [[ -n "${PURGE_UNKNOWN:-}" ]]; then cargs+=(--purge-unknown); fi
     exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.core.cache_prune "${cargs[@]}"
+    ;;
+  drug-migrate-trial-arms)
+    # Re-key the drug path's trial_to_intervention to trial_arm_id against the fresh trial_arms registry, and
+    # report intervention-input additions/deletions. Dry-run by default; APPLY=1 rewrites ONLY that drug file.
+    margs=()
+    if [[ -n "${APPLY:-}" ]]; then margs+=(--apply); fi
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.migrate_trial_arms "${margs[@]}"
     ;;
   validate)
     # Independent output validator (review of the reviewer agents). OUT=<tsv> or newest.

@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
-    DrugExtraction,
     EligibilityExtraction,
     JudgeVerdict,
     RawExtraction,
@@ -40,17 +39,30 @@ prior-therapy or medical-history phrase. The CONDITIONS section is AUTHORITATIVE
 "KRAS G12C", "ALK fusion", "ERBB2 amplification").
 - molecular_signature: a required COMPOSITE/genomic signature not tied to one gene's variant \
 (e.g. "MSI-H", "TMB-high", "HRD", "genomic instability", "1p/19q codeletion").
-- molecular_biomarker: a required EXPRESSION-based biomarker, mostly protein/IHC \
-(e.g. "PD-L1 >=1% (IHC)", "HER2 IHC 3+", "ER positive", "dMMR (IHC)").
-- prior_therapy: a prior-treatment condition that CONSTRAINS eligibility — REQUIRED (e.g. ">=1 prior platinum \
-line", "treatment-naive") or EXCLUDED. A merely PERMITTED/ALLOWED prior therapy does NOT constrain eligibility.
+- molecular_biomarker: a required protein-EXPRESSION / receptor / IHC status biomarker that defines a molecular \
+subgroup (e.g. "PD-L1 >=1% (IHC)", "HER2 IHC 3+", "ER positive", "dMMR (IHC)"). NOT a quantitative disease-BURDEN / \
+measurability / activity level (serum M-protein level, tumour size, blast %, LDH, blood counts) — those are \
+disease-measurability criteria, OUT OF SCOPE (like labs).
+- prior_therapy: a prior/current ANTI-CANCER treatment-history condition that constrains eligibility — REQUIRED \
+(e.g. ">=1 prior platinum line", "treatment-naive", "prior BRAF inhibitor") or EXCLUDED (e.g. "NOT(prior \
+anti-PD-1)"). "Anti-cancer" = systemic anti-cancer therapy (chemo / targeted / immuno / hormonal / \
+investigational anti-cancer agent), cancer radiotherapy, cancer surgery, or transplant — INCLUDING their washout \
+windows ("no systemic anti-cancer therapy within 28 days"). A merely PERMITTED/ALLOWED prior therapy does NOT \
+constrain eligibility — omit it.
 
 Column edge rules:
 - HER2/ERBB2: expression or IHC -> molecular_biomarker; gene amplification -> gene_alteration.
 - MMR: dMMR/pMMR by IHC -> molecular_biomarker; MSI-H (genomic) -> molecular_signature.
 - Histology (adenocarcinoma, squamous, etc.) -> part of cancer_type.
-- Ignore everything else (age, labs, performance status, comorbidities, other/prior malignancy, \
-reproductive status, drug/intervention names) — only the five criteria above."""
+- Capture a molecular RESULT, never the procedural requirement to TEST for it ("BRAF V600E mutation", NOT \
+"BRAF testing prior to entry").
+- Ignore everything else — it is OUT OF SCOPE, do NOT capture it: age, labs, organ function, performance status, \
+disease-burden / measurability / activity levels (serum M-protein, tumour size, blast %, LDH, blood counts), \
+comorbidities, other/prior non-study malignancy, reproductive / contraception / consent status, drug/intervention \
+names, AND general safety / supportive-care rules that are NOT anti-cancer therapy — corticosteroid / \
+immunosuppressant / vaccine / antibiotic / anticoagulant washouts, herbal or vitamin supplements, \
+hormone-replacement therapy, and generic "any other medication / treatment / supplement" clauses — plus \
+biospecimen-submission requirements and non-cancer surgery / surgical-recovery status. Only the five criteria above."""
 
 _COHORT_SCOPE_RULES = """\
 The COHORTS list is the trial's FIXED, KNOWN set of DRUG REGIMES (each = an arm/regime with its own drug(s)). \
@@ -93,31 +105,48 @@ but never drop words WITHIN the span you keep. Do not truncate mid-clause.
 Completeness + cleanliness (both matter — the reviewer checks both):
 - Capture EVERY relevant span for the five criteria, including exclusions ("except ...", "not ... tumours", \
 "NOT prior anti-PD-1"). A dropped tumour-type exclusion or a dropped required prior therapy is a serious miss.
-- Do NOT copy irrelevant text: age, labs, performance status, comorbidities, consent, reproductive status, \
-other/prior malignancies (unless the tumour under study), or drug/dosing prose. If a criterion type is not \
-stated for the trial, emit no fragment for it.
+- Do NOT copy OUT-OF-SCOPE text (see the taxonomy's ignore list): age, labs, organ function, performance status, \
+comorbidities, consent / reproductive, other/prior malignancies (unless the tumour under study), drug/dosing prose, \
+and general safety / supportive-care rules that are NOT anti-cancer therapy — corticosteroid / vaccine / antibiotic / \
+supplement / hormone-replacement washouts, "any other medication" clauses, biospecimen-submission or "must be tested \
+for X" procedural requirements, and non-cancer surgery / recovery status. If a criterion type is not stated, emit no \
+fragment for it.
 - If the same criterion is stated in several sections, copy it once from the MOST authoritative/complete section \
 (CONDITIONS is authoritative for the tumour type).
 """
 
-RAW_REVIEWER_INSTRUCTIONS = f"""\
+RAW_REVIEWER_INSTRUCTIONS = """\
 You audit a RAW extraction: verbatim source spans copied out for five eligibility criteria (cancer_type, \
 gene_alteration, molecular_signature, molecular_biomarker, prior_therapy), each tagged with its source section \
-and scope. You are given the full trial text and the proposed fragments. Set faithful=true ONLY if ALL hold:
+and scope. You are given the full trial text and the proposed fragments.
 
-1. VERBATIM — each fragment's text appears in the cited section essentially word-for-word: not paraphrased, not \
-   translated, no added words, and NOT truncated in a way that changes meaning or drops a connective/carve-out.
-2. COMPLETE — every source span that states one of the five criteria is captured. Flag anything MISSING, \
-   especially a stated tumour-type exclusion ("except / excluding / other than ...") or a required/excluded \
-   prior therapy.
-3. CLEAN — no extraneous fragment: nothing that is age / labs / performance status / comorbidity / consent / \
-   reproductive / other-or-prior malignancy / drug-dosing prose, and no text mis-assigned to the wrong criterion \
-   (e.g. an IHC biomarker copied under gene_alteration).
-4. SCOPE — each fragment's scope is a listed cohort id or trial-wide, and matches what the text ties it to; \
-   nothing assigned to a cohort NOT in the COHORTS list.
+BE LENIENT — gate (faithful=false) ONLY on a MATERIAL problem that changes WHICH PATIENTS the criteria match: a \
+missing IN-SCOPE criterion, a truncation that drops a connective/carve-out, a fabricated/paraphrased span, or a \
+fragment mis-assigned to the WRONG cohort. A faithful span with slightly different whitespace, a defensible \
+either-way bucket/scope call, or an OUT-OF-SCOPE criterion is NOT a reason to fail. Sending a good raw extraction \
+back for a nitpick wastes a whole cycle — when in doubt, pass.
 
-Otherwise faithful=false with concrete, actionable problems (name the missing span, the extraneous/mis-bucketed \
-fragment, or the truncation). Do NOT nitpick which authoritative section was chosen when the text is faithful.
+Set faithful=true unless one of these MATERIAL problems holds:
+1. NOT VERBATIM — a fragment's text is paraphrased/translated/invented, or truncated so it drops a \
+   connective or an "except/excluding" carve-out (changing meaning). Minor whitespace/section-choice differences \
+   are fine.
+2. MISSING an IN-SCOPE span — a source span stating one of the five criteria is not captured, ESPECIALLY a \
+   tumour-type exclusion ("except / excluding / other than ...") or a required/excluded ANTI-CANCER prior therapy.
+   OUT OF SCOPE — do NOT flag these as missing: age / labs / organ function / performance status / comorbidity; \
+   consent / contraception / reproductive; a general safety or supportive-care washout that is NOT anti-cancer \
+   therapy (corticosteroids, vaccines, antibiotics, anticoagulants, supplements, hormone replacement, "any other \
+   medication"); a biospecimen-submission or "must be tested for X" procedural requirement; non-cancer surgery / \
+   surgical-recovery status.
+3. EXTRANEOUS — a captured fragment is one of the OUT-OF-SCOPE items above, or plainly irrelevant.
+4. WRONG COHORT — a fragment assigned to a cohort NOT in the COHORTS list.
+
+Anti-oscillation: a borderline span that could sit in either of two criteria — accept EITHER placement; never \
+flag the same span as both "missing" and "mis-bucketed". Do NOT nitpick which authoritative section was chosen.
+
+`suggested_fix` — normally leave EMPTY (report problems only). ONLY when the input is marked "[ESCALATION-MODE]" \
+(the writer got stuck repeating the same mistake) do you ALSO fill it with the concrete fragment(s) to add / \
+remove / correct (verbatim text + criterion + scope) — last-resort advice for the writer (it regenerates and is \
+re-checked, never applied directly).
 """
 
 
@@ -164,6 +193,10 @@ them together in one cell.
 to the majority of eligible patients.
 
 Negation (inclusion AND exclusion are BOTH in scope):
+- USE THE SOURCE TAG: a raw span tagged "[EXCLUSION CRITERIA]" (or ANZCTR "[EXCLUSIVE CRITERIA]") states an \
+EXCLUSION — represent its criterion as NOT(...). A span from an inclusion/eligibility section is a REQUIREMENT \
+(no NOT, unless its own wording is negative — "no prior", "without", "except"). The one exception: an EXCLUSION \
+span that positively DEFINES the tumour under study is still the cancer_type (not everything in EXCLUSION is a NOT).
 - Wrap an excluded criterion in NOT(...), e.g. prior_therapy = "NOT(prior EGFR TKI)".
 - A single cell holds the FULL requirement for its criterion in that row and may hold several ANDed terms; \
 same-column carve-outs stay in ONE cell: "solid tumours except melanoma" -> "solid tumour AND NOT(melanoma)".
@@ -179,63 +212,8 @@ def build_interpreter_agent(client: LlmClient, *, model: str | None = None) -> A
                  output_schema=EligibilityExtraction, client=client, model=model)
 
 
-# --------------------------------------------------------------------------- #
-# ANZCTR drug extractor (regime axis)
-# --------------------------------------------------------------------------- #
-DRUG_EXTRACTOR_INSTRUCTIONS = """\
-This is an ANZCTR trial (a single eligibility cohort); its drug regimes come from the drugs it ADMINISTERS AS THE \
-STUDY INTERVENTION. Return drug/treatment names as stated (RAW — no normalization, no RxNorm; exclude \
-dosing/schedule prose):
-- intervention_drugs: the pharmacological agent(s) administered as the trial's intervention. The INTERVENTIONS \
-section is your PRIMARY source; when it is sparse or empty, ALSO use the STUDY TITLE / SCIENTIFIC TITLE and the \
-other fields to identify the intervention drug(s) (the drug is sometimes named only in the title).
-- comparator_drugs: the comparator DRUG(s) named in COMPARATOR — but [] if the comparator is a placebo, \
-radiotherapy, observation / no active treatment, or otherwise not a drug. Use the CONTROL field as a hint: \
-"Placebo"/"Uncontrolled" usually mean no comparator drug; "Active"/"Dose comparison" usually mean there is one.
-
-Return ONLY actual pharmacological agents (small molecules, biologics, chemo, targeted / immuno / hormonal therapy, \
-vaccines, radioligands, cell / gene therapy, herbal or investigational compounds). NEVER emit:
-- a NON-DRUG modality: surgery, a transplantation procedure, radiotherapy / radiation / TOTAL BODY IRRADIATION \
-(TBI), observation, best supportive / standard care, watchful waiting, a device, ablation, diet / exercise / \
-counselling, or an imaging-only diagnostic agent. (Do KEEP the drugs given WITHIN such a regime — e.g. the \
-conditioning chemotherapy before a transplant.)
-- the DISEASE / CONDITION or its abbreviation (e.g. "AL" for AL amyloidosis) — a condition is never a drug.
-- a drug named only as PRIOR therapy, a REQUIRED or PROHIBITED concomitant medication, washout, rescue medication, \
-premedication, or an eligibility criterion — that is not the intervention under study.
-Prefer the actual named agent(s) over an opaque internal code or arm label: if the text says a code IS a named \
-compound or combination (e.g. a herbal combination composed of two named herbs), return the named component(s), \
-not the bare code; and do NOT emit a stray abbreviation, cohort / part label, or sentence fragment that is not \
-clearly a drug name. Return [] for a list with none.
-"""
-
-
-def build_drug_agent(client: LlmClient, *, model: str | None = None) -> Agent[DrugExtraction]:
-    return Agent(name="drug_extractor", instructions=DRUG_EXTRACTOR_INSTRUCTIONS,
-                 output_schema=DrugExtraction, client=client, model=model)
-
-
-DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS = """\
-You audit the drugs extracted from an ANZCTR trial (plausibility — not re-reading everything). Given the trial
-text and the proposed intervention_drugs + comparator_drugs, set faithful=true only if EVERY extracted name is an
-actual pharmacological agent administered AS the trial's intervention or comparator, and NONE is:
-- a NON-DRUG modality (surgery / transplantation / radiotherapy / total body irradiation / observation / best
-  supportive or standard care / device / ablation / diet / exercise / imaging-only agent);
-- the DISEASE / CONDITION or its abbreviation (e.g. "AL" for AL amyloidosis);
-- a drug named only as PRIOR / concomitant / prohibited / rescue / premedication or in the eligibility criteria;
-- a stray non-drug abbreviation, cohort / part label, or sentence fragment (e.g. "PA"), or an opaque code where the
-  text actually names the underlying agent(s).
-Also: intervention_drugs are the agents actually administered (INTERVENTIONS is primary, but a drug named only in
-the study / scientific title counts; dosing/schedule prose excluded, not invented, none missed); comparator_drugs
-are the COMPARATOR drug(s), or [] when the comparator is placebo / radiotherapy / observation / no active treatment
-(judge with the CONTROL field). Flag any non-drug modality, disease/condition, concomitant/prior med, or stray
-fragment wrongly included, and any real intervention drug missed. Otherwise faithful=false with concrete,
-actionable problems.
-"""
-
-
-def build_drug_reviewer_agent(client: LlmClient, *, model: str | None = None) -> Agent[JudgeVerdict]:
-    return Agent(name="drug_extractor_reviewer", instructions=DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS,
-                 output_schema=JudgeVerdict, client=client, model=model)
+# NB: the ANZCTR drug extractor + reviewer (the regime axis) moved to `tasks/shared/agents.py` — ANZCTR arm
+# identification is now a path-neutral shared module (`tasks/shared/cohorts.anzctr_regimes`) used by BOTH paths.
 
 
 # --------------------------------------------------------------------------- #
@@ -261,6 +239,18 @@ missing/invented/mis-columned/mis-scoped criterion, a dropped exclusion, a fabri
 faithful=false for a faithful paraphrase of the raw span (wording, phrasing, formatting, ordering, granularity) \
 or anything you would merely "prefer" differently. Sending an already-correct trial back for a nitpick wastes a \
 whole refine cycle.
+
+SCOPE — the five criteria are ONCOLOGY-specific: the STUDY tumour type, its molecular features, and ANTI-CANCER \
+prior therapy. These are OUT OF SCOPE and are correctly OMITTED — do NOT flag one as missing, do NOT fail a row \
+for omitting one: age / labs / organ function / performance status / comorbidity; consent / contraception / \
+reproductive; adverse-event-resolution criteria; general safety or supportive-care / concomitant-medication rules \
+that are NOT anti-cancer therapy (corticosteroids, vaccines, antibiotics, supplements, hormone replacement); AND a \
+generic "no history of other / second / prior malignancy" exclusion (that is NOT the study tumour type).
+
+`suggested_fix` — normally leave it EMPTY and report problems only; pointing out the error is enough (the writer \
+fixes it). ONLY when the input is marked "[ESCALATION-MODE]" (the writer got stuck repeating the same mistake) do \
+you ALSO fill `suggested_fix` with the concrete corrected cell(s)/row(s) you would expect — the exact text, as \
+last-resort advice for the writer (it still regenerates and is re-checked, never applied directly).
 """
 
 REVIEWERS: tuple[ReviewerSpec, ...] = (
@@ -271,8 +261,10 @@ history, an exclusion of other malignancies, or an example is NOT the trial's ca
 tumour types and mis-placed histology/stage. Flag any cell that ANDs two DIFFERENT cancer types (a patient has \
 one tumour — different types are OR-alternatives on separate rows), and flag a broad umbrella ("solid tumours", \
 "any cancer") left in when the CONDITIONS/description show the trial is about ONE specific type. Flag a MISSING \
-tumour-type EXCLUSION: if a raw span carves out a specific tumour subtype / histology / anatomic location \
-("except ...", "excluding ...", "other than ..."), it MUST appear as a NOT() carve-out in cancer_type."""),
+tumour-type EXCLUSION only when a raw span carves out a specific subtype / histology / anatomic location OF THE \
+STUDY TUMOUR ("DMG except thalamic DMG", "melanoma other than uveal") — that MUST appear as a NOT() carve-out. A \
+generic "no history of other / second / prior malignancy" exclusion is NOT the study tumour type: it is OUT OF \
+SCOPE — do NOT require it and do NOT fail whether it is present or omitted."""),
     ReviewerSpec("molecular", "molecular columns (gene / signature / biomarker)", True, _REVIEW_PREAMBLE + """
 DIMENSION = gene_alteration + molecular_signature + molecular_biomarker. Check faithfulness AND that each \
 value is in the RIGHT column: specific gene+alteration -> gene_alteration; composite/genomic signature -> \
@@ -347,6 +339,10 @@ Set faithful=false with concrete, actionable problems (name the offending column
 structure) so the interpreter can split them onto separate rows. Otherwise faithful=true. Do NOT flag genuine
 independent AND-requirements ACROSS DIFFERENT criteria (e.g. a cancer_type AND a required biomarker) — those are
 correct conjunctions.
+
+`suggested_fix` — normally leave EMPTY (report problems only). ONLY when the input is marked "[ESCALATION-MODE]"
+(the interpreter got stuck) do you ALSO fill it with the corrected row structure you would expect (e.g. "split
+into rows: gene=MYCN amp; gene=MYCL amp") — last-resort advice, not applied directly.
 """
 
 

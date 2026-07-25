@@ -17,6 +17,8 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 | `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
 | `make agentic-clean` | Wipe transient run artifacts under `data/agentic/{eligibility,log,cache}` — never touches the colocated inputs/resources/drug_annotations. |
 | `make agentic-cache-prune` | **Prune the response cache of OUTDATED-prompt entries** (both paths share one cache). Dry-run by default; `APPLY=1` deletes, `PURGE_UNKNOWN=1` also drops legacy entries. See below. No API calls. |
+| `make agentic-arm-consistency` | **Referential-integrity check** on the arm join key: every `trial_arm_id` referenced by the eligibility tables + drug `trial_to_intervention` exists in the shared `trial_arms` registry. Exit 0 = consistent. No API. |
+| `make agentic-drug-migrate-trial-arms` | Re-key drug `trial_to_intervention` to `trial_arm_id` against the fresh registry + report intervention-input additions/deletions → `data/agentic/analysis/`. Dry-run by default; `APPLY=1` rewrites ONLY that drug file. No API. |
 | `make drug-ref-build` | Build/refresh the drug reference (5 tables). See below. |
 | `make drug-ref-refresh-pottr` | Download the current POTTR files from GitHub (archives the previous). See below. |
 | `make agentic-tests` | Run the unit-test suite (no API calls). |
@@ -67,10 +69,11 @@ Builds the standalone drug reference (5 tables: `intervention_to_canonical`, `tr
 judgement (canonicalize / annotate / approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and
 `pottr_drug_class` (POTTR). `canonicalize` splits a combination/regimen token into its component standalone drugs
 (`1 input → N` canonicals; a single engineered molecule like an ADC/bispecific stays one) and records
-`raw_name_to_map` (the input fragment each canonical came from). `trial_to_intervention` records which trial +
-registry each input name came from (deterministic provenance / traceability), and the build **logs per-trial drug
-attribution**. Incremental (existing non-stale drugs are pure lookups), batched with a checkpoint save after each
-batch (resumable), soft-fails per drug. Logs to `data/agentic/log/`.
+`raw_name_to_map` (the input fragment each canonical came from). `trial_to_intervention` records which trial ARM
+each input name came from as `(trial_arm_id, input_intervention_name)` (linking to the shared `trial_arms`
+registry, which the build also populates), and the build **logs per-trial drug attribution**. Incremental
+(existing non-stale drugs are pure lookups), batched with a checkpoint save after each batch (resumable),
+soft-fails per drug. Logs to `data/agentic/log/`.
 ```bash
 make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"   # explicit list
 make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5        # drugs from specific trials (CTGov)
@@ -129,10 +132,17 @@ self-contained rows the matching engine reads) is denormalized, not 3NF, so it i
 
 ## Output Schema
 
-The pipeline emits **5 pure-3NF masters** (in `eligibility/current_output/`) and a **denormalized joined view**
-`combined.tsv` (in `eligibility/combined/` — outside the store). `combined.tsv` is the flat file the matching
-engine reads: one row per satisfiable `(trialId, arm, conj_id)` conjunction (DNF — rows sharing `(trialId, arm)`
-are ORed, cells within a row ANDed, exclusions inline as `NOT(...)`). Its **16 columns**, in order:
+Arm identity lives ONCE in the **shared `trial_arms` registry** (`data/agentic/trial_arms/current_version/
+trial_arms.tsv`: `trial_arm_id, trialId, registry, arm, arm_type` — both registries; `trial_arm_id` is the
+deterministic slug `{trialId}::{arm}`). Both paths link to it by `trial_arm_id`:
+- **Eligibility** (`eligibility/current_output/`): `arm_eligibility_raw` + `interpreted_eligibility` (each keyed by
+  `trial_arm_id`) + the 3 value→vocab map tables.
+- **Drug** (`drug_annotations/current_version/`): `trial_to_intervention` = `(trial_arm_id, input_intervention_name)`.
+
+The **denormalized joined view** `combined.tsv` (in `eligibility/combined/` — outside the store) is the flat file
+the matching engine reads: one row per satisfiable `(trialId, arm, conj_id)` conjunction (DNF — rows sharing
+`(trialId, arm)` are ORed, cells within a row ANDed, exclusions inline as `NOT(...)`). It is assembled by joining
+eligibility ⋈ `trial_arms` ⋈ vocab maps ⋈ drug annotations, all on `trial_arm_id`. Its **16 columns**, in order:
 
 | Column | Source | Notes |
 |---|---|---|
@@ -148,16 +158,40 @@ are ORed, cells within a row ANDed, exclusions inline as `NOT(...)`). Its **16 c
 | `molecular_signature_findingmodel` | map | finding-model syntax (via `molecular_signature_map`) |
 | `molecular_biomarker` | extract | `value [source]` |
 | `prior_therapy` | extract | `value [source]` |
-| `arm_drugs` | drug join | distinct canonical drug names for the arm (`(trialId, arm)` → drug store), `; `-joined |
+| `arm_drugs` | drug join | distinct canonical drug names for the arm (`trial_arm_id` → drug store), `; `-joined |
 | `drug_class` | drug join | general drug class(es) of the arm's drugs, `; `-joined |
 | `pottr_drug_class` | drug join | POTTR class hierarchy of the arm's drugs, ` | `-joined |
 
-Drug facts join in via the `(trialId, arm)` key to the drug utility path. **Not yet in `combined.tsv`** (owed —
+Drug facts join in via the `trial_arm_id` key to the drug utility path. **Not yet in `combined.tsv`** (owed —
 see the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
 
 > **Verification:** the finding-model / OncoTree / drug outputs are checked **manually** against the legacy
 > `data/eligibility_path/exports/final/eligibility_*_resource_*.tsv` and the hand-curated resource files.
 > The curated resources are held-out verification data, not training input (see the design memory).
+
+---
+
+## How the `interpreted_eligibility` table is decided
+
+The LLM **interpreter** makes the *semantic* calls (guided by the extraction prompt); **deterministic code** does
+the *structural* assembly.
+
+- **Split into a new row (OR):** when the source offers mutually-substitutable alternatives — "A, B, or C",
+  "and/or", or conditionals ("if cancer A → mutation X; if B → Y" → two rows). *LLM.*
+- **AND within a cell:** when several requirements of the *same* criterion must all hold — e.g.
+  `solid tumour AND NOT(melanoma)`, or histology + stage. *LLM.*
+- **AND across cells:** implicit — a row is a conjunction across the 5 columns. *Structural.*
+- **`NOT()`:** an excluded criterion — a span sourced from `[EXCLUSION CRITERIA]`, or "except / other than",
+  "no prior X". *LLM, aided by the raw span's source tag.*
+- Then **code** deterministically: distributes trial-wide criteria onto each cohort, de-dups commutative /
+  identical rows, and enforces "never AND two different cancer types" (the cohort value wins).
+
+### Paraphrasing — what an interpreted cell is
+An interpreted cell is the LLM's **normalized restatement**, *not* a verbatim copy (the verbatim source lives in
+`arm_eligibility_raw` — the audit anchor). Paraphrasing restructures the text into the DNF logic above, normalizes
+terminology, drops irrelevant qualifiers, **and corrects obvious typos** (e.g. raw `squamus cell carcinoma` →
+interpreted `squamous cell carcinoma`) — while preserving the eligibility meaning. To audit an interpreted cell,
+join back to `arm_eligibility_raw` on `trial_arm_id` and compare against the verbatim spans + their `[source]`.
 
 ---
 

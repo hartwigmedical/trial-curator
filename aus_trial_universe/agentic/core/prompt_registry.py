@@ -18,14 +18,16 @@ def live_agents(client: LlmClient | None = None):
     from aus_trial_universe.agentic.tasks.drug_utility import agents as dr
     from aus_trial_universe.agentic.tasks.eligibility.extraction import agents as ex
     from aus_trial_universe.agentic.tasks.eligibility.mapping import agents as mp
+    from aus_trial_universe.agentic.tasks.shared import agents as sh
 
     agents = [
+        # shared · ANZCTR arm identification (used by both paths)
+        sh.build_drug_agent(client),
+        sh.build_drug_reviewer_agent(client),
         # eligibility · extraction (two sub-stages: raw + interpret)
         ex.build_raw_extractor_agent(client),
         ex.build_raw_reviewer_agent(client),
         ex.build_interpreter_agent(client),
-        ex.build_drug_agent(client),
-        ex.build_drug_reviewer_agent(client),
         ex.build_enumeration_reviewer(client),
         # eligibility · mapping
         mp.build_oncotree_mapper(client),

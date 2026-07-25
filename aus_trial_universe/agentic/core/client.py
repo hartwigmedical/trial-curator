@@ -26,7 +26,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -185,6 +187,7 @@ class LlmClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         initial_delay: float = DEFAULT_INITIAL_DELAY,
         max_delay: float = DEFAULT_MAX_DELAY,
+        max_concurrency: int | None = None,
         trace: Callable[[dict[str, Any]], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -196,6 +199,15 @@ class LlmClient:
         self.max_delay = max_delay
         self._trace = trace
         self._sleep = sleep
+        # A GLOBAL cap on concurrent LLM API calls across ALL callers (trials × their reviewer fan-outs share this
+        # one client). Trial-level `--workers` × the per-trial fan_out would otherwise multiply into an
+        # unpredictable request burst with no ceiling; this semaphore governs the TRUE concurrency deterministically
+        # at the account's rate-limit ceiling. Cache HITS never take a slot (no network); only live calls do.
+        self._api_sema = threading.Semaphore(max_concurrency) if (max_concurrency and max_concurrency > 0) else None
+
+    def _api_slot(self):
+        """Context manager: acquire a global API slot (no-op when no cap is configured)."""
+        return self._api_sema if self._api_sema is not None else nullcontext()
 
     def _entry_meta(self, *, agent_name: str | None, instructions: str, model: str, mode: str) -> dict[str, Any]:
         """Provenance stored alongside a cached response (see cache_prune)."""
@@ -249,15 +261,16 @@ class LlmClient:
                 logger.warning("Cached response %s failed validation; recomputing", key[:12])
 
         start = time.monotonic()
-        parsed, raw_text, usage, attempts = self._call_with_retries(
-            output_schema=output_schema,
-            model=model,
-            instructions=instructions,
-            user_input=user_input,
-            temperature=temperature,
-            seed=seed,
-            max_completion_tokens=max_completion_tokens,
-        )
+        with self._api_slot():   # global concurrency cap (cache hits above never reach here)
+            parsed, raw_text, usage, attempts = self._call_with_retries(
+                output_schema=output_schema,
+                model=model,
+                instructions=instructions,
+                user_input=user_input,
+                temperature=temperature,
+                seed=seed,
+                max_completion_tokens=max_completion_tokens,
+            )
         latency_ms = (time.monotonic() - start) * 1000
         self.cache.set(key, raw_text, self._entry_meta(
             agent_name=agent_name, instructions=instructions, model=model, mode="parse"))
@@ -303,10 +316,11 @@ class LlmClient:
                 logger.warning("Cached research %s failed validation; recomputing", key[:12])
 
         start = time.monotonic()
-        parsed, raw_text, usage, attempts = self._research_with_retries(
-            output_schema=output_schema, model=model, instructions=instructions,
-            user_input=user_input, max_completion_tokens=max_completion_tokens,
-        )
+        with self._api_slot():   # global concurrency cap (cache hits above never reach here)
+            parsed, raw_text, usage, attempts = self._research_with_retries(
+                output_schema=output_schema, model=model, instructions=instructions,
+                user_input=user_input, max_completion_tokens=max_completion_tokens,
+            )
         latency_ms = (time.monotonic() - start) * 1000
         self.cache.set(key, raw_text, self._entry_meta(
             agent_name=agent_name, instructions=instructions, model=model, mode="research:web_search"))

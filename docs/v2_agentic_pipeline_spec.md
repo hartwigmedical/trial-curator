@@ -87,13 +87,14 @@ cache, corrections & pruning".
 timestamped run directory + one log per run. No intermediate files.
 
 ```
-SELECT/ASSEMBLE ─▶ REGIMES ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ split → regime/eligibility/combined
-   loaders          §7.3      §7 (LLM)         §7.5                      §8.1-2   §8.3     §9
+SELECT/ASSEMBLE ─▶ ARMS ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ split → trial_arms/eligibility/combined
+   loaders        §7.3    §7 (LLM)         §7.5                      §8.1-2   §8.3     §9
 ```
 
 Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Options: `MODEL=` · `NO_JUDGE=1` ·
-`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: the 5 3NF masters in
-`data/agentic/eligibility/current_output/` + the joined `combined.tsv` in `eligibility/combined/` (§9).
+`NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: the shared `trial_arms` registry + the 2 eligibility
+content masters (+ vocab maps) in `data/agentic/eligibility/current_output/`, all keyed by `trial_arm_id`, + the
+joined `combined.tsv` in `eligibility/combined/` (§9).
 
 ## 6. The relational data model
 
@@ -107,11 +108,17 @@ regime* those criteria attach to.
 - **CTGov — the regime axis is given, deterministically**, by `armsInterventionsModule.armGroups`. Each
   drug-bearing armGroup = one regime (its `type` → `arm_type`; its interventions → the drug set). There are
   **exactly as many regimes as drug-bearing armGroups — the LLM never invents or drops one.**
-- **ANZCTR — same principle, messier input.** No clean arm structure, so (a deliberate simplification, to
-  avoid run-to-run cohort-detection drift) **every ANZCTR trial has a single eligibility cohort**: all
-  eligibility is trial-wide. Regimes come from the drugs — `INTERVENTIONS` (experimental) and `COMPARATOR`
-  (control), gated by `CONTROL` (Active → a real comparator regime; Placebo/Uncontrolled → none). The LLM's
-  *only* ANZCTR job is to name the drugs; it does no cohort reasoning.
+- **ANZCTR — same principle, messier input.** No clean arm structure, so (a deliberate simplification)
+  **every ANZCTR trial has a single eligibility cohort**: all eligibility is trial-wide. Regimes come from the
+  drugs — `INTERVENTIONS` (experimental) and `COMPARATOR` (control), gated by `CONTROL` (Active → a real
+  comparator regime; Placebo/Uncontrolled → none). The LLM's *only* ANZCTR job is to name the drugs; it does no
+  cohort reasoning.
+- **Arm identification is a path-neutral SHARED module (`tasks/shared`, 2026-07-25).** The SAME code identifies a
+  trial's arms for BOTH paths (CTGov deterministic from armGroups; ANZCTR via the shared drug doer→reviewer,
+  derived **fresh** per run, flag-independent + pinned to the shared cache). Arms are written once to the central
+  **`trial_arms` registry** (`trial_arm_id, trialId, registry, arm, arm_type`; both registries); the drug
+  `trial_to_intervention` and the eligibility content tables both link to it by `trial_arm_id`, so the
+  `(trialId, arm)` split — the join key — is identical across the two paths by construction.
 
 The normalized relations (the flat TSV is their **materialized join**):
 
@@ -119,15 +126,16 @@ The normalized relations (the flat TSV is their **materialized join**):
 |---|---|---|---|
 | **regime** (the axis) | (trialId, regime_id) | arm_type (flags control) | CTGov: `armGroups` filtered to `{Drug, Biological}` · ANZCTR: INTERVENTIONS/COMPARATOR |
 | **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
-| **drug_annotations_core** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_ref/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
+| **drug_annotations_core** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_utility/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
 \* **Built standalone (2026-07-13; table 1 split into 3NF 2026-07-17).** The drug dimension is **five** 3NF tables in
-`aus_trial_universe/agentic/tasks/drug_ref/`:
+`aus_trial_universe/agentic/tasks/drug_utility/`:
 - `intervention_to_canonical` (input intervention name → namespaced `canonical_id`(s): `rxcui:<n>` else `name:<x>`;
   a combination/regimen token splits into its component drugs, so **`1 input → N` canonicals** — a single engineered
   molecule like an ADC/bispecific stays one; carries `raw_name_to_map` = the input fragment each canonical came from),
-- `trial_to_intervention` ((trialId, registry) → input intervention name — the **provenance / traceability** record:
-  which trials used each name; deterministic, populated at collection time so it is never lost),
+- `trial_to_intervention` (`trial_arm_id` → input intervention name — the **provenance / traceability** record:
+  which trial ARM used each name; links to the shared `trial_arms` registry (arm identity lives there once, keyed by
+  the deterministic `trial_arm_id = {trialId}::{arm}` slug); deterministic, populated at collection time),
 - `drug_annotations_core` (canonical → intrinsic facts), `drug_target_actions` (canonical → (target, action) pairs — the mechanism),
 - `drug_regulatory_approvals` (canonical → TGA/PBS approval, **indication-specific**, verified against the live TGA/PBS sites).
 
@@ -148,13 +156,17 @@ layout: `docs/agentic/drug_ref_schema.md`.
 constant — a functional dependency, by design (not an accident). Mapping/annotation/enrichment are *just more
 columns* hanging off this grain (§8) — keyed by the source cell (mapping) or by `drug` (drug_annotations_core).
 
-**Output = normalized masters + a combined view (locked 2026-07-13; decoupled + relocated 2026-07-21/24).** Each
-run writes the **5 3NF masters** to `eligibility/current_output/` — `regime.tsv` (`(trialId, arm) → arm_type`; NO
-drug), `extracted_eligibility.tsv` (`(trialId, arm, conj_id) → cells`), and the three `*_map.tsv` vocab lookups —
-plus `combined.tsv`, their materialized join (the flat rows the matching engine reads), written **outside the
-store** at `eligibility/combined/combined.tsv` (§9). `drug_annotations_core` is a *further* separate, **persisted, datestamped** table (global
-drug facts, built once per unique drug, looked up by name — the drug-stage throughput win); it is now **built
-standalone** (see the drug_annotations_core note above), and only its *join* into `combined` remains deferred. Full column lists in §9.
+**Output = a shared arm registry + eligibility content masters + a combined view (locked 2026-07-13; decoupled
+2026-07-21; arm registry extracted 2026-07-25).** The arm spine lives once in the **shared `trial_arms` registry**
+(`trial_arms/current_version/trial_arms.tsv`: `trial_arm_id, trialId, registry, arm, arm_type`; both registries),
+written by whichever path processes a trial. Each run writes eligibility's **2 content masters** to
+`eligibility/current_output/`, each keyed by `trial_arm_id` — `arm_eligibility_raw.tsv` (`trial_arm_id → 5 verbatim
+raw cells`) and `interpreted_eligibility.tsv` (`(trial_arm_id, conj_id) → 5 interpreted cells`) — plus the three
+`*_map.tsv` vocab lookups, and `combined.tsv` (their materialized join with `trial_arms` + drug annotations on
+`trial_arm_id`; the flat rows the matching engine reads), written **outside the store** at
+`eligibility/combined/combined.tsv` (§9). `drug_annotations_core` is a *further* separate, **persisted, datestamped**
+table (global drug facts, built once per unique drug, looked up by name — the drug-stage throughput win); it is
+**built standalone**, and only its *join* into `combined` remains deferred. Full column lists in §9.
 
 **Locked design decisions (2026-07-13) — do not re-litigate:**
 1. **Regime membership** = any armGroup with ≥1 pharmacological agent `{Drug, Biological}`; exclude
@@ -339,28 +351,34 @@ overwrites) are **held-out verification data**, checked **manually** later (esp.
 legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would degenerate into a mechanical vlookup).
 The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
 
-## 9. Output — normalized masters + combined view (§6.1; decoupled + relocated 2026-07-21/24)
-The accumulating store `data/agentic/eligibility/current_output/` holds **5 pure-3NF masters** (re-running a trial
-replaces its rows; superseded stores move to `archive/`). Eligibility masters hold **NO drug facts** — drugs join
-in via the `(trialId, arm)` key to the drug utility path (§6.1):
+## 9. Output — shared arm registry + eligibility content masters + combined view (§6.1; decoupled 2026-07-21; arm registry extracted 2026-07-25)
+Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/trial_arms/current_version/trial_arms.tsv`
+— `trial_arm_id, trialId, registry, arm, arm_type` (both registries; `trial_arm_id` = the deterministic
+`{trialId}::{arm}` slug), written by whichever path processes a trial. The eligibility store
+`data/agentic/eligibility/current_output/` holds only its **2 content masters + 3 map tables**, each keyed by
+`trial_arm_id` (re-running a trial replaces its rows; superseded stores → `archive/`). Eligibility masters hold
+**NO drug facts** — drugs join in via `trial_arm_id` to the drug utility path (§6.1):
 
-- **`regime.tsv`** — PK `(trialId, arm)` → `arm_type`. The arm spine; the join key to the drug path.
-- **`extracted_eligibility.tsv`** — PK `(trialId, arm, conj_id)` → the 5 raw cells (`cancer_type,
-  gene_alteration, molecular_signature, molecular_biomarker, prior_therapy`; inline `[source]` + `NOT()`).
-  `conj_id` numbers the OR-conjunctions within `(trialId, arm)`.
+- **`trial_arms.tsv`** (SHARED registry) — PK `trial_arm_id` → `trialId, registry, arm, arm_type`. The arm spine;
+  the single join key both paths link to.
+- **`arm_eligibility_raw.tsv`** — PK `trial_arm_id` → the 5 VERBATIM raw cells (`cancer_type, gene_alteration,
+  molecular_signature, molecular_biomarker, prior_therapy`; each with inline `[source]`, `|`-delimited; trial-wide
+  criteria replicated onto each arm). The audit anchor.
+- **`interpreted_eligibility.tsv`** — PK `(trial_arm_id, conj_id)` → the 5 interpreted DNF cells (inline `NOT()`;
+  rows sharing `trial_arm_id` are ORed). `conj_id` numbers the OR-conjunctions within an arm.
 - **`cancer_type_map.tsv`** — `cancer_type` value → `oncotree_name, oncotree_code` (deduped, universe-wide cache).
 - **`gene_alteration_map.tsv`** / **`molecular_signature_map.tsv`** — value → `finding_model` (deduped).
 
 The denormalized **`combined.tsv`** (the materialized join, for the matching engine) is NOT 3NF, so it is written
 **outside the store**, at `data/agentic/eligibility/combined/combined.tsv` (single overwritten file, regenerable).
-It joins eligibility ⋈ vocab maps ⋈ drug annotations on `(trialId, arm)` — **16 columns**: `trialId, arm,
-arm_type, conj_id, cancer_type, oncotree_name, oncotree_code, gene_alteration, gene_alteration_findingmodel,
-molecular_signature, molecular_signature_findingmodel, molecular_biomarker, prior_therapy, arm_drugs, drug_class,
-pottr_drug_class`.
+It joins interpreted eligibility ⋈ `trial_arms` ⋈ vocab maps ⋈ drug annotations on `trial_arm_id` — **16 columns**:
+`trialId, arm, arm_type, conj_id, cancer_type, oncotree_name, oncotree_code, gene_alteration,
+gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
+prior_therapy, arm_drugs, drug_class, pottr_drug_class`.
 
-`extracted_eligibility` stores each arm's distributed rows (self-contained; clean FK to `regime.tsv`); trial-wide
-criteria are AND-combined into each arm by `_distribute` upstream. **Still owed** on `combined.tsv` (items A/B in
-the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
+The raw text (grain: arm) and the interpreted conjunctions (grain: arm × conjunction) are separate 3NF entities;
+trial-wide criteria are AND-combined into each arm by `_distribute` upstream. **Still owed** on `combined.tsv`
+(items A/B in the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
 
 ## 10. Repo layout & retirement
 
@@ -368,14 +386,18 @@ the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role d
 aus_trial_universe/
   eligibility_path/  drug_utility_path/   # legacy — reference (resource source) until superseded
   agentic/
-    run.py                               # pipeline orchestrator
-    core/    client.py agent.py workflow.py pipeline_io.py
-    tasks/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
-    tools/   oncotree.py  finding_model.py
-    qa/      validate_output.py            # independent output validator (review of the reviewers)
+    run.py                               # ELIGIBILITY orchestrator (extract → map → drug top-up → combined)
+    core/    client.py agent.py workflow.py pipeline_io.py paths.py cache_prune.py prompt_registry.py logfmt.py
+    tasks/
+      shared/        cohorts.py agents.py schema.py store.py  # PATH-NEUTRAL arm identification: Cohort,
+      #                trial_arm_id() slug, ANZCTR drug agents, anzctr_regimes, TrialArm + TrialArmStore
+      eligibility/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
+      #              tools/ (oncotree.py finding_model.py)  qa/ (validate_output.py, arm_consistency.py)
+      drug_utility/  schema.py store.py rxnorm.py pottr.py agents.py workflow.py build.py migrate_trial_arms.py
 ```
-Shared identity/reference code belongs in `agentic/tools/` (do not reintroduce the old drug_utility→eligibility
-RxNorm coupling). `ui/` deleted. `actin_curator/`, `pydantic_curator/`, `trialcurator/`, `qa/` retire as v2
+Arm identification is the ONE thing genuinely shared by both paths → it lives in `agentic/tasks/shared/` (both
+paths import it; do NOT reintroduce the old drug_utility→eligibility RxNorm coupling, nor a backwards
+drug→eligibility import). `ui/` deleted. `actin_curator/`, `pydantic_curator/`, `trialcurator/`, `qa/` retire as v2
 supersedes each (legacy still supplies resources + is imported by the old paths).
 
 ## 11. Verification

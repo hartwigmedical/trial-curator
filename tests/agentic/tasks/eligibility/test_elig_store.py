@@ -1,5 +1,8 @@
 """EligStore persistence: accumulating snapshot round-trip, per-trial upsert (re-run replaces rows),
-lookup-first value->vocab map cache, and latest-snapshot selection (spec §6.1)."""
+lookup-first value->vocab map cache, and latest-snapshot selection (spec §6.1).
+
+The arm spine (`trial_arms`) is the SHARED registry (see test_trial_arm_store); the eligibility store holds only
+its two content tables, keyed by `trial_arm_id` and grouped internally by trialId (derived from the slug)."""
 from __future__ import annotations
 
 from aus_trial_universe.agentic.core.paths import latest_snapshot_dir
@@ -9,22 +12,23 @@ from aus_trial_universe.agentic.tasks.eligibility.schema import (
     GeneAlterationMap,
     InterpretedEligibility,
     MolecularSignatureMap,
-    TrialArm,
 )
 from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
-
-
-def _arms(trial, *labels):
-    return [TrialArm(trialId=trial, arm=l, arm_type="EXPERIMENTAL") for l in labels]
+from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
 
 
 def _raw(trial, arm, cancer):
-    return ArmEligibilityRaw(trialId=trial, arm=arm, cancer_type_raw=cancer)
+    return ArmEligibilityRaw(trial_arm_id=trial_arm_id(trial, arm), cancer_type_raw=cancer)
+
+
+def _interp(trial, arm, idx, cancer, gene=""):
+    return InterpretedEligibility(trial_arm_id=trial_arm_id(trial, arm), conjunction_index=idx,
+                                  cancer_type_interpreted=cancer, gene_alteration_interpreted=gene)
 
 
 def test_empty_load_when_no_snapshot(tmp_path):
     store = EligStore.load(tmp_path)
-    assert store.arms == {} and store.raw == {} and store.interpreted == {} and store.cancer_map == {}
+    assert store.raw == {} and store.interpreted == {} and store.cancer_map == {}
     assert store.lookup_cancer_type("melanoma") is None
 
 
@@ -40,16 +44,11 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
     s = EligStore()
     s.set_trial(
         "NCT01",
-        arms=[TrialArm(trialId="NCT01", arm="Arm A", arm_type="EXPERIMENTAL"),
-              TrialArm(trialId="NCT01", arm="Arm B", arm_type="ACTIVE_COMPARATOR")],
         raw=[_raw("NCT01", "Arm A", "metastatic NSCLC [ELIGIBILITY CRITERIA]"),
              _raw("NCT01", "Arm B", "metastatic NSCLC [ELIGIBILITY CRITERIA]")],
         interpreted=[
-            InterpretedEligibility(trialId="NCT01", arm="Arm A", conjunction_index=1,
-                                   cancer_type_interpreted="metastatic NSCLC",
-                                   gene_alteration_interpreted="EGFR exon 19 del"),
-            InterpretedEligibility(trialId="NCT01", arm="Arm A", conjunction_index=2,
-                                   cancer_type_interpreted="metastatic NSCLC"),
+            _interp("NCT01", "Arm A", 1, "metastatic NSCLC", "EGFR exon 19 del"),
+            _interp("NCT01", "Arm A", 2, "metastatic NSCLC"),
         ],
     )
     s.put_cancer_type(CancerTypeMap(cancer_type="metastatic NSCLC", oncotree_name="Lung Adenocarcinoma", oncotree_code="LUAD"))
@@ -58,14 +57,17 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
 
     run_dir = tmp_path / "20260720_120000"
     s.save(run_dir)
-    assert (run_dir / "trial_arms.tsv").exists() and (run_dir / "interpreted_eligibility.tsv").exists()
-    assert (run_dir / "arm_eligibility_raw.tsv").exists() and (run_dir / "cancer_type_map.tsv").exists()
+    # the eligibility store holds ONLY its two content tables + the map tables (no trial_arms — that's shared)
+    assert not (run_dir / "trial_arms.tsv").exists()
+    assert (run_dir / "arm_eligibility_raw.tsv").exists() and (run_dir / "interpreted_eligibility.tsv").exists()
+    assert (run_dir / "cancer_type_map.tsv").exists()
 
     loaded = EligStore.load(tmp_path)
-    assert {a.arm for a in loaded.arms["NCT01"]} == {"Arm A", "Arm B"}
-    assert {r.arm for r in loaded.raw["NCT01"]} == {"Arm A", "Arm B"}
+    assert {r.trial_arm_id for r in loaded.raw["NCT01"]} == {
+        trial_arm_id("NCT01", "Arm A"), trial_arm_id("NCT01", "Arm B")}
     rows = loaded.interpreted["NCT01"]
     assert len(rows) == 2 and rows[0].conjunction_index == 1 and isinstance(rows[0].conjunction_index, int)
+    assert rows[0].trial_arm_id == trial_arm_id("NCT01", "Arm A")
     # lookup-first cache round-trips
     assert loaded.lookup_cancer_type("metastatic NSCLC").oncotree_code == "LUAD"
     assert loaded.lookup_gene_alteration("EGFR exon 19 del").finding_model == "SmallVariant[gene=EGFR]"
@@ -74,16 +76,16 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
 
 def test_set_trial_replaces_rows_on_rerun(tmp_path):
     s = EligStore()
-    s.set_trial("NCT01", _arms("NCT01", "all"), [_raw("NCT01", "all", "melanoma [CONDITIONS]")],
-                [InterpretedEligibility(trialId="NCT01", arm="all", conjunction_index=1, cancer_type_interpreted="melanoma")])
-    s.set_trial("NCT02", _arms("NCT02", "all"), [_raw("NCT02", "all", "NSCLC [CONDITIONS]")],
-                [InterpretedEligibility(trialId="NCT02", arm="all", conjunction_index=1, cancer_type_interpreted="NSCLC")])
+    s.set_trial("NCT01", [_raw("NCT01", "all", "melanoma [CONDITIONS]")],
+                [_interp("NCT01", "all", 1, "melanoma")])
+    s.set_trial("NCT02", [_raw("NCT02", "all", "NSCLC [CONDITIONS]")],
+                [_interp("NCT02", "all", 1, "NSCLC")])
     s.save(tmp_path / "20260720_100000")
 
     # re-run NCT01 with a fixed value -> its old rows are replaced, NCT02 untouched
     s2 = EligStore.load(tmp_path)
-    s2.set_trial("NCT01", _arms("NCT01", "all"), [_raw("NCT01", "all", "melanoma [CONDITIONS]")],
-                 [InterpretedEligibility(trialId="NCT01", arm="all", conjunction_index=1, cancer_type_interpreted="melanoma (fixed)")])
+    s2.set_trial("NCT01", [_raw("NCT01", "all", "melanoma [CONDITIONS]")],
+                 [_interp("NCT01", "all", 1, "melanoma (fixed)")])
     s2.save(tmp_path / "20260720_110000")
 
     latest = EligStore.load(tmp_path)

@@ -128,7 +128,7 @@
 </style>
 
 <div class="wrap">
-  <p class="date">20 July 2026 &middot; v2 agentic pipeline</p>
+  <p class="date">25 July 2026 &middot; v2 agentic pipeline</p>
   <h1>Drug utility path &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop, and the trustworthy facts
@@ -164,16 +164,17 @@
     <section class="stage mix">
       <span class="rail"></span>
       <div class="head"><span class="tag">Collect</span><h3>Every drug across the trial universe, with its arm</h3><span class="badge mix">code + llm</span></div>
+      <p>Arm identification is the <b>path-neutral shared module</b> (<span class="inline-code">tasks/shared</span>) &mdash; the SAME code the eligibility path uses &mdash; so arms are written once to the central <span class="inline-code">trial_arms</span> registry and both paths link to them by the deterministic <span class="inline-code">trial_arm_id = {trialId}::{arm}</span> slug.</p>
       <div class="branch">
         <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
-          <p>each drug-bearing <span class="inline-code">armGroups</span> entry &rarr; a
-            <span class="inline-code">(trialId, arm, arm_type, drug)</span> occurrence. Exact, per-arm, no LLM.</p></div>
-        <div class="b an"><span class="src">ANZCTR &middot; LLM doer&rarr;reviewer</span>
-          <p>names the drugs in <span class="inline-code">INTERVENTIONS</span> (arm = intervention) +
+          <p>each drug-bearing <span class="inline-code">armGroups</span> entry &rarr; an arm (&rarr; <span class="inline-code">trial_arms</span>) + a
+            <span class="inline-code">(trial_arm_id, drug)</span> occurrence. Exact, per-arm, no LLM.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; shared LLM doer&rarr;reviewer</span>
+          <p>the shared derivation names the drugs in <span class="inline-code">INTERVENTIONS</span> (arm = intervention) +
             <span class="inline-code">COMPARATOR</span> (arm = comparator); non-drug modalities filtered out by a
             deterministic backstop.</p></div>
       </div>
-      <div class="out"><span class="t">&rarr; trial_to_intervention</span><span class="arrow">+ distinct raw names &rarr; Stage 1</span></div>
+      <div class="out"><span class="t">&rarr; trial_arms (shared)</span><span class="arrow">+</span><span class="t">&rarr; trial_to_intervention</span><span class="arrow">+ distinct raw names &rarr; Stage 1</span></div>
     </section>
     <div class="conn"></div>
 
@@ -286,7 +287,9 @@
   <div class="tables">
     <h2>The relational model &mdash; two stages, five tables</h2>
     <p class="sub">Identity (which drug is this?) is separated from enrichment (what is this drug?). Trial provenance
-      joins to the mapping by input name; everything downstream joins by <span class="inline-code">canonical_id</span>.</p>
+      joins to the mapping by input name and to the <b>shared <span class="inline-code">trial_arms</span> registry</b>
+      (arm identity, both registries) by <span class="inline-code">trial_arm_id</span>; everything downstream joins by
+      <span class="inline-code">canonical_id</span>. (<span class="inline-code">trial_arms</span> is shared with the eligibility path &mdash; not one of the drug path's five.)</p>
     <div class="tgrid">
       <div class="tbl"><span class="stg">Stage 1 &middot; identity</span>
         <p class="name">intervention_to_canonical</p>
@@ -294,8 +297,8 @@
         <p>the mapping (+ <span class="inline-code">raw_name_to_map</span>); a combination is 1 input &rarr; N rows.</p></div>
       <div class="tbl"><span class="stg">Stage 1 &middot; provenance</span>
         <p class="name">trial_to_intervention</p>
-        <p class="key">(trialId, registry, arm) &rarr; input name</p>
-        <p>which trials / arms used each name &mdash; arm + arm_type; deterministic.</p></div>
+        <p class="key">trial_arm_id &rarr; input name</p>
+        <p>which trial <b>arm</b> used each name; links to the shared <span class="inline-code">trial_arms</span> registry (arm identity lives there once). Deterministic.</p></div>
       <div class="tbl"><span class="stg">Stage 2 &middot; core</span>
         <p class="name">drug_annotations_core</p>
         <p class="key">canonical_id (PK)</p>

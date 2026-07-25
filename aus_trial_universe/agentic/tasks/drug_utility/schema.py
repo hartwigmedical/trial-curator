@@ -46,18 +46,15 @@ class InterventionToCanonical:
     canonical_id: str = ""              # FK -> DrugAnnotationsCore.canonical_id (namespaced: rxcui:<n> | name:<x>); "" if non-drug
 
 
-# --- Table 1b: which trial (and registry) each intervention name came from ---- #
+# --- Table 1b: which trial ARM each intervention name came from --------------- #
 @dataclass
 class TrialToIntervention:
-    """Provenance (the traceability record): a trial used an intervention name IN A SPECIFIC ARM. Many-to-many —
-    one input name can appear in several trials/arms, and a trial arm has several intervention names. FK
-    input_intervention_name -> InterventionToCanonical (mapping looked up once per string, reused across every use)."""
+    """Provenance (the traceability record): a trial ARM used an intervention name. Many-to-many — one input name
+    can appear in several arms, and an arm has several intervention names. The arm identity (trialId / registry /
+    arm label / arm_type) lives ONCE in the shared `trial_arms` registry; this table links to it by `trial_arm_id`.
+    FK input_intervention_name -> InterventionToCanonical (mapping looked up once per string, reused across uses)."""
 
-    trialId: str = ""                   # NCT... (ctgov) or ACTRN... (anzctr)
-    registry: str = ""                  # "ctgov" | "anzctr"
-    arm: str = ""                       # CTGov armGroup label; ANZCTR "intervention" | "comparator" (deterministic)
-    arm_type: str = ""                  # CTGov armGroups[].type (EXPERIMENTAL / ACTIVE_COMPARATOR / …); ANZCTR
-    #                                     EXPERIMENTAL (intervention) | ACTIVE_COMPARATOR (comparator). Flags control arms.
+    trial_arm_id: str = ""              # FK -> shared trial_arms.trial_arm_id (the (trialId, arm) slug)
     input_intervention_name: str = ""   # FK -> InterventionToCanonical.input_intervention_name
 
 

@@ -18,6 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import CURRENT_VERSION, DRUG_ANNOTATIONS_ROOT, current_version_dir
+from aus_trial_universe.agentic.tasks.shared.cohorts import trial_id_of
 from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     DRUG_REGULATORY_APPROVALS_COLUMNS,
     DRUG_ANNOTATIONS_CORE_COLUMNS,
@@ -60,8 +61,8 @@ class DrugRefStore:
     def __init__(self) -> None:
         # input_intervention_name -> [InterventionToCanonical, ...] (a combination input -> N; deduped by string)
         self.mappings: dict[str, list[InterventionToCanonical]] = {}
-        # (trialId, registry, input_intervention_name) -> row (deduped provenance / traceability)
-        self.occurrences: dict[tuple[str, str, str], TrialToIntervention] = {}
+        # (trial_arm_id, input_intervention_name) -> row (deduped provenance / traceability; links to trial_arms)
+        self.occurrences: dict[tuple[str, str], TrialToIntervention] = {}
         self.refs: dict[str, DrugAnnotationsCore] = {}                      # canonical_id -> DrugAnnotationsCore
         self.targets: dict[str, list[DrugTargetAction]] = {}         # canonical_id -> (target, action) rows
         self.indications: dict[str, list[DrugRegulatoryApproval]] = {}  # canonical_id -> rows
@@ -86,8 +87,8 @@ class DrugRefStore:
                         InterventionToCanonical(input_intervention_name=name, raw_name_to_map=name, canonical_id=cid))
         for row in _read_tsv(vdir / TABLE_FILES["trial_to_intervention"]):
             o = TrialToIntervention(**{k: row.get(k, "") for k in TRIAL_TO_INTERVENTION_COLUMNS})
-            if o.trialId and o.input_intervention_name:
-                store.occurrences[(o.trialId, o.registry, o.arm, o.input_intervention_name)] = o
+            if o.trial_arm_id and o.input_intervention_name:
+                store.occurrences[(o.trial_arm_id, o.input_intervention_name)] = o
         for row in _read_tsv(vdir / TABLE_FILES["drug_annotations_core"]):
             r = DrugAnnotationsCore(**{k: row.get(k, "") for k in DRUG_ANNOTATIONS_CORE_COLUMNS})
             if r.canonical_id:
@@ -123,6 +124,10 @@ class DrugRefStore:
     def indications_for(self, canonical_id: str) -> list[DrugRegulatoryApproval]:
         return self.indications.get(canonical_id, [])
 
+    def trial_arm_ids(self) -> set[str]:
+        """Every trial_arm_id referenced by `trial_to_intervention` (its FKs into the shared trial_arms registry)."""
+        return {taid for (taid, _name) in self.occurrences}
+
     def is_stale(self, canonical_id: str, max_age_days: int, *, today: date | None = None) -> bool:
         """True if the canonical is absent or its research is older than max_age_days."""
         r = self.refs.get(canonical_id)
@@ -151,11 +156,21 @@ class DrugRefStore:
         self.mappings[input_name] = rows or [
             InterventionToCanonical(input_intervention_name=input_name, raw_name_to_map=input_name, canonical_id="")]
 
-    def add_occurrence(self, trial_id: str, registry: str, arm: str, arm_type: str, input_name: str) -> None:
-        """Record that a trial used an input intervention name in a specific arm (deduped provenance / traceability)."""
-        if trial_id and input_name:
-            self.occurrences[(trial_id, registry, arm, input_name)] = TrialToIntervention(
-                trialId=trial_id, registry=registry, arm=arm, arm_type=arm_type, input_intervention_name=input_name)
+    def add_occurrence(self, trial_arm_id: str, input_name: str) -> None:
+        """Record that a trial ARM used an input intervention name (deduped provenance / traceability). Links to the
+        shared trial_arms registry by `trial_arm_id`."""
+        if trial_arm_id and input_name:
+            self.occurrences[(trial_arm_id, input_name)] = TrialToIntervention(
+                trial_arm_id=trial_arm_id, input_intervention_name=input_name)
+
+    def remove_trial_occurrences(self, trial_id: str) -> int:
+        """Drop ALL trial_to_intervention rows for a trial (every arm) — overwrite semantics before re-deriving its
+        arms (so a re-build cannot leave a trial with both its old and new arm rows). Returns the count removed.
+        Drug facts (canonical/annotation tables) are keyed by drug, shared across trials, and left untouched."""
+        keys = [k for k in self.occurrences if trial_id_of(k[0]) == trial_id]
+        for k in keys:
+            del self.occurrences[k]
+        return len(keys)
 
     def put_ref(self, ref: DrugAnnotationsCore) -> None:
         self.refs[ref.canonical_id] = ref

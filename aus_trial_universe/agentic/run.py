@@ -6,9 +6,10 @@ annotations are a SEPARATE incremental store (`drug_annotations/`), topped up he
 introduce (existing drugs = pure lookup — no web search). At the end, one grand flat file joins
 eligibility ⋈ vocab maps ⋈ drug annotations on the (trialId, arm) key.
 
-The eligibility relational tables are an accumulating store at `data/agentic/eligibility/current_output/`,
-holding ONLY the pure-3NF masters:
-    trial_arms.tsv · arm_eligibility_raw.tsv · interpreted_eligibility.tsv · cancer_type_map.tsv ·
+The arm spine (`trial_arms`) is the SHARED central registry at `data/agentic/trial_arms/current_version/`
+(written by whichever path processes a trial; both paths link to it by `trial_arm_id`). The eligibility store at
+`data/agentic/eligibility/current_output/` holds ONLY its content masters, keyed by trial_arm_id:
+    arm_eligibility_raw.tsv · interpreted_eligibility.tsv · cancer_type_map.tsv ·
     gene_alteration_map.tsv · molecular_signature_map.tsv
 The grand flat view (`combined.tsv` — the masters joined, for consumers) is DENORMALIZED, not 3NF, so it is
 written OUTSIDE the store, to `data/agentic/eligibility/combined/combined.tsv` (single overwritten file).
@@ -62,53 +63,54 @@ COMBINED_COLUMNS = [
 ]
 
 
-def _arm_rows(trial_id, result):
-    """ExtractionResult -> (TrialArm rows, ArmEligibilityRaw rows, InterpretedEligibility rows).
+def _arm_rows(trial_id, registry, result):
+    """ExtractionResult -> (TrialArm rows [shared registry], ArmEligibilityRaw rows, InterpretedEligibility rows).
 
-    Arms + raw come from result.arm_raw (one per cohort); conjunction_index numbers the DNF conjunctions
-    within (trialId, arm) from result.rows."""
-    from aus_trial_universe.agentic.tasks.eligibility.schema import (
-        ArmEligibilityRaw, InterpretedEligibility, TrialArm,
-    )
+    Arm identity comes from result.cohorts (the resolved arms — label + arm_type); the two eligibility content
+    tables link to it by trial_arm_id. conjunction_index numbers the DNF conjunctions within an arm from
+    result.rows."""
+    from aus_trial_universe.agentic.tasks.eligibility.schema import ArmEligibilityRaw, InterpretedEligibility
+    from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
+    from aus_trial_universe.agentic.tasks.shared.schema import TrialArm
 
-    arm_type = {}
-    for r in result.rows:
-        arm_type.setdefault(r.cohort, r.arm_type)
-    arms = [TrialArm(trialId=trial_id, arm=ar.arm, arm_type=arm_type.get(ar.arm, "")) for ar in result.arm_raw]
+    arms = [TrialArm(trial_arm_id=trial_arm_id(trial_id, c.label), trialId=trial_id, registry=registry,
+                     arm=c.label, arm_type=c.arm_type) for c in result.cohorts]
     raw = [ArmEligibilityRaw(
-        trialId=trial_id, arm=ar.arm, cancer_type_raw=ar.cancer_type_raw,
+        trial_arm_id=trial_arm_id(trial_id, ar.arm), cancer_type_raw=ar.cancer_type_raw,
         gene_alteration_raw=ar.gene_alteration_raw, molecular_signature_raw=ar.molecular_signature_raw,
         molecular_biomarker_raw=ar.molecular_biomarker_raw, prior_therapy_raw=ar.prior_therapy_raw,
     ) for ar in result.arm_raw]
 
-    conj: dict[tuple, int] = {}
+    conj: dict[str, int] = {}
     interp: list[InterpretedEligibility] = []
     for r in result.rows:
-        key = (r.trialId, r.cohort)
-        conj[key] = conj.get(key, 0) + 1
+        taid = trial_arm_id(r.trialId, r.cohort)
+        conj[taid] = conj.get(taid, 0) + 1
         interp.append(InterpretedEligibility(
-            trialId=r.trialId, arm=r.cohort, conjunction_index=conj[key],
+            trial_arm_id=taid, conjunction_index=conj[taid],
             cancer_type_interpreted=r.cancer_type, gene_alteration_interpreted=r.gene_alteration,
             molecular_signature_interpreted=r.molecular_signature,
             molecular_biomarker_interpreted=r.molecular_biomarker, prior_therapy_interpreted=r.prior_therapy))
     return arms, raw, interp
 
 
-def _drug_occurrences(result, registry, strip_provenance):
-    """Distinct (trialId, registry, arm, arm_type, drug_name) + distinct drug names from a trial's DNF rows."""
+def _drug_occurrences(result, strip_provenance):
+    """Distinct (trial_arm_id, drug_name) occurrences + distinct drug names from a trial's DNF rows."""
+    from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
     occ: list[tuple] = []
     names: list[str] = []
     seen: set[tuple] = set()
     for r in result.rows:
+        taid = trial_arm_id(r.trialId, r.cohort)
         for name in strip_provenance(r.drug).split(";"):
             name = name.strip()
             if not name:
                 continue
-            key = (r.trialId, r.cohort, name)
+            key = (taid, name)
             if key in seen:
                 continue
             seen.add(key)
-            occ.append((r.trialId, registry, r.cohort, r.arm_type, name))
+            occ.append((taid, name))
             if name not in names:
                 names.append(name)
     return occ, names
@@ -143,12 +145,12 @@ def _compute_new_maps(client, elig_store, elig_rows, strip_provenance, kw):
     return ct, ga, sig
 
 
-def _arm_drug_facts(drug_store, trial_id, arm):
-    """Join to the drug store on (trialId, arm): distinct canonical drug names + classes + POTTR classes."""
+def _arm_drug_facts(drug_store, trial_arm_id_value):
+    """Join to the drug store on trial_arm_id: distinct canonical drug names + classes + POTTR classes."""
     if drug_store is None:
         return "", "", ""
-    inputs = [o.input_intervention_name for (t, _reg, a, _inp), o in drug_store.occurrences.items()
-              if t == trial_id and a == arm]
+    inputs = [o.input_intervention_name for (taid, _inp), o in drug_store.occurrences.items()
+              if taid == trial_arm_id_value]
     cids: list[str] = []
     for inp in inputs:
         for cid in drug_store.canonical_ids_for(inp):
@@ -165,24 +167,27 @@ def _arm_drug_facts(drug_store, trial_id, arm):
     return "; ".join(names), "; ".join(classes), " | ".join(pottr)
 
 
-def _build_combined(elig_store, drug_store, strip_provenance) -> list[dict]:
-    """Materialize the grand flat view: interpreted eligibility ⋈ vocab maps ⋈ drug annotations on (trialId, arm).
+def _build_combined(elig_store, arm_store, drug_store, strip_provenance) -> list[dict]:
+    """Materialize the grand flat view: interpreted eligibility ⋈ shared trial_arms ⋈ vocab maps ⋈ drug
+    annotations, all on trial_arm_id.
 
     PARKED (2026-07-24) — regenerated only for non-extract-only runs; kept correct so `make agentic-run` works."""
+    from aus_trial_universe.agentic.tasks.shared.cohorts import trial_id_of
     rows: list[dict] = []
-    arm_type = {(a.trialId, a.arm): a.arm_type for arms in elig_store.arms.values() for a in arms}
-    drug_cache: dict[tuple, tuple] = {}
+    arm_by_id = {a.trial_arm_id: a for arms in arm_store.arms.values() for a in arms}
+    drug_cache: dict[str, tuple] = {}
     for _trial_id, elig_rows in elig_store.interpreted.items():
         for e in elig_rows:
             ct = elig_store.lookup_cancer_type(strip_provenance(e.cancer_type_interpreted))
             ga = elig_store.lookup_gene_alteration(strip_provenance(e.gene_alteration_interpreted))
             sig = elig_store.lookup_molecular_signature(strip_provenance(e.molecular_signature_interpreted))
-            key = (e.trialId, e.arm)
-            if key not in drug_cache:
-                drug_cache[key] = _arm_drug_facts(drug_store, e.trialId, e.arm)
-            arm_drugs, drug_class, pottr = drug_cache[key]
+            ta = arm_by_id.get(e.trial_arm_id)
+            if e.trial_arm_id not in drug_cache:
+                drug_cache[e.trial_arm_id] = _arm_drug_facts(drug_store, e.trial_arm_id)
+            arm_drugs, drug_class, pottr = drug_cache[e.trial_arm_id]
             rows.append({
-                "trialId": e.trialId, "arm": e.arm, "arm_type": arm_type.get(key, ""),
+                "trialId": ta.trialId if ta else trial_id_of(e.trial_arm_id),
+                "arm": ta.arm if ta else "", "arm_type": ta.arm_type if ta else "",
                 "conjunction_index": e.conjunction_index,
                 "cancer_type_interpreted": e.cancer_type_interpreted,
                 "oncotree_name": ct.oncotree_name if ct else "", "oncotree_code": ct.oncotree_code if ct else "",
@@ -220,13 +225,22 @@ def main(argv: list[str] | None = None) -> int:
                         help="Skip the automatic prune of cache entries from OUTDATED prompts at run start "
                              "(default: on when the cache is enabled; removes only stale entries, never live/legacy).")
     parser.add_argument("--workers", type=int, default=8,
-                        help="Trials extracted in PARALLEL (default 8 — highest reasonable concurrency; each trial "
-                             "is independent). Logs interleave at >1 — review the output TSVs, not the live log. "
-                             "Use 1 for a readable single-trial log.")
+                        help="Trials extracted in PARALLEL (default 8). Each trial also fans out its reviewer panel, "
+                             "so true peak concurrency ≈ workers × fan_out unless --max-concurrency caps it. Logs "
+                             "interleave at >1 — review the output TSVs, not the live log. Use 1 for a readable log.")
+    parser.add_argument("--max-concurrency", type=int, default=None,
+                        help="GLOBAL cap on concurrent LLM API calls across all trials × their reviewer fan-outs "
+                             "(the deterministic governor for large runs; set it to the account's empirical "
+                             "rate-limit ceiling and raise --workers freely). Default: uncapped.")
     parser.add_argument("--max-attempts", type=int, default=6,
                         help="UPPER bound on refine attempts (default 6). Not a fixed count: lenient reviewers let "
                              "standard trials pass in 1, and refine returns the best attempt + stops early once it "
                              "stops converging — so only genuinely-hard trials use the full budget.")
+    parser.add_argument("--resume", action="store_true",
+                        help="Skip trials already present in the store (process only the not-yet-done ones) and "
+                             "EXIT NON-ZERO if any requested trial is still missing afterwards — so a loop driver "
+                             "can re-run until complete. Combined with the per-trial checkpoint, a resumed run "
+                             "redoes at most the trial that was in flight.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -243,11 +257,14 @@ def main(argv: list[str] | None = None) -> int:
     from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import extract_trial
     from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import strip_provenance
     from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
+    from aus_trial_universe.agentic.tasks.shared.store import TrialArmStore
+    from aus_trial_universe.agentic.core import paths as _paths   # read TRIAL_ARMS_ROOT dynamically (test-redirectable)
 
     ids = [x for x in args.ids.split(",")] if args.ids else None
     trials = load_trials(id=args.id, ids=ids)
     if not trials:
         parser.error("no trials with usable text found")
+    requested_ids = [t[1] for t in trials]   # display ids of everything asked for (before any --resume filter)
 
     store_root = Path(args.store_root) if args.store_root else ELIGIBILITY_OUTPUT
     # The live accumulating store is `current_output/` (current/archive pattern, parallels drug_annotations'
@@ -260,7 +277,8 @@ def main(argv: list[str] | None = None) -> int:
     combined_dir = store_root / COMBINED
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
-    client = LlmClient(model=args.model, cache=cache) if args.model else LlmClient(cache=cache)
+    _client_kw = dict(cache=cache, max_concurrency=args.max_concurrency)
+    client = LlmClient(model=args.model, **_client_kw) if args.model else LlmClient(**_client_kw)
     kw = dict(max_attempts=args.max_attempts, use_reviewer=not args.no_review)
     log = logging.getLogger("agentic.pipeline")
 
@@ -273,9 +291,21 @@ def main(argv: list[str] | None = None) -> int:
     log.info("run · %d trial(s) · judge=%s · review=%s · extract_only=%s · skip_drug=%s → %s/",
              len(trials), not args.no_judge, not args.no_review, args.extract_only, args.skip_drug, run_dir.name)
 
+    trial_arms_root = _paths.TRIAL_ARMS_ROOT  # the SHARED registry's home (read at call time so tests can redirect)
     elig_store = EligStore.load(store_root)   # load the latest EXISTING snapshot before creating this run's dir
+    arm_store = TrialArmStore.load(trial_arms_root)   # the SHARED arm registry (accumulates across both paths + runs)
     run_dir.mkdir(parents=True, exist_ok=True)
+    if args.resume:   # process only the not-yet-done trials (the per-trial checkpoint makes this safe)
+        _pending = [t for t in trials if not elig_store.has_trial(t[1])]
+        log.info("resume · %d/%d requested already in store → %d to process",
+                 len(trials) - len(_pending), len(trials), len(_pending))
+        trials = _pending
+    # ANZCTR arms are derived FRESH per trial via the shared cohort-identification module (inside extract_trial —
+    # CTGov trials pass their deterministic armGroup cohorts, ANZCTR trials pass None and derive). The resolved
+    # arms are written to the shared trial_arms registry; the drug store's trial_to_intervention is re-keyed to
+    # them in a SEPARATE post-run migration step. The drug store is only needed for the map/drug stages.
     drug_store = DrugRefStore.load() if not args.extract_only else None
+
     all_occ: list[tuple] = []
     all_drug_names: list[str] = []
 
@@ -292,7 +322,18 @@ def main(argv: list[str] | None = None) -> int:
     log.info("")
     log.info(stage(f"EXTRACTION + MAPPING · {len(trials)} trial(s) · {args.workers} parallel · per-trial checkpoint"))
 
+    # Offline circuit-breaker (only under --resume, where the loop retries): if many trials fail back-to-back it
+    # is almost certainly a lost connection, so stop burning the rest as failures — defer them for the next
+    # --resume pass instead. Trials already in flight finish; queued ones skip fast.
+    circuit = {"open": False, "consec_fail": 0}
+    _OFFLINE_N = max(8, args.workers)   # ~one full wave of consecutive failures signals an outage
+
+    class _CircuitOpen(RuntimeError):
+        pass
+
     def _work(item):
+        if circuit["open"]:
+            raise _CircuitOpen()
         source, trial_id, base_text, cohorts = item
         t0 = time.perf_counter()
         result = extract_trial(client, trial_id=trial_id, source_text=base_text, cohorts=cohorts,
@@ -302,10 +343,19 @@ def main(argv: list[str] | None = None) -> int:
 
     def _sink(item, res, exc):   # runs single-threaded, in completion order — the durable write point
         source, trial_id, _text, _cohorts = item
+        if isinstance(exc, _CircuitOpen):
+            log.info("  ⏸ %s · deferred (offline — will resume)", trial_id)
+            return
         if exc is not None or res is None:
+            circuit["consec_fail"] += 1
             failures.append((trial_id, f"{type(exc).__name__}: {exc}" if exc else "no result"))
             log.info("  FAILED · %s · %s (skipped)", trial_id, type(exc).__name__ if exc else "no result")
+            if args.resume and not circuit["open"] and circuit["consec_fail"] >= _OFFLINE_N:
+                circuit["open"] = True
+                log.info("  ⏸ circuit OPEN after %d consecutive failures — likely offline; deferring the rest "
+                         "(re-run with --resume when back online)", circuit["consec_fail"])
             return
+        circuit["consec_fail"] = 0
         result, maps, t_work = res
         if maps is not None:
             ct, ga, sig = maps
@@ -315,15 +365,17 @@ def main(argv: list[str] | None = None) -> int:
                 elig_store.put_gene_alteration(m)
             for m in sig:
                 elig_store.put_molecular_signature(m)
-        arm_rows, raw_rows, interp_rows = _arm_rows(trial_id, result)
-        elig_store.set_trial(trial_id, arm_rows, raw_rows, interp_rows)
+        arm_rows, raw_rows, interp_rows = _arm_rows(trial_id, source, result)
+        arm_store.set_trial_arms(trial_id, arm_rows)
+        elig_store.set_trial(trial_id, raw_rows, interp_rows)
         if not args.extract_only:
-            occ, names = _drug_occurrences(result, source, strip_provenance)
+            occ, names = _drug_occurrences(result, strip_provenance)
             all_occ.extend(occ)
             for n in names:
                 if n not in all_drug_names:
                     all_drug_names.append(n)
-        elig_store.save(run_dir)   # PER-TRIAL CHECKPOINT — the completed trial is now durably on disk
+        arm_store.save(trial_arms_root)   # PER-TRIAL CHECKPOINT — trial_arms (shared registry) + the eligibility
+        elig_store.save(run_dir)          #   tables are written together the moment the trial completes (durable)
         nonlocal_total[0] += len(interp_rows)
         summaries.append((source, trial_id, len(interp_rows), result.faithful, result.attempts))
         trial_times.append((trial_id, t_work, len(interp_rows)))
@@ -346,13 +398,14 @@ def main(argv: list[str] | None = None) -> int:
         drug_store.save()
         timing["drug"] = time.perf_counter() - t2
 
-    # --- persist the 3NF store snapshot, then the joined flat view (elsewhere) - #
+    # --- persist the 3NF store snapshots, then the joined flat view (elsewhere) - #
+    arm_store.save(trial_arms_root)                # the shared trial_arms registry
     elig_store.save(run_dir)                       # the pure-3NF masters -> run_dir (current_output/)
     # combined.tsv is PARKED (2026-07-24): the grand flat join is being reworked, so it is skipped for
     # extraction-only runs (the current 3-table focus). Non-extract-only runs still materialize it.
     combined_note = " · combined SKIPPED (parked)"
     if not args.extract_only:
-        combined = _build_combined(elig_store, drug_store, strip_provenance)
+        combined = _build_combined(elig_store, arm_store, drug_store, strip_provenance)
         combined_dir.mkdir(parents=True, exist_ok=True)
         with open(combined_dir / COMBINED_FILE, "w", newline="", encoding="utf-8") as fc:
             w = csv.DictWriter(fc, fieldnames=COMBINED_COLUMNS, delimiter="\t", lineterminator="\n",
@@ -374,6 +427,16 @@ def main(argv: list[str] | None = None) -> int:
           f"drug-topup {timing['drug']:.0f}s")
     for trial_id, t_work, n in sorted(trial_times, key=lambda x: -x[1])[:5]:
         print(f"    slowest trial: {trial_id} · {t_work:.0f}s · {n} conjunction(s)")
+
+    # Under --resume, signal completeness via the exit code so a loop driver knows whether to re-run: 0 = every
+    # requested trial is now in the store; 3 = some are still missing (failed / deferred / offline) -> retry.
+    if args.resume:
+        missing = [i for i in requested_ids if not elig_store.has_trial(i)]
+        if missing:
+            print(f"\n  INCOMPLETE · {len(missing)}/{len(requested_ids)} requested trial(s) still missing "
+                  f"(e.g. {', '.join(missing[:5])}{' …' if len(missing) > 5 else ''}) — re-run with --resume\n")
+            return 3
+        print(f"\n  COMPLETE · all {len(requested_ids)} requested trial(s) present in the store\n")
     return 0
 
 

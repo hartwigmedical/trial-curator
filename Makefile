@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-cache-prune agentic-validate drug-ref-build drug-ref-refresh-pottr
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-refresh-pottr
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -43,8 +43,11 @@ eligibility-path-tests:
 #   make agentic-run IDS=NCT1,ACTRN2,NCT3    # a specific set of trials
 #   make agentic-run                         # ALL trials (ctgov + anzctr)
 #   optional: MODEL=<name>  NO_JUDGE=1  NO_REVIEW=1  EXTRACT_ONLY=1 (skip map+drug)
+#             WORKERS=<n>  MAX_CONCURRENCY=<n> (global LLM-call cap for large runs)
+#             RESUME=1 (auto-resuming loop: skip done trials, re-run until complete — survives interruptions;
+#                       leave it running and it picks up on reconnect. RESUME_BACKOFF=<secs> between retries.)
 agentic-run:
-	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" EXTRACT_ONLY="$(EXTRACT_ONLY)" scripts/agentic/pipeline.sh run
+	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" EXTRACT_ONLY="$(EXTRACT_ONLY)" WORKERS="$(WORKERS)" MAX_CONCURRENCY="$(MAX_CONCURRENCY)" RESUME="$(RESUME)" RESUME_BACKOFF="$(RESUME_BACKOFF)" scripts/agentic/pipeline.sh run
 
 # Wipe run artifacts under data/agentic/{output,log,cache} (handy between test runs).
 agentic-clean:
@@ -61,6 +64,20 @@ agentic-tests:
 #   make agentic-cache-prune APPLY=1 PURGE_UNKNOWN=1
 agentic-cache-prune:
 	APPLY="$(APPLY)" PURGE_UNKNOWN="$(PURGE_UNKNOWN)" scripts/agentic/pipeline.sh cache-prune
+
+# Verify referential integrity of the arm join key: every trial_arm_id referenced by the eligibility tables and
+# the drug path's trial_to_intervention EXISTS in the shared trial_arms registry. Exit 0 = consistent. No API.
+#   make agentic-arm-consistency
+agentic-arm-consistency:
+	scripts/agentic/pipeline.sh arm-consistency
+
+# Re-key the drug path's trial_to_intervention to trial_arm_id against the fresh trial_arms registry, and report
+# intervention-input additions/deletions (ANZCTR arm drift). Rewrites ONLY trial_to_intervention.tsv; the other
+# four drug tables are left untouched (reconcile separately after reviewing the report). Dry-run by default.
+#   make agentic-drug-migrate-trial-arms            # dry-run + report -> data/agentic/analysis/
+#   make agentic-drug-migrate-trial-arms APPLY=1    # also rewrite trial_to_intervention.tsv
+agentic-drug-migrate-trial-arms:
+	APPLY="$(APPLY)" scripts/agentic/pipeline.sh drug-migrate-trial-arms
 
 # Independent output validator — a "review of the reviewer agents". Deterministic, runs OUTSIDE
 # the workflow to catch what the in-loop reviewers let through. Testing-period QA step (not the

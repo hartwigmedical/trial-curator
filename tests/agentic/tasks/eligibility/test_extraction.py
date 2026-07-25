@@ -14,7 +14,6 @@ from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
     REVIEWERS,
 )
 from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
-    DrugExtraction,
     EligibilityExtraction,
     ExtractedRow,
     JudgeVerdict,
@@ -25,6 +24,8 @@ from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import (
     Cohort,
     extract_trial,
 )
+# ANZCTR arm identification (drug extractor + regime derivation) is a path-neutral shared module now.
+from aus_trial_universe.agentic.tasks.shared.agents import DrugExtraction, RegimeVerdict
 
 
 def _reviewer_key(instructions: str) -> str | None:
@@ -76,6 +77,8 @@ class _ScriptedClient:
         if output_schema is DrugExtraction:
             return LlmResult(DrugExtraction(intervention_drugs=self._intervention_drugs,
                                             comparator_drugs=self._comparator_drugs), "fake", "{}", False, 1)
+        if output_schema is RegimeVerdict:   # the shared ANZCTR drug reviewer's verdict
+            return LlmResult(RegimeVerdict(faithful=True), "fake", "{}", False, 1)
         raise AssertionError(f"unexpected schema {output_schema}")
 
 
@@ -102,6 +105,13 @@ def test_arm_raw_assembly_replicates_trialwide_and_tags_source():
     assert by_arm["Arm B"].cancer_type_raw == "advanced NSCLC [CONDITIONS]"   # trial-wide replicated
     assert by_arm["Arm A"].gene_alteration_raw == "EGFR exon 19 del [ELIGIBILITY CRITERIA]"  # C1 = Arm A
     assert by_arm["Arm B"].gene_alteration_raw == ""
+
+
+def test_norm_ws_collapses_newlines_and_tabs():
+    """Verbatim spans are whitespace-normalized in the raw table so it stays line-oriented TSV (content preserved)."""
+    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import _norm_ws
+    assert _norm_ws("line one\nline two\t  tab") == "line one line two tab"
+    assert _norm_ws("  padded \n\n multi ") == "padded multi"
 
 
 def test_arm_raw_joins_multiple_fragments_with_pipe():
@@ -203,6 +213,18 @@ def test_extraction_judgement_prompt_decisions_present():
     # raw stage: verbatim copying + capture exclusions + completeness
     assert "VERBATIM" in RAW_EXTRACTOR_INSTRUCTIONS and "except" in RAW_EXTRACTOR_INSTRUCTIONS
     assert "VERBATIM" in RAW_REVIEWER_INSTRUCTIONS and "MISSING" in RAW_REVIEWER_INSTRUCTIONS.upper()
+    # scope tightening (2026-07-24): raw reviewer is lenient + has an explicit out-of-scope list;
+    # prior_therapy = anti-cancer treatment history only (safety washouts / supplements are out of scope)
+    assert "LENIENT" in RAW_REVIEWER_INSTRUCTIONS and "OUT OF SCOPE" in RAW_REVIEWER_INSTRUCTIONS
+    assert "ESCALATION-MODE" in RAW_REVIEWER_INSTRUCTIONS   # raw escalates symmetrically with interpretation
+    assert "OUT OF SCOPE" in INTERPRETER_INSTRUCTIONS
+    assert "anti-cancer" in INTERPRETER_INSTRUCTIONS.lower() and "supplement" in INTERPRETER_INSTRUCTIONS.lower()
+    # interpretation reviewers share the scope clause (resolves the "history of other malignancy" oscillation)
+    assert "OUT OF SCOPE" in rv["cancer_type"] and "other / second / prior malignancy" in rv["cancer_type"]
+    # molecular_biomarker = expression/receptor status only; disease-burden/measurability levels out of scope
+    assert "disease-BURDEN" in INTERPRETER_INSTRUCTIONS
+    # EXCLUSION-source spans become NOT() in the interpretation
+    assert "EXCLUSION CRITERIA" in INTERPRETER_INSTRUCTIONS
     # interpreter: (1) capture tumour-type exclusions as NOT(); (2) no subsuming over-enumeration; (3) one scope
     assert "except" in INTERPRETER_INSTRUCTIONS and "excluding" in INTERPRETER_INSTRUCTIONS
     assert "refractory to standard therapy" in INTERPRETER_INSTRUCTIONS
@@ -238,6 +260,42 @@ def test_gating_reviewer_triggers_refine_then_passes():
     result = extract_trial(client, trial_id="NCT4", source_text="...", cohorts=[Cohort("all")], max_attempts=3)
     assert result.faithful and result.attempts == 2 and client.extractor_calls == 2
     assert result.rows[0].cancer_type == "NSCLC"
+
+
+class _CapClient(_ScriptedClient):
+    """Captures the doer (interpreter) prompts so tests can assert what reached the writer."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.doer_inputs = []
+
+    def parse(self, output_schema, *, user_input, **kw):
+        if output_schema is EligibilityExtraction:
+            self.doer_inputs.append(user_input)
+        return super().parse(output_schema, user_input=user_input, **kw)
+
+
+def test_suggested_fix_only_fires_as_last_resort_on_a_cycle():
+    """The reviewer's suggested_fix is NOT used on ordinary repairs — it kicks in ONLY when the doer cycles
+    (repeats a problem-set), via refine's last-resort stuck_repair, which re-reviews in ESCALATION-MODE and
+    threads the concrete fix into one final doer repair. Preserves the one-writer / always-re-checked invariant."""
+    client = _CapClient(
+        extractions=[
+            _extraction(ExtractedRow(cohort="trial-wide", cancer_type="lung cancer")),   # attempt 1
+            _extraction(ExtractedRow(cohort="trial-wide", cancer_type="lung cancer")),   # attempt 2 (same -> cycle)
+            _extraction(ExtractedRow(cohort="trial-wide", cancer_type="NSCLC")),         # attempt 3 (after the fix)
+        ],
+        verdicts={"cancer_type": [
+            JudgeVerdict(faithful=False, problems=["too vague"]),                         # attempt 1 review
+            JudgeVerdict(faithful=False, problems=["too vague"]),                         # attempt 2 review (cycle)
+            JudgeVerdict(faithful=False, problems=["too vague"], suggested_fix="cancer_type = NSCLC"),  # ESCALATION re-review
+            JudgeVerdict(faithful=True)]},                                                # attempt 3 review passes
+    )
+    result = extract_trial(client, trial_id="NCT9", source_text="...", cohorts=[Cohort("all")], max_attempts=3)
+    assert result.rows[0].cancer_type == "NSCLC"
+    # ordinary repair (attempt 2) got critique only; the fix reached the doer ONLY via the escalation repair
+    assert not any("SUGGESTED FIX" in inp for inp in client.doer_inputs[:2])
+    assert any("SUGGESTED FIX: cancer_type = NSCLC" in inp for inp in client.doer_inputs)
 
 
 def test_drug_reviewer_is_advisory_not_gating():
@@ -289,7 +347,7 @@ def test_anzctr_comparator_drug_becomes_its_own_control_regime():
 
 
 def test_extract_anzctr_drugs_doer_reviewer():
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import extract_anzctr_drugs
+    from aus_trial_universe.agentic.tasks.shared.cohorts import extract_anzctr_drugs
     client = _ScriptedClient(extractions=[], intervention_drugs=["capecitabine", "bevacizumab"],
                              comparator_drugs=["chemotherapy"])
     dr = extract_anzctr_drugs(client, "...trial text...", use_reviewer=True)   # fake reviewer -> faithful
@@ -305,6 +363,7 @@ def test_anzctr_no_drugs_falls_back_to_single_regime():
     result = extract_trial(client, trial_id="ACTRN3", source_text="...", cohorts=None)
     assert len(result.rows) == 1 and result.rows[0].cohort == "all"  # raw label (join key); no "(all)" transform
     assert result.rows[0].cancer_type == "melanoma"
+    assert result.rows[0].arm_type == "EXPERIMENTAL"   # single-arm fallback is experimental, not blank
 
 
 # --- over-enumeration fixes ------------------------------------------------- #
@@ -340,7 +399,7 @@ def test_enumeration_reviewer_gates_then_refine_splits_fabricated_conjunction():
 
 # --- ANZCTR drug-extractor tightening (non-drug modality backstop + prompt exclusions) --------------- #
 def test_drop_non_drug_modalities_filters_only_exact_modalities():
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import _drop_non_drug_modalities
+    from aus_trial_universe.agentic.tasks.shared.cohorts import _drop_non_drug_modalities
     got = _drop_non_drug_modalities([
         "Total Body Irradiation (TBI)", "TBI", "Surgery", "observation", "Placebo", "best supportive care",
         "Fludarabine", "Melphalan", "Radium-223 dichloride", "radiosensitising agent XYZ",
@@ -349,7 +408,7 @@ def test_drop_non_drug_modalities_filters_only_exact_modalities():
 
 
 def test_extract_anzctr_drugs_strips_non_drug_modalities():
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import extract_anzctr_drugs
+    from aus_trial_universe.agentic.tasks.shared.cohorts import extract_anzctr_drugs
     client = _ScriptedClient(
         extractions=[],
         intervention_drugs=["Fludarabine", "Melphalan", "Total Body Irradiation", "Surgery"],
@@ -361,7 +420,7 @@ def test_extract_anzctr_drugs_strips_non_drug_modalities():
 
 
 def test_anzctr_drug_extractor_prompt_decisions_present():
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
+    from aus_trial_universe.agentic.tasks.shared.agents import (
         DRUG_EXTRACTOR_INSTRUCTIONS as D, DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS as R)
     for text in (D, R):
         low = text.lower()

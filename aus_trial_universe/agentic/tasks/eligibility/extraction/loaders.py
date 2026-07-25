@@ -17,7 +17,7 @@ from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import ANZCTR_ROOT, CTGOV_ROOT, ELIGIBILITY_OUTPUT
 from aus_trial_universe.agentic.core.pipeline_io import find_best_file, latest_version_dir
-from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import Cohort
+from aus_trial_universe.agentic.tasks.shared.cohorts import Cohort
 
 # ctgov input_trials keeps its own version_<ddmmyyyy>/ dirs (managed by the download pipeline, read via
 # latest_version_dir); only the roots move under the consolidated trial_universe/ tree.
@@ -176,7 +176,7 @@ def _ctgov_cohorts(ai: dict) -> list[Cohort]:
             continue
         if name not in drugs:
             drugs.append(name)
-    return [Cohort(label="all", drug="; ".join(drugs), drug_source="INTERVENTIONS MODULE")]
+    return [Cohort(label="all", drug="; ".join(drugs), drug_source="INTERVENTIONS MODULE", arm_type="EXPERIMENTAL")]
 
 
 def load_ctgov_trial(trial_id: str) -> tuple[str, list[Cohort]]:

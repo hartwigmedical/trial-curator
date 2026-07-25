@@ -1,9 +1,13 @@
 """Persistence for the eligibility relational tables (spec §6.1).
 
 An accumulating store (mirrors `DrugRefStore`): `load()` reads the newest snapshot under
-`data/agentic/eligibility/`, the orchestrator upserts a trial's arms + raw text + interpreted conjunctions
+`data/agentic/eligibility/`, the orchestrator upserts a trial's per-arm raw text + interpreted conjunctions
 (re-running a trial REPLACES its rows) and appends new value->vocabulary mappings (the lookup-first cache),
 then `save()` writes a fresh full-state snapshot into that run's dir (`current_output/`).
+
+The arm spine (`trial_arms`) is the SHARED central table (`tasks/shared`); the two content tables here link to
+it by `trial_arm_id` (a deterministic (trialId, arm) slug). Rows are grouped internally by trialId — derived
+from the slug — so a trial's rows are replaced atomically on re-run.
 
 The value->vocab map tables (`cancer_type_map` / `gene_alteration_map` / `molecular_signature_map`) accumulate
 across every run — a distinct interpreted value is mapped ONCE and reused (the map-once/reuse efficiency win).
@@ -22,14 +26,13 @@ from aus_trial_universe.agentic.tasks.eligibility.schema import (
     INTERPRETED_ELIGIBILITY_COLUMNS,
     MOLECULAR_SIGNATURE_MAP_COLUMNS,
     TABLE_FILES,
-    TRIAL_ARMS_COLUMNS,
     ArmEligibilityRaw,
     CancerTypeMap,
     GeneAlterationMap,
     InterpretedEligibility,
     MolecularSignatureMap,
-    TrialArm,
 )
+from aus_trial_universe.agentic.tasks.shared.cohorts import trial_id_of
 
 
 def _read_tsv(path: Path) -> list[dict]:
@@ -47,10 +50,9 @@ def _write_tsv(path: Path, columns: list[str], rows: list[dict]) -> None:
 
 
 class EligStore:
-    """In-memory view of the six eligibility tables; load newest snapshot, upsert, then save a new snapshot."""
+    """In-memory view of the eligibility tables; load newest snapshot, upsert, then save a new snapshot."""
 
     def __init__(self) -> None:
-        self.arms: dict[str, list[TrialArm]] = {}                      # trialId -> its arms
         self.raw: dict[str, list[ArmEligibilityRaw]] = {}              # trialId -> its per-arm verbatim raw text
         self.interpreted: dict[str, list[InterpretedEligibility]] = {} # trialId -> its DNF conjunctions
         self.cancer_map: dict[str, CancerTypeMap] = {}                 # cancer_type value -> mapping
@@ -65,19 +67,15 @@ class EligStore:
         vdir = cur if cur.exists() else latest_snapshot_dir(root)   # prefer current_output/; else newest snapshot
         if vdir is None:
             return store  # first run — empty store
-        for row in _read_tsv(vdir / TABLE_FILES["trial_arms"]):
-            a = TrialArm(**{k: row.get(k, "") for k in TRIAL_ARMS_COLUMNS})
-            if a.trialId:
-                store.arms.setdefault(a.trialId, []).append(a)
         for row in _read_tsv(vdir / TABLE_FILES["arm_eligibility_raw"]):
             r = ArmEligibilityRaw(**{k: row.get(k, "") for k in ARM_ELIGIBILITY_RAW_COLUMNS})
-            if r.trialId:
-                store.raw.setdefault(r.trialId, []).append(r)
+            if r.trial_arm_id:
+                store.raw.setdefault(trial_id_of(r.trial_arm_id), []).append(r)
         for row in _read_tsv(vdir / TABLE_FILES["interpreted_eligibility"]):
             e = InterpretedEligibility(**{k: row.get(k, "") for k in INTERPRETED_ELIGIBILITY_COLUMNS})
             e.conjunction_index = int(e.conjunction_index or 0)
-            if e.trialId:
-                store.interpreted.setdefault(e.trialId, []).append(e)
+            if e.trial_arm_id:
+                store.interpreted.setdefault(trial_id_of(e.trial_arm_id), []).append(e)
         for row in _read_tsv(vdir / TABLE_FILES["cancer_type_map"]):
             m = CancerTypeMap(**{k: row.get(k, "") for k in CANCER_TYPE_MAP_COLUMNS})
             if m.cancer_type:
@@ -103,13 +101,12 @@ class EligStore:
         return self.signature_map.get(value)
 
     def has_trial(self, trial_id: str) -> bool:
-        return trial_id in self.interpreted or trial_id in self.arms
+        return trial_id in self.interpreted or trial_id in self.raw
 
     # --- upserts ----------------------------------------------------------- #
-    def set_trial(self, trial_id: str, arms: list[TrialArm], raw: list[ArmEligibilityRaw],
+    def set_trial(self, trial_id: str, raw: list[ArmEligibilityRaw],
                   interpreted: list[InterpretedEligibility]) -> None:
-        """Replace a trial's arms + raw text + interpreted conjunctions (re-running a trial updates its rows)."""
-        self.arms[trial_id] = list(arms)
+        """Replace a trial's per-arm raw text + interpreted conjunctions (re-running a trial updates its rows)."""
         self.raw[trial_id] = list(raw)
         self.interpreted[trial_id] = list(interpreted)
 
@@ -127,16 +124,17 @@ class EligStore:
         """Write the full current state as a snapshot into ``run_dir`` (the run's timestamp dir)."""
         vdir = Path(run_dir)
         vdir.mkdir(parents=True, exist_ok=True)
-        _write_tsv(vdir / TABLE_FILES["trial_arms"], TRIAL_ARMS_COLUMNS,
-                   [asdict(a) for rows in self.arms.values() for a in rows])
         _write_tsv(vdir / TABLE_FILES["arm_eligibility_raw"], ARM_ELIGIBILITY_RAW_COLUMNS,
                    [asdict(r) for rows in self.raw.values() for r in rows])
         _write_tsv(vdir / TABLE_FILES["interpreted_eligibility"], INTERPRETED_ELIGIBILITY_COLUMNS,
                    [asdict(e) for rows in self.interpreted.values() for e in rows])
-        _write_tsv(vdir / TABLE_FILES["cancer_type_map"], CANCER_TYPE_MAP_COLUMNS,
-                   [asdict(m) for m in self.cancer_map.values()])
-        _write_tsv(vdir / TABLE_FILES["gene_alteration_map"], GENE_ALTERATION_MAP_COLUMNS,
-                   [asdict(m) for m in self.gene_map.values()])
-        _write_tsv(vdir / TABLE_FILES["molecular_signature_map"], MOLECULAR_SIGNATURE_MAP_COLUMNS,
-                   [asdict(m) for m in self.signature_map.values()])
+        # The value->vocab map tables are written ONLY when populated — an extract-only run (mapping skipped)
+        # leaves just the 2 core tables rather than creating empty map placeholders.
+        for key, cols, rows in (
+            ("cancer_type_map", CANCER_TYPE_MAP_COLUMNS, [asdict(m) for m in self.cancer_map.values()]),
+            ("gene_alteration_map", GENE_ALTERATION_MAP_COLUMNS, [asdict(m) for m in self.gene_map.values()]),
+            ("molecular_signature_map", MOLECULAR_SIGNATURE_MAP_COLUMNS, [asdict(m) for m in self.signature_map.values()]),
+        ):
+            if rows:
+                _write_tsv(vdir / TABLE_FILES[key], cols, rows)
         return vdir

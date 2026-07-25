@@ -120,25 +120,8 @@ class EligibilityExtraction(BaseModel):
     rows: list[ExtractedRow]
 
 
-# --- ANZCTR drug extractor I/O ---------------------------------------------- #
-class DrugExtraction(BaseModel):
-    """ANZCTR drug/treatment names, raw (no normalization), split by arm role (spec §6.1).
-
-    ANZCTR has a single eligibility cohort; the regime axis comes from the drugs. The intervention
-    section gives the experimental regime; the comparator section gives a control regime IF it names an
-    actual drug (not placebo / radiotherapy / observation)."""
-
-    intervention_drugs: list[str] = Field(
-        default_factory=list,
-        description="Investigational drug/treatment names from the INTERVENTIONS section, as stated. [] if none.",
-    )
-    comparator_drugs: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Comparator DRUG names from the COMPARATOR section, as stated. [] if the comparator is placebo, "
-            "radiotherapy, observation/no treatment, or otherwise not a drug (use the CONTROL field as a hint)."
-        ),
-    )
+# NB: the ANZCTR drug-extractor I/O (`DrugExtraction`) moved to `tasks/shared/agents.py` — ANZCTR arm
+# identification is now a path-neutral shared module used by both the eligibility and drug-utility paths.
 
 
 # --- Reviewer I/O ----------------------------------------------------------- #
@@ -149,6 +132,14 @@ class JudgeVerdict(BaseModel):
     problems: list[str] = Field(
         default_factory=list,
         description="Concrete, actionable issues (missing/invented/mis-paired/mis-columned/mis-scoped) if not faithful.",
+    )
+    suggested_fix: str = Field(
+        default="",
+        description=(
+            "OPTIONAL. When not faithful, a concrete corrected value / row / span that would resolve the problems "
+            "(the exact text you would expect). This is ADVICE handed to the writer, which regenerates and is "
+            "re-checked — it is NOT applied directly. Leave empty if you cannot propose a specific correction."
+        ),
     )
 
 

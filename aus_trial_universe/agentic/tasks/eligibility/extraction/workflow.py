@@ -26,8 +26,6 @@ from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import ADVISORY, FAIL, PASS, bullet, kv, line
 from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
 from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
-    build_drug_agent,
-    build_drug_reviewer_agent,
     build_enumeration_reviewer,
     build_interpreter_agent,
     build_raw_extractor_agent,
@@ -37,27 +35,17 @@ from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
 from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
     CRITERION_STEMS,
     DnfRow,
-    DrugExtraction,
     EligibilityExtraction,
     ExtractedRow,
     RawFragment,
     TRIAL_WIDE,
 )
+# ANZCTR arm identification is a path-neutral SHARED module (used by the drug path too). `Cohort` lives there.
+from aus_trial_universe.agentic.tasks.shared.cohorts import Cohort, resolve_cohorts
 
 logger = logging.getLogger(__name__)
 
 ELIGIBILITY_COLUMNS = list(CRITERION_STEMS)
-
-
-@dataclass
-class Cohort:
-    """One cohort of a trial. drug is raw ("; "-joined), not normalized."""
-
-    label: str
-    drug: str = ""
-    drug_source: str = ""
-    description: str = ""
-    arm_type: str = ""  # CTGov armGroups[].type: EXPERIMENTAL / ACTIVE_COMPARATOR / PLACEBO_COMPARATOR / ...
 
 
 @dataclass
@@ -97,6 +85,7 @@ class ExtractionResult:
     rows: list[DnfRow]           # the interpreted DNF conjunctions (interpreted_eligibility table)
     faithful: bool
     attempts: int
+    cohorts: list[Cohort] = field(default_factory=list)  # the resolved arms (label + arm_type) — the trial_arms spine
     problems: list[str] = field(default_factory=list)
 
 
@@ -114,7 +103,7 @@ def extract_trial(
     cohorts=None triggers the ANZCTR path (single eligibility cohort; drug doer->reviewer);
     a provided list is the CTGov path (deterministic regimes/drug).
     """
-    cohorts = _resolve_cohorts(client, source_text, cohorts, use_reviewer=use_judge)
+    cohorts = _resolve_cohorts(client, source_text, cohorts)
     cohort_index = {f"C{i + 1}": c for i, c in enumerate(cohorts)}
     logger.info("")
     logger.info("cohorts (%d)", len(cohort_index))
@@ -139,7 +128,7 @@ def extract_trial(
                 raw_faithful, raw_attempts, interp_faithful, interp_attempts, len(cohort_index), len(rows))
     # `attempts` = the INTERPRETATION refine count (the meaningful loop); raw attempts are logged above.
     return ExtractionResult(arm_raw=arm_raw, rows=rows, faithful=raw_faithful and interp_faithful,
-                            attempts=interp_attempts, problems=problems)
+                            attempts=interp_attempts, cohorts=cohorts, problems=problems)
 
 
 # --------------------------------------------------------------------------- #
@@ -150,6 +139,8 @@ def _extract_raw(client: LlmClient, source_text: str, cohort_index: dict[str, "C
     """Copy verbatim criterion spans, gated by the completeness reviewer (bounded refine)."""
     extractor = build_raw_extractor_agent(client)
     reviewer = build_raw_reviewer_agent(client) if use_judge else None
+    _ESCALATION = ("\n\n[ESCALATION-MODE] The writer has repeated the same errors across attempts. In ADDITION to "
+                   "problems, fill `suggested_fix` with the concrete fragment(s) to add / remove / correct.")
     logger.info("")
     logger.info(line("Stage I-a · RAW extraction (verbatim source spans)"))
     attempt = {"n": 0}
@@ -164,23 +155,34 @@ def _extract_raw(client: LlmClient, source_text: str, cohort_index: dict[str, "C
                     " · refined" if feedback else "")
         return frags
 
-    def check(frags: list[RawFragment]) -> CheckResult:
+    def check(frags: list[RawFragment], escalate: bool = False) -> CheckResult:
         if not frags:
             logger.info("raw rules · %s · no fragments", FAIL)
             return CheckResult(ok=False, problems=["no raw fragments were extracted"])
         if reviewer is None:
             return CheckResult(ok=True)
-        v = reviewer(_raw_review_input(source_text, cohort_index, frags))
+        v = reviewer(_raw_review_input(source_text, cohort_index, frags) + (_ESCALATION if escalate else ""))
         probs = [] if v.faithful else (v.problems or ["raw extraction flagged (no detail)"])
+        if escalate and not v.faithful and (v.suggested_fix or "").strip():
+            probs = probs + [f"SUGGESTED FIX: {v.suggested_fix.strip()}"]
         logger.info("raw reviewer · %s%s", PASS if v.faithful else FAIL,
                     f" · {len(probs)} issue(s)" if probs else "")
         for p in probs:
             logger.info(bullet(p))
         return CheckResult(ok=v.faithful, problems=probs)
 
+    def stuck_repair(frags: list[RawFragment], problems: list[str]) -> list[RawFragment]:
+        # LAST RESORT (same as the interpretation stage): re-review in ESCALATION-MODE so the reviewer also
+        # supplies concrete fixes, then hand those to the raw doer for one final repair.
+        logger.info("")
+        logger.info(line("last-resort · raw re-review in ESCALATION-MODE (writer stuck; requesting concrete fixes)"))
+        enriched = check(frags, escalate=True).problems
+        return produce("\n".join(f"- {p}" for p in (enriched or problems)))
+
     result = refine(produce=lambda: produce(""), check=check,
                     repair=lambda _f, probs: produce("\n".join(f"- {p}" for p in probs)),
-                    max_attempts=max_attempts)
+                    max_attempts=max_attempts,
+                    stuck_repair=(stuck_repair if reviewer is not None else None))
     return result.value, result.ok, result.attempts
 
 
@@ -195,12 +197,18 @@ def _assemble_arm_raw(cohort_index: dict[str, "Cohort"], fragments: list[RawFrag
                      if _norm_criterion(f.criterion) == stem
                      and _resolve_scope(f.scope, cohort_index) in (TRIAL_WIDE, cid)]
             rendered = " | ".join(
-                f"{f.text.strip()} [{(f.source or '').strip()}]" if (f.source or "").strip() else f.text.strip()
+                f"{_norm_ws(f.text)} [{(f.source or '').strip()}]" if (f.source or "").strip() else _norm_ws(f.text)
                 for f in frags if (f.text or "").strip()
             )
             setattr(row, f"{stem}_raw", rendered)
         arms.append(row)
     return arms
+
+
+def _norm_ws(text: str) -> str:
+    """Collapse all whitespace (incl. embedded newlines/tabs) in a verbatim span to single spaces, so the raw
+    table stays line-oriented TSV. Content-preserving; only whitespace is normalized."""
+    return " ".join((text or "").split())
 
 
 def _norm_criterion(name: str) -> str:
@@ -258,6 +266,8 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
     )
     advisory: list[str] = []
     attempt = {"n": 0}
+    _ESCALATION = ("\n\n[ESCALATION-MODE] The writer has repeated the same errors across attempts. In ADDITION to "
+                   "problems, fill `suggested_fix` with the concrete corrected cell(s)/row(s).")
     logger.info("")
     logger.info(line("Stage I-b · INTERPRETATION (raw spans -> DNF)"))
 
@@ -287,7 +297,7 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
                     logger.info(kv(col, val, pad=22))
         return eligs
 
-    def check(eligs: list[_EligRaw]) -> CheckResult:
+    def check(eligs: list[_EligRaw], escalate: bool = False) -> CheckResult:
         problems = _rule_problems(eligs)
         if problems:
             logger.info("")
@@ -299,11 +309,11 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
             logger.info("")
             logger.info("reviewer · skipped (--no-judge)")
             return CheckResult(ok=True)
-        review_input = _review_input(source_text, cohort_index, eligs, raw_grouped)
+        review_input = _review_input(source_text, cohort_index, eligs, raw_grouped) + (_ESCALATION if escalate else "")
         thunks = [(lambda a=agent: a(review_input)) for _, agent in reviewers]
         assembled = _distribute(eligs, cohort_index, trial_id) if enum_reviewer is not None else []
         if enum_reviewer is not None:
-            agg_input = _aggregate_input(source_text, assembled)
+            agg_input = _aggregate_input(source_text, assembled) + (_ESCALATION if escalate else "")
             thunks.append(lambda: enum_reviewer(agg_input))
         verdicts = fan_out(thunks)
         gating: list[str] = []
@@ -325,6 +335,10 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
             for p in probs:
                 logger.info(bullet(p))
                 (gating if spec.gating else advisory).append(f"[{spec.key}] {p}")
+            if escalate and not verdict.faithful and (verdict.suggested_fix or "").strip():
+                fix = f"[{spec.key}] SUGGESTED FIX: {verdict.suggested_fix.strip()}"
+                logger.info(bullet(fix))
+                (gating if spec.gating else advisory).append(fix)
         if enum_reviewer is not None:
             v = verdicts[-1]
             probs = [] if v.faithful else (v.problems or ["flagged (no detail)"])
@@ -334,13 +348,26 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
             for p in probs:
                 logger.info(bullet(p))
                 gating.append(f"[enumeration] {p}")
+            if escalate and not v.faithful and (v.suggested_fix or "").strip():
+                fix = f"[enumeration] SUGGESTED FIX: {v.suggested_fix.strip()}"
+                logger.info(bullet(fix))
+                gating.append(fix)
         return CheckResult(ok=not gating, problems=gating)
+
+    def stuck_repair(eligs: list[_EligRaw], problems: list[str]) -> list[_EligRaw]:
+        # LAST RESORT (workflow.refine invokes this only when the doer is cycling): re-review in ESCALATION-MODE so
+        # the reviewers ALSO return concrete suggested fixes, then hand those to the doer for one final repair.
+        logger.info("")
+        logger.info(line("last-resort · re-review in ESCALATION-MODE (writer stuck; requesting concrete fixes)"))
+        enriched = check(eligs, escalate=True).problems
+        return produce("\n".join(f"- {p}" for p in (enriched or problems)), prior=eligs)
 
     result = refine(
         produce=lambda: produce(""),
         check=check,
         repair=lambda eligs, problems: produce("\n".join(f"- {p}" for p in problems), prior=eligs),
         max_attempts=max_attempts,
+        stuck_repair=stuck_repair,
     )
     rows = _distribute(result.value, cohort_index, trial_id)
     return rows, result.ok, result.attempts, list(result.problems) + advisory
@@ -349,77 +376,19 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
 # --------------------------------------------------------------------------- #
 # Cohort / drug resolution
 # --------------------------------------------------------------------------- #
-# Deterministic backstop to the drug reviewer: an enumerable set of NON-DRUG modalities that must never surface as
-# a drug regime, however the LLM phrases it. Matched on the parenthetical-stripped, lowercased, whitespace-collapsed
-# FULL name (exact phrase — never a substring, so a real drug name is never clipped).
-_NON_DRUG_MODALITIES = frozenset({
-    "surgery", "surgical resection", "resection",
-    "radiotherapy", "radiation therapy", "radiation", "radiation treatment", "total body irradiation", "tbi",
-    "external beam radiotherapy", "stereotactic radiotherapy", "stereotactic body radiotherapy", "brachytherapy",
-    "observation", "active surveillance", "watchful waiting", "no treatment", "no active treatment", "no intervention",
-    "best supportive care", "supportive care", "placebo",
-})
-_PAREN_RE = re.compile(r"\([^)]*\)")
-_WS_RE = re.compile(r"\s+")
+# ANZCTR arm identification (`extract_anzctr_drugs` / `anzctr_regimes`) + the `Cohort` type + the non-drug-modality
+# filter now live in the path-neutral SHARED module `tasks/shared/cohorts.py` (used by the drug path too). Here we
+# only wrap the shared `resolve_cohorts` to add the ANZCTR log line.
 _PROVENANCE_RE = re.compile(r"\s*\[[^\]]*\]\s*$")   # trailing "[SECTION; ...]" tag (still used for the drug cell)
 
 
-def _is_non_drug_modality(name: str) -> bool:
-    """True if `name` is (exactly) one of the enumerable non-drug modalities — paren-stripped, case/space-normalized."""
-    norm = _WS_RE.sub(" ", _PAREN_RE.sub(" ", name or "").strip().lower()).strip()
-    return norm in _NON_DRUG_MODALITIES
-
-
-def _drop_non_drug_modalities(names: list[str]) -> list[str]:
-    """Filter out clear non-drug modalities from an extracted drug list (order preserved)."""
-    return [n for n in names if n and n.strip() and not _is_non_drug_modality(n)]
-
-
-def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: int = 3,
-                         use_reviewer: bool = True) -> DrugExtraction:
-    """ANZCTR drug identification (doer -> reviewer): intervention + comparator drug names from the text."""
-    doer = build_drug_agent(client)
-    reviewer = build_drug_reviewer_agent(client) if use_reviewer else None
-
-    def produce(feedback: str = "") -> DrugExtraction:
-        return doer(source_text if not feedback
-                    else f"{source_text}\n\n[Reviewer feedback — fix these]:\n{feedback}")
-
-    def check(d: DrugExtraction) -> CheckResult:
-        if reviewer is not None:
-            v = reviewer(f"{source_text}\n\nPROPOSED intervention_drugs={d.intervention_drugs}; "
-                         f"comparator_drugs={d.comparator_drugs}")
-            if not v.faithful:
-                return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the drug extraction"])
-        return CheckResult(ok=True)
-
-    result = refine(produce=lambda: produce(""), check=check,
-                    repair=lambda d, probs: produce("\n".join(f"- {p}" for p in probs)),
-                    max_attempts=max_attempts).value
-    return DrugExtraction(
-        intervention_drugs=_drop_non_drug_modalities(result.intervention_drugs),
-        comparator_drugs=_drop_non_drug_modalities(result.comparator_drugs),
-    )
-
-
-def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] | None,
-                     *, use_reviewer: bool = True) -> list[Cohort]:
-    if cohorts is not None:  # CTGov: deterministic regimes from armGroups
-        return cohorts or [Cohort("all")]
-    # ANZCTR: a SINGLE eligibility cohort (all criteria are trial-wide); the regime axis comes from the drugs —
-    # an experimental regime (INTERVENTIONS) + a control regime (COMPARATOR) only when it names an actual drug.
-    dr = extract_anzctr_drugs(client, source_text, use_reviewer=use_reviewer)
-    main = "; ".join(dict.fromkeys(d.strip() for d in dr.intervention_drugs if d and d.strip()))
-    comp = "; ".join(dict.fromkeys(d.strip() for d in dr.comparator_drugs if d and d.strip()))
-    regimes: list[Cohort] = []
-    if main:
-        regimes.append(Cohort(label="intervention", drug=main, drug_source="INTERVENTIONS", arm_type="EXPERIMENTAL"))
-    if comp:
-        regimes.append(Cohort(label="comparator", drug=comp, drug_source="COMPARATOR", arm_type="ACTIVE_COMPARATOR"))
-    logger.info("")
-    logger.info("cohorts · ANZCTR single eligibility cohort · %d regime(s) · intervention: %s · comparator: %s",
-                len(regimes) or 1, main or "(none)", comp or "(none)")
-    return regimes or [Cohort(label="all", drug_source="INTERVENTIONS")]
+def _resolve_cohorts(client: LlmClient, source_text: str, cohorts: list[Cohort] | None) -> list[Cohort]:
+    regimes = resolve_cohorts(client, source_text, cohorts)   # shared, flag-independent derivation
+    if cohorts is None:  # ANZCTR — log the derived regime axis
+        logger.info("")
+        logger.info("cohorts · ANZCTR single eligibility cohort · %d regime(s) · %s", len(regimes),
+                    " · ".join(f"{c.label}: {c.drug or '(none)'}" for c in regimes))
+    return regimes
 
 
 def _regime_line(cid: str, c: Cohort) -> str:

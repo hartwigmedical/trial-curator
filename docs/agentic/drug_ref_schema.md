@@ -93,15 +93,16 @@ splits `1 input → N` rows; a non-drug is one row with an empty `canonical_id`.
 | `raw_name_to_map` | the fragment of the input that names *this* canonical (`Palbociclib` from `Arm A: Gedatolisib + Palbociclib + Fulvestrant`; the drug name minus dose/arm/setting noise; the whole code when the code *is* the drug) |
 | `canonical_id` | FK → `drug_annotations_core.canonical_id` (`rxcui:<n>` \| `name:<x>`); empty for a non-drug |
 
-**`trial_to_intervention`** — the provenance / traceability record. Grain: one row per (trial × arm × input
-string); many-to-many (a string can appear in many trials/arms; a trial arm has many interventions).
+**`trial_to_intervention`** — the provenance / traceability record. Grain: one row per (trial arm × input
+string); many-to-many (a string can appear in many arms; a trial arm has many interventions). The arm identity
+(trialId / registry / arm label / arm_type) lives ONCE in the **shared `trial_arms` registry**
+(`<DATA_ROOT>/trial_arms/`; `trial_arm_id, trialId, registry, arm, arm_type`, both registries, populated by the
+shared cohort-identification module); this table links to it by `trial_arm_id` (a deterministic `{trialId}::{arm}`
+slug). Both the drug and eligibility paths reference `trial_arms` — it is the single arm join key.
 
 | column | meaning |
 |---|---|
-| `trialId` | `NCT…` (ctgov) or `ACTRN…` (anzctr) |
-| `registry` | `ctgov` \| `anzctr` |
-| `arm` | CTGov armGroup label; ANZCTR `intervention` \| `comparator` (deterministic) |
-| `arm_type` | CTGov `armGroups[].type` (`EXPERIMENTAL` / `ACTIVE_COMPARATOR` / …); ANZCTR `EXPERIMENTAL` (intervention) \| `ACTIVE_COMPARATOR` (comparator) — flags control arms |
+| `trial_arm_id` | FK → shared `trial_arms.trial_arm_id` (the `{trialId}::{arm}` slug) |
 | `input_intervention_name` | FK → `intervention_to_canonical.input_intervention_name` |
 
 ### Stage 2 — drug enrichment (keyed by `canonical_id`)

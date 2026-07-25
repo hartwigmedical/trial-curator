@@ -9,6 +9,7 @@ import pytest
 from aus_trial_universe.agentic.core.paths import archive_current_version, current_version_dir
 from aus_trial_universe.agentic.tasks.drug_utility.schema import DrugRegulatoryApproval, DrugAnnotationsCore, DrugTargetAction
 from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
+from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
 
 
 def test_current_version_and_archive_helpers(tmp_path):
@@ -35,9 +36,9 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
     s = DrugRefStore()
     s.set_mapping("Keytruda", [("Keytruda", "rxcui:1547545")])
     s.set_mapping("pembrolizumab", [("", "rxcui:1547545")])   # two raw spellings -> one canonical
-    s.add_occurrence("NCT01", "ctgov", "Arm A", "EXPERIMENTAL", "Keytruda")   # provenance: trial+arm uses a name
-    s.add_occurrence("NCT02", "ctgov", "Arm A", "EXPERIMENTAL", "Keytruda")
-    s.add_occurrence("ACTRN99", "anzctr", "intervention", "EXPERIMENTAL", "pembrolizumab")
+    s.add_occurrence(trial_arm_id("NCT01", "Arm A"), "Keytruda")   # provenance: a trial arm uses an input name
+    s.add_occurrence(trial_arm_id("NCT02", "Arm A"), "Keytruda")
+    s.add_occurrence(trial_arm_id("ACTRN99", "intervention"), "pembrolizumab")
     s.put_ref(DrugAnnotationsCore(canonical_id="rxcui:1547545", canonical_name="pembrolizumab", rxcui="1547545",
                       aliases="Keytruda | MK-3475", modality="monoclonal antibody",
                       drug_class="checkpoint inhibitor", pottr_drug_class="cancer_therapy -> anti-PD-1_monoclonal_antibody",
@@ -60,10 +61,10 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
     assert loaded.canonical_ids_for("Keytruda") == loaded.canonical_ids_for("pembrolizumab") == ["rxcui:1547545"]
     # raw_name_to_map defaults to the whole input for a single-drug mapping
     assert loaded.mappings["pembrolizumab"][0].raw_name_to_map == "pembrolizumab"
-    # provenance round-trips (3 distinct trial+arm links, incl. arm + arm_type)
-    assert {(o.trialId, o.registry, o.arm, o.arm_type) for o in loaded.occurrences.values()} == {
-        ("NCT01", "ctgov", "Arm A", "EXPERIMENTAL"), ("NCT02", "ctgov", "Arm A", "EXPERIMENTAL"),
-        ("ACTRN99", "anzctr", "intervention", "EXPERIMENTAL")}
+    # provenance round-trips (3 distinct trial_arm links, keyed by trial_arm_id -> shared trial_arms registry)
+    assert {(o.trial_arm_id, o.input_intervention_name) for o in loaded.occurrences.values()} == {
+        (trial_arm_id("NCT01", "Arm A"), "Keytruda"), (trial_arm_id("NCT02", "Arm A"), "Keytruda"),
+        (trial_arm_id("ACTRN99", "intervention"), "pembrolizumab")}
     r = loaded.ref("rxcui:1547545")
     assert r.modality == "monoclonal antibody" and r.atc_code == "L01FF02"
     assert loaded.targets_for("rxcui:1547545")[0].target == "PD-1"

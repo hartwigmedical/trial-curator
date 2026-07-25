@@ -144,6 +144,49 @@ def test_parse_records_prompt_provenance(tmp_path):
     assert meta["mode"] == "parse"
 
 
+def test_max_concurrency_caps_live_calls():
+    """The global semaphore bounds concurrent LIVE API calls across threads (trials × fan-outs share one client)."""
+    import threading
+    import time as _time
+
+    out = _Out(label="x", score=1)
+    lock = threading.Lock()
+    state = {"cur": 0, "max": 0}
+
+    class _SlowOpenAI:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(parse=self._p))
+
+        def _p(self, **kwargs):
+            with lock:
+                state["cur"] += 1
+                state["max"] = max(state["max"], state["cur"])
+            _time.sleep(0.05)
+            with lock:
+                state["cur"] -= 1
+            return _fake_response(out, content=out.model_dump_json())
+
+    client = LlmClient(openai_client=_SlowOpenAI(), max_concurrency=3)
+    threads = [threading.Thread(target=lambda i=i: client.parse(_Out, instructions="s", user_input=f"u{i}"))
+               for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert state["max"] <= 3           # never exceeded the cap
+    assert state["max"] >= 2           # and genuinely ran in parallel up to it
+
+
+def test_cache_hits_do_not_consume_a_concurrency_slot():
+    """A cached response returns without touching the API, so it must not block on the semaphore."""
+    out = _Out(label="x", score=1)
+    fake = _FakeOpenAI([_fake_response(out, content=out.model_dump_json())])   # exactly ONE live call available
+    client = LlmClient(openai_client=fake, max_concurrency=1)
+    first = client.parse(_Out, instructions="s", user_input="u")     # live (uses the one slot, then releases)
+    second = client.parse(_Out, instructions="s", user_input="u")    # cache hit — no API, no slot needed
+    assert first.cache_hit is False and second.cache_hit is True and fake.calls == 1
+
+
 def test_research_missing_parsed_raises():
     fake = _FakeResearchOpenAI([SimpleNamespace(output_parsed=None, output_text="", usage=None)])
     with pytest.raises(LlmParseError):

@@ -1,5 +1,33 @@
 # v2 Agentic Pipeline — Handover
 
+- **⏩ 2026-07-25 — SHARED `trial_arms` registry + `trial_arm_id` FK (major restructure).** Arm identity is now a
+  first-class **shared** thing, not embedded per-path. Four decisions (all user-approved):
+  1. **ANZCTR cohort identification is a path-neutral SHARED module** — `tasks/shared/` now owns `Cohort`, the
+     `trial_arm_id()` slug, the ANZCTR drug-extractor agents + `DrugExtraction`/`RegimeVerdict`,
+     `extract_anzctr_drugs`, `anzctr_regimes`, and `TrialArm` + `TrialArmStore`. Both paths import it; the old
+     backwards drug→eligibility import is gone.
+  2. **New central table `data/agentic/trial_arms/trial_arms.tsv`** (`TrialArmStore`, current_version/ + archive/):
+     `trial_arm_id, trialId, registry, arm, arm_type`, **both registries**. `trial_arm_id` = a **deterministic
+     slug** `{trialId}::{arm}` (chosen over an auto-increment surrogate: reproducible with no sequence authority —
+     safe for parallel workers + idempotent re-runs — and human-readable). Written by whichever path processes a
+     trial (per-trial checkpoint in `run.py`; the drug build also populates it).
+  3. **Drug `trial_to_intervention` → `(trial_arm_id, input_intervention_name)`** (dropped trialId/registry/arm/
+     arm_type, which now live once in `trial_arms`). This is the ONLY drug_annotations file whose SHAPE changed.
+  4. **Eligibility = 2 content tables** (`arm_eligibility_raw`, `interpreted_eligibility`), each keyed by
+     `trial_arm_id`; `trial_arms` left the eligibility store.
+  - **ANZCTR arms are re-derived FRESH** by the shared module during the run (not adopted from the frozen drug
+     store), so ANZCTR arms may **drift** vs the frozen store — that drift is the migration's diff report.
+  - **Run in flight (2026-07-25):** `make agentic-run EXTRACT_ONLY=1 RESUME=1` over **all 1,999 trials**
+     (1,495 CTGov + 504 ANZCTR) building `trial_arms` + the 2 eligibility tables. Smoke (2 trials) passed;
+     `make agentic-arm-consistency` CONSISTENT ✓. **134 unit tests pass.**
+  - **Drug migration is a SEPARATE post-run step (`make agentic-drug-migrate-trial-arms`, dry-run by default;**
+     **`APPLY=1` rewrites ONLY `trial_to_intervention.tsv`).** Snapshots taken first:
+     `drug_annotations/archive/pre_trial_arms_migration_20260725/` (+ eligibility). It re-keys t2i against the
+     fresh registry and reports intervention-input **additions/deletions** → `data/agentic/analysis/`. Per user:
+     do NOT touch the other 4 drug tables even if drugs are orphaned — reconcile those together after review.
+  - `arm_consistency` was repurposed to a **referential-integrity** check (every eligibility/drug `trial_arm_id`
+     exists in the registry). Supersedes the old `DrugRefStore.anzctr_arms` adoption path (removed).
+
 - **As of:** 2026-07-24. **Branch:** `AUS-328-Aus-trial-universe-v2`. **BOTH paths are built.** The DRUG UTILITY
   PATH was signed off (2026-07-20); the ELIGIBILITY PATH v2 was rewritten + validated (2026-07-21): decoupled from
   drug enrichment, reshaped into 3NF relational tables, parallelised + cached + per-item-durable, over-enumeration
@@ -20,6 +48,31 @@
   it); hand-edits to extraction/regime tables do NOT survive a trial re-run. Touched `core/client.py`,
   `core/agent.py`, `run.py`, `tasks/drug_utility/build.py`, Makefile, `pipeline.sh`, + tests; docs (spec §4.1,
   `combined_agentic_run.md`) + both diagrams (republished to the same artifact URLs). **113 unit tests pass.**
+- **ANZCTR trial-cohort alignment (2026-07-24) — eligibility ADOPTS cohorts from the drug registry.** Finding:
+  eligibility was independently re-deriving ANZCTR arms via `anzctr_regimes`, which drifts run-to-run on a cold
+  cache — a full re-derivation differed from the frozen drug store on **117/504** ANZCTR trials (mostly
+  comparator-arm add/drop). **Decision (user):** the drug path's `trial_to_intervention` IS the authoritative
+  ANZCTR **trial-cohort registry**; eligibility adopts each trial's `(arm, arm_type)` from it, never re-derives.
+  - **Point 1 (one-time):** of the 10 existing eligibility ANZCTR sample trials, 4 already matched; the **6
+    misaligned** (`ACTRN12605000025639, …108617, …142639, …169640, ACTRN12614000810617, ACTRN12626000505303`)
+    were being re-extracted to adopt. **⚠ AT `/clear`: a re-extract run was in flight (5/6 saved) — confirm it
+    finished + all 6 now match** via `make agentic-arm-consistency`; if not, re-run those ids.
+  - **Point 2 (durable, DONE in code):** `DrugRefStore.anzctr_arms(trial_id)` is the single shared cohort source;
+    `run.py` remaps every ANZCTR trial's `cohorts` from it before extraction (fallback to `anzctr_regimes` only
+    for a trial not yet in the registry). No `workflow.py` change (reuses the provided-cohorts path). **127 tests
+    pass** (+1 adoption test). Files: `tasks/drug_utility/store.py`, `run.py`, `tests/…/test_run_output.py`.
+  - **Drug store NOT modified.** The earlier "reconcile the drug store to today's draw" idea was **abandoned**
+    (would overwrite 117 signed-off trials + orphan ~18 real drugs). Also corrects the pre-compaction root-cause
+    story (it was NOT the `JudgeVerdict` cache change → 6 flips).
+  - **FOLLOW-UP (user, cost note):** aligning an *existing* trial's cohorts is conceptually a **copy** of
+    `(arm, arm_type)`; the re-extract used for the 6 re-runs the criteria LLM only because `arm_eligibility_raw`/
+    `interpreted_eligibility` rows are keyed to arms. For re-aligning at scale prefer a lighter cohort-only remap,
+    or just run fresh ANZCTR trials once (they adopt from the registry with no LLM for arms).
+  - **SEPARATE OPEN (NOT cohort alignment) — drug-token quality.** The drug store's ANZCTR drug *tokens* are noisy:
+    `HA`×424, `Ig`×320, `Surgery`×62, case-duplicates, undecomposed regimen acronyms (VIDE/VAC/TIP/BEAM),
+    procedures-as-drugs, and it MISSES real drugs (e.g. rituximab). The CSV's own `DRUG_rxnorm_matched` field AND
+    today's `anzctr_regimes` are both clean and agree; the store is the outlier. Provenance untraced. Does not
+    affect the cohort join. Memory: `v2-anzctr-cohort-alignment`.
 - **THE FOCUS NOW — awaiting the user's eligibility-output feedback** on `current_output/` (they review it; the
   fresh chat will carry their findings — pick that up FIRST). The standing backlog behind it:
   - **A. Finalize the flat-file contract** — the exact columns the matching engine needs, produced robustly.
@@ -398,6 +451,11 @@ Former TODOs now closed:
   `faithful=False` even with incremental repair. Deeper fix pending (more attempts / per-dimension resolved /
   up-front subcohort split).
 - **Run-comparison method** (spec §12) — still deferred; verification of the mapping is currently manual.
+- **`make` command-set review (user, deferred 2026-07-24).** Review the current targets: the active v2 set
+  (`agentic-run`, `agentic-cache-prune`, `agentic-arm-consistency`, `agentic-validate`, `agentic-tests`,
+  `agentic-clean`, `drug-ref-build`, `drug-ref-refresh-pottr`) and whether the legacy `eligibility-path-*` /
+  `drug-ontology-*` targets should be retired (ties into legacy-path retirement below). Also confirm whether any
+  new command is needed for the two-stage / 3-table eligibility schema. Fold into the full doc/diagram/Makefile pass.
 - **Legacy-path retirement — DEFERRED to the eligibility-path work (decided 2026-07-20, user-approved).** Shared
   inputs/resources are consolidated under `data/agentic/` (memory `agentic-data-root-temporary`), and `data/agentic/`
   is a TEMPORARY root — promotable to top-level `data/` by changing the one `DATA_ROOT` line in `core/paths.py`.

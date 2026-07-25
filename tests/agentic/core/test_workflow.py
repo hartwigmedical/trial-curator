@@ -95,6 +95,41 @@ def test_refine_stops_early_when_cycling_and_returns_best():
     assert not result.ok and result.attempts == 2 and result.value == 0
 
 
+def test_refine_stuck_repair_fires_on_cycle_before_budget_end():
+    """Cycling (repeated problem-set) escalates IMMEDIATELY — it does not waste the middle attempts."""
+    calls = {"stuck": 0}
+
+    def check(v):
+        return CheckResult(ok=(v == "FIXED"), problems=["same"])   # identical every attempt -> cycling
+
+    def stuck_repair(v, problems):
+        calls["stuck"] += 1
+        return "FIXED"
+
+    result = refine(lambda: "start", check, lambda v, p: "loop", max_attempts=6, stuck_repair=stuck_repair)
+    assert calls["stuck"] == 1 and result.ok and result.attempts == 3   # escalated at attempt 3, not attempt 5
+
+
+def test_refine_stuck_repair_fires_near_cap_even_without_cycling():
+    """A slow-but-not-converging loop (distinct problems each attempt, never cycles) still gets the last-resort
+    escalation on its final attempt when the budget is nearly spent."""
+    calls = {"repair": 0, "stuck": 0}
+
+    def check(v):
+        return CheckResult(ok=(v == "FIXED"), problems=[f"problem-{v}"])   # distinct each attempt -> no cycle
+
+    def repair(v, problems):
+        calls["repair"] += 1
+        return f"v{calls['repair']}"                                       # always new -> never ok, never cycles
+
+    def stuck_repair(v, problems):
+        calls["stuck"] += 1
+        return "FIXED"
+
+    result = refine(lambda: "v0", check, repair, max_attempts=3, stuck_repair=stuck_repair)
+    assert calls["stuck"] == 1 and result.ok and result.value == "FIXED"
+
+
 def test_refine_returns_best_attempt_not_last():
     """A repair that makes things worse never wins — refine returns the fewest-problems attempt seen."""
     scores = {0: ["a", "b", "c"], 1: ["a"], 2: ["a", "b"]}   # value -> problems; v=1 is the best (1 problem)

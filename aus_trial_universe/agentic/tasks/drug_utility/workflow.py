@@ -216,9 +216,10 @@ def build_drug_ref(
 ) -> BuildSummary:
     """Incrementally add/refresh the given raw drug names in `store` (mutated in place).
 
-    `occurrences`, if given, is an iterable of (trialId, registry, input_intervention_name) tuples recording which
-    trial each input name came from — persisted to the `trial_to_intervention` table (the provenance/traceability
-    record). Canonicalization is still done once per distinct input string and reused across every trial that uses it.
+    `occurrences`, if given, is an iterable of (trial_arm_id, input_intervention_name) tuples recording which trial
+    ARM each input name came from — persisted to the `trial_to_intervention` table (the provenance/traceability
+    record; trial_arm_id links to the shared trial_arms registry). Canonicalization is still done once per distinct
+    input string and reused across every trial that uses it.
     `workers` sets both the parallelism (fan_out max_workers) and the checkpoint batch size — output is
     identical regardless of `workers`; it only changes throughput (higher may hit API rate limits → retries).
     `checkpoint`, if given, is called after each batch — wire it to store.save() so a long run persists progress
@@ -226,8 +227,8 @@ def build_drug_ref(
     stamp = (today or date.today()).isoformat()
     summary = BuildSummary()
     raws = _dedup(raw_names)
-    for trial_id, registry, arm, arm_type, name in (occurrences or []):   # provenance (traceability) — deterministic
-        store.add_occurrence(trial_id, registry, arm, arm_type, name)
+    for trial_arm_id, name in (occurrences or []):   # provenance (traceability) — deterministic
+        store.add_occurrence(trial_arm_id, name)
 
     # --- Stage 1: canonicalize (LLM judgement) -> mapping + deterministic rxcui + seeded identity ---
     # Parallel across drugs; each finished drug is applied + CHECKPOINTED straightaway (run_parallel per-item sink),

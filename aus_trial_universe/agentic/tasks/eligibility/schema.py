@@ -3,51 +3,43 @@
 The eligibility path emits normalized relational tables (like the drug path's 5 tables); the column order of
 each persisted TSV derives from its dataclass field order, so the schema is the single source of truth.
 
-Extraction is split into two grains (the raw text vs. its logical interpretation are different entities — 3NF):
+The arm spine (`trial_arms`) is now the SHARED central table (`tasks/shared`); the eligibility path holds only
+its two content tables, each linking to it by `trial_arm_id` (the FK — a deterministic slug of (trialId, arm)):
 
-- `trial_arms`             (trialId, arm) -> arm_type          — the arm spine; JOIN key to the drug path
-- `arm_eligibility_raw`    (trialId, arm) -> 5 *_raw cells     — VERBATIM source fragments, each with its own
+- `arm_eligibility_raw`    trial_arm_id -> 5 *_raw cells     — VERBATIM source fragments, each with its own
                            inline `[source]`, `|`-delimited; trial-wide criteria replicated onto each arm
-- `interpreted_eligibility`(trialId, arm, conjunction_index) -> 5 *_interpreted cells — the DNF logical
-                           interpretation (ANDed terms, `NOT()` exclusions; rows sharing (trialId, arm) are ORed)
+- `interpreted_eligibility`(trial_arm_id, conjunction_index) -> 5 *_interpreted cells — the DNF logical
+                           interpretation (ANDed terms, `NOT()` exclusions; rows sharing trial_arm_id are ORed)
 - `cancer_type_map`        cancer_type value -> OncoTree name/code   } the value->vocabulary mapping lookups,
 - `gene_alteration_map`    gene value -> finding-model               } deduped across the whole universe
 - `molecular_signature_map` signature value -> finding-model         } (map once, reuse — lookup-first cache)
 
-The `*_raw` cells depend only on (trialId, arm); the `*_interpreted` cells depend on the full
-(trialId, arm, conjunction_index) key (the OR-branch structure is decided during interpretation) — so they
-live in separate tables (the raw text is not duplicated across a conjunction's OR-branches).
+The raw text (grain: arm) and the interpreted conjunctions (grain: arm × conjunction) are different entities, so
+they live in separate tables (3NF; the raw text is not duplicated across a conjunction's OR-branches).
 
-The eligibility tables hold NO drug facts. Drugs join in via the (trialId, arm) key against the drug path's
-`trial_to_intervention` -> `intervention_to_canonical` -> `drug_annotations_core` (+ targets/approvals).
+The eligibility tables hold NO drug facts. Drugs join in via `trial_arm_id` against the drug path's
+`trial_to_intervention` -> `intervention_to_canonical` -> `drug_annotations_core` (+ targets/approvals); both
+paths resolve `trial_arm_id` from the shared `trial_arms` registry.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
 
 
-# --- Table 1: the arm spine (the join key to the drug utility path) ---------- #
-@dataclass
-class TrialArm:
-    """One trial arm/regime. Grain: (trialId, arm). CTGov: one per drug-bearing armGroup (label + type);
-    ANZCTR: `intervention` (EXPERIMENTAL) + optional `comparator` (ACTIVE_COMPARATOR); fallback `all`."""
-
-    trialId: str = ""     # NCT... (ctgov) | ACTRN... (anzctr)
-    arm: str = ""         # CTGov armGroups[].label | ANZCTR intervention|comparator | "all" — the join key
-    arm_type: str = ""    # EXPERIMENTAL / ACTIVE_COMPARATOR / PLACEBO_COMPARATOR / ... (flags control arms)
+# The arm spine (`trial_arms`) is the SHARED central table — see `tasks/shared/schema.py`. The eligibility tables
+# below link to it by `trial_arm_id` (the deterministic (trialId, arm) slug).
 
 
-# --- Table 2: the verbatim raw eligibility text (per arm) -------------------- #
+# --- Table 1: the verbatim raw eligibility text (per arm) -------------------- #
 @dataclass
 class ArmEligibilityRaw:
-    """The VERBATIM source text for each criterion of an arm. Grain: (trialId, arm). Each cell holds the
+    """The VERBATIM source text for each criterion of an arm. Grain: (trial_arm_id). Each cell holds the
     relevant source fragment(s) copied verbatim, each with its own inline `[SECTION]` tag, `|`-delimited
     (e.g. `ovarian, fallopian tube or primary peritoneal cancer [ELIGIBILITY CRITERIA] | ...`). Trial-wide
     criteria are replicated onto every arm's row. This is the auditable layer: the reviewer checks it against
     the source (nothing missing, nothing extraneous, not truncated). No logic, no paraphrase."""
 
-    trialId: str = ""
-    arm: str = ""
+    trial_arm_id: str = ""   # FK -> shared trial_arms.trial_arm_id
     cancer_type_raw: str = ""
     gene_alteration_raw: str = ""
     molecular_signature_raw: str = ""
@@ -55,16 +47,15 @@ class ArmEligibilityRaw:
     prior_therapy_raw: str = ""
 
 
-# --- Table 3: the interpreted DNF eligibility conjunctions ------------------- #
+# --- Table 2: the interpreted DNF eligibility conjunctions ------------------- #
 @dataclass
 class InterpretedEligibility:
-    """One DNF conjunction assigned to a (trial, arm). Grain: (trialId, arm, conjunction_index). Cells are the
+    """One DNF conjunction assigned to an arm. Grain: (trial_arm_id, conjunction_index). Cells are the
     logical INTERPRETATION of the raw text: normalized human descriptions with inline `NOT(...)` exclusions;
-    a cell may hold several ANDed terms. Rows sharing (trialId, arm) are OR-alternatives. NO source tags —
-    provenance lives in `arm_eligibility_raw` (join on (trialId, arm))."""
+    a cell may hold several ANDed terms. Rows sharing trial_arm_id are OR-alternatives. NO source tags —
+    provenance lives in `arm_eligibility_raw` (join on trial_arm_id)."""
 
-    trialId: str = ""
-    arm: str = ""
+    trial_arm_id: str = ""   # FK -> shared trial_arms.trial_arm_id
     conjunction_index: int = 0
     cancer_type_interpreted: str = ""
     gene_alteration_interpreted: str = ""
@@ -73,7 +64,7 @@ class InterpretedEligibility:
     prior_therapy_interpreted: str = ""
 
 
-# --- Tables 4-6: value -> vocabulary mapping lookups (deduped, reused) -------- #
+# --- Tables 3-5: value -> vocabulary mapping lookups (deduped, reused) -------- #
 @dataclass
 class CancerTypeMap:
     """cancer_type value -> OncoTree. Keyed by the interpreted cancer_type string; one row per distinct
@@ -104,7 +95,6 @@ def _columns(dc) -> list[str]:
     return [f.name for f in fields(dc)]
 
 
-TRIAL_ARMS_COLUMNS = _columns(TrialArm)
 ARM_ELIGIBILITY_RAW_COLUMNS = _columns(ArmEligibilityRaw)
 INTERPRETED_ELIGIBILITY_COLUMNS = _columns(InterpretedEligibility)
 CANCER_TYPE_MAP_COLUMNS = _columns(CancerTypeMap)
@@ -117,7 +107,6 @@ CRITERION_STEMS = [
 ]
 
 TABLE_FILES = {
-    "trial_arms": "trial_arms.tsv",
     "arm_eligibility_raw": "arm_eligibility_raw.tsv",
     "interpreted_eligibility": "interpreted_eligibility.tsv",
     "cancer_type_map": "cancer_type_map.tsv",
