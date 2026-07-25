@@ -122,10 +122,11 @@ completes (so partial results survive an interrupt):
    TGA approval (+year) and PBS reimbursement for the main drug(s).
 6. **WRITE** — the enriched rows stream to one TSV.
 
-**Output:** the pure-3NF store `data/agentic/eligibility/current_output/` (`regime.tsv`,
-`extracted_eligibility.tsv`, and the three `*_map.tsv` lookups). The materialized-join `combined.tsv` (the flat,
-self-contained rows the matching engine reads) is denormalized, not 3NF, so it is written OUTSIDE the store, to
-`data/agentic/eligibility/combined/combined.tsv`.
+**Output:** the shared `trial_arms` registry `data/agentic/trial_arms/current_version/trial_arms.tsv` (the arm
+spine) + the eligibility content store `data/agentic/eligibility/current_output/` (`arm_eligibility_raw.tsv`,
+`interpreted_eligibility.tsv`, and the three `*_map.tsv` lookups), all keyed by `trial_arm_id`. The materialized-join
+`combined.tsv` (the flat, self-contained rows the matching engine reads) is denormalized, not 3NF, so it is written
+OUTSIDE the store, to `data/agentic/eligibility/combined/combined.tsv`.
 **Log:** `data/agentic/log/agentic_run_<label>_<timestamp>.log` (the whole run, both stages).
 
 ---
@@ -231,7 +232,8 @@ entries, never `live` or legacy), so a prompt edit self-cleans its old cache on 
    in `current_output/`) — a durable curated override. Mapping is **lookup-first**: a value already in the map
    is never recomputed, so your edit sticks and propagates to every trial sharing that value. Use for one-off
    mapping errors.
-3. **Hand-editing `extracted_eligibility.tsv` / `regime.tsv` does NOT survive a re-run of that trial** —
+3. **Hand-editing `arm_eligibility_raw.tsv` / `interpreted_eligibility.tsv` (or the shared `trial_arms.tsv`) does
+   NOT survive a re-run of that trial** —
    re-running replaces the trial's rows wholesale, and the cache may re-serve the old (uncorrected) LLM
    response. To force a specific trial to re-extract fresh without a prompt change, re-run it with `--no-cache`.
    There is currently no curated-override layer for extraction rows (only for mappings).
@@ -240,7 +242,7 @@ entries, never `live` or legacy), so a prompt edit self-cleans its old cache on 
 
 ## Testing
 ```bash
-make agentic-tests        # 113 unit tests, no API, all fake-client
+make agentic-tests        # 134 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 
