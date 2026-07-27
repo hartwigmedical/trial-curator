@@ -21,7 +21,8 @@ from typing import Callable
 
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import kv, line, stage
-from aus_trial_universe.agentic.core.workflow import CheckResult, refine, run_parallel
+from aus_trial_universe.agentic.core.review import review_refine
+from aus_trial_universe.agentic.core.workflow import CheckResult, run_parallel
 from aus_trial_universe.agentic.tasks.drug_utility import pottr, rxnorm
 from aus_trial_universe.agentic.tasks.drug_utility.agents import (
     build_annotator,
@@ -67,11 +68,11 @@ def canonicalize(client: LlmClient, raw_name: str, *, max_attempts: int = 3, use
     doer = build_canonicalizer(client)
     reviewer = build_canonicalizer_reviewer(client) if use_reviewer else None
 
-    def produce(feedback: str = "") -> Canonicalization:
+    def produce(feedback: str = "", prior=None) -> Canonicalization:
         prompt = f"Raw drug name: {raw_name}"
         return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
-    def check(c: Canonicalization) -> CheckResult:
+    def check(c: Canonicalization, escalate: bool = False) -> CheckResult:
         leftover = [comp.canonical_name for comp in c.components if _COMBO_LEFTOVER.search(comp.canonical_name)]
         if leftover:
             return CheckResult(ok=False, problems=[
@@ -84,20 +85,18 @@ def canonicalize(client: LlmClient, raw_name: str, *, max_attempts: int = 3, use
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the canonicalization"])
         return CheckResult(ok=True)
 
-    return refine(produce=lambda: produce(""), check=check,
-                  repair=lambda c, probs: produce("\n".join(f"- {p}" for p in probs)),
-                  max_attempts=max_attempts).value
+    return review_refine(produce, check, max_attempts=max_attempts).value
 
 
 def annotate(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, use_reviewer: bool = True) -> DrugAnnotation:
     doer = build_annotator(client)
     reviewer = build_annotator_reviewer(client) if use_reviewer else None
 
-    def produce(feedback: str = "") -> DrugAnnotation:
+    def produce(feedback: str = "", prior=None) -> DrugAnnotation:
         prompt = f"Canonical drug: {canonical_name}"
         return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
-    def check(a: DrugAnnotation) -> CheckResult:
+    def check(a: DrugAnnotation, escalate: bool = False) -> CheckResult:
         if a.modality not in MODALITIES:
             return CheckResult(ok=False, problems=[f"modality must be exactly one of {list(MODALITIES)}, got {a.modality!r}"])
         if reviewer is not None:
@@ -109,20 +108,18 @@ def annotate(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, u
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the annotation"])
         return CheckResult(ok=True)
 
-    return refine(produce=lambda: produce(""), check=check,
-                  repair=lambda a, probs: produce("\n".join(f"- {p}" for p in probs)),
-                  max_attempts=max_attempts).value
+    return review_refine(produce, check, max_attempts=max_attempts).value
 
 
 def approvals(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, use_reviewer: bool = True) -> ApprovalByIndication:
     doer = build_approval_agent(client)
     reviewer = build_approval_reviewer(client) if use_reviewer else None
 
-    def produce(feedback: str = "") -> ApprovalByIndication:
+    def produce(feedback: str = "", prior=None) -> ApprovalByIndication:
         prompt = f"Canonical drug: {canonical_name}"
         return doer(prompt if not feedback else f"{prompt}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
-    def check(a: ApprovalByIndication) -> CheckResult:
+    def check(a: ApprovalByIndication, escalate: bool = False) -> CheckResult:
         bad = [f"{lbl}={s!r} not in approved/not_approved/unknown"
                for ind in a.indications
                for s, lbl in ((ind.tga_status, "tga_status"), (ind.pbs_status, "pbs_status"))
@@ -136,9 +133,7 @@ def approvals(client: LlmClient, canonical_name: str, *, max_attempts: int = 3, 
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the approvals"])
         return CheckResult(ok=True)
 
-    return refine(produce=lambda: produce(""), check=check,
-                  repair=lambda a, probs: produce("\n".join(f"- {p}" for p in probs)),
-                  max_attempts=max_attempts).value
+    return review_refine(produce, check, max_attempts=max_attempts).value
 
 
 # --------------------------------------------------------------------------- #

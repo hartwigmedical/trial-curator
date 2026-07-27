@@ -15,7 +15,8 @@ import re
 from dataclasses import dataclass
 
 from aus_trial_universe.agentic.core.client import LlmClient
-from aus_trial_universe.agentic.core.workflow import CheckResult, refine
+from aus_trial_universe.agentic.core.review import review_refine
+from aus_trial_universe.agentic.core.workflow import CheckResult
 from aus_trial_universe.agentic.tasks.shared.agents import (
     DrugExtraction,
     build_drug_agent,
@@ -93,11 +94,11 @@ def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: i
     doer = build_drug_agent(client)
     reviewer = build_drug_reviewer_agent(client) if use_reviewer else None
 
-    def produce(feedback: str = "") -> DrugExtraction:
+    def produce(feedback: str = "", prior=None) -> DrugExtraction:
         return doer(source_text if not feedback
                     else f"{source_text}\n\n[Reviewer feedback — fix these]:\n{feedback}")
 
-    def check(d: DrugExtraction) -> CheckResult:
+    def check(d: DrugExtraction, escalate: bool = False) -> CheckResult:
         if reviewer is not None:
             v = reviewer(f"{source_text}\n\nPROPOSED intervention_drugs={d.intervention_drugs}; "
                          f"comparator_drugs={d.comparator_drugs}")
@@ -105,9 +106,7 @@ def extract_anzctr_drugs(client: LlmClient, source_text: str, *, max_attempts: i
                 return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the drug extraction"])
         return CheckResult(ok=True)
 
-    result = refine(produce=lambda: produce(""), check=check,
-                    repair=lambda d, probs: produce("\n".join(f"- {p}" for p in probs)),
-                    max_attempts=max_attempts).value
+    result = review_refine(produce, check, max_attempts=max_attempts).value
     return DrugExtraction(
         intervention_drugs=_drop_non_drug_modalities(result.intervention_drugs),
         comparator_drugs=_drop_non_drug_modalities(result.comparator_drugs),

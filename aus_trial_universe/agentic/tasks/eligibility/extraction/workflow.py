@@ -24,7 +24,8 @@ from dataclasses import dataclass, field
 
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import ADVISORY, FAIL, PASS, bullet, kv, line
-from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
+from aus_trial_universe.agentic.core.review import review_refine
+from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out
 from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
     build_enumeration_reviewer,
     build_interpreter_agent,
@@ -145,7 +146,7 @@ def _extract_raw(client: LlmClient, source_text: str, cohort_index: dict[str, "C
     logger.info(line("Stage I-a · RAW extraction (verbatim source spans)"))
     attempt = {"n": 0}
 
-    def produce(feedback: str = "") -> list[RawFragment]:
+    def produce(feedback: str = "", prior=None) -> list[RawFragment]:
         attempt["n"] += 1
         prompt = base_input if not feedback else (
             f"{base_input}\n\n[REVISION — a reviewer flagged these; fix ONLY these, keep the rest verbatim]:\n{feedback}")
@@ -171,18 +172,9 @@ def _extract_raw(client: LlmClient, source_text: str, cohort_index: dict[str, "C
             logger.info(bullet(p))
         return CheckResult(ok=v.faithful, problems=probs)
 
-    def stuck_repair(frags: list[RawFragment], problems: list[str]) -> list[RawFragment]:
-        # LAST RESORT (same as the interpretation stage): re-review in ESCALATION-MODE so the reviewer also
-        # supplies concrete fixes, then hand those to the raw doer for one final repair.
-        logger.info("")
-        logger.info(line("last-resort · raw re-review in ESCALATION-MODE (writer stuck; requesting concrete fixes)"))
-        enriched = check(frags, escalate=True).problems
-        return produce("\n".join(f"- {p}" for p in (enriched or problems)))
-
-    result = refine(produce=lambda: produce(""), check=check,
-                    repair=lambda _f, probs: produce("\n".join(f"- {p}" for p in probs)),
-                    max_attempts=max_attempts,
-                    stuck_repair=(stuck_repair if reviewer is not None else None))
+    # Shared doer→reviewer loop (core.review): escalate=True (last-resort ESCALATION-MODE) only when a reviewer is
+    # present — with --no-judge the check passes on attempt 1 and no escalation is possible.
+    result = review_refine(produce, check, max_attempts=max_attempts, escalate=reviewer is not None)
     return result.value, result.ok, result.attempts
 
 
@@ -354,21 +346,9 @@ def _interpret(client: LlmClient, trial_id: str, source_text: str, cohort_index:
                 gating.append(fix)
         return CheckResult(ok=not gating, problems=gating)
 
-    def stuck_repair(eligs: list[_EligRaw], problems: list[str]) -> list[_EligRaw]:
-        # LAST RESORT (workflow.refine invokes this only when the doer is cycling): re-review in ESCALATION-MODE so
-        # the reviewers ALSO return concrete suggested fixes, then hand those to the doer for one final repair.
-        logger.info("")
-        logger.info(line("last-resort · re-review in ESCALATION-MODE (writer stuck; requesting concrete fixes)"))
-        enriched = check(eligs, escalate=True).problems
-        return produce("\n".join(f"- {p}" for p in (enriched or problems)), prior=eligs)
-
-    result = refine(
-        produce=lambda: produce(""),
-        check=check,
-        repair=lambda eligs, problems: produce("\n".join(f"- {p}" for p in problems), prior=eligs),
-        max_attempts=max_attempts,
-        stuck_repair=stuck_repair,
-    )
+    # Shared doer→reviewer loop (core.review): escalate=True wires the last-resort ESCALATION-MODE re-review that
+    # asks the panel for concrete suggested fixes (a no-op when --no-judge, where check passes on attempt 1).
+    result = review_refine(produce, check, max_attempts=max_attempts, escalate=True)
     rows = _distribute(result.value, cohort_index, trial_id)
     return rows, result.ok, result.attempts, list(result.problems) + advisory
 
