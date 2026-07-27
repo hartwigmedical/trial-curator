@@ -103,6 +103,10 @@ def test_oncotree_logic_problems_catches_logic_errors():
     # an OR INSIDE a NOT() carve-out must not be split mid-NOT() and misread as a positive broad-ANDed-subtype
     assert _oncotree_logic_problems("Solid tumour AND NOT(NSCLC OR THYROID)") == []
     assert _oncotree_logic_problems("Pan-cancer AND NOT(MEL OR SCLC OR GCT)") == []
+    # ambiguous top-level OR/AND precedence — the OR-group must be parenthesised before an AND/NOT
+    assert any("precedence" in p for p in _oncotree_logic_problems("OCSC OR OPHSC OR LXSC AND NOT(NPC)"))
+    assert _oncotree_logic_problems("(OCSC OR OPHSC OR LXSC) AND NOT(NPC)") == []   # parenthesised is fine
+    assert _oncotree_logic_problems("NSCLC OR MEL") == []                            # only OR, no ambiguity
 
 
 def test_map_oncotree_refines_on_contradiction():

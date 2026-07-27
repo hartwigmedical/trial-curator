@@ -1,43 +1,88 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (2026-07-25)
-**Where we are (DONE + committed `b9e0202`):** the `trial_arm_id` restructure + the **full 1,999-trial EXTRACT**
-are done. Eligibility store = shared `trial_arms` registry (5,224 arms) + `arm_eligibility_raw` +
-`interpreted_eligibility` (**17,659** conjunctions), all keyed by `trial_arm_id`. Drug store migrated + pruned to
-**1,275** drugs. `make agentic-arm-consistency` ✓ · **134 tests pass**. ⚠ **The vocab-map tables and `combined.tsv`
-are NOT built yet** — the run was `--extract-only`.
+## ▶ NEXT SESSION — START HERE (2026-07-27)
+**RESUME AT: `gene_alteration` mapper.** We are mid-way through the MAPPING stage (Stage II), rebuilding it on a new
+shared loop harness with prompts finalised *with the user, criterion by criterion*. **`cancer_type → OncoTree` is
+SIGNED OFF.** Next is `gene_alteration → finding-model` (doer + reviewer), then `molecular_signature → finding-model`.
+Single plan/spec for this whole body of work: **`docs/v2_mapping_and_shared_loop_plan.md`**. Locked decisions:
+memory `v2-mapping-stage-decisions` + `v2-shared-loop-harness`.
 
-**THE TO-DO** — the user's 3 milestones (① mapping · ③ the join · plus their **review + sign-off at every stage**)
-merged with the coupled work, dependency-ordered. **Every stage GATES on the user's review + sign-off.**
-1. **MAPPING (Stage II — the last extraction-side piece).** [user milestone] Map interpreted cells → vocab:
-   `cancer_type` → OncoTree (name+code); `gene_alteration` + `molecular_signature` → finding-model syntax.
-   (`molecular_biomarker` + `prior_therapy` stay free-text — no mapper.) **The stage is already BUILT**
-   (`tasks/eligibility/mapping/`, doer→reviewer, lookup-first) — the action is RUNNING it over the full extract-only
-   store. **Decision needed:** re-run `make agentic-run` (NON-extract-only, NO `--resume` — `--resume` would skip the
-   already-extracted trials and map nothing) leaning on the DiskCache so extraction re-serves near-instant and only
-   mapping is new LLM work; OR add a lighter map-only pass that reads `interpreted_eligibility` and maps its distinct
-   cells. Then **manual QA** per the hold-out rule (curated resources are held-out verification data, esp.
-   `gene_alteration` — memory `v2-mapping-stage-decisions`). Live API run (cost-aware) — set concurrency via the
-   RPM/TPM probe (`feedback-max-allowable-concurrency`).
-2. **DRUG PHASE 2 — main vs auxiliary role (enables #3's full contract, so do it before/with the join).** Cheap
-   per-arm classifier → a `role` (main|auxiliary) column on `trial_to_intervention`; main = investigational agent(s),
-   aux = backbone/SoC/comparator. Judgement rules exist in git history (deleted `DRUG_CURATOR_INSTRUCTIONS`,
-   ≤ 52417bc). Without it `combined.tsv` can't carry main/aux or per-main-drug TGA/PBS. (handover "Shelved / open".)
-3. **THE JOIN → `combined.tsv` (the matching engine's flat file).** [user milestone] `run._build_combined` already
-   joins interpreted ⋈ `trial_arms` ⋈ vocab-maps ⋈ drug annotations on `trial_arm_id` (currently PARKED / 16 cols).
-   Needs #1's maps + #2's drug role. Finalize the **flat-file contract** (backlog A): add the missing **TGA/PBS** +
-   **main/aux role** columns. **Open decision:** the join engine — in-process **SQLite/DuckDB** vs keep the Python
-   join (Postgres ruled out; memory `v2-joined-tables-sql-decision`).
-4. **SYMMETRIC-MATCH vocab for drug approvals (deeper, for the engine).** Map each drug indication's free-text
-   `cancer_type`/`biomarker` (in `drug_regulatory_approvals`) into the SAME OncoTree + finding-model vocab, so the
-   engine can match trial-eligibility ↔ drug-approval symmetrically. Parked; comes with the drug↔trial link.
-5. **SELF-CONTAINED PIPELINE (backlog C/D) — Stage-I ingestion + legacy retirement.** The pipeline still reads
-   legacy-produced inputs (`trial_universe/`); moving download → drug-filter → POTTR-append → retire-missing into
-   agentic (+ retiring legacy `eligibility_path`/`drug_utility_path`) is the biggest piece for a periodic run.
+**DONE THIS SESSION (2026-07-27):** M1 is **COMMITTED** (`21dbb73` "refactor loop mechanism to be shared across all
+stages"). Everything after it — the M2 mapping work (`run.py --map-only`, `mapping/*`, `tools/oncotree.py` YAML,
+`qa/mapping_consistency.py`) + the tests + these doc updates — is **UNCOMMITTED in the working tree** (user commits).
+- **M1 — shared loop harness ✅ (committed `21dbb73`).** `core/review.py` `review_refine` (verdict-agnostic — the response-cache key hashes
+  the reviewer schema, so schemas stay stage-local; only the LOOP is unified). Extraction + drug + shared ANZCTR
+  arm-ID all refactored onto it; behavior-preserving (extraction byte-identical on a 5-trial sample incl. the
+  escalation path; full live end-to-end smoke test rc=0, zero existing files touched). Only mapping-was-bespoke; now
+  rebuilt on it in M2.
+- **M2 scaffolding ✅.** `ReviewVerdict.suggested_fix`; 3 mappers on `review_refine` (REVISION + ESCALATION);
+  configurable fan-out concurrency; **`run.py --map-only`** (maps the store's interpreted cells → the 3 map tables,
+  skips extraction/drug/combined, content tables untouched).
+- **OncoTree grounding → YAML ✅.** `tools/oncotree.py` now reads `oncotree.yaml` (single source): `vocab_reference()`
+  emits an **indented `Name (CODE)` tree** (hierarchy → helps granularity), ancestors from the nesting. Identical
+  897-code set + 0 ancestor-mismatches vs the old CSV. (Legacy `eligibility_path` still uses `oncotree.csv`.)
+- **`cancer_type` mapper — SIGNED OFF ✅.** Doer + vocab-grounded reviewer baked into `agents.py`. Live-tested on 50
+  trials, self-reviewed, **4 principle-level fixes** applied, then **validated on 100 DISJOINT trials (288 values,
+  99.7% faithful)** to guard against overfitting — all fixes generalised. Fixes: (1) BREAST convention (generic
+  breast → BREAST; subtype only when ductal→IDC/lobular→ILC); (2) parenthesise OR-groups before AND (rule **+ a
+  deterministic `_oncotree_logic_problems` checker**); (3) inexpressible anatomic scope → sentinel ALONE (drop
+  scope-relative NOT()); (4) broad-category exclusion → broad node(s) not a NOS subtype (`NOT(sarcomas)` →
+  `NOT(SOFT_TISSUE) AND NOT(BONE)`). Detail: memory `v2-mapping-stage-decisions`.
+- **`qa/mapping_consistency.py` (NEW) ✅.** Deterministic cross-value consistency checker — the user's requirement
+  that the FINAL resource must NOT map semantically-equivalent inputs to different codes. Catches qualifier-noise
+  divergence; synonym-histology is handled by the prompt; the **full guarantee is Step-2 reconciliation (now a firm
+  requirement, not optional)**. **141 tests pass.**
 
-**Known quality item (will surface in the review):** 219 trials finished `faithful=False` (best-effort hard
-multi-cohort — the extractor exhausts the 6-attempt refine budget; output still written). Full detail below +
-memory `v2-next-priorities`, `v2-trial-arm-id-architecture`.
+**STANDING METHOD for the remaining mappers (anti-overfit):** live-test → self-review → **principle-level fixes only**
+(a rule + ≤1 example; never a bespoke patch per rare case) → **validate on a DISJOINT larger sample** before locking.
+Prompts are finalised WITH the user and only baked into `agents.py` after sign-off.
+
+**gene_alteration — prep already done** (before we paused it for the cancer_type test): frequency analysis (KRAS
+G12x dominates the head; **26% of cells contain `NOT()`**), GeneAlteration resource mined across finding-model
+classes. Proposed doer additions awaiting the user's input: notation normalisation (`G12C` == `p.G12C`); drop
+functional/origin qualifiers (`activating`/`actionable`/`deleterious`/`germline or somatic`/`confirmed`);
+disease-phrased `NOT()` → the underlying alteration (`NOT(BCR-ABL-positive leukemia)` → `NOT(Fusion[BCR::ABL1])`);
+anti-lazy-`""`. Then reviewer, then `molecular_signature`.
+
+**HOW TO WORK A MAPPER (operational — reproduce this for gene_alteration + molecular_signature):**
+- Input = the FROZEN store `data/agentic/eligibility/current_output/interpreted_eligibility.tsv` — DO NOT rebuild it.
+- Prompts live in `tasks/eligibility/mapping/agents.py`: gene = `_GENE_RULES` (doer) + `GENE_REVIEWER_INSTRUCTIONS`
+  + the SHARED `GRAMMAR_REFERENCE` (both agents; edit shared grammar there). signature = `_SIGNATURE_RULES` +
+  `SIGNATURE_REVIEWER_INSTRUCTIONS`. Finalise WITH the user, bake in ONLY after sign-off.
+- Curated resources to mine for few-shot / hold-out (NOT gold — correct errors, memory `feedback-curated-files-not-infallible`):
+  `data/eligibility_path/resources/gene_alteration/GeneAlterationCurationResource_*.xlsx` (Mapping_args = answer),
+  `.../molecular_signature/MolecularSignatureCurationResource_*.xlsx`.
+- LIVE-TEST (fully live, touches no store): a scratchpad script that reads the store, collects a trial-sample's
+  distinct cells, calls `map_gene_alterations(client, cells, use_reviewer=True, workers=N, max_attempts=6)` with
+  `client = LlmClient(cache=DiskCache(<fresh scratch dir>), max_concurrency=~80)`; wrap in `caffeinate -i`; dump
+  `input → finding_model, faithful, problems` to a TSV. SELF-REVIEW first, then bring fixes to the user.
+- Then DISJOINT-VALIDATE on a larger NON-overlapping trial sample to confirm the fixes generalise (not overfit).
+- Test scripts + result TSVs live in the session scratchpad (non-persistent — recreate them). The cancer_type harness
+  pattern: `scratchpad/test_oncotree_map.py` (gone after this session; the pattern is above).
+- Whole-store build (after both mappers are locked): `make agentic-run … --map-only` (writes the 3 map tables into
+  `current_output/`; content tables untouched). `make agentic-tests` = **141 tests**, no API.
+
+**THE TO-DO after mapping** (the user's milestones + coupled work, dependency-ordered; every stage GATES on the
+user's review + sign-off):
+0. **Finish MAPPING** — gene_alteration + molecular_signature (as above), then run `--map-only` over the full store
+   to build the 3 map tables, then **Step 2** cross-value reconciliation (enforces the no-inconsistency requirement).
+1. **DRUG PHASE 2 — main vs auxiliary role.** Cheap per-arm classifier → a `role` (main|auxiliary) column on
+   `trial_to_intervention`; main = investigational agent(s), aux = backbone/SoC/comparator. Judgement rules in git
+   history (deleted `DRUG_CURATOR_INSTRUCTIONS`, ≤ 52417bc). Prereq for `combined.tsv`'s main/aux + per-main TGA/PBS.
+2. **THE JOIN → `combined.tsv` (the matching engine's flat file).** `run._build_combined` already joins interpreted ⋈
+   `trial_arms` ⋈ vocab-maps ⋈ drug annotations on `trial_arm_id` (PARKED / 16 cols). Needs mapping + drug role.
+   Finalize the **flat-file contract**: add **TGA/PBS** + **main/aux role**. **Open decision:** join engine —
+   in-process **SQLite/DuckDB** vs keep the Python join (Postgres ruled out; memory `v2-joined-tables-sql-decision`).
+3. **SYMMETRIC-MATCH vocab for drug approvals.** Map each drug indication's free-text `cancer_type`/`biomarker` (in
+   `drug_regulatory_approvals`) into the SAME OncoTree + finding-model vocab, so the engine matches trial-eligibility
+   ↔ drug-approval symmetrically. Parked; comes with the drug↔trial link.
+4. **SELF-CONTAINED PIPELINE — Stage-I ingestion + legacy retirement.** The pipeline still reads legacy-produced
+   inputs (`trial_universe/`); moving download → drug-filter → POTTR-append → retire-missing into agentic (+ retiring
+   legacy `eligibility_path`/`drug_utility_path`) is the biggest piece for a periodic run.
+
+**Known quality item (deferred — user is happy with extraction for now):** 219 trials finished `faithful=False`
+(best-effort hard multi-cohort — the extractor exhausts the 6-attempt refine budget; output still written). We are
+NOT touching extraction during the mapping work. Full detail below + memory `v2-next-priorities`.
 
 ---
 
@@ -144,10 +189,10 @@ memory `v2-next-priorities`, `v2-trial-arm-id-architecture`.
   (https://claude.ai/code/artifact/6c944fe1-2df6-4641-9ed2-7dca1db03b60).
 - **Decisions (memory):** `v2-agentic-rewrite-ground-rules`, `v2-stage2-extraction-decisions`, `v2-mapping-stage-decisions`,
   `v2-drug-regime-axis`, `v2-drug-ref-table`, `feedback-max-allowable-concurrency`.
-- **Git:** the user makes all commits. The **full `trial_arm_id` restructure is committed** in `b9e0202`
-  (40 files, +1791/−523: `tasks/shared/`, rewired stores/schemas/`run.py`, `migrate_trial_arms.py`, reworked
-  `arm_consistency`, docs, both diagrams, all tests). Data (stores + `archive/` snapshots) is gitignored.
-  (A subsequent doc/memory currency pass may leave fresh uncommitted doc edits — not code.)
+- **Git:** the user makes all commits. Commit trail: `b9e0202` (trial_arm_id restructure) → `2b1dd97` (extraction/DNF
+  sign-off) → **`21dbb73` (2026-07-27: M1 shared loop harness — `core/review.py` + refactor of extraction/drug/ANZCTR
+  arm-ID onto it)**. The **M2 mapping work is UNCOMMITTED** in the working tree (`run.py --map-only`, `mapping/*`,
+  `tools/oncotree.py` YAML migration, `qa/mapping_consistency.py`, tests, docs). Data (stores + `archive/`) is gitignored.
 
 ## ✅ DRUG UTILITY PATH — SIGNED OFF (2026-07-13 → 07-20). Not the focus of the new chat.
 The drug-regime axis (CTGov `armGroups`) is the locked output **spine**; eligibility is *assigned* to it (9 locked
@@ -265,7 +310,7 @@ The v2 rewrite is a **two-domain agentic pipeline**: the ELIGIBILITY path (`make
 trial) and the DRUG UTILITY path (`make drug-ref-build`: a separate incremental drug-annotation build). Both emit
 **3NF relational tables**; they join on `trial_arm_id` (via the shared `trial_arms` registry), and `combined.tsv`
 is the grand flat view. Pattern B throughout: deterministic Python owns control flow (parallelism, refine loop,
-per-item durable saves); the LLM fills the doer/reviewer slots. **134 unit tests pass** (fake-client, no API).
+per-item durable saves); the LLM fills the doer/reviewer slots. **141 unit tests pass** (fake-client, no API).
 Eligibility output is a **DNF** table — one row = one satisfiable (trial, arm) conjunction; rows ORed, cells ANDed,
 exclusions inline `NOT(...)`.
 
@@ -277,12 +322,14 @@ make agentic-run ID=NCT06881784                 # one trial (source auto-detecte
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
 make agentic-run                                # ALL trials
 make agentic-run EXTRACT_ONLY=1 RESUME=1 WORKERS=80 MAX_CONCURRENCY=500   # the full-universe extract (2026-07-25 settings)
+python -m aus_trial_universe.agentic.run --map-only --workers 80 --max-concurrency 500   # MAPPING-only: build the 3 map tables over the frozen store (2026-07-27)
 make agentic-arm-consistency                    # referential-integrity check on the trial_arm_id join key
 make agentic-drug-migrate-trial-arms            # re-key drug t2i to trial_arm_id + report (APPLY=1 to write)
 make agentic-clean                              # wipe the transient data/agentic/{log,cache} only
-make agentic-tests                              # 134 unit tests, no API
+make agentic-tests                              # 141 unit tests, no API
 make agentic-validate                           # QA the newest combined.tsv (review-of-the-reviewers)
 # run.py flags (via `python -m aus_trial_universe.agentic.run`): --workers N (parallel trials, default 8) ·
+#   --map-only (map the store's interpreted cells -> 3 map tables; skip extraction/drug/combined; 2026-07-27) ·
 #   --skip-drug (skip the drug top-up; still joins existing drug data) · --no-cache · --extract-only ·
 #   --no-judge (skip extraction panel) · --no-review (skip mapping reviewers) · --store-root DIR · --max-attempts N
 ```
@@ -296,12 +343,13 @@ eligibility design: memory `v2-eligibility-orchestration-model`.
 ## What's built
 ```
 aus_trial_universe/agentic/
-  run.py                     # ELIGIBILITY ORCHESTRATOR: trials in PARALLEL (run_parallel, --workers) — per trial extract -> map (lookup-first) -> per-trial checkpoint to current_output/; then optional incremental drug top-up + grand combined.tsv join. DiskCache; a failing trial is logged & skipped
+  run.py                     # ELIGIBILITY ORCHESTRATOR: trials in PARALLEL (run_parallel, --workers) — per trial extract -> map (lookup-first) -> per-trial checkpoint to current_output/; then optional incremental drug top-up + grand combined.tsv join. `--map-only` = _run_map_only() (map the store's cells -> 3 map tables). DiskCache; a failing trial is logged & skipped
   core/
     paths.py                 # SINGLE relocatable DATA_ROOT (=data/agentic/) + all derived paths + current_version_dir()/archive_current_version()
-    client.py                # LlmClient: .parse() (chat.completions) + .research() (Responses API web_search); cache, retries, tracing
+    client.py                # LlmClient: .parse() (chat.completions) + .research() (Responses API web_search); cache, retries, tracing. NB: _fingerprint hashes the output SCHEMA into the cache key (so reviewer schemas stay stage-local — see review.py)
     agent.py                 # Agent = prompt + schema + model (+ web_search flag) bound to the client
-    workflow.py              # generic fan_out() + refine() (bounded check->repair loop)
+    workflow.py              # generic fan_out() + refine() (bounded check->repair loop) + run_parallel (per-item durable sink)
+    review.py                # SHARED doer->reviewer harness review_refine() (2026-07-27): the ONE loop mechanism for ALL stages (extraction, mapping, drug, ANZCTR arm-ID); verdict-AGNOSTIC. Memory v2-shared-loop-harness
     pipeline_io.py           # dated-file / version-dir selection (copied from eligibility_path); versioned datasets now read current_version/ via paths.py
     prompt_registry.py, cache_prune.py, logfmt.py  # live-agent enumeration + cache GC + shared run-log formatting
   tasks/shared/              # PATH-NEUTRAL arm identification (used by BOTH paths; 2026-07-25)
@@ -318,15 +366,15 @@ aus_trial_universe/agentic/
       loaders.py             # ctgov/anzctr assembly + cohort enumeration (arm_type, drug); load_trials(id/ids/all)
       agents.py              # cohort-aware extractor + 5-reviewer panel (raw + interpret sub-stages)
       schema.py, workflow.py # DnfRow (Cohort imported from tasks/shared); extract_trial() = raw -> interpret -> panel -> refine -> distribute
-    mapping/                 # STAGE II: map the DNF cells -> vocab (LLM mapper -> reviewer each)
-      agents.py, schema.py   # oncotree / gene / signature mappers + reviewers
-      workflow.py            # map_cancer_types, map_gene_alterations, map_molecular_signatures
+    mapping/                 # STAGE II: map the DNF cells -> vocab (mapper -> reviewer, on core.review.review_refine)
+      agents.py, schema.py   # oncotree (cancer_type SIGNED OFF 2026-07-27) / gene / signature mappers + reviewers; ReviewVerdict has suggested_fix. gene+signature prompts NOT yet finalised
+      workflow.py            # map_cancer_types/gene_alterations/molecular_signatures (workers param); _oncotree_logic_problems incl. the parens/precedence checker (_top_level_has)
     schema.py, store.py      # ArmEligibilityRaw + InterpretedEligibility (keyed by trial_arm_id) + 3 map tables; EligStore
     tools/
-      oncotree.py            # OncoTree vocab + code validator + hierarchy (ancestors/is_subcode); 3 sentinels
+      oncotree.py            # reads oncotree.YAML (single source, 2026-07-27): vocab + valid_codes + ancestors + hierarchical vocab_reference() (indented Name (CODE) tree); 3 sentinels
       finding_model.py       # finding-model grammar + syntax/logic validator (dup + self-contradiction)
-    qa/                      # validate_output.py (make agentic-validate) + arm_consistency.py (referential-integrity; make agentic-arm-consistency)
-tests/agentic/               # 134 tests (fake-client); mirrors tasks/ layout (core, tasks/shared, tasks/eligibility, tasks/drug_utility)
+    qa/                      # validate_output.py (make agentic-validate) + arm_consistency.py (make agentic-arm-consistency) + mapping_consistency.py (NEW 2026-07-27: cross-value consistency checker — canonical_key/find_inconsistencies)
+tests/agentic/               # 141 tests (fake-client); mirrors tasks/ layout (core [+test_review], tasks/shared, tasks/eligibility [+qa/test_mapping_consistency, test_run_map_only], tasks/drug_utility)
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|clean|tests|cache-prune|arm-consistency|drug-migrate-trial-arms|drug-ref-build|drug-ref-refresh-pottr
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```

@@ -12,7 +12,14 @@ from dataclasses import dataclass
 
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.core.logfmt import FAIL, PASS, bullet, line
-from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine
+from aus_trial_universe.agentic.core.review import review_refine
+from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out
+
+# Appended to the reviewer input on the last-resort ESCALATION step (see core.review.review_refine): asks the
+# reviewer to ALSO return a concrete `suggested_fix`, which the mapper gets for one final repair. Mechanism only —
+# the reviewer PROMPTS that act on it are finalised separately.
+_ESCALATION = ("\n\n[ESCALATION-MODE] Earlier attempts did not resolve the problems. In ADDITION to `problems`, "
+               "fill `suggested_fix` with the concrete corrected mapping you would expect (the exact value).")
 from aus_trial_universe.agentic.tasks.eligibility.mapping.agents import (
     build_gene_alteration_mapper,
     build_gene_alteration_reviewer,
@@ -56,11 +63,14 @@ def map_oncotree(
     mapper = build_oncotree_mapper(client)
     reviewer = build_oncotree_reviewer(client) if use_reviewer else None
 
-    def produce(feedback: str = "") -> OncotreeMapping:
-        prompt = source_expr if not feedback else f"{source_expr}\n\n[Reviewer feedback — fix these]:\n{feedback}"
-        return mapper(prompt)
+    def produce(feedback: str = "", prior: OncotreeMapping | None = None) -> OncotreeMapping:
+        if not feedback:
+            return mapper(source_expr)
+        prior_txt = (f"\n\n[Your previous mapping]:\noncotree_name: {prior.oncotree_name}\n"
+                     f"oncotree_code: {prior.oncotree_code}") if prior is not None else ""
+        return mapper(f"{source_expr}{prior_txt}\n\n[Reviewer feedback — fix ONLY these]:\n{feedback}")
 
-    def check(m: OncotreeMapping) -> CheckResult:
+    def check(m: OncotreeMapping, escalate: bool = False) -> CheckResult:
         bad = invalid_codes(m.oncotree_code)
         if bad:
             return CheckResult(ok=False, problems=[f"invalid OncoTree code(s): {', '.join(bad)}"])
@@ -68,17 +78,15 @@ def map_oncotree(
         if logic:
             return CheckResult(ok=False, problems=logic)
         if reviewer is not None:
-            v: ReviewVerdict = reviewer(_review_input(source_expr, m))
+            v: ReviewVerdict = reviewer(_review_input(source_expr, m) + (_ESCALATION if escalate else ""))
             if not v.faithful:
-                return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the mapping"])
+                probs = v.problems or ["reviewer flagged the mapping"]
+                if escalate and (v.suggested_fix or "").strip():
+                    probs = probs + [f"SUGGESTED FIX: {v.suggested_fix.strip()}"]
+                return CheckResult(ok=False, problems=probs)
         return CheckResult(ok=True)
 
-    result = refine(
-        produce=lambda: produce(""),
-        check=check,
-        repair=lambda m, problems: produce("\n".join(f"- {p}" for p in problems)),
-        max_attempts=max_attempts,
-    )
+    result = review_refine(produce, check, max_attempts=max_attempts, escalate=use_reviewer)
     m = result.value
     return OncotreeResult(
         source=source_expr,
@@ -99,11 +107,13 @@ def _review_input(source_expr: str, m: OncotreeMapping) -> str:
 
 
 def map_cancer_types(
-    client: LlmClient, cancer_cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True
+    client: LlmClient, cancer_cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True,
+    workers: int = 8,
 ) -> dict[str, OncotreeResult]:
     """Map the DISTINCT (provenance-stripped) cancer-type values, concurrently.
 
-    Returns {stripped_value -> OncotreeResult}. Empty values are skipped.
+    Returns {stripped_value -> OncotreeResult}. Empty values are skipped. `workers` sets the fan-out width (the
+    client's global --max-concurrency semaphore is the true API ceiling); raise it for a large map-only build.
     """
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cancer_cells if strip_provenance(c)))
     if not distinct:
@@ -111,7 +121,8 @@ def map_cancer_types(
     logger.info("")
     logger.info("oncotree · %d value(s)", len(distinct))
     results = fan_out(
-        [(lambda v=v: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)) for v in distinct]
+        [(lambda v=v: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)) for v in distinct],
+        max_workers=workers,
     )
     out = {v: r for v, r in zip(distinct, results)}
     _log_doer_reviewer(distinct, results, use_reviewer=use_reviewer, render=lambda r: r.oncotree_code or "?")
@@ -160,17 +171,38 @@ def _top_level_or(expr: str) -> list[str]:
     return [p for p in parts if p.strip()]
 
 
-def _oncotree_logic_problems(code_expr: str) -> list[str]:
-    """Catch OncoTree logic errors so a mapping is never self-contradictory or redundant.
+def _top_level_has(expr: str, op: str) -> bool:
+    """True if ``op`` (``OR`` / ``AND``) appears at paren-depth 0 — i.e. outside any NOT(...) or ( ) group."""
+    token = f" {op} "
+    depth = i = 0
+    while i < len(expr):
+        c = expr[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and expr[i:i + len(token)] == token:
+            return True
+        i += 1
+    return False
 
-    Flags: any [None]; within each OR-alternative — a code both included and excluded (X AND NOT(X)),
-    a duplicated code (X AND X), a broad sentinel ANDed with a specific code, and a subtype ANDed with
-    its OncoTree parent. (A cancer_type conjunction is one OR-group; OR-alternatives are checked apart.)
+
+def _oncotree_logic_problems(code_expr: str) -> list[str]:
+    """Catch OncoTree logic errors so a mapping is never self-contradictory, redundant, or ambiguous.
+
+    Flags: any [None]; ambiguous top-level OR/AND precedence (an unparenthesised OR-group ANDed with something —
+    e.g. "A OR B AND NOT(C)" — which mis-scopes the exclusion); and, within each OR-alternative — a code both
+    included and excluded (X AND NOT(X)), a duplicated code (X AND X), a broad sentinel ANDed with a specific code,
+    and a subtype ANDed with its OncoTree parent. (A cancer_type conjunction is one OR-group; OR-alts checked apart.)
     """
     problems: list[str] = []
     expr = code_expr or ""
     if "[None]" in expr:
         problems.append("remove [None] — a non-cancer term is not allowed in cancer_type; leave the mapping empty instead")
+    # Mixing OR and AND at the top level without parentheses is ambiguous (the exclusion binds to only one branch).
+    if _top_level_has(expr, "OR") and _top_level_has(expr, "AND"):
+        problems.append("ambiguous OR/AND precedence at top level — parenthesise the OR-group: write "
+                        "'(A OR B) AND NOT(C)', not 'A OR B AND NOT(C)'")
     for group in _top_level_or(expr):
         neg = {t for body in _NOT_BODY_RE.findall(group) for t in _CODE_TOKEN_RE.findall(body)} - _KW
         positive_text = _NOT_BODY_RE.sub("", group)
@@ -212,26 +244,27 @@ def _map_finding_model(
     mapper = build_mapper(client)
     reviewer = build_reviewer(client) if use_reviewer else None
 
-    def produce(feedback: str = "") -> FindingModelMapping:
-        prompt = source_expr if not feedback else f"{source_expr}\n\n[Reviewer feedback — fix these]:\n{feedback}"
-        return mapper(prompt)
+    def produce(feedback: str = "", prior: FindingModelMapping | None = None) -> FindingModelMapping:
+        if not feedback:
+            return mapper(source_expr)
+        prior_txt = f"\n\n[Your previous mapping]:\nfinding_model: {prior.finding_model}" if prior is not None else ""
+        return mapper(f"{source_expr}{prior_txt}\n\n[Reviewer feedback — fix ONLY these]:\n{feedback}")
 
-    def check(m: FindingModelMapping) -> CheckResult:
+    def check(m: FindingModelMapping, escalate: bool = False) -> CheckResult:
         probs = finding_model_problems(m.finding_model)
         if probs:
             return CheckResult(ok=False, problems=[f"invalid syntax: {p}" for p in probs])
         if reviewer is not None:
-            v: ReviewVerdict = reviewer(f"SOURCE: {source_expr}\n\nPROPOSED finding_model: {m.finding_model}")
+            v: ReviewVerdict = reviewer(f"SOURCE: {source_expr}\n\nPROPOSED finding_model: {m.finding_model}"
+                                        + (_ESCALATION if escalate else ""))
             if not v.faithful:
-                return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the conversion"])
+                gate = v.problems or ["reviewer flagged the conversion"]
+                if escalate and (v.suggested_fix or "").strip():
+                    gate = gate + [f"SUGGESTED FIX: {v.suggested_fix.strip()}"]
+                return CheckResult(ok=False, problems=gate)
         return CheckResult(ok=True)
 
-    result = refine(
-        produce=lambda: produce(""),
-        check=check,
-        repair=lambda m, problems: produce("\n".join(f"- {p}" for p in problems)),
-        max_attempts=max_attempts,
-    )
+    result = review_refine(produce, check, max_attempts=max_attempts, escalate=use_reviewer)
     return FindingModelResult(
         source=source_expr,
         finding_model=result.value.finding_model.strip(),
@@ -241,7 +274,7 @@ def _map_finding_model(
     )
 
 
-def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attempts, use_reviewer):
+def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attempts, use_reviewer, workers=8):
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cells if strip_provenance(c)))
     if not distinct:
         return {}
@@ -251,17 +284,19 @@ def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attem
         (lambda v=v: _map_finding_model(client, v, build_mapper, build_reviewer,
                                         max_attempts=max_attempts, use_reviewer=use_reviewer))
         for v in distinct
-    ])
+    ], max_workers=workers)
     out = {v: r for v, r in zip(distinct, results)}
     _log_doer_reviewer(distinct, results, use_reviewer=use_reviewer, render=lambda r: r.finding_model or "?")
     return out
 
 
-def map_gene_alterations(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True) -> dict[str, FindingModelResult]:
+def map_gene_alterations(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True,
+                         workers: int = 8) -> dict[str, FindingModelResult]:
     return _map_column(client, cells, build_gene_alteration_mapper, build_gene_alteration_reviewer,
-                       "gene→fm", max_attempts=max_attempts, use_reviewer=use_reviewer)
+                       "gene→fm", max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers)
 
 
-def map_molecular_signatures(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True) -> dict[str, FindingModelResult]:
+def map_molecular_signatures(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True,
+                             workers: int = 8) -> dict[str, FindingModelResult]:
     return _map_column(client, cells, build_molecular_signature_mapper, build_molecular_signature_reviewer,
-                       "sig→fm", max_attempts=max_attempts, use_reviewer=use_reviewer)
+                       "sig→fm", max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers)

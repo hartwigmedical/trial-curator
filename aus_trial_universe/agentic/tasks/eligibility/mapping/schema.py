@@ -42,3 +42,11 @@ class ReviewVerdict(BaseModel):
         default_factory=list,
         description="Concrete, actionable issues (wrong node/class, wrong granularity, invalid syntax, lost structure).",
     )
+    suggested_fix: str = Field(
+        default="",
+        description=(
+            "OPTIONAL. When not faithful, the concrete corrected mapping you would expect (the exact value). This is "
+            "ADVICE handed to the mapper, which regenerates and is re-checked — NOT applied directly. Normally leave "
+            "empty (reporting problems is enough); fill it only when the input is marked '[ESCALATION-MODE]'."
+        ),
+    )

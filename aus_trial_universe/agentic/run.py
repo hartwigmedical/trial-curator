@@ -202,6 +202,43 @@ def _build_combined(elig_store, arm_store, drug_store, strip_provenance) -> list
     return rows
 
 
+def _run_map_only(client, elig_store, run_dir, *, workers, max_attempts, use_reviewer, log) -> int:
+    """MAPPING-ONLY pass (Step 1): map every DISTINCT interpreted cell of the loaded store into the three
+    value->vocabulary tables, then save. The raw + interpreted content tables are read-only here (never re-derived);
+    only the 3 map tables are (re)built. Fresh — every distinct value is mapped, not looked up against prior maps."""
+    from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import (
+        map_cancer_types, map_gene_alterations, map_molecular_signatures,
+    )
+    from aus_trial_universe.agentic.tasks.eligibility.schema import (
+        CancerTypeMap, GeneAlterationMap, MolecularSignatureMap,
+    )
+    from aus_trial_universe.agentic.core.logfmt import stage
+    rows = [e for elist in elig_store.interpreted.values() for e in elist]
+    log.info(stage(f"MAPPING (map-only) · {len(rows)} interpreted row(s) · {workers} workers"))
+    kw = dict(max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers)
+
+    ct = map_cancer_types(client, [r.cancer_type_interpreted for r in rows], **kw)
+    for v, r in ct.items():
+        elig_store.put_cancer_type(CancerTypeMap(cancer_type=v, oncotree_name=r.oncotree_name, oncotree_code=r.oncotree_code))
+    ga = map_gene_alterations(client, [r.gene_alteration_interpreted for r in rows], **kw)
+    for v, r in ga.items():
+        elig_store.put_gene_alteration(GeneAlterationMap(gene_alteration=v, finding_model=r.finding_model))
+    sig = map_molecular_signatures(client, [r.molecular_signature_interpreted for r in rows], **kw)
+    for v, r in sig.items():
+        elig_store.put_molecular_signature(MolecularSignatureMap(molecular_signature=v, finding_model=r.finding_model))
+
+    elig_store.save(run_dir)   # writes all 5 tables; raw + interpreted are re-persisted unchanged, + the 3 maps
+
+    def _stats(d, empty):
+        return f"{len(d)} distinct · {sum(1 for r in d.values() if not empty(r))} mapped · " \
+               f"{sum(1 for r in d.values() if empty(r))} empty · {sum(1 for r in d.values() if not r.faithful)} unfaithful"
+    print(f"\n{'═' * 70}\nMAP-ONLY · 3 map table(s) → {run_dir}/\n")
+    print(f"  cancer_type         · {_stats(ct, lambda r: not r.oncotree_code)}")
+    print(f"  gene_alteration     · {_stats(ga, lambda r: not r.finding_model)}")
+    print(f"  molecular_signature · {_stats(sig, lambda r: not r.finding_model)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="v2 agentic eligibility pipeline (incremental, lookup-first).")
     which = parser.add_mutually_exclusive_group()
@@ -216,6 +253,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-review", action="store_true", help="Skip the mapping reviewers (cheaper).")
     parser.add_argument("--extract-only", action="store_true",
                         help="Extraction only — skip mapping + drug top-up.")
+    parser.add_argument("--map-only", action="store_true",
+                        help="MAPPING only — map the distinct interpreted cells of the EXISTING store into the 3 "
+                             "value->vocabulary tables (cancer_type/gene_alteration/molecular_signature), then save. "
+                             "Skips extraction, drug top-up and combined; the raw + interpreted content tables are "
+                             "left untouched. Every distinct value is mapped afresh (no reliance on prior maps).")
     parser.add_argument("--skip-drug", action="store_true",
                         help="Skip the incremental drug-annotation top-up (still joins existing drug data).")
     parser.add_argument("--no-cache", action="store_true",
@@ -261,8 +303,10 @@ def main(argv: list[str] | None = None) -> int:
     from aus_trial_universe.agentic.core import paths as _paths   # read TRIAL_ARMS_ROOT dynamically (test-redirectable)
 
     ids = [x for x in args.ids.split(",")] if args.ids else None
-    trials = load_trials(id=args.id, ids=ids)
-    if not trials:
+    # map-only works off the EXISTING store (the 3 map tables over interpreted_eligibility), so it needs no trial
+    # inputs — skip the (potentially all-1,999) input load entirely.
+    trials = [] if args.map_only else load_trials(id=args.id, ids=ids)
+    if not args.map_only and not trials:
         parser.error("no trials with usable text found")
     requested_ids = [t[1] for t in trials]   # display ids of everything asked for (before any --resume filter)
 
@@ -293,8 +337,11 @@ def main(argv: list[str] | None = None) -> int:
 
     trial_arms_root = _paths.TRIAL_ARMS_ROOT  # the SHARED registry's home (read at call time so tests can redirect)
     elig_store = EligStore.load(store_root)   # load the latest EXISTING snapshot before creating this run's dir
-    arm_store = TrialArmStore.load(trial_arms_root)   # the SHARED arm registry (accumulates across both paths + runs)
     run_dir.mkdir(parents=True, exist_ok=True)
+    if args.map_only:   # MAPPING-only: map the store's interpreted cells -> 3 map tables; content tables untouched
+        return _run_map_only(client, elig_store, run_dir, workers=args.workers, max_attempts=args.max_attempts,
+                             use_reviewer=not args.no_review, log=log)
+    arm_store = TrialArmStore.load(trial_arms_root)   # the SHARED arm registry (accumulates across both paths + runs)
     if args.resume:   # process only the not-yet-done trials (the per-trial checkpoint makes this safe)
         _pending = [t for t in trials if not elig_store.has_trial(t[1])]
         log.info("resume · %d/%d requested already in store → %d to process",

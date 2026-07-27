@@ -1,14 +1,17 @@
 """OncoTree reference vocabulary for the mapping task.
 
 Loads the curated OncoTree hierarchy (the VITAL resource
-`data/eligibility_path/resources/oncotree/oncotree.csv`) into a ``{code: name}``
-vocabulary used to (a) ground the OncoTree mapper prompt with the real, valid code
-set and (b) validate that emitted codes are genuine. The pseudo-codes below mirror
-the legacy sentinels for broad / any-solid / non-cancer scopes.
+`data/agentic/resources/eligibility/oncotree/current_version/oncotree.yaml`) — a nested tree of
+``{code, name, level, children}`` — and derives everything the mapping stage needs from it:
+(a) a ``{code: name}`` vocabulary, (b) the allowed code set (for validating that emitted codes are genuine),
+(c) the ancestor sets (parent→child from the nesting, for granularity checks), and (d) a compact INDENTED
+``Name (CODE)`` tree that grounds the mapper/reviewer prompt — indentation carries the subtype hierarchy the
+granularity rules depend on, which a flat list cannot. The pseudo-codes below mirror the legacy sentinels for
+broad / any-solid / non-cancer scopes. (The YAML is the single source; the sibling ``oncotree.csv`` is only used
+by the legacy `eligibility_path` tree.)
 """
 from __future__ import annotations
 
-import csv
 import functools
 import re
 from pathlib import Path
@@ -16,12 +19,10 @@ from pathlib import Path
 from aus_trial_universe.agentic.core.paths import ONCOTREE_ROOT, current_version_dir
 
 
-def _oncotree_csv() -> Path:
-    """Path to the live OncoTree CSV (resolved lazily so importing this module never requires the file)."""
-    return current_version_dir(ONCOTREE_ROOT) / "oncotree.csv"
+def _oncotree_yaml() -> Path:
+    """Path to the live OncoTree YAML (resolved lazily so importing this module never requires the file)."""
+    return current_version_dir(ONCOTREE_ROOT) / "oncotree.yaml"
 
-_CODE_RE = re.compile(r"\(([^()]+)\)\s*$")   # trailing "(CODE)" in a "Name (CODE)" cell
-_LEVELS = [f"level_{i}" for i in range(1, 8)]
 
 PAN_CANCER = "Pan-cancer"                       # any cancer (solid + haematological)
 SOLID_TUMOUR = "Solid tumour"                   # any solid tumour
@@ -32,16 +33,31 @@ SENTINELS = (PAN_CANCER, SOLID_TUMOUR, HAEM_MALIGNANCY)
 
 
 @functools.lru_cache(maxsize=1)
+def _tree() -> list[dict]:
+    """Parse the OncoTree YAML once (a list of nested ``{code, name, level, children}`` nodes)."""
+    import yaml  # lazy: importing this module stays dependency-free until the vocab is actually used
+    with open(_oncotree_yaml(), encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def _iter_nodes(nodes: list[dict] | None = None, depth: int = 0, ancestors: tuple[str, ...] = ()):
+    """Yield ``(code, name, depth, ancestor_codes)`` for every node, depth-first (parent BEFORE its children,
+    siblings in file order) — so a rendering preserves the tree's natural top-down structure."""
+    if nodes is None:
+        nodes = _tree()
+    for n in nodes:
+        yield n["code"], n["name"], depth, ancestors
+        kids = n.get("children")
+        if kids:
+            yield from _iter_nodes(kids, depth + 1, ancestors + (n["code"],))
+
+
+@functools.lru_cache(maxsize=1)
 def oncotree_vocab() -> dict[str, str]:
-    """``{code: name}`` for every OncoTree node (~865)."""
+    """``{code: name}`` for every OncoTree node (~897)."""
     vocab: dict[str, str] = {}
-    with open(_oncotree_csv(), newline="", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            for lvl in _LEVELS:
-                cell = (row.get(lvl) or "").strip()
-                m = _CODE_RE.search(cell)
-                if m:
-                    vocab.setdefault(m.group(1), cell[: m.start()].strip())
+    for code, name, _d, _a in _iter_nodes():
+        vocab.setdefault(code, name)
     return vocab
 
 
@@ -53,19 +69,9 @@ def valid_codes() -> frozenset[str]:
 
 @functools.lru_cache(maxsize=1)
 def oncotree_ancestors() -> dict[str, frozenset[str]]:
-    """``{code: ancestor codes}`` from the OncoTree level hierarchy (level_1..level_7)."""
-    anc: dict[str, set[str]] = {}
-    with open(_oncotree_csv(), newline="", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            path: list[str] = []
-            for lvl in _LEVELS:
-                cell = (row.get(lvl) or "").strip()
-                m = _CODE_RE.search(cell)
-                if not m:
-                    continue
-                anc.setdefault(m.group(1), set()).update(path)
-                path.append(m.group(1))
-    return {code: frozenset(a) for code, a in anc.items()}
+    """``{code: ancestor codes}`` straight from the YAML nesting (a node's ancestors are the codes on the path
+    from the root down to — but excluding — it)."""
+    return {code: frozenset(anc) for code, _n, _d, anc in _iter_nodes()}
 
 
 def is_subcode(a: str, b: str) -> bool:
@@ -75,8 +81,9 @@ def is_subcode(a: str, b: str) -> bool:
 
 @functools.lru_cache(maxsize=1)
 def vocab_reference() -> str:
-    """A compact ``CODE<TAB>Name`` block for the mapper prompt (the authoritative codes)."""
-    return "\n".join(f"{code}\t{name}" for code, name in sorted(oncotree_vocab().items()))
+    """A compact INDENTED ``Name (CODE)`` tree for the mapper/reviewer prompt — indentation = the subtype
+    hierarchy (a child node is a subtype of its parent), so granularity is visible at a glance."""
+    return "\n".join(f"{'  ' * d}{name} ({code})" for code, name, d, _a in _iter_nodes())
 
 
 _TOKEN_RE = re.compile(r"[A-Z][A-Z0-9_]+")

@@ -83,6 +83,12 @@ review_refine(produce, check, *, max_attempts=6, escalate=False) -> RefineResult
 - **Verification:** `make agentic-tests` → **138 passed** (134 + 4 driver tests). Extraction **byte-identical** on a
   5-trial sample (incl. `NCT04221035`/`NCT05914116` at faithful=False/6 attempts — the escalation path — and an
   ANZCTR fresh-derived-arms trial), compared against the frozen `current_output/` with the warm cache.
+- **End-to-end smoke test (sign-off):** the FULL pipeline (extract → map → drug top-up → combined) run **fully live**
+  for `NCT07099898` in a completely ISOLATED scratch DATA_ROOT (inputs/resources read-real; all outputs + a fresh
+  cache → scratch) → **rc=0**, every refactored loop exercised live (extraction raw+interpret; drug
+  canonicalize/annotate/approvals via web_search), sane output at every stage. Confirmed **zero existing files
+  touched** (real stores' mtimes unchanged, real cache count unchanged at 41,796; the 28 live-call entries landed in
+  the scratch cache).
 - `tasks/drug_utility/workflow.py`/`agents.py` — doer→reviewer onto the driver; the `web_search` doer stays a
   different agent call but uses the same loop.
 - `tests/agentic/*` — new driver tests; existing stage tests updated to the shared verdict.

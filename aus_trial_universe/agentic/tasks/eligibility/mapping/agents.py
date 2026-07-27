@@ -18,60 +18,192 @@ from aus_trial_universe.agentic.tasks.eligibility.tools.finding_model import GRA
 from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import vocab_reference
 
 _ONCOTREE_RULES = """\
-You map a clinical trial's cancer/tumour-type expression to OncoTree. Return TWO renderings of the
-SAME expression: oncotree_name (using OncoTree names) and oncotree_code (using OncoTree codes).
+You map a clinical trial's cancer/tumour-type expression to OncoTree. Return TWO renderings of the SAME
+expression: oncotree_name (using OncoTree NAMES) and oncotree_code (using OncoTree CODES). They must be
+structurally identical — same terms, same AND/OR/NOT — differing only in name vs code.
 
-Rules:
-- Map each tumour/cancer term to its single CLOSEST OncoTree node from the VOCABULARY below. Pick the
-  most specific node that still fully covers the stated type; do NOT over-narrow (e.g. "NSCLC" -> NSCLC,
-  not a subtype) and do NOT over-broaden.
-- Preserve the expression's logical structure, mapping only the tumour terms — BUT it is your job to fix
-  logically invalid input (see "Logical consistency" below); do not blindly copy a broken AND/NOT.
-- Use ONLY codes/names that appear in the VOCABULARY, or these THREE permitted non-OncoTree terms:
-  - "Solid tumour"              — any solid tumour (e.g. "advanced solid tumours").
-  - "Pan-cancer"               — any cancer incl. haematological (e.g. "solid and haematological malignancies").
-  - "Haematological malignancy"— any blood / lymphoid cancer (e.g. "relapsed haematologic malignancies").
-  If a term is genuinely not a cancer/tumour type, return "" (empty) — do not invent a code.
-- oncotree_name and oncotree_code must be structurally identical (same terms, same AND/OR/NOT), differing
-  only in name vs code.
+WHAT YOU RECEIVE
+The input is the interpreted cancer-type criterion of one trial arm. It is often a full clinical phrase carrying
+qualifiers OncoTree cannot express — disease stage/grade; "advanced / metastatic / locally advanced / unresectable
+/ recurrent / relapsed / refractory"; line of therapy; treatment-resistance; biomarker status; "histologically
+confirmed", etc. Extract the underlying TUMOUR TYPE(s) and map those, DROPPING every qualifier OncoTree has no
+field for. Keep only stated tumour-type EXCLUSIONS, as NOT(...).
 
-Logical consistency (MANDATORY — a mapping must never be self-contradictory or redundant):
-- NEVER repeat a code: "X AND X" = "X"; list each code once.
-- NEVER include and exclude the same code: no "X AND NOT(X)".
-- NEVER AND a broad term with a specific type under it (e.g. "Solid tumour AND Melanoma", or a code ANDed
-  with its own OncoTree subtype/parent). A broad type and its subtype are OR-alternatives, not a
-  conjunction — a patient has ONE tumour. If the trial is clearly about the specific type, keep only that
-  and DROP the broad term; if it genuinely spans the broad group with the subtype named, use OR (e.g.
-  "Solid tumour OR Melanoma").
-- Keep NOT(cancer type) to a MINIMUM: only negate a genuinely excluded tumour type that has its OWN
-  OncoTree node. If a NOT(...) names a histologic subtype/refinement with no OncoTree code of its own
-  (e.g. "complex SCLC" under SCLC), OMIT that NOT() entirely — never map it to the PARENT code.
+THE OUTPUT VOCABULARY
+Use ONLY codes/names from the VOCABULARY below, OR one of these THREE non-OncoTree sentinels. The sentinels form a
+hierarchy — always use the MOST SPECIFIC one that covers the trial's scope:
+- "Solid tumour"               — any solid tumour. Use this (NOT Pan-cancer) whenever the scope is solid tumours.
+- "Haematological malignancy"  — any blood / lymphoid cancer.
+- "Pan-cancer"                 — ONLY when the scope genuinely spans BOTH solid and haematological (e.g. "solid and
+                                 haematological malignancies"), or is a truly unspecified "any cancer" (e.g. bare
+                                 "Cancer", "Malignant Neoplasm"). NEVER use Pan-cancer for a solid-tumour trial.
+If a value is genuinely NOT an oncological condition (a non-cancer disease, a procedure, a therapy, a lab value),
+return "" (empty). Difficulty is NOT a reason to bail: a real cancer ALWAYS has at least a sentinel, so never return
+"" for a hard-to-place cancer — use the closest node, or the appropriate sentinel.
 
-Examples (source -> oncotree_name  //  oncotree_code):
-- "metastatic NSCLC"                     -> Non-Small Cell Lung Cancer  //  NSCLC
-- "HR+/HER2- breast cancer"              -> Breast Cancer  //  BREAST
-- "acute myeloid leukemia"               -> Acute Myeloid Leukemia  //  AML
-- "advanced solid tumours"               -> Solid tumour  //  Solid tumour
-- "solid and haematological malignancies"-> Pan-cancer  //  Pan-cancer
-- "relapsed haematologic malignancies"   -> Haematological malignancy  //  Haematological malignancy
-- "solid tumours except melanoma"        -> Solid tumour AND NOT(Melanoma)  //  Solid tumour AND NOT(MEL)
-- "solid tumours, e.g. melanoma"         -> Solid tumour OR Melanoma  //  Solid tumour OR MEL
+GRANULARITY — map only as specific as the SOURCE WORDING supports (no broader, no narrower):
+- Go as granular as the stated subtype/histology allows: "lung adenocarcinoma" -> LUAD; "clear cell RCC" -> CCRCC;
+  "high-grade serous ovarian" -> HGSOC; "PDAC" (ductal adenocarcinoma) -> PAAD.
+- When the source names an organ cancer WITHOUT a histology, do NOT infer one — map to the ORGAN node:
+  "prostate cancer" -> PROSTATE; "pancreatic cancer" -> PANCREAS; "breast cancer" -> BREAST.
+  (Named exception: "colorectal cancer" -> COADREAD, Colorectal Adenocarcinoma.)
+- When OncoTree has NO finer node for a stated subtype, use the closest ancestor rather than inventing one:
+  "eyelid squamous cell carcinoma" -> SKIN.
+- An ANATOMIC / REGIONAL scope OncoTree has no node for ("abdominal", "pelvic", "thoracic", "gastrointestinal
+  region", "CNS-located", etc.) is an INEXPRESSIBLE qualifier: map to the appropriate broad SENTINEL (usually
+  Solid tumour) ALONE — do NOT approximate the region by enumerating its organs.
+- BREAST is a special case (its "Invasive Breast Carcinoma / BRCA" node is a near-synonym of the organ and only
+  fragments matching): map generic breast cancer / breast carcinoma / invasive breast cancer / breast
+  adenocarcinoma / TNBC / HR- or HER2-status breast cancer ALL to BREAST. Go deeper only when a specific HISTOTYPE
+  is named — ductal -> IDC, lobular -> ILC.
 
-VOCABULARY (CODE<TAB>Name):
+LOGICAL STRUCTURE
+- Preserve the expression's AND / OR / NOT, mapping only the tumour terms — BUT fix logically invalid input; never
+  blindly copy a broken AND/NOT.
+- Genuinely different tumour types stated together as alternatives are OR-branches: "AML/MDS" -> AML OR MDS.
+- ALWAYS parenthesise an OR-group when you AND anything onto it: write "(A OR B OR C) AND NOT(D)", NEVER
+  "A OR B OR C AND NOT(D)" — the unparenthesised form is ambiguous and misreads as "C AND NOT(D)".
+- NEVER repeat a code (X AND X = X). NEVER include and exclude the same code (no X AND NOT(X)). NEVER AND a broad
+  term with a specific type under it — a broad type and its subtype are OR-alternatives, not AND (a patient has ONE
+  tumour): if the trial is clearly the specific type keep only that; if it genuinely spans the group, use OR.
+- Keep NOT(...) to a MINIMUM: only negate a genuinely excluded tumour type that has its OWN node. If a NOT() names a
+  refinement with no code of its own, OMIT it — never map it to the parent code. A NOT() on a broad SENTINEL is
+  valid ONLY when the source's positive scope genuinely IS that whole group ("solid tumours EXCEPT melanoma" ->
+  Solid tumour AND NOT(MEL)); if you reached a sentinel by DROPPING a narrower inexpressible scope (an anatomic
+  region), DROP the scope-relative exclusion too ("abdominal/pelvic malignancy except vulvar" -> Solid tumour).
+- When a NOT() excludes a broad tumour CATEGORY ("sarcomas", "carcinomas", "lymphomas", "neuroendocrine tumours"),
+  exclude the BROAD node(s) covering that category, NEVER a narrow "..., NOS" subtype: "NOT(sarcomas)" ->
+  NOT(SOFT_TISSUE) AND NOT(BONE), not NOT(SARCNOS).
+
+EXAMPLES (source -> oncotree_name  //  oncotree_code):
+- "metastatic NSCLC"                                -> Non-Small Cell Lung Cancer  //  NSCLC
+- "advanced solid tumours"                          -> Solid tumour  //  Solid tumour
+- "HER2-positive advanced solid tumors"             -> Solid tumour  //  Solid tumour
+- "clear cell renal cell cancer (ccRCC)"            -> Renal Clear Cell Carcinoma  //  CCRCC
+- "metastatic colorectal cancer"                    -> Colorectal Adenocarcinoma  //  COADREAD
+- "metastatic PDAC"                                 -> Pancreatic Adenocarcinoma  //  PAAD
+- "metastatic castration-resistant prostate cancer" -> Prostate  //  PROSTATE
+- "metastatic breast cancer"                        -> Breast  //  BREAST
+- "invasive breast cancer"                          -> Breast  //  BREAST
+- "triple-negative breast cancer (TNBC)"            -> Breast  //  BREAST
+- "invasive ductal carcinoma of the breast"         -> Breast Invasive Ductal Carcinoma  //  IDC
+- "SCC of the oral cavity, oropharynx, or larynx, except nasopharynx" -> (Oral Cavity SCC OR Oropharynx SCC OR Larynx SCC) AND NOT(Nasopharyngeal Carcinoma)  //  (OCSC OR OPHSC OR LXSC) AND NOT(NPC)
+- "recurrent high-grade serous ovarian cancer"      -> High-Grade Serous Ovarian Cancer  //  HGSOC
+- "B-acute lymphoblastic leukemia (B-ALL)"          -> B-Lymphoblastic Leukemia/Lymphoma  //  BLL
+- "multiple myeloma"                                -> Plasma Cell Myeloma  //  PCM
+- "AML/MDS"                                          -> Acute Myeloid Leukemia OR Myelodysplastic Syndromes  //  AML OR MDS
+- "Haematologic Malignancies"                       -> Haematological malignancy  //  Haematological malignancy
+- "advanced non-haematologic malignancy"            -> Solid tumour  //  Solid tumour
+- "solid and haematological malignancies"           -> Pan-cancer  //  Pan-cancer
+- "eyelid squamous cell carcinoma"                  -> Skin  //  SKIN
+- "solid tumours except melanoma"                   -> Solid tumour AND NOT(Melanoma)  //  Solid tumour AND NOT(MEL)
+- "abdominal or pelvic malignancy, excluding vulvar cancer" -> Solid tumour  //  Solid tumour
+- "Rett syndrome"                                   -> (empty)  //  (empty)
+
+ONCOTREE VOCABULARY (an indented tree — indentation shows the subtype hierarchy: a child is a subtype of its
+parent; each node is `Name (CODE)`):
 """
 
 ONCOTREE_REVIEWER_INSTRUCTIONS = """\
-You audit a proposed OncoTree mapping of a trial's cancer-type expression. You are given the SOURCE
-expression and the proposed oncotree_name / oncotree_code.
+You audit a proposed OncoTree mapping of a trial's cancer-type expression. You are given the SOURCE expression and
+the proposed oncotree_name / oncotree_code. The full OncoTree VOCABULARY (an indented Name (CODE) tree — a child is
+a subtype of its parent) is provided below; USE IT to check both code validity and granularity.
 
 Set faithful=true only if ALL of the following hold; otherwise faithful=false with concrete, actionable problems:
-- Every tumour term maps to the CORRECT OncoTree node at appropriate granularity (not too broad, not too narrow).
-- Codes are valid OncoTree codes or one of the THREE permitted terms only: "Solid tumour", "Pan-cancer",
-  "Haematological malignancy"; a non-cancer value must be empty, not a code.
-- The mapping is LOGICALLY CONSISTENT: no "X AND X", no "X AND NOT(X)", and no broad term ANDed with a
-  specific type under it (a broad type + its subtype are OR-alternatives, not AND). Flag any of these.
-- NOT(cancer type) terms are minimal and each names a genuinely excluded tumour type with its own node.
-- oncotree_name mirrors oncotree_code (same terms/structure).
+
+1. VALID CODES — every code is a real OncoTree code from the vocabulary, or one of the three sentinels
+   ("Solid tumour", "Haematological malignancy", "Pan-cancer"); a non-cancer value must be "" (empty), not a code.
+
+2. CORRECT NODE — each tumour term maps to the right node (right organ / lineage / histology), not a wrong branch
+   (e.g. small-cell vs non-small-cell lung; cholangiocarcinoma vs gallbladder).
+
+3. GRANULARITY — as specific as the SOURCE WORDING supports, no more, no less. Using the vocabulary tree:
+   - If a MORE SPECIFIC valid node exists that the source clearly supports, the mapping is UNDER-granular
+     (e.g. "non-small cell lung cancer" mapped to LUNG when NSCLC exists).
+   - If the mapping is MORE specific than the source states — an INFERRED histology — it is OVER-granular
+     (e.g. "prostate cancer", histology unstated, mapped to PRAD instead of the organ node PROSTATE).
+   - Organ-node when histology is unstated (prostate→PROSTATE, pancreatic→PANCREAS, breast→BREAST); go granular
+     only when the subtype/histology is stated (PDAC→PAAD, serous ovarian→HGSOC, ccRCC→CCRCC). Named exception:
+     colorectal cancer→COADREAD. When OncoTree has NO finer node for a stated subtype, the closest ancestor is
+     CORRECT (eyelid SCC→SKIN) — do not flag that as under-granular.
+   - BREAST special case: generic breast cancer / carcinoma / invasive / adenocarcinoma / TNBC / HR- or HER2-status
+     all map to BREAST; flag BRCA / IDC / ILC UNLESS a specific histotype (ductal/lobular) is named.
+
+4. SENTINEL SPECIFICITY — the most specific sentinel is used: "Solid tumour" (NOT Pan-cancer) for a solid-tumour
+   scope; "Haematological malignancy" for blood/lymphoid; "Pan-cancer" ONLY when the scope genuinely spans BOTH or
+   is a truly unspecified "any cancer". Flag Pan-cancer used for a solid-tumour trial.
+
+5. NOT LAZY — if the SOURCE is a real cancer but the mapping is "" (empty), that is WRONG: a real cancer always has
+   at least a sentinel. "" is correct ONLY when the value is genuinely not an oncological condition.
+
+6. COMPLETE + LOGICALLY CONSISTENT — every distinct tumour type the source states is present (do not drop an
+   OR-alternative); no "X AND X", no "X AND NOT(X)", no broad term ANDed with a specific type under it (those are
+   OR-alternatives, not AND). An OR-group ANDed with anything MUST be parenthesised: "(A OR B) AND NOT(C)", NEVER
+   "A OR B AND NOT(C)" (that misreads as "C AND NOT(C)"'s scope). NOT(...) terms are minimal and each names a
+   genuinely excluded type with its own node. oncotree_name mirrors oncotree_code (same terms/structure).
+
+DO NOT flag a mapping merely because it DROPPED a qualifier OncoTree cannot express — disease stage/grade,
+"advanced/metastatic/recurrent/relapsed/refractory", line of therapy, treatment-resistance, or biomarker status.
+Dropping those is CORRECT; flag only a genuinely wrong node, wrong granularity, misused sentinel, lazy "", a
+dropped OR-alternative, or broken logic.
+
+CORRECT REFERENCE MAPPINGS — a proposal that maps this way is faithful; accept it (note the qualifiers correctly
+dropped and the granularity conventions applied):
+- "metastatic NSCLC"                                -> Non-Small Cell Lung Cancer  //  NSCLC
+- "advanced solid tumours"                          -> Solid tumour  //  Solid tumour
+- "HER2-positive advanced solid tumors"             -> Solid tumour  //  Solid tumour
+- "clear cell renal cell cancer (ccRCC)"            -> Renal Clear Cell Carcinoma  //  CCRCC
+- "metastatic colorectal cancer"                    -> Colorectal Adenocarcinoma  //  COADREAD
+- "metastatic PDAC"                                 -> Pancreatic Adenocarcinoma  //  PAAD
+- "metastatic castration-resistant prostate cancer" -> Prostate  //  PROSTATE
+- "metastatic breast cancer"                        -> Breast  //  BREAST
+- "invasive breast cancer"                          -> Breast  //  BREAST
+- "triple-negative breast cancer (TNBC)"            -> Breast  //  BREAST
+- "invasive ductal carcinoma of the breast"         -> Breast Invasive Ductal Carcinoma  //  IDC
+- "SCC of the oral cavity, oropharynx, or larynx, except nasopharynx" -> (Oral Cavity SCC OR Oropharynx SCC OR Larynx SCC) AND NOT(Nasopharyngeal Carcinoma)  //  (OCSC OR OPHSC OR LXSC) AND NOT(NPC)
+- "recurrent high-grade serous ovarian cancer"      -> High-Grade Serous Ovarian Cancer  //  HGSOC
+- "B-acute lymphoblastic leukemia (B-ALL)"          -> B-Lymphoblastic Leukemia/Lymphoma  //  BLL
+- "multiple myeloma"                                -> Plasma Cell Myeloma  //  PCM
+- "AML/MDS"                                          -> Acute Myeloid Leukemia OR Myelodysplastic Syndromes  //  AML OR MDS
+- "Haematologic Malignancies"                       -> Haematological malignancy  //  Haematological malignancy
+- "advanced non-haematologic malignancy"            -> Solid tumour  //  Solid tumour
+- "solid and haematological malignancies"           -> Pan-cancer  //  Pan-cancer
+- "eyelid squamous cell carcinoma"                  -> Skin  //  SKIN
+- "solid tumours except melanoma"                   -> Solid tumour AND NOT(Melanoma)  //  Solid tumour AND NOT(MEL)
+- "abdominal or pelvic malignancy, excluding vulvar cancer" -> Solid tumour  //  Solid tumour
+- "Rett syndrome"                                   -> (empty)  //  (empty)
+
+MAPPINGS YOU MUST FAIL (proposed -> problem -> fix):
+- SOURCE "non-small cell lung cancer", proposed "Lung // LUNG"
+    -> under-granular; NSCLC is supported. fix "Non-Small Cell Lung Cancer // NSCLC"
+- SOURCE "prostate cancer", proposed "Prostate Adenocarcinoma // PRAD"
+    -> over-granular; histology unstated. fix "Prostate // PROSTATE"
+- SOURCE "small cell lung cancer", proposed "Non-Small Cell Lung Cancer // NSCLC"
+    -> WRONG node; SCLC and NSCLC are different entities. fix "Small Cell Lung Cancer // SCLC"
+- SOURCE "advanced solid tumours", proposed "Pan-cancer // Pan-cancer"
+    -> solid-only scope; Pan-cancer misused. fix "Solid tumour // Solid tumour"
+- SOURCE "cholangiocarcinoma", proposed "// (empty)"
+    -> lazy empty; CHOL exists. fix "Cholangiocarcinoma // CHOL"
+- SOURCE "solid tumours including melanoma", proposed "Solid tumour AND Melanoma // Solid tumour AND MEL"
+    -> broad term ANDed with its own subtype. fix "Solid tumour OR Melanoma // Solid tumour OR MEL"
+- SOURCE "AML/MDS", proposed "Acute Myeloid Leukemia // AML"
+    -> dropped the MDS alternative (distinct OR-branches). fix "Acute Myeloid Leukemia OR Myelodysplastic Syndromes // AML OR MDS"
+- SOURCE "invasive breast cancer", proposed "Invasive Breast Carcinoma // BRCA"
+    -> generic breast (no histotype named) must map to BREAST, not the near-synonym BRCA. fix "Breast // BREAST"
+- SOURCE "SCC of oral cavity, oropharynx, or larynx except nasopharynx", proposed "OCSC OR OPHSC OR LXSC AND NOT(NPC)"
+    -> unparenthesised OR-group ANDed with an exclusion (ambiguous). fix "(OCSC OR OPHSC OR LXSC) AND NOT(NPC)"
+- SOURCE "abdominal or pelvic malignancy, excluding vulvar cancer", proposed "Solid tumour AND NOT(VULVA)"
+    -> the anatomic scope is inexpressible so it falls back to the sentinel; the exclusion was relative to that
+       dropped scope, not a real carve-out from "all solid tumours". fix "Solid tumour // Solid tumour"
+- SOURCE "solid tumours excluding sarcomas", proposed "Solid tumour AND NOT(SARCNOS)"
+    -> under-scoped; SARCNOS is only "Sarcoma, NOS". A broad-category exclusion must cover the whole category.
+       fix "Solid tumour AND NOT(SOFT_TISSUE) AND NOT(BONE)"
+
+`suggested_fix` — normally leave EMPTY (reporting the problems is enough). ONLY when the input is marked
+"[ESCALATION-MODE]", fill it with the concrete corrected oncotree_name // oncotree_code you would expect.
+
+ONCOTREE VOCABULARY (an indented tree — indentation shows the subtype hierarchy: a child is a subtype of its
+parent; each node is `Name (CODE)`):
 """
 
 
@@ -88,7 +220,7 @@ def build_oncotree_mapper(client: LlmClient, *, model: str | None = None) -> Age
 def build_oncotree_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
     return Agent(
         name="oncotree_reviewer",
-        instructions=ONCOTREE_REVIEWER_INSTRUCTIONS,
+        instructions=ONCOTREE_REVIEWER_INSTRUCTIONS + vocab_reference(),   # vocab-grounded: validate codes + granularity
         output_schema=ReviewVerdict,
         client=client,
         model=model,
