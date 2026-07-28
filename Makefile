@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-refresh-pottr
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -114,6 +114,15 @@ agentic-validate:
 #   optional: LIMIT=<n>  WORKERS=<n> (concurrency, default 8)  REFRESH_DRUGS=1  NO_REVIEW=1  MODEL=<name>
 drug-ref-build:
 	DRUGS="$(DRUGS)" IDS="$(IDS)" ALL_TRIALS="$(ALL_TRIALS)" LIMIT="$(LIMIT)" WORKERS="$(WORKERS)" REFRESH_DRUGS="$(REFRESH_DRUGS)" NO_REVIEW="$(NO_REVIEW)" MODEL="$(MODEL)" scripts/agentic/pipeline.sh drug-ref-build
+
+# Symmetric-match: map the drug_regulatory_approvals free-text cancer_type/biomarker into the eligibility vocab
+# (OncoTree + finding-model), reusing the signed-off mappers. Additive — writes only the 2 approval-map tables into
+# drug_annotations/current_version/ (the 6 core drug tables are untouched). Seeds from the trial FINAL maps for
+# cross-domain code identity. Requires a populated drug_annotations (run drug-ref-build first).
+#   make drug-ref-map-approvals
+#   optional: WORKERS=<n>  MAX_CONCURRENCY=<n>  NO_REVIEW=1  NO_SEED=1  LIMIT=<n> (smoke)  MODEL=<name>
+drug-ref-map-approvals:
+	WORKERS="$(WORKERS)" MAX_CONCURRENCY="$(MAX_CONCURRENCY)" NO_REVIEW="$(NO_REVIEW)" NO_SEED="$(NO_SEED)" LIMIT="$(LIMIT)" MODEL="$(MODEL)" scripts/agentic/pipeline.sh map-approvals
 
 # Refresh the POTTR reference data from GitHub (public) into resources/drug_utility/pottr/current_version/,
 # archiving the previous version. RxNorm stays a manual drop-in (UMLS-licensed).

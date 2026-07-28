@@ -19,6 +19,7 @@ from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     ROLE_MAIN,
     ApprovalByIndication,
     ArmRoleClassification,
+    BiomarkerSplit,
     Canonicalization,
     DrugAnnotation,
     ReviewVerdict,
@@ -242,4 +243,65 @@ def build_role_classifier(client: LlmClient, *, model: str | None = None) -> Age
 
 def build_role_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
     return Agent(name="drug_role_reviewer", instructions=ROLE_REVIEWER_INSTRUCTIONS,
+                 output_schema=ReviewVerdict, client=client, model=model)
+
+
+# --------------------------------------------------------------------------- #
+# Symmetric-match — split an approval `biomarker` into the trial side's 3 buckets.
+# The bucket definitions + edge rules below are COPIED from the eligibility extractor's `_COLUMN_TAXONOMY`
+# (tasks/eligibility/extraction/agents.py) so the drug side splits by the SAME rules the trial side used — copied,
+# not imported, to keep the signed-off extractor untouched (memory feedback-copy-not-import / tight-scope). Keep in
+# sync if that taxonomy's biomarker rules change.
+# --------------------------------------------------------------------------- #
+BIOMARKER_SPLITTER_INSTRUCTIONS = """\
+You are given ONE biomarker phrase exactly as a regulator states a drug's approved indication (from a TGA/PBS
+approval). Split it into the three buckets a clinical-trial's eligibility uses, so the drug approval can be matched
+against a trial. Copy each part out in the source wording — do NOT invent, expand, or normalise; a bucket with
+nothing to carry stays "". A composite phrase may fill several buckets.
+
+- gene_alteration: a SPECIFIC gene + alteration, DNA/mRNA-level (e.g. "BRAF V600E mutation", "EGFR exon 19 deletion",
+  "KRAS G12C", "ALK rearrangement", "HER2 amplification", "RET fusion", "IDH1 R132 mutation", "BRCA1/2 mutation").
+- molecular_signature: a COMPOSITE/genomic signature not tied to one gene's variant (e.g. "MSI-H", "TMB-high", "HRD").
+- molecular_biomarker: a protein-EXPRESSION / receptor / IHC-status biomarker that defines a molecular subgroup
+  (e.g. "PD-L1 CPS >=1", "HER2-positive", "CD20-positive", "hormone receptor-positive", "PSMA-positive"). This is
+  ALSO the catch-all home for any remaining molecular-subgroup qualifier that is neither a specific gene alteration
+  nor a genomic signature.
+
+Edge rules (from the trial side — apply them EXACTLY so both sides agree):
+- HER2/ERBB2: expression or IHC (e.g. "HER2-positive", "HER2 overexpression", "HER2 IHC 3+") -> molecular_biomarker;
+  gene amplification ("HER2 amplification", "ERBB2 amplification") -> gene_alteration.
+- MMR/MSI: MSI-H (genomic) -> molecular_signature; dMMR/pMMR stated as IHC / mismatch-repair protein -> molecular_biomarker.
+- "Philadelphia chromosome positive" / "Ph+" / "BCR-ABL" -> gene_alteration (it is the BCR::ABL1 fusion).
+- Fusion-driven RTK genes ALK / ROS1 / RET / NTRK stated as "-positive" (including spelled-out names, e.g.
+  "anaplastic lymphoma kinase (ALK)-positive", "ROS1-positive", "RET fusion-positive") denote a gene
+  REARRANGEMENT / fusion -> gene_alteration, NOT expression — the "-positive" here is the fusion, not an IHC level.
+- Capture the molecular RESULT, never a procedural "confirmed by a validated test" clause — drop the test wording.
+- Ignore non-molecular qualifiers entirely (leave them in NO bucket): castration-resistant, platinum-sensitive/
+  resistant, histology like "clear cell"/"squamous", line-of-therapy, stage, setting. Those are handled by other
+  approval columns, not the biomarker split.
+"""
+
+BIOMARKER_SPLIT_REVIEWER_INSTRUCTIONS = """\
+You audit a proposed split of ONE approval biomarker phrase into gene_alteration / molecular_signature /
+molecular_biomarker. Set faithful=true only if each part is routed to the RIGHT bucket and copied from the source
+without invention or loss:
+- specific gene + alteration -> gene_alteration; composite/genomic signature (MSI-H, TMB-high, HRD) ->
+  molecular_signature; protein-expression / receptor / IHC status -> molecular_biomarker;
+- the edge rules hold: HER2/ERBB2 expression->biomarker but amplification->gene_alteration; MSI-H->signature while
+  dMMR/pMMR-by-IHC->biomarker; "Ph+"/"BCR-ABL"->gene_alteration; ALK/ROS1/RET/NTRK "-positive" (a fusion, even
+  spelled out) ->gene_alteration, NOT expression;
+- a composite phrase is fully decomposed (nothing molecular dropped), and non-molecular qualifiers
+  (castration-resistant, platinum status, histology, stage, line) are left OUT of all three buckets;
+- no bucket contains invented or paraphrased content not present in the source phrase.
+Otherwise faithful=false with concrete, actionable problems.
+"""
+
+
+def build_biomarker_splitter(client: LlmClient, *, model: str | None = None) -> Agent[BiomarkerSplit]:
+    return Agent(name="approval_biomarker_splitter", instructions=BIOMARKER_SPLITTER_INSTRUCTIONS,
+                 output_schema=BiomarkerSplit, client=client, model=model)
+
+
+def build_biomarker_split_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
+    return Agent(name="approval_biomarker_split_reviewer", instructions=BIOMARKER_SPLIT_REVIEWER_INSTRUCTIONS,
                  output_schema=ReviewVerdict, client=client, model=model)

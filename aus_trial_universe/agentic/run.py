@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import (
-    CACHE_DIR, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT,
+    CACHE_DIR, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT, JOINED_ELIGIBILITY,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -299,11 +299,12 @@ def main(argv: list[str] | None = None) -> int:
     # current_version/): each run loads it, upserts, and writes it back in place. Superseded runs are archived
     # manually (move current_output/ -> archive/<date>/). `--out-dir` overrides for a one-off/isolated run.
     run_dir = Path(args.out_dir) if args.out_dir else store_root / ELIG_CURRENT_OUTPUT
-    # The denormalized Step-1/Step-2 joined views (mapped_eligibility, finalised_mapped_eligibility) live in ONE
-    # top-level `joined/` dir (sibling of the store root; = data/agentic/joined/ for a real run). Keeps
-    # current_output/ strictly 3NF. Derived from store_root.parent so a `--store-root <tmp>` run (tests) writes into
-    # <tmp>/joined/, never real /data. The grand matching-engine flat file is built separately by `export.py`.
-    joined_dir = store_root.parent / "joined"
+    # The denormalized Step-1/Step-2 joined views (mapped_eligibility, finalised_mapped_eligibility) live under the
+    # top-level `joined/` dir, in its per-subsystem `eligibility/` subfolder (the drug path writes `joined/
+    # drug_annotations/`). Keeps current_output/ strictly 3NF. Derived from store_root.parent so a `--store-root
+    # <tmp>` run (tests) writes into <tmp>/joined/eligibility/, never real /data. The grand matching-engine flat
+    # file is built separately by `export.py`.
+    joined_dir = store_root.parent / "joined" / JOINED_ELIGIBILITY
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
     _client_kw = dict(cache=cache, max_concurrency=args.max_concurrency)

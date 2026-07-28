@@ -60,15 +60,19 @@ TRIAL_INFO_FILE = "trial_info.tsv"
 EXPORT_ROOT = DATA_ROOT / "export"
 EXPORT_FILE = "trial_eligibility.tsv"
 
-# DENORMALIZED / JOINED views (mapped_eligibility, finalised_*, combined) are NOT 3NF masters, so they live in
-# ONE top-level `joined/` dir — keeping eligibility/current_output/ and drug_annotations/current_version/ strictly
-# 3NF. Single overwritten files, regenerable from the 3NF tables; not versioned.
+# DENORMALIZED / JOINED views (mapped_eligibility, finalised_*, mapped_drug_regulatory_approval) are NOT 3NF
+# masters, so they live under ONE top-level `joined/` dir — keeping eligibility/current_output/ and
+# drug_annotations/current_version/ strictly 3NF. `joined/` is split per producing subsystem into `eligibility/`
+# and `drug_annotations/` subfolders. Single overwritten files, regenerable from the 3NF tables; not versioned.
 JOINED_ROOT = DATA_ROOT / "joined"
+JOINED_ELIGIBILITY = "eligibility"          # joined/eligibility/  — the eligibility flat views
+JOINED_DRUG = "drug_annotations"            # joined/drug_annotations/ — the drug-approval flat view
 COMBINED = "combined"                       # legacy name kept for back-compat; combined.tsv now lands in JOINED_ROOT
 COMBINED_OUTPUT = JOINED_ROOT
 COMBINED_FILE = "combined.tsv"
-MAPPED_ELIGIBILITY_FILE = "mapped_eligibility.tsv"          # Step-1 flat view (interpreted ⋈ maps) -> joined/
-FINALISED_MAPPED_ELIGIBILITY_FILE = "finalised_mapped_eligibility.tsv"   # Step-2 flat view (+ *_FINAL cols) -> joined/
+MAPPED_ELIGIBILITY_FILE = "mapped_eligibility.tsv"          # Step-1 flat view (interpreted ⋈ maps) -> joined/eligibility/
+FINALISED_MAPPED_ELIGIBILITY_FILE = "finalised_mapped_eligibility.tsv"   # Step-2 flat view (+ *_FINAL cols) -> joined/eligibility/
+MAPPED_APPROVALS_FILE = "mapped_drug_regulatory_approval.tsv"  # drug approvals ⋈ vocab maps -> joined/drug_annotations/
 # The Step-2 finalised map-table set (Step-1 cols + a `*_FINAL` col). These are still 3NF single-key LOOKUP tables
 # (same kind as the Step-1 maps), so they live in the 3NF store (current_output/), NOT in joined/.
 FINALISED_MAP_FILES = {

@@ -184,12 +184,27 @@ case "${CMD}" in
     printf '\n==> drug-ref-build (logging to %s)\n' "${log_file}" >&2
     "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.build "${dargs[@]}" 2>&1 | tee "${log_file}"
     ;;
+  map-approvals)
+    # Symmetric-match: map drug_regulatory_approvals cancer_type/biomarker into the eligibility vocab (additive —
+    # writes only the 2 approval-map tables). Vars: optional WORKERS, MAX_CONCURRENCY, NO_REVIEW=1, NO_SEED=1, LIMIT, MODEL.
+    margs=()
+    if [[ -n "${WORKERS:-}" ]]; then margs+=(--workers "${WORKERS}"); fi
+    if [[ -n "${MAX_CONCURRENCY:-}" ]]; then margs+=(--max-concurrency "${MAX_CONCURRENCY}"); fi
+    if [[ -n "${NO_REVIEW:-}" ]]; then margs+=(--no-review); fi
+    if [[ -n "${NO_SEED:-}" ]]; then margs+=(--no-seed); fi
+    if [[ -n "${LIMIT:-}" ]]; then margs+=(--limit "${LIMIT}"); fi
+    if [[ -n "${MODEL:-}" ]]; then margs+=(--model "${MODEL}"); fi
+    mkdir -p "${LOG_DIR}"
+    log_file="${LOG_DIR}/map_approvals_$(date +%Y%m%d_%H%M%S).log"
+    printf '\n==> map-approvals (logging to %s)\n' "${log_file}" >&2
+    "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.map_approvals "${margs[@]}" 2>&1 | tee "${log_file}"
+    ;;
   drug-ref-refresh-pottr)
     # Download the current POTTR files from GitHub -> resources/drug_utility/pottr/current_version/ (archives old).
     exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.pottr
     ;;
   *)
-    echo "Unknown command: '${CMD}'. Use: run | tests | cache-prune | validate | drug-ref-build | drug-ref-refresh-pottr" >&2
+    echo "Unknown command: '${CMD}'. Use: run | tests | cache-prune | validate | drug-ref-build | map-approvals | drug-ref-refresh-pottr" >&2
     exit 2
     ;;
 esac

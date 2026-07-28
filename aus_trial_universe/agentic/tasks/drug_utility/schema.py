@@ -140,6 +140,40 @@ class TrialArmDrugRole:
     role: str = ""           # one of ROLES (main | auxiliary)
 
 
+# --- Table 6 + 7: symmetric-match vocab for the approval free-text (indication-specific matching) --- #
+# The regulatory-approval indication is matched against a trial's eligibility on the SAME axes the trial side uses:
+# OncoTree code (cancer_type) and finding-model (gene/signature). These two per-value lookup tables map the
+# `drug_regulatory_approvals` free-text `cancer_type` / `biomarker` into that vocab — the mapping is a pure function
+# of the free-text value (independent of which indication/drug uses it), so it is 3NF single-key, exactly like the
+# eligibility side's value->vocab maps. The 5 core drug tables + `trial_arm_drug_role` are unchanged.
+@dataclass
+class ApprovalCancerTypeMap:
+    """One distinct approval `cancer_type` free-text value -> OncoTree (mirrors eligibility `finalised_cancer_type_map`).
+    Carries the Step-1 code AND the Step-2 reconciled `oncotree_code_FINAL` (semantically-equivalent drug cancer_type
+    values share ONE code); still 3NF single-key (keyed by cancer_type)."""
+
+    cancer_type: str = ""            # the lookup key: the free-text value as stated in drug_regulatory_approvals
+    oncotree_name: str = ""          # OncoTree name expression rendered from oncotree_code_FINAL (AND/OR/NOT preserved)
+    oncotree_code: str = ""          # Step-1 OncoTree code expression (per-value mapping, pre-reconciliation)
+    oncotree_code_FINAL: str = ""    # Step-2 reconciled code — the matchable key (== trial-side FINAL oncotree_code)
+
+
+@dataclass
+class ApprovalBiomarkerMap:
+    """One distinct approval `biomarker` free-text value, split into the SAME three buckets the trial side uses and
+    the gene/signature parts rendered in finding-model. `molecular_biomarker` (protein-expression / IHC: PD-L1, CD20,
+    hormone-receptor, HER2-IHC) has no finding-model representation and stays free text — symmetric with the trial
+    side, whose `molecular_biomarker` column is likewise never vocab-mapped. All columns are a function of the single
+    `biomarker` key -> 3NF single-key lookup."""
+
+    biomarker: str = ""                         # the lookup key: the free-text value as stated
+    gene_alteration: str = ""                   # the gene-alteration part of the split ("" if none)
+    molecular_signature: str = ""               # the composite/genomic-signature part of the split ("" if none)
+    molecular_biomarker: str = ""               # the expression/IHC part — carried as free text (no vocab)
+    gene_alteration_findingmodel: str = ""      # finding-model for gene_alteration (== trial-side rendering)
+    molecular_signature_findingmodel: str = ""  # finding-model for molecular_signature
+
+
 def _columns(dc) -> list[str]:
     return [f.name for f in fields(dc)]
 
@@ -150,6 +184,8 @@ DRUG_ANNOTATIONS_CORE_COLUMNS = _columns(DrugAnnotationsCore)
 DRUG_TARGET_ACTIONS_COLUMNS = _columns(DrugTargetAction)
 DRUG_REGULATORY_APPROVALS_COLUMNS = _columns(DrugRegulatoryApproval)
 TRIAL_ARM_DRUG_ROLE_COLUMNS = _columns(TrialArmDrugRole)
+APPROVAL_CANCER_TYPE_MAP_COLUMNS = _columns(ApprovalCancerTypeMap)
+APPROVAL_BIOMARKER_MAP_COLUMNS = _columns(ApprovalBiomarkerMap)
 
 TABLE_FILES = {
     "intervention_to_canonical": "intervention_to_canonical.tsv",
@@ -158,6 +194,8 @@ TABLE_FILES = {
     "drug_target_actions": "drug_target_actions.tsv",
     "drug_regulatory_approvals": "drug_regulatory_approvals.tsv",
     "trial_arm_drug_role": "trial_arm_drug_role.tsv",
+    "approval_cancer_type_map": "approval_cancer_type_map.tsv",
+    "approval_biomarker_map": "approval_biomarker_map.tsv",
 }
 
 
@@ -278,6 +316,24 @@ class ArmRoleClassification(BaseModel):
         default_factory=list,
         description="One entry per drug given for this arm (echo each canonical_id exactly). [] only if no drugs.")
     notes: str = Field(default="", description="One line of reasoning (which agent is under study vs. backbone).")
+
+
+class BiomarkerSplit(BaseModel):
+    """Split ONE approval `biomarker` free-text phrase into the SAME three buckets the trial eligibility side uses,
+    so the two can be matched. Each part is copied out verbatim (in the source wording), never invented; a part with
+    nothing to carry stays "". A composite phrase may populate several buckets (e.g. 'HR-positive, HER2-negative,
+    PIK3CA mutation' -> molecular_biomarker='HR-positive, HER2-negative', gene_alteration='PIK3CA mutation')."""
+
+    gene_alteration: str = Field(default="", description=(
+        "The SPECIFIC gene + alteration part (DNA/mRNA-level), e.g. 'BRAF V600E mutation', 'EGFR exon 19 deletion', "
+        "'KRAS G12C', 'ALK rearrangement', 'HER2 amplification', 'RET fusion'. \"\" if none."))
+    molecular_signature: str = Field(default="", description=(
+        "The COMPOSITE/genomic-signature part not tied to one gene's variant, e.g. 'MSI-H', 'dMMR (genomic)', "
+        "'TMB-high', 'HRD'. \"\" if none."))
+    molecular_biomarker: str = Field(default="", description=(
+        "The protein-EXPRESSION / receptor / IHC-status part, e.g. 'PD-L1 CPS >=1', 'HER2-positive (IHC)', "
+        "'CD20-positive', 'hormone receptor-positive', 'PSMA-positive'. Also the home for any remaining "
+        "non-gene/non-signature qualifier that is a molecular subgroup. \"\" if none."))
 
 
 class ReviewVerdict(BaseModel):

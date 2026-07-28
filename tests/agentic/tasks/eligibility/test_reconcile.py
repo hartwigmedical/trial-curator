@@ -67,7 +67,7 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
     rc = run.main(["--reconcile", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])
     assert rc == 0
 
-    joined = store_root.parent / "joined"
+    joined = store_root.parent / "joined" / "eligibility"
     # the finalised map-table SET is 3NF -> it lives in the store (current_output/), NOT joined/
     by = {r["cancer_type"]: r for r in _read(cur / "finalised_cancer_type_map.tsv")}
     assert by["metastatic breast cancer"]["oncotree_code"] == "IDC"           # Step-1 preserved

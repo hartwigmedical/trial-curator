@@ -1,14 +1,49 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-07-28, end of session 3)
+## ▶ NEXT SESSION — START HERE (updated 2026-07-28, end of session 4)
 
-**CURRENT STATE — the full pipeline now runs end-to-end to a matching-engine deliverable.** Eligibility curation is
-COMPLETE + user-reviewed (extract Stage I → map Step 1 per-value → map Step 2 reconciliation). The drug utility path
-is signed off AND now carries Phase-2 main/aux roles. **The grand join → the matching-engine EXPORT is built** (Set A
-`trial_eligibility.tsv` = **33 cols**, regenerated session 3). So the through-line trial → arm → eligibility(mapped) →
-drug(class/approval) is fully materialized. There is also an **isolated `make agentic-demo`** live-demo of the whole
-pipeline over 2 trials (session 3, SIGNED OFF). **`make agentic-tests` = 162 green.** **Everything is UNCOMMITTED in
-the working tree — the user does ALL git commits.**
+**CURRENT STATE — the full pipeline now runs end-to-end to a matching-engine deliverable, and BOTH sides of the
+drug↔trial match are now in the SAME vocab.** Eligibility curation is COMPLETE + user-reviewed (extract Stage I →
+map Step 1 per-value → map Step 2 reconciliation). The drug utility path is signed off, carries Phase-2 main/aux
+roles, AND now has the **symmetric-match vocab** (session 4 — the drug-approval `cancer_type`/`biomarker` mapped into
+OncoTree + finding-model, so an approved indication matches a trial's eligibility on the same axes). **The grand join
+→ the matching-engine EXPORT is built** (Set A `trial_eligibility.tsv` = **33 cols**). So the through-line trial →
+arm → eligibility(mapped) → drug(class/approval, now vocab-matchable) is fully materialized. There is also an
+**isolated `make agentic-demo`** live-demo of the whole pipeline over 2 trials (session 3, SIGNED OFF). **`make
+agentic-tests` = 171 green.** Sessions 1–3 are COMMITTED (through `bae9e7a`); the **session-4 symmetric-match work is
+UNCOMMITTED** in the working tree — the user does ALL git commits.
+
+**✅ DONE THIS SESSION (2026-07-28, session 4 — symmetric-match vocab; UNCOMMITTED):**
+- **Drug-approval symmetric-match vocab (the handover's TOP backlog item).** Two NEW additive 3NF tables in
+  `drug_annotations/current_version/`: `approval_cancer_type_map` (`cancer_type → oncotree_name/code`, 385 rows) +
+  `approval_biomarker_map` (`biomarker` split into gene/signature/expression + gene & signature finding-models, 211
+  rows). New `make drug-ref-map-approvals` (module `tasks/drug_utility/map_approvals.py`, mirrors `run.py --map-only`).
+  **REUSES the signed-off eligibility mappers** (`map_all_columns`) + a NEW per-value biomarker **splitter**
+  (doer→reviewer on `core/review.py`, NO web search; `agents.build_biomarker_splitter`) that divides each biomarker
+  into the trial side's 3 buckets via the COPIED `_COLUMN_TAXONOMY` (copy-not-import → signed-off extractor
+  untouched). Expression/IHC (PD-L1, CD20, hormone-receptor, HER2-overexpression) stays FREE TEXT — symmetric with
+  the trial side. **SEEDS** from the trial FINAL maps (exact-match → reuse the FINAL code, no LLM) for guaranteed
+  cross-domain code identity. **ADDITIVE:** writes only the 2 tables (`store.save_approval_maps`); the 6 core tables
+  are md5 byte-unchanged (snapshot `archive/pre_approval_map_28072026/`). **Full live run:** cancer_type 385 (47
+  seeded · 338 mapped · 2 empty=non-cancer) · biomarker 211 (102 gene · 12 signature · 102 free-text · 25 seeded fm).
+  Self-reviewed → high quality + symmetric (Ph+→Fusion[BCR::ABL1], ROS1/RET/NTRK→Fusion, MSI-H→sig / dMMR→expr,
+  composites split); one ALK-`-positive` routing wobble fixed with a splitter edge rule + re-run (user-approved).
+  Export MANIFEST regenerated (8 Set-B tables + the symmetric-match join). Files: `tasks/drug_utility/{schema,store,
+  agents,map_approvals}.py`, `export.py` (MANIFEST text), `Makefile`+`pipeline.sh`, `tests/agentic/tasks/drug_utility/
+  test_map_approvals.py`, docs (`drug_ref_schema.md` "Symmetric-match vocab", `combined_agentic_run.md`). Memory
+  `v2-drug-ref-table`.
+- **cancer_type Step-2 reconciliation on the drug side + `joined/` reorg (user follow-up, same session).** The
+  drug-approval `cancer_type` now gets the SAME Step-2 reconciliation as the trial side by **REUSING the eligibility
+  `mapping.reconcile.reconcile_column`** (no duplicated logic — the user's explicit requirement): a new
+  `oncotree_code_FINAL` column on `approval_cancer_type_map` (still 3NF single-key, mirroring
+  `finalised_cancer_type_map`). Folded into `make drug-ref-map-approvals`. Live re-run: **1 LLM-adjudicated group**
+  (`carcinoma of the ovary` OVARY→OVT) + **43 deterministic OR-order normalisations**; 6 core tables still byte-identical.
+  Gene/signature are NOT reconciled (the consistency detector is cancer_type-tuned; seeding already gives cross-domain
+  identity). **`joined/` reorganised into per-subsystem subfolders** — `joined/eligibility/`
+  (`mapped_eligibility.tsv` + `finalised_mapped_eligibility.tsv`) and `joined/drug_annotations/`
+  (`mapped_drug_regulatory_approval.tsv` — NEW, each approval ⋈ its vocab maps incl. `oncotree_code_FINAL` +
+  TGA/PBS). Touched `core/paths.py` (JOINED subfolders + `MAPPED_APPROVALS_FILE`), `run.py` (elig joined → subfolder),
+  `map_approvals.py` (reconcile + joined writer), 2 eligibility joined-path tests. **`make agentic-tests` = 173 green.**
 
 **✅ DONE THIS SESSION (2026-07-28, session 3 — SIGNED OFF; all UNCOMMITTED):**
 - **Isolated live-demo command `make agentic-demo`** (for a presentation — walk an audience through the logs). Runs
@@ -58,12 +93,13 @@ the working tree — the user does ALL git commits.**
   eligibility = Step-2 reconciliation). Links unchanged (memory `workflow-diagram-artifact`).
 
 **⏭ RESUME AT — remaining integration backlog, dependency-ordered:**
-1. **Symmetric-match vocab for drug approvals (TOP).** Map each `drug_regulatory_approvals` free-text
-   cancer_type/biomarker into the SAME OncoTree + finding-model vocab (reuse the mappers). Why it's top: TGA/PBS
-   approval is **indication-specific**, so matching a trial's OncoTree code ↔ a drug's approved indication is itself
-   a match — and the export's approval leg can't be symmetric until the drug side is in the same vocab (the
-   `export/MANIFEST.md` flags this explicitly).
-2. **AUDIT `data/agentic/` subfolder organisation (NEW — user, 2026-07-28).** The tree grew organically; review it for
+- ~~**Symmetric-match vocab for drug approvals (was TOP).**~~ **✅ DONE session 4** (see the session-4 block above):
+  `approval_cancer_type_map` + `approval_biomarker_map`, `make drug-ref-map-approvals`, reusing the eligibility
+  mappers + a biomarker splitter, seeded from the trial FINAL maps. The export MANIFEST now documents the symmetric
+  join. *Optional follow-on:* a within-drug Step-2 reconciliation pass (unify equivalent drug-side values to one
+  code) — the same mechanism the trial side uses; not built (cross-domain consistency is covered by seeding + shared
+  prompts/cache, so this is a polish item, not a defect).
+1. **AUDIT `data/agentic/` subfolder organisation (NEW — user, 2026-07-28).** The tree grew organically; review it for
    a cleaner structure before the eventual promotion to top-level `data/` (memory `agentic-data-root-temporary`).
    Current top-level dirs: `analysis/ cache/ drug_annotations/ eligibility/ export/ joined/ log/ resources/
    trial_arms/ trial_info/ trial_universe/`. Things to reconcile: (a) **versioned-dir naming is inconsistent** —
@@ -74,7 +110,7 @@ the working tree — the user does ALL git commits.**
    (`joined, export`) vs inputs (`trial_universe, resources`) vs transient (`cache, log`) vs `analysis`. (d) stray
    `.DS_Store`; confirm gitignore coverage. Paths are ALL centralised in `core/paths.py` (one relocatable
    `DATA_ROOT`), so a reorg is mostly editing that file + a data move — low blast radius. Propose a layout first.
-3. **Self-contained pipeline — Stage-I ingestion + legacy retirement.** Move download → drug-filter → POTTR-append →
+2. **Self-contained pipeline — Stage-I ingestion + legacy retirement.** Move download → drug-filter → POTTR-append →
    retire-missing into agentic; retire legacy `eligibility_path`/`drug_utility_path`. Biggest piece for a periodic run.
 - **Optional cleanups:** (a) the **11 cancer_type per-value LOGIC residuals** (valid codes, imperfect structure e.g.
   subtype-ANDed-with-parent) in the signed-off oncotree mapper's hard-cell tail — a small manual/targeted pass; (b)
@@ -83,7 +119,8 @@ the working tree — the user does ALL git commits.**
   export uses `*_interpreted`; small adaptation).
 
 **Specs:** overall = `docs/v2_agentic_pipeline_spec.md` (§9 = the export); drug schema = `docs/agentic/drug_ref_schema.md`
-(6 tables incl. `trial_arm_drug_role`); run/setup guide = `docs/agentic/combined_agentic_run.md` (the Export section);
+(6 core tables incl. `trial_arm_drug_role` + the 2 symmetric-match maps `approval_cancer_type_map`/`approval_biomarker_map`);
+run/setup guide = `docs/agentic/combined_agentic_run.md` (the Export section);
 mapping = `docs/v2_mapping_and_shared_loop_plan.md`. Decisions in memory: `v2-drug-ref-table`, `v2-next-priorities`,
 `v2-joined-tables-sql-decision` (RESOLVED), `feedback-additive-safety-first`, `feedback-max-allowable-concurrency`,
 `v2-mapping-stage-decisions`, `v2-shared-loop-harness`, `v2-eligibility-orchestration-model`.
@@ -573,15 +610,20 @@ hold **NO drug info**; drugs join via `trial_arm_id` to the drug utility path.
 completion_date, last_update_date, countries, has_AU_site, AU_site_status, AU_site_cities, trial_url` — deterministic
 from raw CTGov `protocolSection` / ANZCTR rows (no LLM). Feeds the export's trial-info columns.
 
-**Drug store — `drug_annotations/current_version/` (6 tables):** `intervention_to_canonical`, `trial_to_intervention`,
-`drug_annotations_core`, `drug_target_actions`, `drug_regulatory_approvals`, + `trial_arm_drug_role`
-(`(trial_arm_id, canonical_id) → role` main|auxiliary; 12,102 rows). See `docs/agentic/drug_ref_schema.md`.
+**Drug store — `drug_annotations/current_version/` (6 core tables + 2 symmetric-match maps):**
+`intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`, `drug_target_actions`,
+`drug_regulatory_approvals`, + `trial_arm_drug_role` (`(trial_arm_id, canonical_id) → role` main|auxiliary; 12,102
+rows); + the additive `approval_cancer_type_map` (385) / `approval_biomarker_map` (211) symmetric-match vocab maps
+(session 4; `make drug-ref-map-approvals`). See `docs/agentic/drug_ref_schema.md`.
 
-**Denormalized Step-1/2 views — `data/agentic/joined/`:**
-- `mapped_eligibility.tsv` — Step-1 flat: interpreted ⋈ (Step-1 maps), 1:1 with interpreted; cols = the 2 keys + the
-  5 interpreted cells + `oncotree_name/code`, `gene_alteration_findingmodel`, `molecular_signature_findingmodel`.
-- `finalised_mapped_eligibility.tsv` — Step-2 flat: the above + appended `oncotree_code_FINAL`,
+**Denormalized views — `data/agentic/joined/` (split per producing subsystem into `eligibility/` + `drug_annotations/`):**
+- `joined/eligibility/mapped_eligibility.tsv` — Step-1 flat: interpreted ⋈ (Step-1 maps), 1:1 with interpreted; cols
+  = the 2 keys + the 5 interpreted cells + `oncotree_name/code`, `gene_alteration_findingmodel`, `molecular_signature_findingmodel`.
+- `joined/eligibility/finalised_mapped_eligibility.tsv` — Step-2 flat: the above + appended `oncotree_code_FINAL`,
   `gene_alteration_findingmodel_FINAL`, `molecular_signature_findingmodel_FINAL`. **The eligibility-side review artifact.**
+- `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` — the drug-side flat: one row per
+  `(canonical_id, indication_id)` = each approval ⋈ its cancer_type/biomarker vocab maps (`oncotree_code`/`_FINAL`,
+  gene & signature finding-models, the expression free text) + `tga_status`/`pbs_status`. **The drug-side review artifact.**
 
 **The matching-engine EXPORT — `data/agentic/export/` (the deliverable; `make agentic-export`):**
 - `trial_eligibility.tsv` (**Set A**) — the grand join, **33 cols, one row per `(trial_arm_id, conjunction_index)`**:

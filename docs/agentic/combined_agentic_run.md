@@ -21,6 +21,7 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 | `make agentic-export` | **Build the matching-engine export.** Set A = the wide flat `export/trial_eligibility.tsv` (trial info + eligibility + intervention, one row per `(trial_arm_id, conjunction)`); Set B = the 6 drug 3NF tables, referenced in place (a `MANIFEST.md` points at them). Deterministic join; no API. `SNAPSHOT=1` also mints an immutable self-contained `export/snapshot_<ts>/` bundle (Set A + a frozen copy of Set B). |
 | `make agentic-drug-migrate-trial-arms` | Re-key drug `trial_to_intervention` to `trial_arm_id` against the fresh registry + report intervention-input additions/deletions → `data/agentic/analysis/`. Dry-run by default; `APPLY=1` rewrites ONLY that drug file. No API. |
 | `make drug-ref-build` | Build/refresh the drug reference (6 tables). See below. |
+| `make drug-ref-map-approvals` | **Symmetric-match vocab.** Map the drug-approval free-text `cancer_type`/`biomarker` into the eligibility vocab (OncoTree + finding-model), reusing the signed-off mappers. Additive — writes only 2 new tables. See below. |
 | `make drug-ref-refresh-pottr` | Download the current POTTR files from GitHub (archives the previous). See below. |
 | `make agentic-tests` | Run the unit-test suite (no API calls). |
 
@@ -65,8 +66,8 @@ make agentic-validate OUT=<path.tsv>  # a specific run
 Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/tasks/eligibility/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
-Builds the standalone drug reference (5 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,
-`drug_target_actions`, `drug_regulatory_approvals`) at `<DATA_ROOT>/drug_annotations/current_version/`. LLM doer→reviewer for
+Builds the standalone drug reference (6 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,
+`drug_target_actions`, `drug_regulatory_approvals`, `trial_arm_drug_role`) at `<DATA_ROOT>/drug_annotations/current_version/`. LLM doer→reviewer for
 judgement (canonicalize / annotate / approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and
 `pottr_drug_class` (POTTR). `canonicalize` splits a combination/regimen token into its component standalone drugs
 (`1 input → N` canonicals; a single engineered molecule like an ADC/bispecific stays one) and records
@@ -80,6 +81,24 @@ make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"   # explicit list
 make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5        # drugs from specific trials (CTGov)
 make drug-ref-build ALL_TRIALS=1                               # every distinct drug across all ctgov + anzctr
 #   optional: WORKERS=<n> (concurrency, default 8) · REFRESH_DRUGS=1 · NO_REVIEW=1 · MODEL=<name>
+```
+### `make drug-ref-map-approvals` — symmetric-match vocab for the approvals
+Maps the free-text `cancer_type` / `biomarker` of `drug_regulatory_approvals` into the SAME vocab the trial side
+uses (OncoTree + finding-model), so a drug's approved indication can be matched directly against a trial's
+eligibility. Writes **2 additive 3NF tables** into `<DATA_ROOT>/drug_annotations/current_version/`: `approval_cancer_type_map`
+(`cancer_type → oncotree_name, oncotree_code, oncotree_code_FINAL`) and `approval_biomarker_map` (`biomarker` split
+into gene/signature/expression + the gene & signature finding-models) — plus a denormalized flat view
+`joined/drug_annotations/mapped_drug_regulatory_approval.tsv` (each approval ⋈ its vocab maps). **Reuses the
+signed-off eligibility mappers** (`map_cancer_types` / `map_gene_alterations` / `map_molecular_signatures`) AND the
+eligibility `reconcile_column` — the cancer_type gets the SAME Step-2 reconciliation as the trial side
+(`oncotree_code_FINAL`). A per-value doer→reviewer splitter (no web search) routes each biomarker into the trial
+side's three buckets first. **Seeds** from the trial FINAL maps — a value shared with the trial side reuses its FINAL
+code with no LLM call (guaranteed cross-domain code identity). The 6 core tables are byte-untouched (additive).
+Requires a populated `drug_annotations` (run `drug-ref-build` first).
+```bash
+make drug-ref-map-approvals                                    # over the whole approval set
+make drug-ref-map-approvals WORKERS=80 MAX_CONCURRENCY=500     # sized to the account's rate-limit ceiling
+#   optional: NO_REVIEW=1 · NO_SEED=1 (map every value fresh) · LIMIT=<n> (smoke) · MODEL=<name>
 ```
 ### `make drug-ref-refresh-pottr` — refresh the POTTR reference data
 Downloads the two public POTTR files (`drug_database.txt`, `drug_class_hierarchy.txt`) from

@@ -20,6 +20,8 @@ from pathlib import Path
 from aus_trial_universe.agentic.core.paths import CURRENT_VERSION, DRUG_ANNOTATIONS_ROOT, current_version_dir
 from aus_trial_universe.agentic.tasks.shared.cohorts import trial_id_of
 from aus_trial_universe.agentic.tasks.drug_utility.schema import (
+    APPROVAL_BIOMARKER_MAP_COLUMNS,
+    APPROVAL_CANCER_TYPE_MAP_COLUMNS,
     DRUG_REGULATORY_APPROVALS_COLUMNS,
     DRUG_ANNOTATIONS_CORE_COLUMNS,
     DRUG_TARGET_ACTIONS_COLUMNS,
@@ -27,6 +29,8 @@ from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     TABLE_FILES,
     TRIAL_ARM_DRUG_ROLE_COLUMNS,
     TRIAL_TO_INTERVENTION_COLUMNS,
+    ApprovalBiomarkerMap,
+    ApprovalCancerTypeMap,
     DrugRegulatoryApproval,
     DrugAnnotationsCore,
     DrugTargetAction,
@@ -69,6 +73,9 @@ class DrugRefStore:
         self.targets: dict[str, list[DrugTargetAction]] = {}         # canonical_id -> (target, action) rows
         self.indications: dict[str, list[DrugRegulatoryApproval]] = {}  # canonical_id -> rows
         self.roles: dict[str, list[TrialArmDrugRole]] = {}          # trial_arm_id -> (canonical_id, role) rows
+        # symmetric-match vocab for the approval free-text (value -> mapping; single-key 3NF lookups)
+        self.approval_cancer_type_map: dict[str, ApprovalCancerTypeMap] = {}   # cancer_type -> OncoTree
+        self.approval_biomarker_map: dict[str, ApprovalBiomarkerMap] = {}      # biomarker -> split + finding-model
 
     # --- load -------------------------------------------------------------- #
     @classmethod
@@ -108,6 +115,14 @@ class DrugRefStore:
             r = TrialArmDrugRole(**{k: row.get(k, "") for k in TRIAL_ARM_DRUG_ROLE_COLUMNS})
             if r.trial_arm_id and r.canonical_id:
                 store.roles.setdefault(r.trial_arm_id, []).append(r)
+        for row in _read_tsv(vdir / TABLE_FILES["approval_cancer_type_map"]):  # absent on pre-symmetric-match dirs
+            m = ApprovalCancerTypeMap(**{k: row.get(k, "") for k in APPROVAL_CANCER_TYPE_MAP_COLUMNS})
+            if m.cancer_type:
+                store.approval_cancer_type_map[m.cancer_type] = m
+        for row in _read_tsv(vdir / TABLE_FILES["approval_biomarker_map"]):
+            m = ApprovalBiomarkerMap(**{k: row.get(k, "") for k in APPROVAL_BIOMARKER_MAP_COLUMNS})
+            if m.biomarker:
+                store.approval_biomarker_map[m.biomarker] = m
         return store
 
     # --- lookups ----------------------------------------------------------- #
@@ -213,6 +228,16 @@ class DrugRefStore:
         else:
             self.roles.pop(trial_arm_id, None)
 
+    def put_approval_cancer_type(self, m: ApprovalCancerTypeMap) -> None:
+        """Upsert one approval cancer_type -> OncoTree mapping (keyed by the free-text value)."""
+        if m.cancer_type:
+            self.approval_cancer_type_map[m.cancer_type] = m
+
+    def put_approval_biomarker(self, m: ApprovalBiomarkerMap) -> None:
+        """Upsert one approval biomarker -> split + finding-model mapping (keyed by the free-text value)."""
+        if m.biomarker:
+            self.approval_biomarker_map[m.biomarker] = m
+
     # --- save -------------------------------------------------------------- #
     def save(self, root: Path = DRUG_ANNOTATIONS_ROOT, *, on: date | None = None) -> Path:
         """Write the full current state to ``root/current_version/`` (overwrites — incremental checkpoints re-save
@@ -233,4 +258,23 @@ class DrugRefStore:
                    [asdict(i) for rows in self.indications.values() for i in rows])
         _write_tsv(vdir / TABLE_FILES["trial_arm_drug_role"], TRIAL_ARM_DRUG_ROLE_COLUMNS,
                    [asdict(r) for rows in self.roles.values() for r in rows])
+        # symmetric-match vocab maps — written only once populated, so a plain drug build never emits empty files
+        if self.approval_cancer_type_map:
+            _write_tsv(vdir / TABLE_FILES["approval_cancer_type_map"], APPROVAL_CANCER_TYPE_MAP_COLUMNS,
+                       [asdict(m) for m in self.approval_cancer_type_map.values()])
+        if self.approval_biomarker_map:
+            _write_tsv(vdir / TABLE_FILES["approval_biomarker_map"], APPROVAL_BIOMARKER_MAP_COLUMNS,
+                       [asdict(m) for m in self.approval_biomarker_map.values()])
+        return vdir
+
+    def save_approval_maps(self, root: Path = DRUG_ANNOTATIONS_ROOT) -> Path:
+        """Write ONLY the two symmetric-match vocab tables into ``root/current_version/`` — the 5 core drug tables +
+        `trial_arm_drug_role` are left byte-untouched (additive; mirrors the eligibility store's `save_maps`). Used by
+        the map-approvals build so it never rewrites the reviewed drug facts."""
+        vdir = root / CURRENT_VERSION
+        vdir.mkdir(parents=True, exist_ok=True)
+        _write_tsv(vdir / TABLE_FILES["approval_cancer_type_map"], APPROVAL_CANCER_TYPE_MAP_COLUMNS,
+                   [asdict(m) for m in self.approval_cancer_type_map.values()])
+        _write_tsv(vdir / TABLE_FILES["approval_biomarker_map"], APPROVAL_BIOMARKER_MAP_COLUMNS,
+                   [asdict(m) for m in self.approval_biomarker_map.values()])
         return vdir

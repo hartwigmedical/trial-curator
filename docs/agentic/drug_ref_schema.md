@@ -1,9 +1,9 @@
 # Drug reference — relational schema & design (spec §6.1)
 
-The drug reference is **six 3NF relational tables**, persisted as TSVs under
-`<DATA_ROOT>/drug_annotations/current_version/` (superseded builds go to `drug_annotations/archive/`). All data paths
-derive from one relocatable `DATA_ROOT` constant (`core/paths.py`; = `data/agentic/` today, promotable to `data/`).
-The tables split into stages that mirror the build workflow:
+The drug reference is **six 3NF relational tables** (+ two additive symmetric-match vocab maps), persisted as TSVs
+under `<DATA_ROOT>/drug_annotations/current_version/` (superseded builds go to `drug_annotations/archive/`). All data
+paths derive from one relocatable `DATA_ROOT` constant (`core/paths.py`; = `data/agentic/` today, promotable to
+`data/`). The tables split into stages that mirror the build workflow:
 
 - **Stage 1 — drug identity** ("*which drug is this?*"): resolve each trial's raw intervention string to a canonical
   drug, and record which trials used it. Tables: `trial_to_intervention`, `intervention_to_canonical`.
@@ -12,6 +12,10 @@ The tables split into stages that mirror the build workflow:
 - **Phase 2 — drug role** ("*what part does this drug play in this arm?*"): the **main** (investigational/defining)
   vs. **auxiliary** (backbone/SoC/comparator/placebo) role of each drug within each trial arm — a contextual,
   per-(arm × drug) fact, so it lives in its own table `trial_arm_drug_role`, NOT on the intrinsic drug facts.
+- **Symmetric-match vocab** ("*can this indication be matched against a trial?*"): the two additive per-value lookup
+  maps `approval_cancer_type_map` / `approval_biomarker_map` that translate the free-text `cancer_type` / `biomarker`
+  of `drug_regulatory_approvals` into the SAME OncoTree + finding-model vocab the trial side uses. Built by a separate
+  pass (`make drug-ref-map-approvals`), reusing the signed-off eligibility mappers; see "Symmetric-match vocab" below.
 
 ---
 
@@ -294,3 +298,48 @@ Cheap judgement from the arm context alone — no web search.
 | `drug_annotations_core` + `drug_target_actions` | annotator (web) | `modality ∈ MODALITIES` | modality · targets correct **and complete** (ADC antigen+payload) · class · FDA/EMA format · sources |
 | `drug_regulatory_approvals` | approvals (web) | status ∈ {approved, not_approved, unknown} | specificity (no dropped qualifier) · status+evidence link · TGA/PBS independent · investigational=empty |
 | `trial_arm_drug_role` | role classifier (no web) | every drug labelled once · `role ∈ {main, auxiliary}` | investigational=main · backbone/SoC/comparator/placebo=auxiliary · control arm not spuriously main |
+| `approval_cancer_type_map` | reuse eligibility OncoTree mapper | valid OncoTree codes + logic | (mapper's own vocab-grounded reviewer) |
+| `approval_biomarker_map` | biomarker splitter (no web) + reuse gene/signature mappers | finding-model syntax validator | split routing (HER2/MSI/Ph+ edge rules) + the mappers' own reviewers |
+
+---
+
+## Symmetric-match vocab (`approval_cancer_type_map`, `approval_biomarker_map`)
+
+TGA/PBS approval is **indication-specific**, so matching a trial's cancer type / biomarker to a drug's approved
+indication is itself a match — but only if both sides speak the same vocabulary. The trial (eligibility) side is
+already in OncoTree + finding-model; these two additive tables put the drug side there too, so the two can be matched
+directly. Built by `make drug-ref-map-approvals` (module `tasks/drug_utility/map_approvals.py`), a deterministic
+orchestration that **reuses the signed-off eligibility mappers** (`map_cancer_types` / `map_gene_alterations` /
+`map_molecular_signatures`) — nothing about the vocab or the mapping rules is re-implemented.
+
+- **`approval_cancer_type_map`** — one row per distinct `drug_regulatory_approvals.cancer_type` free-text value →
+  `oncotree_name`, `oncotree_code` (Step-1), `oncotree_code_FINAL` (Step-2 reconciled). Pure single-key 3NF lookup
+  (the mapping is a function of the string), mirroring the eligibility `finalised_cancer_type_map`. **The cancer_type
+  Step-2 reconciliation REUSES the eligibility `mapping.reconcile.reconcile_column`** (no rewrite) — the same
+  detect → deterministic pre-pass (leaked-name repair + OR-order normalise) → LLM adjudicator that unifies
+  semantically-equivalent values to one code. `oncotree_code_FINAL` is the matchable key (== trial-side FINAL
+  `oncotree_code`). Gene/signature are NOT reconciled (the consistency detector is cancer_type-tuned; seeding from
+  the trial FINAL gene/sig maps already gives cross-domain identity for shared sub-cells).
+- **`approval_biomarker_map`** — one row per distinct `biomarker` value. A per-value **splitter** (doer→reviewer, no
+  web search) first divides it into the SAME three buckets the trial extractor uses — `gene_alteration`,
+  `molecular_signature`, `molecular_biomarker` — by the copied trial-side taxonomy + edge rules (HER2 expression vs
+  amplification; MSI-H vs dMMR-IHC; "Ph+"/"BCR-ABL"→gene). The gene / signature parts are then rendered in
+  finding-model (`gene_alteration_findingmodel` / `molecular_signature_findingmodel`) via the reused mappers; the
+  `molecular_biomarker` (protein-expression / IHC: PD-L1, CD20, hormone-receptor) part stays **free text** — it has
+  no finding-model representation, symmetric with the trial side, whose `molecular_biomarker` column is never
+  vocab-mapped either.
+
+**Cross-domain consistency (seeding).** Before mapping, each distinct value is looked up in the trial side's FINAL
+(Step-2 reconciled) maps (`finalised_{cancer_type,gene_alteration,molecular_signature}_map.tsv`); an exact-string
+match reuses the trial's FINAL code with **no LLM call** — so a concept shared by a trial and a drug ("breast
+cancer" → the same OncoTree code) is guaranteed identical and the pass is cheaper. Novel values go through the
+mappers (same prompts + shared cache, so still consistent). Disable with `--no-seed`.
+
+**Joined view.** A denormalized flat view `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` (one row per
+`(canonical_id, indication_id)` = each approval ⋈ its cancer_type/biomarker vocab mappings incl. `oncotree_code_FINAL`
++ `tga_status`/`pbs_status`) is written alongside the store update — the drug-side analog of
+`joined/eligibility/mapped_eligibility.tsv`. It is NOT 3NF, so it lives under `joined/`, never in the store (which
+stays strictly 3NF). `joined/` is split per producing subsystem: `joined/eligibility/` + `joined/drug_annotations/`.
+
+**Additive.** The 3NF maps are written by `DrugRefStore.save_approval_maps` (only those two tables); the six core
+tables are byte-untouched. A plain `drug-ref-build` never emits them (the writes are populated-guarded).

@@ -185,9 +185,22 @@ trial_arm_id               -> trial_arm_drug_role         (canonical_id + role=m
 ```
 Tables: {", ".join(DRUG_TABLES)}
 
+Symmetric-match vocab (drug-approval side, so its indications match Set A on the SAME axes):
+```
+drug_regulatory_approvals.cancer_type -> approval_cancer_type_map -> oncotree_code_FINAL  [match vs Set A oncotree_code]
+drug_regulatory_approvals.biomarker   -> approval_biomarker_map   -> gene_alteration_findingmodel /
+                                                                     molecular_signature_findingmodel
+                                                                    [match vs Set A *_findingmodel]
+```
+(`oncotree_code_FINAL` is the Step-2-reconciled cancer code — the same reconciliation the trial side ran. The flat
+join view `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` denormalizes all of the above per indication.)
+
 NB: TGA/PBS approval is **indication-specific** — matching a trial's cancer type to a drug's approved indication is
-itself a match (the drug-side free-text `cancer_type`/`biomarker` are not yet mapped to the OncoTree/finding-model
-vocab; that symmetric-match mapping is the planned follow-up). ANZCTR `trial_url` is best-effort.
+itself a match. The drug-side free-text `cancer_type`/`biomarker` are now mapped into the SAME OncoTree +
+finding-model vocab (the two `approval_*_map` tables above, reusing the trial-side mappers + seeded from the trial
+FINAL maps), so a trial's `oncotree_code` / `*_findingmodel` can be matched directly against a drug's approved
+indication. `approval_biomarker_map.molecular_biomarker` (protein-expression / IHC) stays free text — symmetric with
+Set A's `molecular_biomarker_interpreted`, which is not vocab-mapped either. ANZCTR `trial_url` is best-effort.
 """
 
 

@@ -58,8 +58,8 @@ def test_map_only_writes_maps_and_preserves_content(tmp_path, monkeypatch):
     # current_output/ stays strictly 3NF — the denormalized flat view is NOT here
     assert not (cur / "mapped_eligibility.tsv").exists()
 
-    # the per-row flat mapped view lives in the top-level joined/ dir (sibling of the store root)
-    mapped = _read(store_root.parent / "joined" / "mapped_eligibility.tsv")
+    # the per-row flat mapped view lives in the top-level joined/eligibility/ subfolder (sibling of the store root)
+    mapped = _read(store_root.parent / "joined" / "eligibility" / "mapped_eligibility.tsv")
     assert len(mapped) == 1
     assert mapped[0]["oncotree_code"] == "NSCLC"
     assert mapped[0]["gene_alteration_findingmodel"].startswith("SmallVariant[gene=EGFR")
