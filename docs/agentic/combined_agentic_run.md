@@ -149,7 +149,7 @@ The deliverable is TWO sets (built by `aus_trial_universe.agentic.export`, deter
 `(trial_arm_id, conjunction_index)`** = one satisfiable eligibility path of one arm (DNF: rows sharing an arm are
 ORed, cells ANDed, exclusions inline `NOT()`). It joins `interpreted_eligibility` ⋈ `trial_arms` ⋈ the new
 `trial_info` master ⋈ the **FINAL** vocab maps (`finalised_*_map.tsv`, `*_FINAL` columns; `oncotree_name` rendered
-from the FINAL code) ⋈ the per-arm drug rollups (from `trial_arm_drug_role` + `drug_annotations_core`). **38
+from the FINAL code) ⋈ the per-arm raw intervention names (the Set-B join key). **33
 columns** in four groups (full list in the export `MANIFEST.md`):
 - *keys/arm* — `trial_arm_id, conjunction_index, trialId, registry, arm, arm_type`
 - *trial info* — `official_title, phase, overall_status, study_type, lead_sponsor, min_age, max_age, sex, start_date,
@@ -158,8 +158,8 @@ columns** in four groups (full list in the export `MANIFEST.md`):
 - *eligibility* — `cancer_type_interpreted, oncotree_name, oncotree_code, gene_alteration_interpreted,
   gene_alteration_findingmodel, molecular_signature_interpreted, molecular_signature_findingmodel,
   molecular_biomarker_interpreted, prior_therapy_interpreted`
-- *intervention* — `arm_intervention_names_raw, arm_canonical_ids, arm_main_drugs, arm_auxiliary_drugs,
-  arm_main_drug_classes, arm_main_pottr_classes`
+- *intervention* — `arm_intervention_names_raw` (the raw-intervention join key into Set B; canonical ids, the
+  main/auxiliary role split, drug classes and TGA/PBS are reached through Set B, NOT duplicated into Set A)
 
 **Set B — the 6 drug 3NF tables** at `drug_annotations/current_version/`, **referenced in place** (single source of
 truth — a `MANIFEST.md` in `export/` points at them; NO duplicate). The engine joins from Set A into Set B:

@@ -53,8 +53,9 @@ EXPORT_COLUMNS = (
        "gene_alteration_interpreted", "gene_alteration_findingmodel",
        "molecular_signature_interpreted", "molecular_signature_findingmodel",
        "molecular_biomarker_interpreted", "prior_therapy_interpreted"]
-    + ["arm_intervention_names_raw", "arm_canonical_ids", "arm_main_drugs", "arm_auxiliary_drugs",
-       "arm_main_drug_classes", "arm_main_pottr_classes"]
+    # Only the raw-intervention join key into Set B. The canonical ids, main/auxiliary role split, drug classes
+    # and TGA/PBS approvals are all reachable through Set B via this + trial_arm_id, so they are NOT duplicated here.
+    + ["arm_intervention_names_raw"]
 )
 
 
@@ -91,29 +92,12 @@ def _read_map(path: Path, key_col: str, val_col: str) -> dict[str, str]:
 
 
 def _arm_drug_facts(drug_store, trial_arm_id: str) -> dict[str, str]:
-    """The arm's intervention/drug rollup columns, resolved from the drug store (occurrences ⋈ mappings ⋈ roles)."""
+    """The arm's raw intervention names (`; `-joined) — the join key into Set B. Canonical ids, the main/auxiliary
+    role split, drug classes and TGA/PBS are all reachable from this + trial_arm_id via the Set-B 3NF tables
+    (intervention_to_canonical / trial_arm_drug_role / drug_annotations_core / drug_regulatory_approvals), so they
+    are deliberately NOT denormalized into Set A."""
     inputs = _uniq(inp for (taid, inp) in drug_store.occurrences if taid == trial_arm_id)
-    cids: list[str] = []
-    for inp in inputs:
-        for cid in drug_store.canonical_ids_for(inp):
-            if cid not in cids:
-                cids.append(cid)
-    roles = drug_store.roles_for(trial_arm_id)
-    main_cids = [r.canonical_id for r in roles if r.role == "main"]
-    aux_cids = [r.canonical_id for r in roles if r.role == "auxiliary"]
-
-    def _names(cs):
-        return _uniq(drug_store.ref(c).canonical_name for c in cs if drug_store.ref(c))
-
-    return {
-        "arm_intervention_names_raw": "; ".join(inputs),
-        "arm_canonical_ids": "; ".join(cids),
-        "arm_main_drugs": "; ".join(_names(main_cids)),
-        "arm_auxiliary_drugs": "; ".join(_names(aux_cids)),
-        "arm_main_drug_classes": "; ".join(_uniq(drug_store.ref(c).drug_class for c in main_cids if drug_store.ref(c))),
-        "arm_main_pottr_classes": " | ".join(_uniq(drug_store.ref(c).pottr_drug_class
-                                                   for c in main_cids if drug_store.ref(c))),
-    }
+    return {"arm_intervention_names_raw": "; ".join(inputs)}
 
 
 def build_export_rows(elig_store, arm_store, drug_store, trial_info, *, elig_dir: Path) -> list[dict]:
@@ -185,8 +169,9 @@ trial arm. {len(rows):,} rows · {n_arms:,} arms · {n_trials:,} trials. Columns
 - `oncotree_code` / `*_findingmodel` are the **FINAL** (Step-2 reconciled) vocab values; `oncotree_name` is rendered
   from the FINAL code. `*_interpreted` are the DNF cells (inline `NOT()`). `molecular_biomarker` / `prior_therapy`
   are free text (no vocab map).
-- `arm_intervention_names_raw` is the join key into Set B; `arm_main_drugs`/`arm_auxiliary_drugs` are the
-  role-split canonical names (from `trial_arm_drug_role`).
+- `arm_intervention_names_raw` + `trial_arm_id` are the join keys into Set B. The canonical ids, the
+  main/auxiliary role split, drug classes and per-indication TGA/PBS live in the Set-B tables (see the join
+  chain below) — they are NOT duplicated into Set A.
 
 ## Set B — the drug 3NF tables ({len(DRUG_TABLES)})
 {setb}

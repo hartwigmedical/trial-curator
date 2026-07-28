@@ -80,12 +80,11 @@ def test_build_export_rows(tmp_path, monkeypatch):
     assert r["gene_alteration_findingmodel"] == "SmallVariant[gene=EGFR & proteinChange=p.L858R]"
     assert r["molecular_signature_findingmodel"] == ""                        # empty cell -> empty
     assert r["molecular_biomarker_interpreted"] == "PD-L1>=50%"               # free text passthrough
-    # intervention rollups (role-split)
+    # only the raw-intervention join key into Set B is carried (rollups are derivable via the 3NF drug tables)
     assert r["arm_intervention_names_raw"] == "Osimertinib; Carboplatin"
-    assert set(r["arm_canonical_ids"].split("; ")) == {"rxcui:1", "rxcui:2"}
-    assert r["arm_main_drugs"] == "osimertinib" and r["arm_auxiliary_drugs"] == "carboplatin"
-    assert r["arm_main_drug_classes"] == "EGFR TKI"                           # main only
-    assert r["arm_main_pottr_classes"] == "cancer_therapy -> EGFR_inhibitor"
+    for dropped in ("arm_canonical_ids", "arm_main_drugs", "arm_auxiliary_drugs",
+                    "arm_main_drug_classes", "arm_main_pottr_classes"):
+        assert dropped not in r
 
 
 def test_run_export_writes_setA_and_snapshot(tmp_path, monkeypatch):

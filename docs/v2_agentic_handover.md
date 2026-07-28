@@ -1,12 +1,35 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-07-28, end of session 2)
+## ▶ NEXT SESSION — START HERE (updated 2026-07-28, end of session 3)
 
 **CURRENT STATE — the full pipeline now runs end-to-end to a matching-engine deliverable.** Eligibility curation is
 COMPLETE + user-reviewed (extract Stage I → map Step 1 per-value → map Step 2 reconciliation). The drug utility path
-is signed off AND now carries Phase-2 main/aux roles. **The grand join → the matching-engine EXPORT is built.** So
-the through-line trial → arm → eligibility(mapped) → drug(class/approval) is fully materialized. **`make
-agentic-tests` = 162 green.** **Everything is UNCOMMITTED in the working tree — the user does ALL git commits.**
+is signed off AND now carries Phase-2 main/aux roles. **The grand join → the matching-engine EXPORT is built** (Set A
+`trial_eligibility.tsv` = **33 cols**, regenerated session 3). So the through-line trial → arm → eligibility(mapped) →
+drug(class/approval) is fully materialized. There is also an **isolated `make agentic-demo`** live-demo of the whole
+pipeline over 2 trials (session 3, SIGNED OFF). **`make agentic-tests` = 162 green.** **Everything is UNCOMMITTED in
+the working tree — the user does ALL git commits.**
+
+**✅ DONE THIS SESSION (2026-07-28, session 3 — SIGNED OFF; all UNCOMMITTED):**
+- **Isolated live-demo command `make agentic-demo`** (for a presentation — walk an audience through the logs). Runs
+  the FULL pipeline over 2 picked trials, one readable stage at a time: extraction → map Step 1 (`--map-only`) → map
+  Step 2 (`--reconcile`) → drug ref + main/aux role (`build --from-trials`) → export. **Trials:** `NCT02393625`
+  (ALK+ NSCLC, solid — ALK rearrangement→Fusion, ceritinib+nivolumab main) + `NCT05453903` (AML, heme —
+  KMT2A/NPM1/NUP98/NUP214 "alteration"→expansion, bleximenib main + chemo backbone aux); override with `IDS=`.
+  **Wholly isolated — NO core code changed** (user requirement): new files ONLY = `aus_trial_universe/agentic/demo.py`
+  (re-roots ONLY the OUTPUT path constants in `core.paths` → `data/agentic/demo/…` BEFORE importing run/build/export,
+  then drives their real entry points) + `scripts/agentic/demo.sh` (standalone driver; reset + tee) + an additive
+  `agentic-demo` Makefile target. INPUTS (`trial_universe`, `resources`) + `CACHE_DIR` are NOT re-rooted → reuses the
+  ingested trials + shared LLM cache. **0 drug web search** — `demo.sh` seeds the demo drug store from the production
+  `drug_annotations/current_version/` so every drug is a pure lookup. **≈35s / 2 trials** (target ≤2 min/trial).
+  `RESET=0` keeps the previous `demo/`. Memory `agentic-demo-command`.
+- **Export Set A slimmed 38→33 cols + REGENERATED.** Dropped the 5 denormalized drug rollups
+  (`arm_canonical_ids`/`arm_main_drugs`/`arm_auxiliary_drugs`/`arm_main_drug_classes`/`arm_main_pottr_classes`) — all
+  reachable through Set B on `arm_intervention_names_raw` + `trial_arm_id`, so redundant in Set A. Kept
+  `arm_intervention_names_raw` (the Set-B join key). Touched `export.py` (`EXPORT_COLUMNS` + `_arm_drug_facts` +
+  manifest) + `test_export.py`; docs updated (`combined_agentic_run.md`, this doc). `make agentic-export` re-run →
+  production `export/trial_eligibility.tsv` = **17,659 rows · 5,195 arms · 1,983 trials · 33 cols** + fresh MANIFEST
+  (3NF masters read-only, untouched). 162 tests green.
 
 **✅ DONE THIS SESSION (2026-07-28, session 2 — all UNCOMMITTED):**
 - **Drug Phase 2 — main vs auxiliary role.** A NEW 6th drug 3NF table `trial_arm_drug_role`
@@ -22,14 +45,15 @@ agentic-tests` = 162 green.** **Everything is UNCOMMITTED in the working tree �
   12,102 rows (main 5,780 · aux 6,322) · 92 no-drug arms skipped**, at 800 workers / 800 max-concurrency (RPM-bound;
   0 rate-limit pushback). Files: `tasks/drug_utility/{schema,agents,workflow,store,build}.py`, `qa/arm_consistency.py`.
 - **The matching-engine EXPORT** (the grand join, delivered as the user's TWO sets). **Set A** =
-  `data/agentic/export/trial_eligibility.tsv` — a wide flat file, **38 cols, one row per
+  `data/agentic/export/trial_eligibility.tsv` — a wide flat file, **33 cols, one row per
   `(trial_arm_id, conjunction_index)`** = trial info (a new `trial_info` master) ⋈ interpreted DNF eligibility ⋈ the
-  **FINAL** vocab codes ⋈ per-arm intervention rollups (role-split main/aux). **17,659 rows · 5,195 arms · 1,983
-  trials.** **Set B** = the 6 drug 3NF tables **referenced in place** (a `MANIFEST.md` points at
-  `drug_annotations/current_version/` — NO duplicate). `make agentic-export`; `SNAPSHOT=1` also mints an immutable
-  self-contained `export/snapshot_<ts>/` bundle. NEW top-level modules `agentic/export.py` + `agentic/trial_info.py`
-  (deterministic trial-metadata master from raw CTGov/ANZCTR). Retired the parked `run._build_combined`/`COMBINED_*`.
-  Column set + `trial_eligibility.tsv` name locked with the user; `min/max_age`+`sex` IN; `*_raw`+`faithful` OUT.
+  **FINAL** vocab codes ⋈ the per-arm raw intervention names (`arm_intervention_names_raw`, the Set-B join key).
+  **17,659 rows · 5,195 arms · 1,983 trials.** **Set B** = the 6 drug 3NF tables **referenced in place** (a
+  `MANIFEST.md` points at `drug_annotations/current_version/` — NO duplicate). `make agentic-export`; `SNAPSHOT=1`
+  also mints an immutable self-contained `export/snapshot_<ts>/` bundle. NEW top-level modules `agentic/export.py` +
+  `agentic/trial_info.py` (deterministic trial-metadata master from raw CTGov/ANZCTR). Retired the parked
+  `run._build_combined`/`COMBINED_*`. `trial_eligibility.tsv` name locked with the user; `min/max_age`+`sex` IN;
+  `*_raw`+`faithful` OUT. (The column set was later slimmed 38→33 in session 3 — see the session-3 block above.)
 - **Both workflow diagrams re-published** to their existing Artifact URLs (drug = role stage + six tables;
   eligibility = Step-2 reconciliation). Links unchanged (memory `workflow-diagram-artifact`).
 
@@ -463,6 +487,7 @@ python -m ...run --map-only  --workers 500 --max-concurrency 500 --no-cache-prun
 python -m ...run --reconcile --workers 30  --max-concurrency 60                     # STEP 2: reconcile -> finalised_*_map.tsv (store) + joined/finalised_mapped_eligibility.tsv
 make agentic-export                             # BUILD THE DELIVERABLE: Set A export/trial_eligibility.tsv + MANIFEST (Set B in place)
 make agentic-export SNAPSHOT=1                  # + an immutable export/snapshot_<ts>/ bundle (Set A + frozen drug tables)
+make agentic-demo                               # ISOLATED presentation demo: full pipeline over 2 trials -> data/agentic/demo/ (shared cache + seeded drug ref = 0 web search; ~35s). IDS=… to override; RESET=0 to keep.
 make agentic-arm-consistency                    # referential-integrity check on the trial_arm_id join key (incl. role table)
 make agentic-clean                              # wipe the transient data/agentic/{log,cache} only
 make agentic-tests                              # 162 unit tests, no API
@@ -485,7 +510,8 @@ eligibility design: memory `v2-eligibility-orchestration-model`.
 ```
 aus_trial_universe/agentic/
   run.py                     # ORCHESTRATOR. Per-trial: extract -> map (lookup-first) -> checkpoint to current_output/; then drug top-up. STORE-WIDE mapping modes (work off the frozen extract): `--map-only` = _run_map_only() (Step 1: map_all_columns pools all 3 columns' distinct values in ONE concurrent pool -> 3 map tables in current_output/ + joined/mapped_eligibility.tsv; raw/interpreted NEVER re-persisted); `--reconcile` = _run_reconcile() (Step 2: reconcile maps -> finalised_*_map.tsv in current_output/ + joined/finalised_mapped_eligibility.tsv). DiskCache; a failing trial is logged & skipped. (The parked _build_combined was RETIRED 2026-07-28 -> export.py.)
-  export.py                  # THE MATCHING-ENGINE EXPORT (make agentic-export; 2026-07-28). build_export_rows() joins interpreted ⋈ trial_arms ⋈ trial_info ⋈ FINAL vocab maps ⋈ per-arm drug rollups (role-split) -> Set A export/trial_eligibility.tsv (38 cols, one row per (trial_arm_id, conj)) + MANIFEST (Set B = drug tables referenced in place). --snapshot -> immutable export/snapshot_<ts>/. Deterministic, no API
+  export.py                  # THE MATCHING-ENGINE EXPORT (make agentic-export; 2026-07-28). build_export_rows() joins interpreted ⋈ trial_arms ⋈ trial_info ⋈ FINAL vocab maps ⋈ per-arm raw intervention names (arm_intervention_names_raw, the Set-B join key) -> Set A export/trial_eligibility.tsv (33 cols, one row per (trial_arm_id, conj)) + MANIFEST (Set B = drug tables referenced in place). --snapshot -> immutable export/snapshot_<ts>/. Deterministic, no API
+  demo.py                    # ISOLATED presentation demo (make agentic-demo; session 3). Re-roots ONLY the OUTPUT path constants in core.paths -> data/agentic/demo/ BEFORE importing run/build/export, then drives their real entry points as 5 banner-headed stages. Inputs + cache stay shared. NO core code touched. Nothing imports it.
   trial_info.py              # NEW trial-metadata master (2026-07-28): TrialInfo dataclass + ctgov/anzctr extraction (deterministic, from raw protocolSection / ANZCTR rows) + save/load -> data/agentic/trial_info/current_version/trial_info.tsv
   core/
     paths.py                 # SINGLE relocatable DATA_ROOT (=data/agentic/) + all derived paths + current_version_dir()/archive_current_version()
@@ -520,6 +546,7 @@ aus_trial_universe/agentic/
     qa/                      # validate_output.py (make agentic-validate) + arm_consistency.py (make agentic-arm-consistency) + mapping_consistency.py (cross-value: canonical_key/find_inconsistencies — used by Step 2)
 tests/agentic/               # 162 tests (fake-client); mirrors tasks/ (core [+test_review], tasks/shared, tasks/eligibility [+ test_mapping_findingmodel, test_run_map_only, test_reconcile, qa/test_mapping_consistency], tasks/drug_utility [+ test_drug_utility_roles]) + top-level test_export.py + test_trial_info.py
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|export|clean|tests|cache-prune|arm-consistency|drug-migrate-trial-arms|drug-ref-build|drug-ref-refresh-pottr
+scripts/agentic/demo.sh      # STANDALONE demo driver (make agentic-demo; session 3): python-pick, .env, reset data/agentic/demo/, SEED demo drug ref from production (=> 0 web search), tee. Does not touch pipeline.sh.
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
@@ -557,10 +584,11 @@ from raw CTGov `protocolSection` / ANZCTR rows (no LLM). Feeds the export's tria
   `gene_alteration_findingmodel_FINAL`, `molecular_signature_findingmodel_FINAL`. **The eligibility-side review artifact.**
 
 **The matching-engine EXPORT — `data/agentic/export/` (the deliverable; `make agentic-export`):**
-- `trial_eligibility.tsv` (**Set A**) — the grand join, **38 cols, one row per `(trial_arm_id, conjunction_index)`**:
+- `trial_eligibility.tsv` (**Set A**) — the grand join, **33 cols, one row per `(trial_arm_id, conjunction_index)`**:
   keys/arm ⋈ `trial_info` ⋈ interpreted eligibility ⋈ **FINAL** vocab (`oncotree_code/name`, `*_findingmodel`) ⋈
-  per-arm intervention rollups (`arm_intervention_names_raw`, `arm_canonical_ids`, `arm_main_drugs`,
-  `arm_auxiliary_drugs`, `arm_main_drug_classes`, `arm_main_pottr_classes`). 17,659 rows.
+  the per-arm raw intervention names (`arm_intervention_names_raw`, the Set-B join key). 17,659 rows. (The 5
+  denormalized drug rollups were dropped 2026-07-28 — reach them via Set B on `arm_intervention_names_raw` +
+  `trial_arm_id`.)
 - `MANIFEST.md` — documents both sets + points to **Set B** = the 6 drug tables **in place** at
   `drug_annotations/current_version/` (no duplicate). `SNAPSHOT=1` → `export/snapshot_<ts>/` = Set A + a frozen copy of Set B.
 See `combined_agentic_run.md` §"The matching-engine export" for the full column list + per-column notes.
@@ -699,8 +727,9 @@ Former TODOs now closed:
   `trial_arm_drug_role` at (trial_arm_id, canonical_id) grain — NOT a column on `trial_to_intervention` (the
   original plan) because ~11% of input strings bundle mixed main+aux drugs; canonical grain is exact + joins to
   TGA/PBS. Per-arm classifier (no web_search) reusing the recovered `DRUG_CURATOR_INSTRUCTIONS`; populated over the
-  universe; surfaced in the export's `arm_main_drugs`/`arm_auxiliary_drugs`. (Original deferred note preserved
-  below for context.) *Was: deferred 2026-07-20 as not on the critical path to the over-enumeration work.*
+  universe; consumed via Set B (`trial_arm_drug_role`), joined from Set A on `trial_arm_id` (the export no longer
+  denormalizes the role-split drug names). (Original deferred note preserved below for context.) *Was: deferred
+  2026-07-20 as not on the critical path to the over-enumeration work.*
 - **Weighted "best attempt" in `refine()` (future).** `refine()` currently returns the attempt with the fewest
   **gating** problems — a raw COUNT (all material issues weigh the same; ties → earliest). A severity- or
   dimension-weighted measure would be more principled, but the hard part is getting the LLM reviewers to emit a

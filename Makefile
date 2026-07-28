@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-refresh-pottr
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-refresh-pottr
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -48,6 +48,16 @@ eligibility-path-tests:
 #                       leave it running and it picks up on reconnect. RESUME_BACKOFF=<secs> between retries.)
 agentic-run:
 	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" EXTRACT_ONLY="$(EXTRACT_ONLY)" WORKERS="$(WORKERS)" MAX_CONCURRENCY="$(MAX_CONCURRENCY)" RESUME="$(RESUME)" RESUME_BACKOFF="$(RESUME_BACKOFF)" scripts/agentic/pipeline.sh run
+
+# Isolated LIVE DEMO — runs the FULL pipeline (extract -> map Step 1 -> map Step 2 -> drug + role -> export)
+# over 2 picked trials, one readable stage at a time, for walking an audience through the logs. All OUTPUTS go
+# to data/agentic/demo/ (the production stores are NEVER touched); ingested trials + the shared LLM cache are
+# reused so a run is near-instant. Standalone add-on (own script + module; no core code changed).
+#   make agentic-demo                       # the two baked-in trials, fresh demo folder
+#   make agentic-demo IDS=NCT1,NCT2         # a specific set
+#   make agentic-demo RESET=0               # keep the previous demo/ contents (accumulate)
+agentic-demo:
+	IDS="$(IDS)" RESET="$(RESET)" scripts/agentic/demo.sh
 
 # Wipe run artifacts under data/agentic/{output,log,cache} (handy between test runs).
 agentic-clean:
