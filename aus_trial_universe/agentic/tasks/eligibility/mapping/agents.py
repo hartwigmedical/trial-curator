@@ -231,80 +231,283 @@ def build_oncotree_reviewer(client: LlmClient, *, model: str | None = None) -> A
 # gene_alteration -> finding-model
 # --------------------------------------------------------------------------- #
 _GENE_RULES = """\
-Convert a gene-alteration expression (the trial's normalized wording) into Hartwig finding-model syntax.
-Return `finding_model`. Preserve the expression's logical structure: keep AND (&), OR (|) and NOT(...);
-exclusions are wrapped in NOT(...). Use "" only if there is genuinely no molecular alteration.
+You convert a clinical trial's GENE-ALTERATION expression into Hartwig finding-model syntax. Return `finding_model`
+— the same expression re-expressed in the grammar below, preserving its logical structure (AND `&`, OR `|`,
+exclusions wrapped in `NOT(...)`). Follow the grammar EXACTLY: only the listed classes and fields exist.
 
-The result must be LOGICALLY CONSISTENT:
-- Never emit a duplicate term ("X & X" or "NOT(X) & NOT(X)" = just X / NOT(X)) — list each term once.
-- Never emit "X & NOT(X)" or "X | NOT(X)" (a term both required and excluded).
-- If a NOT(...) exclusion is qualified by something finding-model CANNOT express — an anatomic LOCATION
-  ("H3K27M in thalamic DMG"), a tumour context, or any qualifier with no field for it — OMIT that NOT()
-  entirely. Do NOT drop the qualifier and emit NOT(same-variant): that duplicates or contradicts the
-  included term. (e.g. "H3K27-altered AND NOT(H3K27M in thalamic DMG)" -> just the H3K27M inclusion.)
-- If the source's inclusion and exclusion of an alteration actually apply to DIFFERENT cancer types/cohorts,
-  that must have been split into separate rows upstream — here map only what genuinely applies to this row.
+WHAT YOU RECEIVE
+The interpreted gene-alteration criterion of one trial arm. It usually carries wording finding-model CANNOT express;
+strip it and map the underlying MOLECULAR ALTERATION. Qualifiers to DROP (dropping them is CORRECT, never a fault):
+- FUNCTIONAL / SIGNIFICANCE: "activating", "actionable", "oncogenic", "driver", "pathogenic", "deleterious or
+  suspected deleterious", "sensitising", "known/documented", "qualifying".
+- ORIGIN: "germline", "somatic", "germline or somatic".
+- DETECTION / ASSAY / SAMPLE / TIMING: "detected by ctDNA / central NGS / an FDA-approved assay", "per local
+  testing", "in tumour and/or blood", "in a specimen collected after progression on <drug>", "ISH+/NGS-confirmed".
+- QUANTITATIVE: copy-number COUNT / level ("≥5 copies", "high-level"), VAF threshold.
+- PROTEIN DOMAIN / REGION: "tyrosine kinase domain (TKD)", "bZIP", "kinase domain", "juxtamembrane" — a protein
+  sub-region finding-model has no field for. Drop it (map to the gene-level alteration).
+Keep only what the grammar has a field for: gene, protein change, exon, effect, copy-number TYPE, fusion
+orientation, chromosome arm.
 
-Follow the grammar below exactly. Prefer the most specific term the wording supports (name the exon /
-protein change / copy-number type when stated). For a bare "mutation"/"alteration" with no specifics, apply
-the expansion rule (tumour-suppressor vs oncogene). Only emit the listed classes and fields.
+NOTATION — normalise to the grammar's canonical forms:
+- Protein change -> HGVS `p.` form ALWAYS: "G12C" -> p.G12C ; "V600E" -> p.V600E ; "Exon21 L858R" -> p.L858R.
+- Codon named but the substituted residue UNSTATED (or an explicit "X" / "any") -> the `X` wildcard:
+  "IDH1 R132" -> p.R132X ; "KRAS Q61" / "Q61X" -> p.Q61X ; "BRAF V600X" -> p.V600X.
+- Exon indels: "exon 19 deletion" -> affectedExon=19 & effects=INFRAME_DELETION ; "exon 20 insertion" ->
+  affectedExon=20 & effects=INFRAME_INSERTION.
 
-Examples (input -> finding_model):
-- "BRAF V600E"                 -> SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]
-- "KRAS G12C"                  -> SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C]
-- "EGFR exon 19 deletion"      -> SmallVariant[gene=EGFR & transcriptImpact.affectedExon=19 & transcriptImpact.effects=INFRAME_DELETION]
-- "EGFR exon 20 insertion"     -> SmallVariant[gene=EGFR & transcriptImpact.affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION]
-- "ALK fusion"                 -> Fusion[geneStart=ALK | geneEnd=ALK]
-- "NTRK fusion"                -> Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]
-- "ERBB2 amplification"        -> GainDeletion[gene=ERBB2 & type=GAIN]
-- "PDGFRA amplification with >=5 copy numbers" -> GainDeletion[gene=PDGFRA & type=GAIN]   (copy-number COUNT has no field — drop it, keep type=GAIN)
-- "MTAP homozygous deletion"   -> GainDeletion[gene=MTAP & type=HOM_DEL] | Disruption[gene=MTAP]
-- "BRCA1 mutation"             -> SmallVariant[gene=BRCA1] | GainDeletion[gene=BRCA1 & type=HOM_DEL] | Disruption[gene=BRCA1]
-- "KRAS mutation"              -> SmallVariant[gene=KRAS] | GainDeletion[gene=KRAS & type=GAIN]
-- "ALK wild-type"              -> Wildtype[gene=ALK]
-- "no EGFR exon 20 insertion"  -> NOT(SmallVariant[gene=EGFR & transcriptImpact.affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION])
-- "H3K27M"                     -> SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]
-- "H3K27-altered"              -> (IDENTICAL to "H3K27M" above — see the "Histone H3 K27" note in the grammar; same 3 genes, p.K28M)
-- "H3K27-altered AND BRAF V600E" -> (SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]) & SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]
+GRANULARITY — as specific as the wording supports, no more, no less:
+- Named protein change / exon / effect -> include it. NEVER invent detail the source does not state.
+- Copy number: name the TYPE only — GAIN (amplification / copy-number gain), HOM_DEL (homozygous / biallelic / deep
+  deletion or an unspecified "deletion"/"loss" of a gene), HET_DEL (heterozygous / single-copy loss). Drop counts.
+- A bare "mutation" / "alteration" / "aberration" / "positive" with NO specific variant -> the EXPANSION RULE
+  (tumour-suppressor vs oncogene) in the grammar. Do NOT expand when a specific variant IS named.
+
+ALTERATION VOCABULARY (word -> class):
+- amplification / copy-number gain             -> GainDeletion[gene=X & type=GAIN]
+- homozygous|biallelic|deep deletion / loss    -> GainDeletion[gene=X & type=HOM_DEL]
+- heterozygous / single-copy loss              -> GainDeletion[gene=X & type=HET_DEL]
+- rearrangement / translocation / gene fusion / fusion -> Fusion (NEVER Disruption; this holds inside NOT() too).
+  One gene, orientation unknown: Fusion[geneStart=X | geneEnd=X]. Named partners "A::B" / "A-B fusion":
+  Fusion[geneStart=A & geneEnd=B]. A family of 3' partners (e.g. NTRK) -> OR one Fusion per member.
+- MET exon 14 skipping (the exon IS stated) -> SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.effects=SPLICE]
+- FLT3-ITD (internal tandem duplication) -> SmallVariant[gene=FLT3 & transcriptImpact.effects=INFRAME_INSERTION]
+  (do NOT add an exon — the source does not state one; never infer it).
+- FLT3-TKD (tyrosine-kinase-domain mutation) -> SmallVariant[gene=FLT3] (TKD is an inexpressible protein DOMAIN;
+  drop it — do NOT invent an exon).
+- chromosome-arm change: "1p loss / deletion / LOH" -> Arm[chromosome=1 & arm=p & type=ARM_LOSS] ; "1q gain" ->
+  type=ARM_GAIN ; codeletion "1p/19q" -> Arm[chromosome=1 & arm=p & type=ARM_LOSS] & Arm[chromosome=19 & arm=q & type=ARM_LOSS].
+  A cytoband / SEGMENTAL loss or gain maps to the ARM level (finding-model has no field for a band RANGE, so drop
+  it): "9p21.1-24.3 loss" -> Arm[chromosome=9 & arm=p & type=ARM_LOSS]. KEEP it (never omit); this holds inside NOT() too.
+
+WILD-TYPE:
+- A WHOLE gene stated wild-type / non-mutated -> Wildtype[gene=X] (one per gene; AND several together:
+  Wildtype[gene=EGFR] & Wildtype[gene=ALK]).
+- A SPECIFIC codon/variant stated wild-type ("KRAS G12/G13 wild-type", "BRAF V600 wild-type") is expressible and
+  more faithful as the negation of that specific change: NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12X])
+  & NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G13X]).
+
+GENE FAMILIES / PATHWAY TOKENS:
+- A recognised gene FAMILY (not a single gene) -> expand to its member genes OR'd, applying the SAME variant to
+  each. RAS = KRAS, NRAS, HRAS. A vague PATHWAY with no specific gene ("RAS/MAPK pathway alteration") -> "".
+
+NEGATION — NOT(...):
+- An excluded ALTERATION -> wrap the mapped alteration: "no BRAF V600E" -> NOT(SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]).
+- An excluded DISEASE that is DEFINED BY an expressible alteration -> convert to NOT(that alteration):
+  "NOT(BCR-ABL-positive leukemia)" / "NOT(Ph+ ALL)" -> NOT(Fusion[geneStart=BCR & geneEnd=ABL1]).
+- An OPEN-ENDED clinical / actionability exclusion with no single expressible alteration -> OMIT it entirely:
+  "NOT(known concomitant second oncogenic driver)", "NOT(any actionable alteration with approved therapy)",
+  "NOT(tumours with a targetable alteration)". Omitting an inexpressible NOT() is CORRECT.
+- A NOT() whose alteration is qualified by something INEXPRESSIBLE (anatomic LOCATION "H3K27M in thalamic DMG",
+  tumour context, a protein DOMAIN like "bZIP CEBPA" / "TKD") -> OMIT the whole NOT(). Dropping a qualifier is safe
+  for an INCLUSION (it broadens to a superset, which is acceptable), but in an EXCLUSION it would OVER-EXCLUDE:
+  e.g. "NOT(bZIP CEBPA)" must NOT become NOT(SmallVariant[gene=CEBPA]) (that wrongly excludes ALL CEBPA variants) —
+  omit it entirely. Likewise never encode NOT(same-variant) as an included term, which would self-contradict.
+- If the source's inclusion and exclusion of an alteration apply to DIFFERENT cancer types/cohorts, that was split
+  into separate rows upstream — here map only what genuinely applies to this row.
+
+LOGICAL CONSISTENCY:
+- Preserve AND/OR/NOT but FIX broken logic — never blindly copy an invalid structure.
+- Parenthesise an OR-group before ANDing onto it: "(A | B) & C", NEVER "A | B & C".
+- Never duplicate a term (X & X = X); never require and exclude the same term (no X & NOT(X)).
+- Order terms SmallVariant, GainDeletion, Disruption, Fusion.
+
+`""` — LAST RESORT. Return empty ONLY when the value carries NO molecular alteration: a pure clinical / risk /
+phenotype descriptor ("adverse cytogenetics", "high-risk disease", "measurable residual disease", a protein-
+expression-only biomarker with no underlying gene change). A NAMED gene alteration ALWAYS maps — difficulty is
+never a reason to bail.
+
+EXAMPLES (source -> finding_model):
+- "KRAS G12C mutation"                 -> SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C]
+- "IDH1 R132 mutation"                 -> SmallVariant[gene=IDH1 & transcriptImpact.hgvsProteinImpact=p.R132X]
+- "EGFR exon 19 deletion"              -> SmallVariant[gene=EGFR & transcriptImpact.affectedExon=19 & transcriptImpact.effects=INFRAME_DELETION]
+- "EGFR exon 20 insertion"             -> SmallVariant[gene=EGFR & transcriptImpact.affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION]
+- "MET exon 14 skipping mutation"      -> SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.effects=SPLICE]
+- "ERBB2 (HER2) amplification"         -> GainDeletion[gene=ERBB2 & type=GAIN]
+- "PDGFRA amplification with >=5 copy numbers" -> GainDeletion[gene=PDGFRA & type=GAIN]
+- "MTAP homozygous deletion"           -> GainDeletion[gene=MTAP & type=HOM_DEL]
+- "activating PIK3CA mutation"         -> SmallVariant[gene=PIK3CA] | GainDeletion[gene=PIK3CA & type=GAIN]
+- "germline or somatic deleterious or suspected deleterious BRCA1 mutation" -> SmallVariant[gene=BRCA1] | GainDeletion[gene=BRCA1 & type=HOM_DEL] | Disruption[gene=BRCA1]
+- "KRAS mutation"                      -> SmallVariant[gene=KRAS] | GainDeletion[gene=KRAS & type=GAIN]
+- "ALK fusion"                         -> Fusion[geneStart=ALK | geneEnd=ALK]
+- "NTRK gene fusion"                   -> Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]
+- "BCR-ABL fusion"                     -> Fusion[geneStart=BCR & geneEnd=ABL1]
+- "ALK wild-type"                      -> Wildtype[gene=ALK]
+- "KRAS G12/G13 wild-type"             -> NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12X]) & NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G13X])
+- "RAS Q61X mutation"                  -> SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.Q61X] | SmallVariant[gene=NRAS & transcriptImpact.hgvsProteinImpact=p.Q61X] | SmallVariant[gene=HRAS & transcriptImpact.hgvsProteinImpact=p.Q61X]
+- "NOT(BCR-ABL-positive leukemia)"     -> NOT(Fusion[geneStart=BCR & geneEnd=ABL1])
+- "MTAP loss AND NOT(documented actionable alteration for which standard-of-care exists)" -> GainDeletion[gene=MTAP & type=HOM_DEL]
+- "H3K27-altered"                      -> SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]
+- "H3K27-altered AND BRAF V600E"       -> (SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3C & transcriptImpact.hgvsProteinImpact=p.K28M]) & SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]
+- "adverse cytogenetics"               -> (empty)
 
 """
 
 GENE_REVIEWER_INSTRUCTIONS = """\
-You audit a proposed finding-model conversion of a trial's GENE-ALTERATION wording. You are given the
-SOURCE wording and the proposed finding_model. This layer is NOT human-curated, so be strict.
+You audit a proposed finding-model conversion of a trial's GENE-ALTERATION wording. You are given the SOURCE wording
+and the proposed finding_model. This layer is NOT human-curated — be strict but fair. The SYNTAX is already
+machine-validated (real classes/fields/enums, balanced, gene-scoped), so judge SEMANTIC faithfulness.
 
-Set faithful=true only if: the syntax is valid finding-model (correct classes/fields, balanced brackets,
-SmallVariant is gene-scoped); it captures exactly what the source states (right gene(s), right variant /
-exon / protein change / copy-number type / fusion orientation); a bare mutation is expanded correctly
-(tumour-suppressor vs oncogene); AND/OR/NOT structure matches the source; and it is LOGICALLY CONSISTENT (reject any "X & NOT(X)" /
-"X | NOT(X)" self-contradiction, any duplicated term "NOT(X) & NOT(X)", and any NOT(...) that merely
-negates an unrepresentable qualifier (e.g. a location) — that should have been omitted). Otherwise
-faithful=false with concrete, actionable problems.
+Set faithful=true only if ALL hold; otherwise faithful=false with concrete, actionable problems:
 
-Do NOT fail a mapping merely because it dropped a qualifier finding-model has no field to express — a
-copy-number count/threshold ("amplification with >=5 copies" -> type=GAIN is CORRECT), a quantitative level,
-a VAF threshold, an anatomic location, a tumour context. That simplification is acceptable and correct (see
-"Expressiveness limits" in the grammar); flag it only if a genuinely REPRESENTABLE detail is wrong or missing.
+1. RIGHT GENE(S) — the correct gene(s). A gene FAMILY (RAS) is expanded to its members (KRAS/NRAS/HRAS), not left
+   as a non-gene token or a single arbitrary member.
+2. RIGHT ALTERATION — the stated variant / exon / protein change / copy-number TYPE / fusion orientation is
+   captured; notation normalised (HGVS `p.`; the `X` wildcard when the substituted residue is unstated).
+3. RIGHT EXPANSION — a bare "mutation" / "alteration" is expanded per the grammar's tumour-suppressor vs oncogene
+   rule; a SPECIFIC named variant is NOT over-expanded.
+4. NEGATION — a disease-phrased exclusion DEFINED BY an expressible alteration is CONVERTED
+   ("NOT(BCR-ABL-positive leukemia)" -> NOT(Fusion[geneStart=BCR & geneEnd=ABL1])); an OPEN-ENDED clinical /
+   actionability exclusion, or one qualified by an inexpressible location / context / protein domain, is OMITTED
+   (correct) — NOT broadened (dropping a qualifier inside an exclusion would OVER-exclude, e.g. NOT(bZIP CEBPA) must
+   not become NOT(SmallVariant[gene=CEBPA])). A rearrangement inside NOT() is a Fusion, not a Disruption. No X & NOT(X).
+5. NOT LAZY — a NAMED gene alteration is never dropped to "". "" is correct ONLY for a value with no molecular
+   content (a pure clinical / risk / phenotype descriptor).
+6. COMPLETE + CONSISTENT — every stated alteration is present (no dropped OR-alternative); the AND/OR/NOT structure
+   matches the source; an OR-group ANDed with anything is parenthesised.
+
+Do NOT fail a mapping for DROPPING a qualifier finding-model cannot express — functional/significance
+("activating / actionable / oncogenic / pathogenic / deleterious"), origin ("germline / somatic"), detection /
+assay / sample / timing, copy-number count/level, VAF, anatomic location, tumour context, protein DOMAIN. That
+simplification is CORRECT. Two mandated simplifications you must NOT flag as over-specified / over-broadened:
+  - an unspecified "deletion" / "loss" mapped to type=HOM_DEL (GainDeletion REQUIRES a type; HOM_DEL is the
+    mandated default for an unqualified loss — "MTAP loss" -> GainDeletion[gene=MTAP & type=HOM_DEL] is correct);
+  - a cytoband / segmental loss or gain mapped to the ARM level with the band range dropped
+    ("9p21.1-24.3 loss" -> Arm[chromosome=9 & arm=p & type=ARM_LOSS] is correct; do not demand the cytoband).
+Flag only a wrong gene, a wrong or lost REPRESENTABLE detail, a wrong expansion, a mishandled negation, a lazy "",
+or broken structure.
+
+CORRECT REFERENCE MAPPINGS — accept a proposal that maps this way (note the qualifiers correctly dropped):
+- "KRAS G12C mutation"                 -> SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C]
+- "IDH1 R132 mutation"                 -> SmallVariant[gene=IDH1 & transcriptImpact.hgvsProteinImpact=p.R132X]
+- "EGFR exon 20 insertion"             -> SmallVariant[gene=EGFR & transcriptImpact.affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION]
+- "MET exon 14 skipping mutation"      -> SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.effects=SPLICE]
+- "germline or somatic deleterious BRCA1 mutation" -> SmallVariant[gene=BRCA1] | GainDeletion[gene=BRCA1 & type=HOM_DEL] | Disruption[gene=BRCA1]
+- "PDGFRA amplification with >=5 copy numbers" -> GainDeletion[gene=PDGFRA & type=GAIN]
+- "ALK fusion"                         -> Fusion[geneStart=ALK | geneEnd=ALK]
+- "NTRK gene fusion"                   -> Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]
+- "ALK wild-type"                      -> Wildtype[gene=ALK]
+- "confirmed FLT3-ITD mutation"        -> SmallVariant[gene=FLT3 & transcriptImpact.effects=INFRAME_INSERTION]
+- "confirmed FLT3-TKD mutation"        -> SmallVariant[gene=FLT3]   (TKD is a protein domain; drop it, no exon)
+- "RAS Q61X mutation"                  -> SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.Q61X] | SmallVariant[gene=NRAS & transcriptImpact.hgvsProteinImpact=p.Q61X] | SmallVariant[gene=HRAS & transcriptImpact.hgvsProteinImpact=p.Q61X]
+- "NOT(BCR-ABL-positive leukemia)"     -> NOT(Fusion[geneStart=BCR & geneEnd=ABL1])
+- "adverse cytogenetics"               -> (empty)
+
+MAPPINGS YOU MUST FAIL (proposed -> problem -> fix):
+- SOURCE "KRAS G12C mutation", proposed "SmallVariant[gene=KRAS]"
+    -> lost the protein change. fix "...& transcriptImpact.hgvsProteinImpact=p.G12C"
+- SOURCE "RAS Q61X mutation", proposed "SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.Q61X]"
+    -> gene family not expanded; NRAS and HRAS are missing. fix the 3-gene OR.
+- SOURCE "IDH1 R132 mutation", proposed "SmallVariant[gene=IDH1]"
+    -> lost the codon; an unstated residue is the X wildcard. fix "...hgvsProteinImpact=p.R132X"
+- SOURCE "NOT(BCR-ABL-positive leukemia)", proposed "" (or the disease left as text)
+    -> the disease is defined by the BCR::ABL1 fusion; convert it. fix "NOT(Fusion[geneStart=BCR & geneEnd=ABL1])"
+- SOURCE "cholangiocarcinoma with FGFR2 fusion", proposed ""
+    -> lazy empty; the FGFR2 fusion is expressible. fix "Fusion[geneStart=FGFR2 | geneEnd=FGFR2]"
+- SOURCE "EGFR exon 20 insertion", proposed "SmallVariant[gene=EGFR]"
+    -> lost the exon + effect. fix "...affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION"
+- SOURCE "ALK wild-type", proposed "NOT(SmallVariant[gene=ALK])"
+    -> a whole-gene wild-type uses the Wildtype class. fix "Wildtype[gene=ALK]"
+- SOURCE "KRAS amplification with >=5 copies", proposed problems=["dropped the copy count"]
+    -> dropping the copy count is CORRECT; do NOT fail for it.
+- SOURCE "FLT3-ITD", proposed "SmallVariant[gene=FLT3 & transcriptImpact.affectedExon=14 & transcriptImpact.effects=INFRAME_INSERTION]"
+    -> the source does not state an exon; do not infer it. fix "SmallVariant[gene=FLT3 & transcriptImpact.effects=INFRAME_INSERTION]"
+- SOURCE "NOT(bZIP CEBPA mutation)", proposed "NOT(SmallVariant[gene=CEBPA])"
+    -> a domain-qualified exclusion was broadened; this over-excludes ALL CEBPA variants. fix: OMIT the NOT() entirely.
+- SOURCE "NOT(MYC and BCL2 rearrangement)", proposed "NOT(Disruption[gene=MYC] & Disruption[gene=BCL2])"
+    -> a rearrangement is a Fusion, not a Disruption. fix "NOT(Fusion[geneStart=MYC | geneEnd=MYC] & Fusion[geneStart=BCL2 | geneEnd=BCL2])"
+
+`suggested_fix` — normally leave EMPTY (reporting the problems is enough). ONLY when the input is marked
+"[ESCALATION-MODE]", fill it with the concrete corrected finding_model you would expect.
 """
 
 _SIGNATURE_RULES = """\
-Convert a molecular-signature expression into Hartwig finding-model syntax. Return `finding_model`,
-preserving AND/OR/NOT. Use "" if there is no signature. Only these signature terms exist:
+You convert a clinical trial's MOLECULAR-SIGNATURE expression into Hartwig finding-model syntax. Return
+`finding_model`, preserving the logical structure (AND `&`, OR `|`, exclusions wrapped in `NOT(...)`).
 
-- "MSI-high" / "MSI-H"                       -> MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]
-- "microsatellite stable" / "MSS"           -> MicrosatelliteStability[PurpleMicrosatelliteStatus=MSS]
-- "HRD" / "homologous recombination deficient" -> homologousRecombination[ChordStatus=HR_DEFICIENT]
-- "HR proficient"                           -> homologousRecombination[ChordStatus=HR_PROFICIENT]
-- "TMB-high"                                -> tumorMutationBurden[Status=HIGH]
-- "high tumour mutational load"             -> tumorMutationLoad[Status=HIGH]
+There are EXACTLY SIX signature terms — the ONLY output vocabulary. Map a genuine signature to its term,
+recognising the common synonyms:
+- MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]  <- MSI-high / MSI-H / MSI / dMMR / MMRd / mismatch-repair
+    deficient / MMR-deficient / MSI-L / microsatellite instability-low / HNPCC / Lynch syndrome / constitutional MMR deficiency.
+- MicrosatelliteStability[PurpleMicrosatelliteStatus=MSS]  <- MSS / microsatellite stable / pMMR / MMR-proficient / normal MMR.
+- homologousRecombination[ChordStatus=HR_DEFICIENT]        <- HRD / HRD-positive / homologous-recombination deficient /
+    HRR deficiency / HRRm / BRCAness / FH-deficient / SDH-deficient.
+- homologousRecombination[ChordStatus=HR_PROFICIENT]       <- HR proficient / HRR proficient / HR-repair non-mutated.
+- tumorMutationBurden[Status=HIGH]                         <- TMB-high / TMB-H / high tumour mutational BURDEN.
+- tumorMutationLoad[Status=HIGH]                           <- high mutational LOAD / TML-high / high tumour mutational load.
+(TMB "burden" -> tumorMutationBurden; "load"/TML -> tumorMutationLoad. Only Status=HIGH exists — a stated
+"low/normal TMB/TML" requirement is expressible only as NOT(...[Status=HIGH]).)
 
-If the term is really a gene alteration or biomarker (not one of the above signatures), return "".
+DROP inexpressible qualifiers, then map the underlying signature: thresholds/levels ("≥100 somatic SNVs/exome",
+"moderate to high"), assay/detection ("by NGS", "centrally confirmed"), treatment/timing context, "high TILs/TLS".
+
+`""` (EMPTY) is CORRECT and COMMON here — return it whenever the value is NOT one of the six signatures. The
+molecular-signature column carries MANY non-signature values; map ALL of these to "":
+- risk / prognostic scores & categories: "IPI 3-5", "IPSS intermediate-2/high", "FLIPI 2-5", "Oncotype DX RS 11-25",
+  "cytogenetic high-risk", "adverse/standard/favourable biology", "high-risk", "complex karyotype".
+- expression / molecular SUBTYPES: "Luminal A", "PAM50", "CMS4", "SHH", "triple-negative/TNBC", "non-secretory".
+- a GENE ALTERATION or chromosomal event (belongs to gene_alteration): "1p/19q-codeletion", "H3/IDH-wildtype",
+  "Ph-like", "HPV", "LOH", "MYCN amplification".
+- a protein-expression / receptor BIOMARKER: "HER2-", "HR+", "hormone receptor", "PD-L1".
+Do NOT force any of these into a signature term. But do NOT drop a GENUINE signature — "dMMR" IS MSI, "FH-deficient"
+IS HR_DEFICIENT; difficulty recognising a synonym is not a reason to bail on a real signature.
+
+NEGATION — an excluded signature wraps its term: "MSS required, exclude MSI-H" side / "NOT(MSI-H)" ->
+NOT(MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]). A signature qualified in an EXCLUSION by an
+inexpressible condition ("NOT(MSI-H without prior immune checkpoint inhibitor)") — omit the inexpressible qualifier
+only if that does not over-exclude; otherwise keep the bare signature negation.
+
+EXAMPLES (source -> finding_model):
+- "MSI-high"                                 -> MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]
+- "dMMR/MSI-H"                                -> MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]
+- "mismatch repair proficient (pMMR)"        -> MicrosatelliteStability[PurpleMicrosatelliteStatus=MSS]
+- "HRD-positive"                             -> homologousRecombination[ChordStatus=HR_DEFICIENT]
+- "FH deficient"                             -> homologousRecombination[ChordStatus=HR_DEFICIENT]
+- "TMB-high"                                 -> tumorMutationBurden[Status=HIGH]
+- "high mutational load (>100 somatic SNVs/exome)" -> tumorMutationLoad[Status=HIGH]
+- "NOT(MSI-H)"                               -> NOT(MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI])
+- "adverse biology"                          -> (empty)
+- "IPSS intermediate-2 or high-risk"         -> (empty)
+- "Luminal A"                                -> (empty)
+- "1p/19q-codeletion"                        -> (empty)   (a chromosomal alteration, not a signature)
+- "HER2-negative"                            -> (empty)   (an expression biomarker, not a signature)
+
 """
 
 SIGNATURE_REVIEWER_INSTRUCTIONS = """\
-You audit a proposed finding-model conversion of a MOLECULAR-SIGNATURE term. Given the SOURCE term and the
-proposed finding_model, set faithful=true only if it uses the correct signature class/status and matches the
-source (incl. NOT() for negations); otherwise faithful=false with concrete problems.
+You audit a proposed finding-model conversion of a MOLECULAR-SIGNATURE value. You are given the SOURCE value and the
+proposed finding_model. There are EXACTLY SIX valid signature terms (MSI/MSS microsatellite status, HR_DEFICIENT/
+HR_PROFICIENT, tumorMutationBurden HIGH, tumorMutationLoad HIGH).
+
+Set faithful=true only if ALL hold; otherwise faithful=false with concrete, actionable problems:
+1. RIGHT TERM — a genuine signature uses the correct class + status, recognising synonyms (dMMR/MMRd/Lynch -> MSI;
+   pMMR -> MSS; HRD/HRR-deficient/FH-/SDH-deficient -> HR_DEFICIENT; TMB "burden" vs "load" kept distinct).
+2. EMPTY IS CORRECT FOR NON-SIGNATURES — a risk/prognostic score, an expression subtype, a gene/chromosomal
+   alteration, or a protein-expression biomarker MUST be "" — NOT forced into a signature term. Flag a HALLUCINATED
+   signature (a non-signature value mapped to one of the six terms).
+3. NOT LAZY — a GENUINE signature must NOT be dropped to "" (dMMR -> MSI, not empty).
+4. NEGATION — an excluded signature is wrapped in NOT(); structure matches the source.
+
+Do NOT fail a mapping for dropping an inexpressible qualifier (threshold/level, assay, timing, "high TILs"). "" is
+the expected answer for the many non-signature values — do NOT demand a mapping for them.
+
+CORRECT REFERENCE MAPPINGS — accept these:
+- "dMMR/MSI-H" -> MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]
+- "FH deficient" -> homologousRecombination[ChordStatus=HR_DEFICIENT]
+- "high mutational load (>100 somatic SNVs/exome)" -> tumorMutationLoad[Status=HIGH]
+- "NOT(MSI-H)" -> NOT(MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI])
+- "adverse biology" -> (empty)      - "Luminal A" -> (empty)      - "1p/19q-codeletion" -> (empty)
+
+MAPPINGS YOU MUST FAIL (proposed -> problem -> fix):
+- SOURCE "dMMR", proposed "" -> lazy empty; dMMR IS MSI. fix "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]".
+- SOURCE "cytogenetic high-risk", proposed "tumorMutationBurden[Status=HIGH]" -> hallucinated; a risk category is not
+  a signature. fix "" (empty).
+- SOURCE "HER2-negative", proposed "MicrosatelliteStability[...]" -> a biomarker, not a signature. fix "" (empty).
+- SOURCE "high mutational BURDEN", proposed "tumorMutationLoad[Status=HIGH]" -> burden is tumorMutationBurden.
+  fix "tumorMutationBurden[Status=HIGH]".
+
+`suggested_fix` — normally leave EMPTY. ONLY when the input is marked "[ESCALATION-MODE]", fill it with the concrete
+corrected finding_model you would expect.
 """
 
 

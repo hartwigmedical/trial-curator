@@ -24,6 +24,48 @@ def test_finding_model_validator():
     assert any("self-contradiction" in p for p in finding_model_problems(contradiction))
 
 
+def test_finding_model_validator_grammar_valid():
+    """The full grammar validator accepts every legitimate class/field/enum/scope shape."""
+    ok = [
+        "SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C]",
+        "SmallVariant[gene=EGFR & transcriptImpact.affectedExon=19 & transcriptImpact.effects=INFRAME_DELETION]",
+        "SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.effects=SPLICE]",
+        "SmallVariant[gene=IDH1 & transcriptImpact.hgvsProteinImpact=p.R132X]",  # X-wildcard HGVS
+        "GainDeletion[gene=ERBB2 & type=GAIN]",
+        "GainDeletion[gene=MTAP & type=HOM_DEL] | Disruption[gene=MTAP]",
+        "Fusion[geneStart=BCR & geneEnd=ABL1]",
+        "Fusion[geneStart=ALK | geneEnd=ALK]",
+        "Arm[chromosome=1 & arm=p & type=ARM_LOSS]",
+        "Arm[chromosome=1 & arm=q & region=2 & band=1 & type=ARM_GAIN]",
+        "Wildtype[gene=ALK]",
+        "Virus[name=HPV]",
+        "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]",
+        "homologousRecombination[ChordStatus=HR_DEFICIENT]",
+        "tumorMutationBurden[Status=HIGH]",
+        "(SmallVariant[gene=H3F3A & transcriptImpact.hgvsProteinImpact=p.K28M] | SmallVariant[gene=HIST1H3B & transcriptImpact.hgvsProteinImpact=p.K28M]) & SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]",
+        "NOT(Fusion[geneStart=BCR & geneEnd=ABL1])",
+    ]
+    for e in ok:
+        assert finding_model_problems(e) == [], f"unexpected problems for {e}: {finding_model_problems(e)}"
+
+
+def test_finding_model_validator_grammar_rejects():
+    def flagged(expr, needle):
+        return any(needle in p for p in finding_model_problems(expr))
+    assert flagged("GainDeletion[gene=X & type=AMP]", "invalid value")                 # bad enum
+    assert flagged("GainDeletion[gene=X]", "missing required type")                    # missing enum scope
+    assert flagged("SmallVariant[protein=p.V600E]", "unknown field")                   # unknown field
+    assert flagged("SmallVariant[gene=EGFR & transcriptImpact.effects=FRAMESHIFT]", "invalid value")
+    assert flagged("Fusion[gene=ALK]", "unknown field")                                # Fusion has geneStart/geneEnd
+    assert flagged("Fusion[]", "at least one")                                         # no orientation
+    assert flagged("SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=V600E]", "invalid HGVS")  # missing p.
+    assert flagged("SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.600]", "invalid HGVS")  # no residue
+    assert flagged("Arm[chromosome=99 & arm=p & type=ARM_LOSS]", "chromosome")         # bad chromosome
+    assert flagged("Arm[chromosome=1 & arm=x & type=ARM_LOSS]", "invalid value")       # arm not p/q
+    assert flagged("SmallVariant[gene=MET & transcriptImpact.affectedExon=fourteen]", "must be an integer")
+    assert flagged("SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C] | GainDeletion[gene=KRAS & type=GAIN] & Disruption[gene=KRAS]", "ambiguous OR/AND precedence")
+
+
 def test_locked_prompt_decisions_present():
     """Prompt-only decisions (2026-07-10) can't be caught by fake-client behaviour tests — guard the
     strings so a future grammar edit can't silently drop them. See memory v2-mapping-stage-decisions."""

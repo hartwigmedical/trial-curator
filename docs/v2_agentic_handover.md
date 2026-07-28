@@ -1,11 +1,44 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (2026-07-27)
-**RESUME AT: `gene_alteration` mapper.** We are mid-way through the MAPPING stage (Stage II), rebuilding it on a new
-shared loop harness with prompts finalised *with the user, criterion by criterion*. **`cancer_type → OncoTree` is
-SIGNED OFF.** Next is `gene_alteration → finding-model` (doer + reviewer), then `molecular_signature → finding-model`.
-Single plan/spec for this whole body of work: **`docs/v2_mapping_and_shared_loop_plan.md`**. Locked decisions:
-memory `v2-mapping-stage-decisions` + `v2-shared-loop-harness`.
+## ▶ NEXT SESSION — START HERE (2026-07-27, late — autonomous overnight run)
+**RESUME AT: user SIGN-OFF of the `gene_alteration` + `molecular_signature` mappers (both live-validated overnight),
+then resolve TWO deferred decisions.** The MAPPING stage (Stage II) is rebuilt on the shared loop harness with
+prompts finalised criterion-by-criterion. **All three mappers now built + validated:** `cancer_type` (signed off
+earlier) · **`gene_alteration` (NEW — validated)** · **`molecular_signature` (NEW — validated)**. Single plan/spec:
+**`docs/v2_mapping_and_shared_loop_plan.md`** (§8 gene, §9 signature). Locked decisions: memory
+`v2-mapping-stage-decisions` + `v2-shared-loop-harness`.
+
+**DONE overnight (2026-07-27, autonomous — all UNCOMMITTED in the working tree; nothing under `/data` touched):**
+1. **Full finding-model grammar validator** — `tools/finding_model.py` `finding_model_problems()` rewritten from
+   bracket-counting into a field/enum/scope/HGVS-aware DSL validator (`CLASS_SPEC` table), the hard SYNTAX gate so
+   the reviewer judges only semantics. +2 tests; **143 unit tests green**.
+2. **`gene_alteration` mapper — VALIDATED (99.5%).** Doer+reviewer upgraded (4 user decisions: full validator ·
+   `Wildtype` class · convert definitional disease-`NOT()` · expand gene families) + folded rules. Live-iterated:
+   set A 50 trials → 5 principle-level fixes → **330/330**; disjoint set B 100 trials → **239/242**; combined
+   **569/572 faithful**, 0 syntax/lost-detail/family errors. Fixes: FLT3-ITD/TKD de-over-specified · exclusion with
+   inexpressible qualifier OMITTED not broadened · rearrangement→Fusion · unspecified loss→HOM_DEL · segmental
+   loss→ARM level. Spec §8.
+3. **`molecular_signature` mapper — VALIDATED (100%).** Doer+reviewer upgraded (6-term vocab + resource synonyms +
+   strong legit-empty/anti-hallucination). First draft clean: set A **107/107** + disjoint set B **66/66** =
+   **173/173 hand-verified**, no fixes needed. Spec §9.
+
+**⚠ TWO DECISIONS AWAIT THE USER (I deliberately did NOT change these — each reverses/extends signed-off scope):**
+- **(a) Bare "X mutation" → full gene-type EXPANSION (incl. amplification), or `SmallVariant` only?** Current
+  convention expands; evidence: it yields clinically-odd mappings (`IDH1`/`NPM1 mutation`→amplification) AND is
+  applied INCONSISTENTLY run-to-run. My recommendation: "mutation"→`SmallVariant`; reserve expansion for
+  "alteration"/"aberration". Reverses the 2026-07-10 signed-off rule → user's call.
+- **(b) Gene-pathway tokens (`HRR gene alteration`/`HRR gene mutation`) → `""` (current) or expand to the HRR gene
+  panel?** Consistent across gene+signature columns today (empty). Needs a domain call on the canonical HRR gene set.
+
+**HOW TO REPRODUCE / RE-RUN:** live-test harnesses + frozen 50/100 (gene) & 50/82 (signature) trial+value lists +
+result TSVs are in the session scratchpad (`scratchpad/gene/`, `scratchpad/sig/`; non-persistent — recreate from the
+method in `v2-mapping-stage-decisions`). Each maps distinct store cells via `map_gene_alterations` /
+`map_molecular_signatures` with a SCRATCH `DiskCache` (never `data/agentic/cache`). After sign-off: run the real
+`--map-only` over the full frozen store to build the 3 map tables, then **Step 2** cross-value reconciliation.
+
+---
+## (prior START-HERE, superseded by the block above)
+**Was: RESUME AT `gene_alteration` mapper.** `cancer_type → OncoTree` SIGNED OFF; gene + signature were next — now done (above).
 
 **DONE THIS SESSION (2026-07-27):** M1 is **COMMITTED** (`21dbb73` "refactor loop mechanism to be shared across all
 stages"). Everything after it — the M2 mapping work (`run.py --map-only`, `mapping/*`, `tools/oncotree.py` YAML,

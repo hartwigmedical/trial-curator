@@ -178,3 +178,109 @@ Its role is to **drive prompt/spec improvement during testing**, not to gate pro
 - `make agentic-run ID=<one>` and `--map-only` both run OOTB (CLI/signatures preserved).
 - Map tables populate; empty-rate on `molecular_signature` is reported (a large legit-empty fraction is expected).
 - Comparison report produces agree/disagree/novel/unmatched buckets; disagreements are reviewable.
+
+## 8. `gene_alteration → finding-model` — mapper spec (design LOCKED 2026-07-27; prompts pending user sign-off)
+
+The second mapper (after `cancer_type`, signed off). Workload: **859 distinct gene values** in the frozen store;
+**35% of distinct values (26% of cells) contain `NOT()`**. Head is dominated by clean point mutations
+(`KRAS G12C/D/A/S/V`). Same standing anti-overfit method as cancer_type (live-test 50 → self-review →
+principle-level fixes → disjoint-validate 100 → lock with the user).
+
+### 8.1 The four decisions the user made (2026-07-27)
+| # | Decision | Chosen |
+|---|----------|--------|
+| G1 | **Deterministic syntax gate** | **Full grammar validator** — `finding_model_problems()` rewritten to a field/enum/scope/HGVS-aware parser (see §8.2). Hard gate in the loop; the reviewer then judges only SEMANTICS. |
+| G2 | **Whole-gene wild-type** | Use the **`Wildtype[gene=X]` class** (the curated resource's full-negation expansion is *wrong* per the user). A codon-specific wild-type (`KRAS G12/G13 wild-type`) stays expressible as `NOT(SmallVariant[gene=X & p.<codon>X])`. |
+| G3 | **Disease-phrased `NOT()`** | **Convert when definitional** — `NOT(BCR-ABL-positive leukemia)` / `NOT(Ph+ ALL)` → `NOT(Fusion[geneStart=BCR & geneEnd=ABL1])`. **Omit** open-ended clinical/actionability exclusions (`NOT(any actionable alteration…)`) and location/context-qualified ones. (NOT the aggressive per-gene expansion of actionability lists.) |
+| G4 | **Gene families / pathway tokens** | **Expand to member genes** — `RAS` → `KRAS | NRAS | HRAS`, same variant applied to each. A vague pathway with no specific gene → `""`. |
+
+### 8.2 The full grammar validator (G1) — `tools/finding_model.py`
+`finding_model_problems(expr) -> list[str]` (stable signature; callers in mapping/workflow + qa/validate_output
+unchanged) is now a real DSL validator driven by a `CLASS_SPEC` table (one entry per finding-model class). It
+enforces, deterministically: known class · **known fields per class** · **enum values** (`type` ∈ GAIN/HOM_DEL/
+HET_DEL, `effects`, `codingEffect`, `PurpleMicrosatelliteStatus`, `ChordStatus`, `Status`, `arm` p/q, `type`
+ARM_GAIN/ARM_LOSS, `Virus.name` HPV/EBV/HHV8) · **required scope** (SmallVariant/GainDeletion/Disruption/Wildtype
+need `gene=`; GainDeletion needs `type=`; Fusion needs `geneStart`/`geneEnd`; Arm needs chromosome+arm+type) ·
+**HGVS shape** (`p.` + residue + number, `X` wildcard allowed) · balanced `[]`/`()` · **top-level OR/AND
+parenthesisation** (`A | B & C` is ambiguous) · idempotency + `X & NOT(X)` self-contradiction. Validated against
+the curated resource's 263 `Mapping_args`: the 55 it flags are all the resource using *superseded* conventions our
+grammar replaced (bare `GainDeletion[gene=X]` without a type; ungrounded `SmallVariant[inSpliceRegion]`) — i.e. the
+validator correctly enforces our locked grammar, not false positives. Tests:
+`test_finding_model_validator_grammar_valid` + `_rejects`.
+
+### 8.3 Folded-in rules (recommendations, following prior convention — in the doer prompt)
+- **Drop non-expressible qualifiers**, map the underlying alteration: functional/significance
+  (`activating`/`actionable`/`oncogenic`/`pathogenic`/`deleterious or suspected deleterious`/`sensitising`),
+  origin (`germline`/`somatic`), detection/assay/sample/timing (`ctDNA`/`central NGS`/`per local testing`/
+  `in tumour and/or blood`/`after progression on <drug>`), quantitative (copy count/level, VAF).
+- **Notation → canonical**: HGVS `p.` always (`G12C`≡`p.G12C`); codon-only / unstated residue → the **`X`
+  wildcard** (`IDH1 R132`→`p.R132X`, `Q61`→`p.Q61X`); exon indels → `affectedExon` + `effects`.
+- **Word→class vocabulary**: amplification→GAIN; homozygous/deep/unspecified deletion→HOM_DEL; heterozygous→HET_DEL;
+  rearrangement/translocation/fusion→Fusion (single-gene unknown-orientation `geneStart=X | geneEnd=X`, `A::B`
+  pair, NTRK-style family OR'd); MET exon-14 skip→`affectedExon=14 & effects=SPLICE`; FLT3-ITD→exon-14
+  INFRAME_INSERTION, FLT3-TKD→exon 20; chromosome arm→`Arm[...]`, codeletion→two Arm terms ANDed.
+- **Bare "mutation"/"alteration"** → the grammar's TSG-vs-oncogene expansion (unchanged).
+- **Anti-lazy `""`** — empty ONLY for a value with no molecular content (pure clinical/risk/phenotype descriptor).
+- **Logic** — parenthesise OR-groups before ANDing; order SmallVariant→GainDeletion→Disruption→Fusion; no dup, no `X & NOT(X)`.
+
+### 8.4 Reviewer strategy (as cancer_type: NOT the old disjoint-examples rule)
+Reviewer gets the **doer's full correct reference examples + a block of FAIL counter-examples** (lost variant,
+un-expanded family, un-converted disease-NOT, lazy empty, lost exon, wild-type-as-negation, dropped-qualifier
+false-positive), ~1/3 PASS balance, a "Do NOT fail for dropped inexpressible qualifiers" calibration para, and the
+escalation `suggested_fix` clause. The reviewer judges semantics only (syntax is the validator's job).
+
+### 8.5 Status — VALIDATED (2026-07-27), awaiting user sign-off
+Prompts (`_GENE_RULES` + `GENE_REVIEWER_INSTRUCTIONS` in `mapping/agents.py`) are BAKED (uncommitted; user commits).
+Autonomous iteration DONE: nothing under `/data` touched (scratch cache + read-only store).
+- **Set A (50 trials / 330 distinct values):** iter1 328/330 → **iter3 330/330 faithful (100%)**.
+- **Disjoint set B (100 trials / 242 values):** **iter3 239/242 (98.8%)**. Combined **569/572 = 99.5%**; 0 invalid-syntax,
+  0 lost-protein, 0 family-not-expanded on both.
+- **5 principle-level fixes made + generalised** (no set-A regression): (A) FLT3-ITD → `effects=INFRAME_INSERTION`
+  (drop inferred exon), FLT3-TKD → `SmallVariant[gene=FLT3]` (TKD = inexpressible domain); (B) an EXCLUSION with an
+  inexpressible qualifier (domain/location/context/significance) is OMITTED, never broadened (over-exclusion) —
+  e.g. `NOT(bZIP CEBPA)` omitted; (C) rearrangement/translocation → Fusion (never Disruption), incl. inside NOT();
+  (D) an unspecified "deletion"/"loss" → `type=HOM_DEL` (mandated default; reviewer aligned); (E) a cytoband/
+  segmental loss/gain → the ARM-level `Arm[...]` (band range dropped), kept not omitted.
+- **3 residuals (NOT implementation defects):** 2× HRR gene-set (doer→empty, reviewer→wants the HRR panel — the
+  gene-pathway decision below), 1× borderline `NOT(EGFR oncogenic-driver mutation)` (reviewer prefers omit).
+- **TWO decisions deferred to the user (I did NOT change them autonomously — both reverse/extend signed-off scope):**
+  1. **Bare "X mutation" → full gene-type EXPANSION (incl. amplification), or `SmallVariant` only?** Current
+     convention expands; evidence shows it yields clinically-odd mappings (`IDH1`/`NPM1 mutation` → amplification)
+     AND is applied INCONSISTENTLY run-to-run (a consistency-requirement concern). Recommendation: "mutation" =
+     sequence variant → `SmallVariant`; reserve expansion for genuinely unspecified terms ("alteration"/"aberration").
+  2. **Gene-pathway tokens (`HRR gene alteration`, `HRR-mutated`) → `""` (current, per G4 "vague pathway") or expand
+     to the HRR gene panel?** Recurs (HRR ~21 cells + HRD/HRR variants). Needs a domain call on the canonical gene set.
+- Harness + frozen A/B trial/value lists + result TSVs (`setA_iter3.tsv`, `setB_iter3.tsv`) in `scratchpad/gene/`.
+
+## 9. `molecular_signature → finding-model` — mapper spec (VALIDATED 2026-07-27, awaiting sign-off)
+
+The third and final mapper. Workload: **167 distinct values** in the frozen store; the column is dominated by
+NON-signature values (risk/prognostic scores, expression subtypes, MRD, cytogenetic-risk, gene/chromosomal
+alterations, receptor biomarkers), so a **large legit-empty fraction is expected and correct**.
+
+### 9.1 Output vocabulary — EXACTLY SIX terms (the controlled output space; fair to expose in full)
+`MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI|MSS]`, `homologousRecombination[ChordStatus=HR_DEFICIENT|
+HR_PROFICIENT]`, `tumorMutationBurden[Status=HIGH]`, `tumorMutationLoad[Status=HIGH]`. Synonyms baked into the doer
+from the curated `MolecularSignatureCurationResource` (MSI ← dMMR/MMRd/Lynch/HNPCC/MSI-L; MSS ← pMMR/normal MMR;
+HR_DEFICIENT ← HRD/HRR-deficiency/FH-/SDH-deficient; TMB "burden" vs "load"/TML kept distinct; only Status=HIGH exists).
+
+### 9.2 Design (mirrors the gene mapper; opposite empty-emphasis)
+- The dominant failure mode here is **hallucination** (forcing a non-signature into a term), not lazy-empty — so the
+  doer/reviewer emphasise "`""` is CORRECT and COMMON for the many non-signature values" while still forbidding a
+  GENUINE signature dropped to empty (dMMR IS MSI). Drop inexpressible qualifiers (thresholds/levels/assay/TILs);
+  negations wrap the term in `NOT(...)`.
+- **Cross-column routing:** a gene/chromosomal alteration that lands in this column ("1p/19q-codeletion", "HPV",
+  "Ph+", "del17p") → `""` here (it belongs to gene_alteration). Notably **"HRR gene mutation" → `""`** (a gene
+  mutation), while **"HRR deficiency"/HRD → HR_DEFICIENT** (the functional signature) — the same HRR distinction as
+  the gene mapper's deferred pathway question, handled consistently.
+- Reviewer strategy identical to gene: accept + FAIL counter-examples, "do not demand a mapping for non-signatures",
+  escalation clause.
+
+### 9.3 Status — VALIDATED, no fixes needed
+Prompts (`_SIGNATURE_RULES` + `SIGNATURE_REVIEWER_INSTRUCTIONS`) BAKED (uncommitted). **First draft was clean:**
+- **Set A (50 trials / 107 values):** 107/107 faithful; **Disjoint set B (82 trials / 66 values):** 66/66 faithful.
+  Combined **173/173 = 100%**, HAND-VERIFIED (all non-empties correct; every empty a genuine non-signature).
+- 0 invalid syntax, 0 hallucinations, 0 lazy empties; correct negations, qualifier-dropping, TMB/TML distinction,
+  and cross-column routing. No iteration required.
+- Harness + frozen A/B lists + `setA_iter1.tsv`/`setB_iter1.tsv` in `scratchpad/sig/`.
+  (Only open item shared with gene: the HRR gene-SET decision — does "HRR gene mutation" stay `""` or expand?)
