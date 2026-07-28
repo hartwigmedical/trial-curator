@@ -265,7 +265,7 @@
 <div class="hint">&larr; &rarr; navigate &middot; F fullscreen</div>
 <div class="chrome">
   <button class="navbtn" id="prevBtn" aria-label="Previous slide">&#8249;</button>
-  <span class="counter" id="counter">1 / 18</span>
+  <span class="counter" id="counter">1 / 20</span>
   <button class="navbtn" id="nextBtn" aria-label="Next slide">&#8250;</button>
 </div>
 
@@ -298,7 +298,7 @@
         <div class="rm-item"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3>
           <p>The evaluator&ndash;optimizer loop, the end-to-end workflow, and how it works &mdash; the agent contract, data model, and determinism.</p></div></div>
         <div class="rm-item"><div class="num">03</div><div><h3>Deep Dives</h3>
-          <p>Concrete learnings from real trials &mdash; DNF interpretation up close, mapping trained like a model, and the approach's limits.</p></div></div>
+          <p>Real deep dives grounded in the trials &mdash; tracing eligibility and drugs, a bug we caught, mapping as an ML problem, and the limits.</p></div></div>
       </div>
     </div>
   </section>
@@ -387,6 +387,23 @@
         <div class="note"><span class="h">the feedback that drives convergence</span> On a re-run the doer gets its <b>original instructions + its own prior attempt + the reviewer's critique</b> (only the flagged issues; passing rows are kept). So its effective prompt <b>becomes specific to this trial</b> with each retry.</div>
         <div class="note"><span class="h">blocking vs advisory</span> Most reviewers are <b>blocking</b> &mdash; a flagged problem sends the work back. A few are <b>advisory</b> (e.g. the drug check): they annotate, but don't trigger a re-generation.</div>
       </div>
+    </div>
+  </section>
+
+  <!-- ACT 2 · WHY IT WORKS -->
+  <section class="slide" data-section="Act 2 · Theory">
+    <div class="slide-inner">
+      <div class="eyebrow rev"><span class="k"></span> Act 2 &middot; why it works</div>
+      <h2>Why the loop works: verification &lt; generation</h2>
+      <p class="lead">The two roles aren't equally hard. <b>Producing</b> a faithful answer is a search problem; <b>checking</b> a proposed one is closer to a look-up. That asymmetry is what the loop exploits.</p>
+      <div class="row2">
+        <div class="card gen"><div class="ct">the doer &mdash; the hard part</div><h3>Construct the answer</h3>
+          <p>Build it from scratch &mdash; a faithful DNF, a canonical drug, a mapping. Combinatorial, with many ways to go wrong.</p></div>
+        <div class="card rev"><div class="ct">the reviewer &mdash; the easy part</div><h3>Check the answer</h3>
+          <p>Given a finished answer and the source, judge <b>one dimension</b> &mdash; a direct comparison. Cheaper, and more reliable.</p></div>
+      </div>
+      <div class="note" style="max-width:none"><span class="h">what &ldquo;verification &lt; generation&rdquo; means</span> Producing the right answer from scratch is hard; <b>checking whether a proposed one is right is much easier</b> &mdash; it takes less work, and less capability. Think of a sudoku: <b>solving</b> the grid is the effort; <b>confirming</b> a finished grid is valid is a quick scan. So we spend our strongest effort on the <b>doer</b>, and use cheaper, focused <b>reviewers</b> to catch its mistakes &mdash; and we can afford several of them.</div>
+      <div class="thesis"><b>verification &lt; generation</b> &mdash; but the payoff only lands if the checker is <b>independent</b>, sees the <b>whole answer</b>, and is actively <b>looking for faults</b>.</div>
     </div>
   </section>
 
@@ -552,25 +569,8 @@
         <div class="rm-item dim"><div class="num">01</div><div><h3>The problem</h3></div></div>
         <div class="rm-item dim"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3></div></div>
         <div class="rm-item active"><div class="num">03</div><div><h3>Deep Dives</h3>
-          <p>Concrete learnings from real trials &mdash; DNF interpretation up close, mapping trained like a model, and the approach's limits.</p></div></div>
+          <p>Real deep dives grounded in the trials &mdash; tracing eligibility and drugs, a bug we caught, mapping as an ML problem, and the limits.</p></div></div>
       </div>
-    </div>
-  </section>
-
-  <!-- 14 · ACT 3 · DEEP DIVE: DNF INTERPRETATION -->
-  <section class="slide" data-section="Act 3 · Deep dives">
-    <div class="slide-inner">
-      <div class="eyebrow rev"><span class="k"></span> Deep dive &middot; DNF interpretation</div>
-      <h2>DNF interpretation: construct vs. check</h2>
-      <p class="lead"><b>DNF (disjunctive normal form)</b> is an OR of ANDs. Here, <b>one row per eligible patient profile</b>: within a row the criteria are ANDed; the rows are alternatives, ORed. It's the hardest step &mdash; and it shows why the loop pays off.</p>
-      <div class="row2">
-        <div class="card gen"><div class="ct">the doer &mdash; the hard part</div><h3>Work out every valid profile</h3>
-          <p>Find each combination of the eligibility fields (cancer type, gene, biomarker, prior therapy), per cohort, and lay them out as rows &mdash; <b>without inventing impossible combinations</b>. A combinatorial search: one wrong row and the trial mismatches patients.</p></div>
-        <div class="card rev"><div class="ct">the reviewer &mdash; the easy part</div><h3>Check one row, one dimension</h3>
-          <p>Take a finished row and ask &ldquo;does the source support <i>this cancer type</i>?&rdquo; &mdash; a direct look-up against the text. <b>Checking a proposed answer is far easier than constructing it</b> (the same reason a proof is harder to write than to check).</p></div>
-      </div>
-      <div class="note" style="max-width:none"><span class="h">what &ldquo;verification &lt; generation&rdquo; means</span> Producing the right answer from scratch is hard; <b>checking whether a proposed answer is right is much easier</b> &mdash; it takes less work, and less capability. Think of a sudoku: <b>solving</b> the grid is the effort; <b>confirming</b> a finished grid is valid is a quick scan. So we put our strongest effort into the <b>doer</b>, and use cheaper, focused <b>reviewers</b> to catch its mistakes &mdash; and we can afford several of them.</div>
-      <div class="thesis"><b>verification &lt; generation</b> &mdash; but the payoff only lands if the checker is <b>independent</b>, sees the <b>whole answer</b>, and is actively <b>looking for faults</b>.</div>
     </div>
   </section>
 
@@ -598,6 +598,46 @@
         </div>
         <div class="downlbl">&#9662;&nbsp; mapping &mdash; each cell to controlled vocabulary</div>
         <div class="step"><div class="st">4 &mdash; mapped to vocabulary</div><div class="sd">high-grade glioma &rarr; <span class="ic">HGGNOS</span> &nbsp; DIPG &rarr; <span class="ic">DIFG</span> &nbsp;(OncoTree)<br>NTRK fusion &rarr; <span class="ic">Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]</span> &nbsp;(finding-model)</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACT 3 · DEEP DIVE: DRUG WORKED EXAMPLE -->
+  <section class="slide" data-section="Act 3 · Deep dives">
+    <div class="slide-inner">
+      <div class="eyebrow gen"><span class="k"></span> Deep dive &middot; drug utility &middot; worked example</div>
+      <h2>Tracing one drug through the pipeline (<span class="ic">pembrolizumab</span>)</h2>
+      <div class="pipe" style="gap:6px">
+        <div class="step"><div class="st">1 &mdash; identity (canonicalize)</div><div class="sd">raw &ldquo;Keytruda&rdquo; / &ldquo;MK-3475&rdquo; &rarr; <b>pembrolizumab</b> &nbsp; <span class="ic">rxcui:1547545</span> (RxNorm lookup)</div></div>
+        <div class="downlbl">&#9662;&nbsp; web search + deterministic POTTR / ATC lookup</div>
+        <div class="step"><div class="st">2 &mdash; enrichment</div><div class="sd">modality: <b>monoclonal antibody</b> &middot; PD-1 &rarr; inhibitor &middot; class: PD-1 immune checkpoint inhibitor &middot; POTTR: <span class="ic">anti-PD-1 mAb</span> &middot; ATC: <span class="ic">L01FF02</span></div></div>
+        <div class="downlbl">&#9662;&nbsp; web search on official sources</div>
+        <div class="step"><div class="st">3 &mdash; regulatory</div><div class="sd"><b>TGA</b> approved &mdash; unresectable / metastatic melanoma (2015), with evidence link &middot; <b>PBS</b> approved (item 10424P)</div></div>
+        <div class="downlbl">&#9662;&nbsp; per trial arm</div>
+        <div class="step"><div class="st">4 &mdash; role</div><div class="sd"><b>main</b> where the arm is testing it; <b>auxiliary</b> where it's a backbone / comparator. Researched <b>once</b>, reused across every arm.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACT 3 · DEEP DIVE: A BUG WE CAUGHT (over-enumeration) -->
+  <section class="slide" data-section="Act 3 · Deep dives">
+    <div class="slide-inner">
+      <div class="eyebrow rev"><span class="k"></span> Deep dive &middot; a bug we caught</div>
+      <h2>Over-enumeration &mdash; the doer fabricating combinations</h2>
+      <p class="lead">The source (<span class="ic">NCT04221035</span>, SIOPEN) states one gene criterion: <b>MYCN amplification OR focal MYC OR MYCL amplification</b> &mdash; three alternatives; a patient needs one.</p>
+      <div class="row2">
+        <div class="kv">
+          <div class="note"><span class="h">what went wrong</span> The doer expanded those alternatives into <b>spurious AND-combinations</b> (e.g. <span class="ic">MYCN amp AND focal MYCL amp</span>) &mdash; <b>84 of 218 rows</b> carried a fabricated conjunction.</div>
+          <div class="note"><span class="h">why nothing caught it</span> The rows are <b>satisfiable</b>, so the deterministic validator passed them. And the panel missed it too &mdash; each reviewer judged <b>single cells</b>; none compared the <b>whole set of rows</b> to the source's alternative count.</div>
+        </div>
+        <div class="kv">
+          <div class="note"><span class="h">the fix</span> Add a reviewer with the <b>whole-output vantage point</b> &mdash; it counts the distinct alternatives per criterion and flags fabricated ANDs &mdash; plus a deterministic dedup of commutative pairs.</div>
+          <div class="stats">
+            <div class="stat rev"><div class="n">218</div><div class="l">rows before &mdash; fabricated</div></div>
+            <div class="stat code"><div class="n">45</div><div class="l">rows after &mdash; faithful</div></div>
+          </div>
+          <div class="note"><span class="h">the lesson</span> The panel is only as good as its <b>lenses</b>: a whole-output error needs a whole-output reviewer.</div>
+        </div>
       </div>
     </div>
   </section>

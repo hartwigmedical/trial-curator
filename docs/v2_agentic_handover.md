@@ -18,8 +18,13 @@ path is signed off. **All code from this session is UNCOMMITTED in the working t
    `schema.py` (dataclass + `ROLE_*` consts + `ArmRoleClassification`), `agents.py` (classifier+reviewer),
    `workflow.py` (`classify_arm_roles`+`ArmContext`), `store.py` (6th-table I/O + `remove_trial_roles`), `build.py`
    (arm-context capture + role pass; `--from-trials` drops stale roles), `qa/arm_consistency.py`, tests, docs+diagram.
-   **NB: the role table itself is not yet POPULATED over the universe** — run `make drug-ref-build ALL_TRIALS=1`
-   (or the smoke set) to build it; RESOURCE_INFO row count is TBD until then.
+   **POPULATED over the whole universe (2026-07-28):** ran the role pass over the FROZEN store (a scratch runner
+   calling `classify_arm_roles`, NOT `--all-trials` — which would re-derive ANZCTR arms and risk drifting
+   `trial_to_intervention`/`trial_arms`; the role-only pass is guaranteed additive). **4,990 arms · 0 failures ·
+   12,102 role rows (main 5,780 · aux 6,322) · 92 no-drug arms skipped.** Probed limits (gpt-5.5 15k RPM / 40M TPM;
+   ~1k tok, ~3.8s/call → RPM-bound) → **800 workers / 800 max-concurrency** (~85% RPM, under the 1000-conn pool), 0
+   rate-limit pushback. md5-verified the existing 5 tables + `trial_arms` byte-unchanged; `make
+   agentic-arm-consistency` CONSISTENT ✓ (role refs=4,990). Snapshot: `drug_annotations/archive/pre_role_build_28072026/`.
 2. **THE GRAND JOIN → a fresh `combined.tsv`** (the matching-engine flat file): interpreted ⋈ `trial_arms` ⋈ the
    **FINAL vocab maps** (`finalised_*_map.tsv`, use the `*_FINAL` column) ⋈ drug annotations, on `trial_arm_id`; add
    TGA/PBS + the main/aux role. `run._build_combined` exists (PARKED, 16 cols) — extend it. **Open decision:** join
