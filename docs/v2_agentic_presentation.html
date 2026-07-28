@@ -92,6 +92,7 @@
   .card p { margin: 0; font-size: clamp(12.5px, 1.25vw, 14px); color: var(--ink-soft); }
   .card p + p { margin-top: 7px; }
   .card p b { color: var(--ink); }
+  .card ul.pts li { font-size: clamp(12px, 1.2vw, 13.5px); }
 
   /* ---- bullet list ---- */
   ul.pts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; max-width: 74ch; }
@@ -296,7 +297,7 @@
           <p>What we're building &mdash; and what the old pydantic curator couldn't do.</p></div></div>
         <div class="rm-item"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3>
           <p>The evaluator&ndash;optimizer loop, the end-to-end workflow, and how it works &mdash; the agent contract, data model, and determinism.</p></div></div>
-        <div class="rm-item"><div class="num">03</div><div><h3>Practice &amp; Implementation</h3>
+        <div class="rm-item"><div class="num">03</div><div><h3>Deep Dives</h3>
           <p>Concrete learnings from real trials &mdash; DNF interpretation up close, mapping trained like a model, and the approach's limits.</p></div></div>
       </div>
     </div>
@@ -325,7 +326,7 @@
     <div class="slide-inner">
       <div class="eyebrow rev"><span class="k"></span> Act 1 &middot; what came before</div>
       <h2>Where the old <span class="accent-rev">pydantic curator</span> fell short</h2>
-      <p class="lead">The v1 curator got us started, but four problems it couldn't adequately solve are exactly what
+      <p class="lead">The v1 curator got us started, but five problems it couldn't adequately solve are exactly what
         motivated the rewrite.</p>
       <div class="cards c2">
         <div class="card rev"><div class="ct">Problem 1</div><h3>No automated verification</h3>
@@ -337,6 +338,8 @@
             text alone.</p></div>
         <div class="card rev"><div class="ct">Problem 4</div><h3>Heavy reliance on post-processing manual correction and handcrafted mapping files</h3>
           <p>No reliable means of transforming input text into our controlled vocabulary without manually created mapping files.</p></div>
+        <div class="card rev" style="grid-column:1/-1"><div class="ct">Problem 5</div><h3>Read only the eligibility section</h3>
+          <p>Eligibility-relevant detail also appears in the <b>title, description, conditions, and arm text</b> &mdash; v1 read only the eligibility criteria and missed it.</p></div>
       </div>
     </div>
   </section>
@@ -350,7 +353,7 @@
         <div class="rm-item dim"><div class="num">01</div><div><h3>The problem</h3></div></div>
         <div class="rm-item active"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3>
           <p>The evaluator&ndash;optimizer loop, the end-to-end workflow, and how it works &mdash; the agent contract, data model, and determinism.</p></div></div>
-        <div class="rm-item dim"><div class="num">03</div><div><h3>Practice &amp; Implementation</h3></div></div>
+        <div class="rm-item dim"><div class="num">03</div><div><h3>Deep Dives</h3></div></div>
       </div>
     </div>
   </section>
@@ -411,12 +414,14 @@
             <div class="step"><div class="sh"><div class="st">Reconciliation</div><div class="agents"><span class="a code">code</span></div></div><div class="sd">a run-wide pass so <b>equivalent inputs get identical codes</b> &mdash; e.g. &ldquo;NSCLC&rdquo; and &ldquo;non-small cell lung cancer&rdquo; both &rarr; the same OncoTree node</div></div>
           </div>
           <div class="lane drug">
-            <div class="lane-h">Drug utility path &mdash; every doer uses web search</div>
-            <div class="step"><div class="sh"><div class="st">Canonicalize (identity)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd">brand / code &rarr; INN; split a regimen into its component drugs; flag investigational vs approved. Then <span class="ic">rxcui</span> by RxNorm lookup.</div></div>
+            <div class="lane-h">Drug utility path</div>
+            <div class="step"><div class="sh"><div class="st">Canonicalize (identity)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd"><b>web search</b>: brand / code &rarr; INN; split a regimen into components. Then <span class="ic">rxcui</span> by RxNorm lookup.</div></div>
             <div class="down">&#9662;</div>
-            <div class="step"><div class="sh"><div class="st">Annotate (enrichment)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd">modality, (target, action) pairs, drug class, coarse FDA / EMA. Then <b>POTTR class</b> &amp; <b>ATC</b> by lookup.</div></div>
+            <div class="step"><div class="sh"><div class="st">Annotate (enrichment)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd"><b>web search</b>: modality, (target, action) pairs, class, coarse FDA / EMA. Then <b>POTTR class</b> &amp; <b>ATC</b> by lookup.</div></div>
             <div class="down">&#9662;</div>
-            <div class="step"><div class="sh"><div class="st">Approvals (regulatory)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd"><b>TGA</b> &amp; <b>PBS</b> status per indication, from official sources, each with a date + evidence link</div></div>
+            <div class="step"><div class="sh"><div class="st">Approvals (regulatory)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd"><b>web search</b> on official sources: <b>TGA</b> &amp; <b>PBS</b> status per indication + date + evidence link</div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="sh"><div class="st">Role (main vs auxiliary)</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div><div class="sd">per trial arm, label each drug <b>main</b> (investigational) vs <b>auxiliary</b> (comparator / backbone / SoC / placebo). Cheap classifier, no web search.</div></div>
           </div>
         </div>
         <div class="downlbl">&#9662;&nbsp;&nbsp; both paths link by <span class="ic">trial_arm_id</span> &nbsp;&nbsp;&#9662;</div>
@@ -429,20 +434,22 @@
   <section class="slide" data-section="Act 2 · Theory">
     <div class="slide-inner">
       <div class="eyebrow"><span class="k"></span> Act 2 &middot; key features</div>
-      <h2>Six features that make the workflow work</h2>
+      <h2>Key features</h2>
+      <p class="lead">The doer&rarr;reviewer loop is the engine (previous slide). These are the engineering choices that make it
+        <b>reliable, cheap, and queryable</b> &mdash; the last four are expanded over the next four slides.</p>
       <div class="cards c3">
         <div class="card code"><div class="ct">Orchestration</div><h3>Deterministic scaffold</h3>
           <p>Plain Python owns control flow &mdash; parallelism, the loop, durable saves, the join. The LLM never orchestrates.</p></div>
-        <div class="card gen"><div class="ct">The engine</div><h3>Doer &rarr; reviewer loop</h3>
-          <p>One shared refine harness across extraction, mapping and drug &mdash; generate, evaluate, refine.</p></div>
-        <div class="card rev"><div class="ct">Agent contract</div><h3>Reviewer advises, doer writes</h3>
-          <p>The reviewer returns a verdict + problems, never a rewrite; the doer is the <b>sole writer</b>.</p></div>
         <div class="card gen"><div class="ct">Decomposition</div><h3>One agent per independent task</h3>
           <p>The <b>number of agents follows one rule</b>: split only genuinely independent work. Co-dependent outputs stay in one agent; independent checks fan out.</p></div>
-        <div class="card code"><div class="ct">Speed &amp; determinism</div><h3>Content-addressed cache</h3>
-          <p>Identical request &rarr; identical stored output, no API call &mdash; our <b>equivalent of temperature 0</b>, plus near-instant re-runs.</p></div>
+        <div class="card rev"><div class="ct">Agent contract</div><h3>Reviewer advises, doer writes</h3>
+          <p>The reviewer returns a verdict + problems, never a rewrite; the doer is the <b>sole writer</b>.</p></div>
+        <div class="card code"><div class="ct">Trust boundaries</div><h3>Exact facts by lookup, not LLM</h3>
+          <p>Drug ids, codes and classes come from deterministic lookups &mdash; never a model guess.</p></div>
         <div class="card code"><div class="ct">Output</div><h3>3NF relational model</h3>
-          <p>Each fact stored <b>once</b>, joined on a shared key &mdash; no duplication, clean joins, drug facts reused across every trial.</p></div>
+          <p>Each fact stored <b>once</b>, joined on a shared key &mdash; no duplication, clean joins, reuse.</p></div>
+        <div class="card code"><div class="ct">Speed &amp; determinism</div><h3>Content-addressed cache</h3>
+          <p>Identical request &rarr; identical stored output, no API call &mdash; our <b>equivalent of temperature 0</b>.</p></div>
       </div>
     </div>
   </section>
@@ -461,7 +468,7 @@
       </div>
       <div class="row2">
         <div class="note"><span class="h">bounded</span> The loop runs up to <b>6 attempts</b>, stopping early once the reviewers are satisfied &mdash; or once the same problems repeat (no point looping).</div>
-        <div class="note"><span class="h">last resort &mdash; graceful, not silent</span> If it never fully converges, the loop returns the <b>best attempt</b> (fewest problems), <b>marks it unresolved</b>, and still writes the output &mdash; nothing is dropped.</div>
+        <div class="note"><span class="h">last resort &mdash; the reviewer supplies a fix</span> If the doer stays stuck, the loop <b>escalates</b>: the reviewer is asked for a <b>concrete, complete fix</b> (not just problems), which the doer applies. The one time the reviewer offers a solution &mdash; and the output is still written, never dropped.</div>
       </div>
     </div>
   </section>
@@ -471,17 +478,26 @@
     <div class="slide-inner">
       <div class="eyebrow gen"><span class="k"></span> Act 2 &middot; trust boundaries</div>
       <h2>What we don't ask the model</h2>
-      <p class="lead">The model supplies <b>judgement and language</b>; deterministic code supplies <b>identity</b>. The exact, checkable facts never go through the LLM.</p>
+      <p class="lead">The model supplies <b>judgement and language</b>; deterministic code supplies the <b>exact, checkable facts</b>. Each side does what it's reliable at.</p>
       <div class="cards c2">
-        <div class="card code"><div class="ct">Deterministic &mdash; lookup, never a guess</div>
-          <p><span class="ic">rxcui</span> + ATC (RxNorm), <b>POTTR drug class</b>, trial provenance. The web search gives the drug's <i>name</i>; <span class="ic">resolve_rxcui(name)</span> gives its <b>id</b>. A wrong id here would poison every join.</p></div>
-        <div class="card gen"><div class="ct">LLM &mdash; judgement &amp; language</div>
-          <p>Which agent is investigational, how to phrase an indication, whether a mapping is faithful. The reviewer judges from its own knowledge &mdash; it does not re-search.</p></div>
+        <div class="card code"><div class="ct">Deterministic lookup &mdash; never a guess</div>
+          <p>Facts with one correct value, taken from a reference:</p>
+          <ul class="pts" style="margin-top:8px">
+            <li>a drug's <span class="ic">rxcui</span> and ATC code (RxNorm)</li>
+            <li>its <b>POTTR drug class</b></li>
+            <li>OncoTree &amp; finding-model <b>syntax</b> (validators)</li>
+          </ul>
+          <p style="margin-top:8px">The web search gives the drug's <i>name</i>; <span class="ic">resolve_rxcui(name)</span> gives its <b>id</b> &mdash; a wrong id would poison every join.</p></div>
+        <div class="card gen"><div class="ct">LLM judgement &amp; language</div>
+          <p>Calls that need reading and interpretation:</p>
+          <ul class="pts gen" style="margin-top:8px">
+            <li>which drug is <b>investigational</b> vs auxiliary</li>
+            <li>how to phrase an indication</li>
+            <li>whether a mapping is <b>faithful</b> to the source</li>
+          </ul>
+          <p style="margin-top:8px">The reviewer judges from its own knowledge &mdash; it does not re-search.</p></div>
       </div>
-      <div class="row2">
-        <div class="note"><span class="h">syntax is a hard gate</span> The finding-model &amp; OncoTree <b>validators</b> reject malformed output <i>before</i> a reviewer is called &mdash; so the reviewer only ever judges <b>meaning</b>, not grammar.</div>
-        <div class="note"><span class="h">research once, reuse everywhere</span> A drug's facts depend on the <b>drug</b>, not the trial &mdash; so each distinct drug is researched <b>once</b> (~2,400 raw names &rarr; 1,275 canonical drugs); every later use is a pure lookup.</div>
-      </div>
+      <p class="body" style="max-width:none">Because a drug's facts depend on the <b>drug</b>, not the trial, each distinct drug is researched <b>once</b> (~2,400 raw names &rarr; 1,275 canonicals) and reused everywhere thereafter.</p>
     </div>
   </section>
 
@@ -495,7 +511,7 @@
         <div class="kv">
           <div class="card code"><div class="ct">the shared key</div><h3><span class="ic">trial_arm_id = {trialId}::{arm}</span></h3>
             <p>A <b>deterministic id</b> derived from the trial and its arm &mdash; reproducible with no central counter, so parallel workers and re-runs always agree, and it stays human-readable.</p></div>
-          <div class="note"><span class="h">the shape</span> Eligibility: 2 content tables + 3 mapping tables. Drug: 5 tables. One shared arm registry. The flat <span class="ic">combined.tsv</span> is <b>materialized</b> from these for the matcher.</div>
+          <div class="note"><span class="h">the shape</span> Eligibility: 2 content tables + 3 mapping tables. Drug: <b>6 tables</b> (incl. the new per-arm <span class="ic">trial_arm_drug_role</span>). One shared arm registry. The flat <span class="ic">combined.tsv</span> is <b>materialized</b> from these for the matcher.</div>
         </div>
         <div class="kv">
           <div class="note" style="max-width:none"><span class="h">why 3NF</span>
@@ -520,7 +536,7 @@
       <div class="cards c2">
         <div class="card code"><div class="ct">the mechanism</div><h3>Content-addressed cache</h3>
           <p>The key is a hash of the <b>exact request</b> (model + instructions + input + schema). <b>Hit</b> &rarr; return the stored response, no API call. <b>Miss</b> &rarr; call the model, then store.</p></div>
-        <div class="card code"><div class="ct">what it buys</div><h3>Reproducible, instant, free re-runs</h3>
+        <div class="card code"><div class="ct">the payoff</div><h3>Reproducible, instant, free re-runs</h3>
           <p>Identical request &rArr; identical output &mdash; the <b>effect we'd want from temperature 0</b>, at the system level. Re-running already-seen work costs <b>no time and no tokens</b>.</p></div>
       </div>
       <div class="note"><span class="h">staying correct when a prompt changes</span> Each entry records the prompt it came from. <b>Change a prompt and its fingerprint changes</b> &mdash; stale entries are dropped automatically, so a re-run recomputes exactly what the edit affected and reuses everything else.</div>
@@ -528,21 +544,21 @@
   </section>
 
   <!-- 13 · ACT 3 DIVIDER -->
-  <section class="slide" data-section="Act 3 · Practice">
+  <section class="slide" data-section="Act 3 · Deep dives">
     <div class="slide-inner">
       <div class="eyebrow"><span class="k"></span> Act 3</div>
-      <h2>Practice &amp; Implementation</h2>
+      <h2>Deep Dives</h2>
       <div class="roadmap">
         <div class="rm-item dim"><div class="num">01</div><div><h3>The problem</h3></div></div>
         <div class="rm-item dim"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3></div></div>
-        <div class="rm-item active"><div class="num">03</div><div><h3>Practice &amp; Implementation</h3>
+        <div class="rm-item active"><div class="num">03</div><div><h3>Deep Dives</h3>
           <p>Concrete learnings from real trials &mdash; DNF interpretation up close, mapping trained like a model, and the approach's limits.</p></div></div>
       </div>
     </div>
   </section>
 
   <!-- 14 · ACT 3 · DEEP DIVE: DNF INTERPRETATION -->
-  <section class="slide" data-section="Act 3 · Practice">
+  <section class="slide" data-section="Act 3 · Deep dives">
     <div class="slide-inner">
       <div class="eyebrow rev"><span class="k"></span> Deep dive &middot; DNF interpretation</div>
       <h2>DNF interpretation: construct vs. check</h2>
@@ -553,48 +569,45 @@
         <div class="card rev"><div class="ct">the reviewer &mdash; the easy part</div><h3>Check one row, one dimension</h3>
           <p>Take a finished row and ask &ldquo;does the source support <i>this cancer type</i>?&rdquo; &mdash; a direct look-up against the text. <b>Checking a proposed answer is far easier than constructing it</b> (the same reason a proof is harder to write than to check).</p></div>
       </div>
-      <div class="thesis"><b>verification &lt; generation</b> &mdash; provided the checker is independent, sees the whole answer, and is actively looking for faults.</div>
+      <div class="note" style="max-width:none"><span class="h">what &ldquo;verification &lt; generation&rdquo; means</span> Producing the right answer from scratch is hard; <b>checking whether a proposed answer is right is much easier</b> &mdash; it takes less work, and less capability. Think of a sudoku: <b>solving</b> the grid is the effort; <b>confirming</b> a finished grid is valid is a quick scan. So we put our strongest effort into the <b>doer</b>, and use cheaper, focused <b>reviewers</b> to catch its mistakes &mdash; and we can afford several of them.</div>
+      <div class="thesis"><b>verification &lt; generation</b> &mdash; but the payoff only lands if the checker is <b>independent</b>, sees the <b>whole answer</b>, and is actively <b>looking for faults</b>.</div>
     </div>
   </section>
 
   <!-- 15 · ACT 3 · DEEP DIVE: DNF WORKED EXAMPLE -->
-  <section class="slide" data-section="Act 3 · Practice">
+  <section class="slide" data-section="Act 3 · Deep dives">
     <div class="slide-inner">
       <div class="eyebrow rev"><span class="k"></span> Deep dive &middot; DNF interpretation &middot; worked example</div>
-      <h2>From prose to rows &mdash; a real trial (<span class="ic">NCT04655404</span>)</h2>
-      <div class="row2">
-        <div class="note" style="max-width:none"><span class="h">raw eligibility (excerpt)</span>
-          <ul class="pts" style="margin-top:6px">
-            <li>Conditions: <b>high-grade glioma</b>; <b>diffuse intrinsic pontine glioma (DIPG)</b></li>
-            <li>&ldquo;histologically verified high-grade glioma such as anaplastic astrocytoma, glioblastoma, or H3 K27-mutant diffuse midline glioma&rdquo;</li>
-            <li>&ldquo;<b>NTRK fusion</b> alteration&rdquo;</li>
-            <li>&ldquo;<b>DIPG patients are not eligible for the surgical cohort</b>&rdquo;</li>
-            <li>&ldquo;patients who have previously received anti-cancer agents &hellip; are not eligible&rdquo;</li>
-          </ul>
-        </div>
-        <div class="kv">
-          <div class="tblwrap">
+      <h2>Tracing one trial through the pipeline (<span class="ic">NCT04655404</span>)</h2>
+      <div class="pipe" style="gap:6px">
+        <div class="step"><div class="st">1 &mdash; raw eligibility (excerpt)</div><div class="sd" style="font-style:italic">Conditions: high-grade glioma; diffuse intrinsic pontine glioma. Histologically verified high-grade glioma such as anaplastic astrocytoma, glioblastoma, or H3 K27-mutant diffuse midline glioma. NTRK fusion alteration. DIPG patients are not eligible for the surgical cohort. Patients who have previously received anti-cancer agents are not eligible.</div></div>
+        <div class="downlbl">&#9662;&nbsp; verbatim extraction &mdash; pull each criterion, quoted, tag its source</div>
+        <div class="step"><div class="st">2 &mdash; verbatim cells</div><div class="sd">cancer_type &larr; &ldquo;high-grade glioma &hellip; ; DIPG&rdquo; <span class="ic">[CONDITIONS; ELIGIBILITY]</span><br>gene &larr; &ldquo;NTRK fusion alteration&rdquo; <span class="ic">[ELIGIBILITY]</span><br>prior_therapy &larr; &ldquo;no prior anti-cancer agents&rdquo; <span class="ic">[ELIGIBILITY]</span></div></div>
+        <div class="downlbl">&#9662;&nbsp; DNF interpretation &mdash; split OR-alternatives into rows, scope by cohort, exclusions inline</div>
+        <div class="step"><div class="st">3 &mdash; DNF rows</div>
+          <div class="tblwrap" style="margin-top:8px; box-shadow:none">
             <table>
               <thead><tr><th>cohort</th><th>cancer_type</th><th>gene</th><th>prior therapy</th></tr></thead>
               <tbody>
-                <tr><td>Feasibility</td><td>HGG <span style="color:var(--ink-faint)">(anaplastic astrocytoma / glioblastoma / H3 K27-mutant DMG)</span></td><td>NTRK fusion</td><td class="dim">NOT(prior anti-cancer therapy)</td></tr>
+                <tr><td>Feasibility</td><td>high-grade glioma</td><td>NTRK fusion</td><td class="dim">NOT(prior anti-cancer therapy)</td></tr>
                 <tr><td>Feasibility</td><td>DIPG</td><td>NTRK fusion</td><td class="dim">NOT(prior anti-cancer therapy)</td></tr>
-                <tr><td>Surgical</td><td>HGG <b class="accent-rev">AND NOT(DIPG)</b></td><td>NTRK fusion</td><td class="dim">NOT(prior anti-cancer therapy)</td></tr>
+                <tr><td>Surgical</td><td>high-grade glioma <b class="accent-rev">AND NOT(DIPG)</b></td><td>NTRK fusion</td><td class="dim">NOT(prior anti-cancer therapy)</td></tr>
               </tbody>
             </table>
           </div>
-          <div class="note"><span class="h">what the loop did</span> Split the OR of tumour types into <b>separate rows</b>; carried the required <b>NTRK fusion</b> onto each; scoped the <b>DIPG exclusion</b> to the surgical cohort as an inline <span class="ic">NOT()</span>; folded the prior-therapy exclusion in.</div>
         </div>
+        <div class="downlbl">&#9662;&nbsp; mapping &mdash; each cell to controlled vocabulary</div>
+        <div class="step"><div class="st">4 &mdash; mapped to vocabulary</div><div class="sd">high-grade glioma &rarr; <span class="ic">HGGNOS</span> &nbsp; DIPG &rarr; <span class="ic">DIFG</span> &nbsp;(OncoTree)<br>NTRK fusion &rarr; <span class="ic">Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]</span> &nbsp;(finding-model)</div></div>
       </div>
     </div>
   </section>
 
   <!-- 16 · ACT 3 · DEEP DIVE: MAPPING VIA ML METHODOLOGY -->
-  <section class="slide" data-section="Act 3 · Practice">
+  <section class="slide" data-section="Act 3 · Deep dives">
     <div class="slide-inner">
       <div class="eyebrow gen"><span class="k"></span> Deep dive &middot; mapping via ML methodology</div>
       <h2>Mapping prompts, developed like a model</h2>
-      <p class="lead">Mapping free text to a controlled vocabulary is where we borrow ML discipline. The hand-curated answer sets are the <b>ground truth</b> &mdash; and, crucially, they are <b>held out</b>, not pasted into the prompt.</p>
+      <p class="lead">Mapping free text to a controlled vocabulary is where we borrow ML discipline. The hand-curated answer sets are the <b>ground truth</b>, <b>held out</b> as the test set.</p>
       <div class="cards c3">
         <div class="card gen"><div class="ct">the doer prompt</div><h3>Grammar + worked examples</h3>
           <p>The ontology / grammar plus a handful of <b>positive examples</b> &mdash; what a correct mapping looks like.</p></div>
@@ -605,10 +618,10 @@
       </div>
       <div class="tblwrap">
         <table>
-          <thead><tr><th>mapping</th><th>held-out validation set</th><th>faithful</th></tr></thead>
+          <thead><tr><th>mapping</th><th>trained on</th><th>held-out validation</th><th>passed review</th></tr></thead>
           <tbody>
-            <tr><td><span class="lab">cancer_type &rarr; OncoTree</span></td><td>100 disjoint trials, 288 values</td><td class="win">99.7%</td></tr>
-            <tr><td><span class="lab">gene_alteration &rarr; finding-model</span></td><td>150 disjoint trials, 572 values</td><td class="win">569 / 572</td></tr>
+            <tr><td><span class="lab">cancer_type &rarr; OncoTree</span></td><td>50 trials</td><td>100 trials, 288 values</td><td class="win">287 / 288 (99.7%)</td></tr>
+            <tr><td><span class="lab">gene_alteration &rarr; finding-model</span></td><td>50 trials, 330 values</td><td>100 trials, 242 values</td><td class="win">239 / 242 (98.8%)</td></tr>
           </tbody>
         </table>
       </div>
@@ -616,11 +629,10 @@
   </section>
 
   <!-- 17 · ACT 3 · LIMITATIONS -->
-  <section class="slide" data-section="Act 3 · Practice">
+  <section class="slide" data-section="Act 3 · Deep dives">
     <div class="slide-inner">
       <div class="eyebrow rev"><span class="k"></span> Act 3 &middot; limitations</div>
       <h2>Where the evaluator&ndash;optimizer struggles</h2>
-      <p class="lead">These are inherent to the approach, not bugs &mdash; worth stating plainly.</p>
       <div class="cards c3">
         <div class="card rev"><div class="ct">convergence isn't guaranteed</div><h3>Hard inputs don't fully resolve</h3>
           <p>On deeply nested, multi-cohort trials (e.g. a 6-cohort brainstem-glioma protocol), the doer can't satisfy every reviewer within the attempt budget. <b>219 of 1,999 trials</b> returned a best-effort answer rather than a fully converged one.</p></div>
@@ -636,14 +648,10 @@
   <section class="slide" data-section="Close">
     <div class="slide-inner">
       <div class="eyebrow"><span class="k"></span> Close</div>
-      <h2>From curation to matching</h2>
-      <p class="lead">The result is a structured, auditable resource for ~2,000 AU / NZ cancer trials &mdash; eligibility as DNF, drugs in 3NF, joined on <span class="ic">trial_arm_id</span>.</p>
-      <div class="cards c2">
-        <div class="card code"><div class="ct">next</div><h3>The matching engine</h3>
-          <p>Match a patient's profile against the eligibility DNF &mdash; and match trial eligibility to drug approvals symmetrically, both in the same vocabulary.</p></div>
-        <div class="card gen"><div class="ct">and</div><h3>A self-contained pipeline</h3>
-          <p>Fold ingestion in and retire the legacy paths, so the whole thing runs end-to-end on a schedule.</p></div>
-      </div>
+      <h2>The vision</h2>
+      <p class="lead">Today: a structured, auditable resource for ~2,000 AU / NZ cancer trials &mdash; eligibility as DNF, drugs in 3NF, joined on <span class="ic">trial_arm_id</span>.</p>
+      <div class="thesis">The goal is a <b>fully self-contained, automated pipeline</b> &mdash; every new trial flowing from <b>raw registry input</b> straight through to <b>finished, structured resource files</b>, end to end and on a schedule, with no manual step.</div>
+      <p class="body">What's left to get there: fold data ingestion into the pipeline, and retire the legacy paths.</p>
     </div>
   </section>
 
