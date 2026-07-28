@@ -7,7 +7,8 @@ from datetime import date
 import pytest
 
 from aus_trial_universe.agentic.core.paths import archive_current_version, current_version_dir
-from aus_trial_universe.agentic.tasks.drug_utility.schema import DrugRegulatoryApproval, DrugAnnotationsCore, DrugTargetAction
+from aus_trial_universe.agentic.tasks.drug_utility.schema import (
+    DrugRegulatoryApproval, DrugAnnotationsCore, DrugTargetAction, TrialArmDrugRole)
 from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
 from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
 
@@ -112,6 +113,43 @@ def test_mapping_one_input_maps_to_many_canonicals(tmp_path):
     frags = {m.canonical_id: m.raw_name_to_map for m in loaded.mappings["Nivo + Ipi"]}
     assert frags == {"name:nivolumab": "Nivo", "name:ipilimumab": "Ipi"}                     # fragments preserved
     assert loaded.has_mapping("Radiotherapy") and loaded.canonical_ids_for("Radiotherapy") == []
+
+
+def test_trial_arm_drug_role_round_trips_and_remove_by_trial(tmp_path):
+    """Phase-2 table 6: (trial_arm_id, canonical_id) -> role round-trips through save/load; remove_trial_roles
+    drops every arm of a trial (overwrite semantics); put_roles([]) removes an arm's roles."""
+    a1 = trial_arm_id("NCT01", "Experimental")
+    a2 = trial_arm_id("NCT01", "Control")
+    b1 = trial_arm_id("NCT02", "Arm A")
+    s = DrugRefStore()
+    s.put_roles(a1, [TrialArmDrugRole(trial_arm_id=a1, canonical_id="name:gedatolisib", role="main"),
+                     TrialArmDrugRole(trial_arm_id=a1, canonical_id="rxcui:111", role="auxiliary")])
+    s.put_roles(a2, [TrialArmDrugRole(trial_arm_id=a2, canonical_id="rxcui:111", role="auxiliary")])
+    s.put_roles(b1, [TrialArmDrugRole(trial_arm_id=b1, canonical_id="name:druga", role="main")])
+    vdir = s.save(tmp_path, on=date(2026, 7, 28))
+    assert (vdir / "trial_arm_drug_role.tsv").exists()
+
+    loaded = DrugRefStore.load(tmp_path)
+    assert {(r.canonical_id, r.role) for r in loaded.roles_for(a1)} == {
+        ("name:gedatolisib", "main"), ("rxcui:111", "auxiliary")}
+    assert loaded.role_trial_arm_ids() == {a1, a2, b1}
+
+    # overwrite: drop all arms of NCT01 (both a1 + a2), leaving NCT02 untouched
+    removed = loaded.remove_trial_roles("NCT01")
+    assert removed == 3 and loaded.role_trial_arm_ids() == {b1}
+    # put_roles([]) clears an arm
+    loaded.put_roles(b1, [])
+    assert loaded.roles_for(b1) == [] and loaded.role_trial_arm_ids() == set()
+
+
+def test_empty_role_table_is_written_and_reloads_empty(tmp_path):
+    """A store with no roles still writes the table (header only) and loads back with no role rows — proves the
+    additive table is always present without perturbing the other tables."""
+    s = DrugRefStore()
+    s.set_mapping("Keytruda", [("", "rxcui:1")])
+    vdir = s.save(tmp_path, on=date(2026, 7, 28))
+    assert (vdir / "trial_arm_drug_role.tsv").exists()
+    assert DrugRefStore.load(tmp_path).roles == {}
 
 
 def test_legacy_drug_alias_still_loads(tmp_path):

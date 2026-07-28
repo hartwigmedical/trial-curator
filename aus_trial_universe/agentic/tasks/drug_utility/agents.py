@@ -15,7 +15,10 @@ from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     MODALITIES,
+    ROLE_AUXILIARY,
+    ROLE_MAIN,
     ApprovalByIndication,
+    ArmRoleClassification,
     Canonicalization,
     DrugAnnotation,
     ReviewVerdict,
@@ -184,4 +187,59 @@ def build_approval_agent(client: LlmClient, *, model: str | None = None) -> Agen
 
 def build_approval_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
     return Agent(name="drug_approval_reviewer", instructions=APPROVAL_REVIEWER_INSTRUCTIONS,
+                 output_schema=ReviewVerdict, client=client, model=model)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — per-arm drug role (main vs auxiliary). Judgement from the arm context; NO web search.
+# --------------------------------------------------------------------------- #
+ROLE_CLASSIFIER_INSTRUCTIONS = f"""\
+You are given ONE trial ARM and the drugs administered in it. Classify EACH drug as its role IN THIS ARM:
+
+- {ROLE_MAIN}: the investigational / defining agent(s) the trial is actually TESTING in this arm — the novel or
+  key agent under study (usually the drug named in the trial/arm title, or a novel agent with no marketed form).
+- {ROLE_AUXILIARY}: everything else administered as support — a comparator, a chemotherapy backbone, a
+  standard-of-care agent added to the experimental drug, placebo, or premedication.
+
+You are given, for the arm: its label, its type (arm_type), and a description; and for each drug: its canonical_id,
+canonical_name, general drug_class, and modality. Base the judgement on THIS context and your own drug knowledge —
+do NOT use web search.
+
+Guidance:
+- arm_type is a strong signal: an EXPERIMENTAL arm contains the investigational agent(s); an ACTIVE_COMPARATOR or
+  PLACEBO_COMPARATOR / SHAM arm is a control — its drugs are typically ALL {ROLE_AUXILIARY} (standard-of-care /
+  comparator / placebo), even when it is the only drug in the arm.
+- A novel agent whose canonical_id begins with `name:` has no RxNorm/marketed entry — that is a strong (not
+  absolute) signal it is the investigational {ROLE_MAIN} agent.
+- An experimental arm often adds the novel agent ON TOP OF an approved backbone (e.g. novel drug + carboplatin +
+  pemetrexed): the novel agent is {ROLE_MAIN}; the established backbone drugs are {ROLE_AUXILIARY}.
+- An arm may have SEVERAL {ROLE_MAIN} drugs (a novel combination both under study), or ZERO (a pure control arm).
+- Classify by what the trial is investigating, not by how new a drug feels in isolation: an approved drug being
+  repurposed / tested as the key agent of the arm is {ROLE_MAIN}; the same drug used as backbone is {ROLE_AUXILIARY}.
+
+Return `assignments` — ONE entry per drug given, echoing its canonical_id EXACTLY (never add, drop, or alter an
+id), each with role = {ROLE_MAIN} or {ROLE_AUXILIARY}. Put one line of reasoning in `notes`.
+"""
+
+ROLE_REVIEWER_INSTRUCTIONS = f"""\
+You audit a proposed main/auxiliary classification of the drugs in ONE trial arm (plausibility check — you are NOT
+re-researching). Given the arm context (label, arm_type, description) + the drugs (canonical_id, canonical_name,
+drug_class, modality) and the proposed roles, set faithful=true only if:
+- EVERY given drug has exactly one assignment and its canonical_id matches one given (none invented, dropped, or altered);
+- every role is exactly {ROLE_MAIN} or {ROLE_AUXILIARY};
+- the investigational / defining agent(s) under study are {ROLE_MAIN} and genuine backbone / standard-of-care /
+  comparator / placebo / premedication are {ROLE_AUXILIARY};
+- a control arm (ACTIVE_COMPARATOR / PLACEBO_COMPARATOR / SHAM) is NOT given a spurious {ROLE_MAIN} — its drugs
+  are {ROLE_AUXILIARY} unless the arm genuinely administers an investigational agent.
+Otherwise faithful=false with concrete, actionable problems.
+"""
+
+
+def build_role_classifier(client: LlmClient, *, model: str | None = None) -> Agent[ArmRoleClassification]:
+    return Agent(name="drug_role_classifier", instructions=ROLE_CLASSIFIER_INSTRUCTIONS,
+                 output_schema=ArmRoleClassification, client=client, model=model)
+
+
+def build_role_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
+    return Agent(name="drug_role_reviewer", instructions=ROLE_REVIEWER_INSTRUCTIONS,
                  output_schema=ReviewVerdict, client=client, model=model)

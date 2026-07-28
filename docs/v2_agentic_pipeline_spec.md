@@ -128,8 +128,8 @@ The normalized relations (the flat TSV is their **materialized join**):
 | **regime_drug** | (trialId, regime_id, drug) | role: main (investigational) / auxiliary (backbone/SoC) | within-regime split, judged from title/description |
 | **drug_annotations_core** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_utility/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
-\* **Built standalone (2026-07-13; table 1 split into 3NF 2026-07-17).** The drug dimension is **five** 3NF tables in
-`aus_trial_universe/agentic/tasks/drug_utility/`:
+\* **Built standalone (2026-07-13; table 1 split into 3NF 2026-07-17; role table added 2026-07-28).** The drug
+dimension is **six** 3NF tables in `aus_trial_universe/agentic/tasks/drug_utility/`:
 - `intervention_to_canonical` (input intervention name → namespaced `canonical_id`(s): `rxcui:<n>` else `name:<x>`;
   a combination/regimen token splits into its component drugs, so **`1 input → N` canonicals** — a single engineered
   molecule like an ADC/bispecific stays one; carries `raw_name_to_map` = the input fragment each canonical came from),
@@ -137,14 +137,17 @@ The normalized relations (the flat TSV is their **materialized join**):
   which trial ARM used each name; links to the shared `trial_arms` registry (arm identity lives there once, keyed by
   the deterministic `trial_arm_id = {trialId}::{arm}` slug); deterministic, populated at collection time),
 - `drug_annotations_core` (canonical → intrinsic facts), `drug_target_actions` (canonical → (target, action) pairs — the mechanism),
-- `drug_regulatory_approvals` (canonical → TGA/PBS approval, **indication-specific**, verified against the live TGA/PBS sites).
+- `drug_regulatory_approvals` (canonical → TGA/PBS approval, **indication-specific**, verified against the live TGA/PBS sites),
+- `trial_arm_drug_role` (**Phase 2**, 2026-07-28: `(trial_arm_id, canonical_id) → role` = `main` (investigational/
+  defining) / `auxiliary` (backbone/SoC/comparator/placebo) — the within-arm role split #3 below, at canonical grain
+  so it joins to `drug_regulatory_approvals` for per-main TGA/PBS; a cheap per-arm doer→reviewer classifier, no web search).
 
 **Division of labour:** LLM doer→reviewer does the *judgement* (canonical identity, modality/target/class, approvals);
 the *deterministic* facts — `rxcui` + `atc_code` (RxNorm RRF), `pottr_drug_class` (POTTR ontology walk), and the
 trial→intervention provenance — are offline (`rxnorm.py` / `pottr.py` / collection), not LLM guesses.
 Built via `make drug-ref-build DRUGS=.. | IDS=.. | ALL_TRIALS=1`; incremental + batched-with-checkpoint;
 `--refresh-drugs` to re-research. The build **logs per-trial drug attribution** (traceability) and persists at
-`<DATA_ROOT>/drug_annotations/current_version/` (5 TSVs; superseded builds under `archive/`). All data paths derive
+`<DATA_ROOT>/drug_annotations/current_version/` (6 TSVs; superseded builds under `archive/`). All data paths derive
 from one relocatable `DATA_ROOT` (`core/paths.py`; = `data/agentic/` now → `data/` later). Reference data lives under
 `resources/drug_utility/{pottr,rxnorm}/current_version/`; refresh POTTR with `make drug-ref-refresh-pottr`. Full
 layout: `docs/agentic/drug_ref_schema.md`.

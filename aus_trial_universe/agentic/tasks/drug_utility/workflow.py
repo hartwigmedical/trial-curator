@@ -31,9 +31,12 @@ from aus_trial_universe.agentic.tasks.drug_utility.agents import (
     build_approval_reviewer,
     build_canonicalizer,
     build_canonicalizer_reviewer,
+    build_role_classifier,
+    build_role_reviewer,
 )
 from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     MODALITIES,
+    ROLES,
     UNKNOWN,
     APPROVED,
     NOT_APPROVED,
@@ -43,6 +46,7 @@ from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     DrugRegulatoryApproval,
     DrugAnnotationsCore,
     DrugTargetAction,
+    TrialArmDrugRole,
     canonical_id_for,
 )
 from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
@@ -310,4 +314,143 @@ def build_drug_ref(
             checkpoint()
 
     run_parallel(to_research, _research, _research_sink, max_workers=workers)
+    return summary
+
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — per-arm drug role (main vs auxiliary). Arm-keyed; separate from the drug-keyed build above.
+# --------------------------------------------------------------------------- #
+@dataclass
+class ArmContext:
+    """The arm-level metadata only the caller (build) knows, from the trial's Cohorts. The arm's DRUGS are resolved
+    from the store (trial_to_intervention ⋈ intervention_to_canonical ⋈ drug_annotations_core), so this stays lean."""
+
+    trial_arm_id: str
+    label: str = ""
+    arm_type: str = ""
+    description: str = ""
+
+
+@dataclass
+class RoleSummary:
+    classified: int = 0      # arms freshly classified this run
+    reused: int = 0          # arms already classified (lookup-first skip)
+    no_drugs: int = 0        # arms with no resolvable canonical drug (no role rows)
+    failed: int = 0          # arms skipped after an unrecoverable error (run continues)
+
+
+def _arm_drugs(store: DrugRefStore, trial_arm_id: str) -> list[tuple[str, str, str, str]]:
+    """The arm's distinct canonical drugs as (canonical_id, canonical_name, drug_class, modality), resolved from
+    the store: its trial_to_intervention input names -> intervention_to_canonical ids -> drug_annotations_core."""
+    inputs = [inp for (taid, inp) in store.occurrences if taid == trial_arm_id]
+    drugs: list[tuple[str, str, str, str]] = []
+    seen: set[str] = set()
+    for inp in inputs:
+        for cid in store.canonical_ids_for(inp):
+            if cid in seen:
+                continue
+            seen.add(cid)
+            ref = store.ref(cid)
+            drugs.append((cid, ref.canonical_name if ref else "", ref.drug_class if ref else "",
+                          ref.modality if ref else ""))
+    return drugs
+
+
+def classify_arm_roles(
+    client: LlmClient,
+    arm_contexts,
+    store: DrugRefStore,
+    *,
+    refresh: bool = False,
+    use_reviewer: bool = True,
+    max_attempts: int = 3,
+    workers: int = 8,
+    checkpoint: Callable[[], None] | None = None,
+) -> RoleSummary:
+    """Assign every drug in each trial ARM a `main`/`auxiliary` role (Phase 2) and write the `trial_arm_drug_role`
+    rows into `store` (mutated in place). Arm-keyed doer->reviewer on the shared refine loop; NO web search.
+
+    `arm_contexts` is an iterable of `ArmContext` (arm label / arm_type / description). Each arm's drugs are resolved
+    from the store, so an arm with no resolvable canonical drug is skipped (no role rows). Lookup-first: an arm
+    already in `store.roles` is reused unless `refresh`. `checkpoint`, if given, is called after each arm (durable)."""
+    summary = RoleSummary()
+    # Dedup arm contexts by trial_arm_id (a trial's arms are stable; keep the first seen), keep only arms with drugs.
+    by_id: dict[str, ArmContext] = {}
+    for ctx in arm_contexts:
+        if ctx.trial_arm_id and ctx.trial_arm_id not in by_id:
+            by_id[ctx.trial_arm_id] = ctx
+
+    todo: list[ArmContext] = []
+    for taid, ctx in by_id.items():
+        if not _arm_drugs(store, taid):
+            summary.no_drugs += 1
+            continue
+        if not refresh and store.roles_for(taid):
+            summary.reused += 1
+            continue
+        todo.append(ctx)
+
+    logger.info("")
+    logger.info(stage("DRUG-REF · classify roles (main/auxiliary)"))
+    logger.info(line(f"{len(todo)} arm(s) to classify · {summary.reused} reused · {summary.no_drugs} no-drug · "
+                     f"workers={workers} · per-arm checkpoint"))
+
+    doer = build_role_classifier(client)
+    reviewer = build_role_reviewer(client) if use_reviewer else None
+
+    def _classify(ctx: ArmContext):
+        drugs = _arm_drugs(store, ctx.trial_arm_id)
+        expected = {cid for cid, *_ in drugs}
+        drug_lines = "\n".join(f"- canonical_id={cid} | name={cn!r} | class={dc!r} | modality={md!r}"
+                               for cid, cn, dc, md in drugs)
+        base = (f"Arm label: {ctx.label!r}\nArm type: {ctx.arm_type or '(unspecified)'}\n"
+                f"Arm description: {ctx.description or '(none)'}\n\nDrugs in this arm:\n{drug_lines}")
+
+        def produce(feedback: str = "", prior=None):
+            return doer(base if not feedback else f"{base}\n\n[Reviewer feedback — fix these]:\n{feedback}")
+
+        def check(c, escalate: bool = False) -> CheckResult:
+            got = [a.canonical_id for a in c.assignments]
+            bad_role = [f"{a.canonical_id}={a.role!r} not in {list(ROLES)}" for a in c.assignments if a.role not in ROLES]
+            if bad_role:
+                return CheckResult(ok=False, problems=bad_role)
+            if set(got) != expected or len(got) != len(expected):
+                missing = sorted(expected - set(got))
+                extra = sorted(set(got) - expected)
+                dup = len(got) != len(set(got))
+                probs = []
+                if missing:
+                    probs.append(f"missing an assignment for canonical_id(s): {missing}")
+                if extra:
+                    probs.append(f"assigned unknown canonical_id(s) not in this arm: {extra}")
+                if dup and not missing and not extra:
+                    probs.append("a canonical_id was assigned more than once")
+                return CheckResult(ok=False, problems=probs or ["every drug must get exactly one role"])
+            if reviewer is not None:
+                proposed = "; ".join(f"{a.canonical_id}={a.role}" for a in c.assignments)
+                v = reviewer(f"{base}\n\nPROPOSED roles: {proposed}\nnotes={c.notes!r}")
+                if not v.faithful:
+                    return CheckResult(ok=False, problems=v.problems or ["reviewer flagged the role classification"])
+            return CheckResult(ok=True)
+
+        result = review_refine(produce, check, max_attempts=max_attempts).value
+        rows = [TrialArmDrugRole(trial_arm_id=ctx.trial_arm_id, canonical_id=a.canonical_id, role=a.role)
+                for a in result.assignments]
+        return ctx.trial_arm_id, rows
+
+    def _sink(ctx: ArmContext, res, exc):
+        if exc is not None or res is None:
+            summary.failed += 1
+            logger.info(line(f"FAILED · roles {ctx.trial_arm_id} · {type(exc).__name__ if exc else 'none'}", indent=4))
+            return
+        taid, rows = res
+        store.put_roles(taid, rows)
+        summary.classified += 1
+        main = [r.canonical_id for r in rows if r.role == "main"]
+        aux = [r.canonical_id for r in rows if r.role == "auxiliary"]
+        logger.info(line(f"{taid}  →  main={len(main)} · auxiliary={len(aux)}", indent=4))
+        if checkpoint:
+            checkpoint()
+
+    run_parallel(todo, _classify, _sink, max_workers=workers)
     return summary

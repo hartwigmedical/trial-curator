@@ -30,23 +30,27 @@ def _eligibility_arm_ids() -> set[str]:
 
 
 def check() -> dict:
-    """Return a report dict: registry / elig_refs / drug_refs counts + any dangling FKs + unused registry arms."""
+    """Return a report dict: registry / elig_refs / drug_refs / role_refs counts + any dangling FKs + unused
+    registry arms."""
     registry = TrialArmStore.load().ids()
     elig = _eligibility_arm_ids()
-    drug = DrugRefStore.load().trial_arm_ids()
+    drug_store = DrugRefStore.load()
+    drug = drug_store.trial_arm_ids()
+    roles = drug_store.role_trial_arm_ids()
     return {
-        "registry": len(registry), "elig_refs": len(elig), "drug_refs": len(drug),
+        "registry": len(registry), "elig_refs": len(elig), "drug_refs": len(drug), "role_refs": len(roles),
         "elig_dangling": sorted(elig - registry),
         "drug_dangling": sorted(drug - registry),
-        "unused": sorted(registry - elig - drug),
+        "role_dangling": sorted(roles - registry),
+        "unused": sorted(registry - elig - drug - roles),
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     r = check()
-    logger.info("arm-consistency · trial_arms registry=%d · eligibility refs=%d · drug refs=%d",
-                r["registry"], r["elig_refs"], r["drug_refs"])
+    logger.info("arm-consistency · trial_arms registry=%d · eligibility refs=%d · drug refs=%d · role refs=%d",
+                r["registry"], r["elig_refs"], r["drug_refs"], r["role_refs"])
 
     ed = r["elig_dangling"]
     logger.info("  eligibility trial_arm_id(s) NOT in the registry (these BREAK the join): %d", len(ed))
@@ -58,11 +62,16 @@ def main(argv: list[str] | None = None) -> int:
     for taid in dd[:20]:
         logger.info("  ✗ %s (trial %s)", taid, trial_id_of(taid))
 
+    rd = r["role_dangling"]
+    logger.info("  drug trial_arm_drug_role trial_arm_id(s) NOT in the registry: %d", len(rd))
+    for taid in rd[:20]:
+        logger.info("  ✗ %s (trial %s)", taid, trial_id_of(taid))
+
     if r["unused"]:
         logger.info("  (info) %d registry arm(s) referenced by neither path yet", len(r["unused"]))
 
-    ok = not ed and not dd
-    logger.info("RESULT: %s", "CONSISTENT ✓" if ok else f"{len(ed) + len(dd)} dangling trial_arm_id(s) ✗")
+    ok = not ed and not dd and not rd
+    logger.info("RESULT: %s", "CONSISTENT ✓" if ok else f"{len(ed) + len(dd) + len(rd)} dangling trial_arm_id(s) ✗")
     return 0 if ok else 1
 
 

@@ -1,14 +1,17 @@
 # Drug reference — relational schema & design (spec §6.1)
 
-The drug reference is **five 3NF relational tables**, persisted as TSVs under
+The drug reference is **six 3NF relational tables**, persisted as TSVs under
 `<DATA_ROOT>/drug_annotations/current_version/` (superseded builds go to `drug_annotations/archive/`). All data paths
 derive from one relocatable `DATA_ROOT` constant (`core/paths.py`; = `data/agentic/` today, promotable to `data/`).
-The tables split into two stages that mirror the build workflow:
+The tables split into stages that mirror the build workflow:
 
 - **Stage 1 — drug identity** ("*which drug is this?*"): resolve each trial's raw intervention string to a canonical
   drug, and record which trials used it. Tables: `trial_to_intervention`, `intervention_to_canonical`.
 - **Stage 2 — drug enrichment** ("*what is this drug?*"): the intrinsic, trial-independent facts about each canonical
   drug. Tables: `drug_annotations_core`, `drug_target_actions`, `drug_regulatory_approvals`.
+- **Phase 2 — drug role** ("*what part does this drug play in this arm?*"): the **main** (investigational/defining)
+  vs. **auxiliary** (backbone/SoC/comparator/placebo) role of each drug within each trial arm — a contextual,
+  per-(arm × drug) fact, so it lives in its own table `trial_arm_drug_role`, NOT on the intrinsic drug facts.
 
 ---
 
@@ -80,7 +83,7 @@ materialized, it — like the trial pipeline's `combined.tsv` — is a denormali
 
 ---
 
-## The five tables
+## The six tables
 
 ### Stage 1 — drug identity
 
@@ -144,6 +147,28 @@ per-agency TGA/PBS approval. Key: `(canonical_id, indication_id)`.
 | PBS | `pbs_status`, `pbs_date`, `pbs_evidence_url` |
 | | `researched_on` |
 
+### Phase 2 — drug role (keyed by `(trial_arm_id, canonical_id)`)
+
+**`trial_arm_drug_role`** — the role each drug plays *within a specific trial arm*. Grain: one row per (trial arm ×
+canonical drug). This is a **contextual** fact — the same drug can be `main` (investigational) in one arm and
+`auxiliary` (backbone) in another — so it depends on the *whole* `(arm, drug)` key and cannot live on the intrinsic
+`drug_annotations_core`. It is deliberately **not** a column on `trial_to_intervention`: that table is keyed by the
+raw input *string*, and ~11% of input strings bundle several drugs of differing roles (e.g. `Arm A: Gedatolisib +
+Palbociclib + Fulvestrant` = one investigational + two backbone). Kept at canonical grain, it joins directly to
+`drug_regulatory_approvals` on `canonical_id` for **per-main TGA/PBS**.
+
+| column | meaning |
+|---|---|
+| `trial_arm_id` | FK → shared `trial_arms.trial_arm_id` (the `{trialId}::{arm}` slug) |
+| `canonical_id` | FK → `drug_annotations_core.canonical_id` |
+| `role` | `main` (investigational/defining agent under study) \| `auxiliary` (backbone / SoC / comparator / placebo / premedication) |
+
+**Consistency contract:** every `(trial_arm_id, canonical_id)` is derivable from `trial_to_intervention ⋈
+intervention_to_canonical` (no orphan roles); every derived (arm, drug) pair with a non-empty `canonical_id` gets
+exactly one role row; non-drug inputs (empty `canonical_id`) get no row; a `--from-trials` rebuild drops a trial's
+role rows before re-deriving (overwrite symmetry with `trial_to_intervention`). Both FK edges are checked by
+`make agentic-arm-consistency` (the `trial_arm_id` refs) — a dangling `trial_arm_id` is reported as `role_dangling`.
+
 ---
 
 ## How they relate
@@ -154,16 +179,23 @@ erDiagram
   INTERVENTION_TO_CANONICAL }o--|| DRUG_ANNOTATIONS_CORE : "canonical_id"
   DRUG_ANNOTATIONS_CORE ||--o{ DRUG_TARGET_ACTIONS : "canonical_id"
   DRUG_ANNOTATIONS_CORE ||--o{ DRUG_REGULATORY_APPROVALS : "canonical_id"
+  DRUG_ANNOTATIONS_CORE ||--o{ TRIAL_ARM_DRUG_ROLE : "canonical_id"
+  TRIAL_ARM_DRUG_ROLE }o--|| TRIAL_ARMS : "trial_arm_id"
+  TRIAL_TO_INTERVENTION }o--|| TRIAL_ARMS : "trial_arm_id"
 ```
 
 - **`trial_to_intervention` ↔ `intervention_to_canonical`** — joined on `input_intervention_name` (many-to-many): a
   trial reaches its drugs by looking up each of its intervention strings.
 - **`intervention_to_canonical` → `drug_annotations_core`** — many mapping rows point at one drug via `canonical_id`.
 - **`drug_annotations_core` → `drug_target_actions` / `drug_regulatory_approvals`** — one drug has many target rows and many indication rows.
+- **`trial_arm_drug_role`** sits at the join of `trial_to_intervention ⋈ intervention_to_canonical` (the arm × drug
+  relation), adding the `role` attribute; it FKs to `trial_arms` (`trial_arm_id`) and `drug_annotations_core` (`canonical_id`).
 
 The join path **trial → drug facts** is:
 `trial_to_intervention` → (`input_intervention_name`) → `intervention_to_canonical` → (`canonical_id`) →
 `drug_annotations_core` → (`canonical_id`) → `drug_target_actions` / `drug_regulatory_approvals`.
+The **main drug + its per-main TGA/PBS** for an arm is:
+`trial_arm_drug_role` (WHERE role='main') → (`canonical_id`) → `drug_regulatory_approvals`.
 
 ---
 
@@ -240,11 +272,25 @@ Both tables come from the **one** `annotate` call (the scalar facts land in `dru
   review** — the reviewer raises the floor but does not make them authoritative (a deterministic
   official-source-domain check on the evidence URLs is a planned QA hardening).
 
+### `trial_arm_drug_role` — role classifier + `drug_role_reviewer` (Phase 2, **no web search**)
+Runs **once per trial arm** (not per drug), after Stage 1/2 so each drug's canonical identity + class are known.
+Cheap judgement from the arm context alone — no web search.
+- **Doer** (`drug_role_classifier`): given the arm (label, arm_type, description) + its drugs (canonical_id,
+  canonical_name, drug_class, modality), assign each drug `main` or `auxiliary`. main = the investigational/defining
+  agent(s) under study (usually the experimental-arm/title drug, or a novel agent with no marketed form —
+  `canonical_id` starting `name:` is a strong signal); auxiliary = comparator / chemo backbone / SoC / placebo /
+  premedication. `arm_type` is a strong signal (an ACTIVE/PLACEBO_COMPARATOR arm is typically all-auxiliary).
+- **Deterministic guard**: every given `canonical_id` gets exactly one assignment (none invented, dropped, or
+  duplicated) and every `role ∈ {main, auxiliary}` — checked before the reviewer.
+- **Reviewer verifies:** the investigational agent(s) are `main`, genuine backbone/SoC/comparator/placebo are
+  `auxiliary`, and a control arm is not given a spurious `main`.
+
 ### At a glance
 
-| table | doer (LLM, web) | deterministic guard | reviewer |
+| table | doer (LLM) | deterministic guard | reviewer |
 |---|---|---|---|
-| `intervention_to_canonical` | canonicalizer | `_COMBO_LEFTOVER` (unsplit join word) | split · identity/INN · investigational · non-drug=empty · no generic-word fabrication |
+| `intervention_to_canonical` | canonicalizer (web) | `_COMBO_LEFTOVER` (unsplit join word) | split · identity/INN · investigational · non-drug=empty · no generic-word fabrication |
 | `trial_to_intervention` | — (deterministic) | — | — (no judgement) |
-| `drug_annotations_core` + `drug_target_actions` | annotator | `modality ∈ MODALITIES` | modality · targets correct **and complete** (ADC antigen+payload) · class · FDA/EMA format · sources |
-| `drug_regulatory_approvals` | approvals | status ∈ {approved, not_approved, unknown} | specificity (no dropped qualifier) · status+evidence link · TGA/PBS independent · investigational=empty |
+| `drug_annotations_core` + `drug_target_actions` | annotator (web) | `modality ∈ MODALITIES` | modality · targets correct **and complete** (ADC antigen+payload) · class · FDA/EMA format · sources |
+| `drug_regulatory_approvals` | approvals (web) | status ∈ {approved, not_approved, unknown} | specificity (no dropped qualifier) · status+evidence link · TGA/PBS independent · investigational=empty |
+| `trial_arm_drug_role` | role classifier (no web) | every drug labelled once · `role ∈ {main, auxiliary}` | investigational=main · backbone/SoC/comparator/placebo=auxiliary · control arm not spuriously main |

@@ -8,9 +8,18 @@ path is signed off. **All code from this session is UNCOMMITTED in the working t
 `make agentic-tests` = **145 green**.
 
 **⏭ RESUME AT: the INTEGRATION backlog (NOT curation — that's done). In dependency order:**
-1. **Drug Phase 2 — main vs auxiliary role.** Cheap per-arm classifier → a `role` (main|auxiliary) column on the
-   drug path's `trial_to_intervention`. Judgement rules in git history (deleted `DRUG_CURATOR_INSTRUCTIONS`, ≤ 52417bc).
-   Prereq for the grand join's main/aux + per-main TGA/PBS. See "Shelved / open".
+1. **Drug Phase 2 — main vs auxiliary role. ✅ DONE (2026-07-28, UNCOMMITTED).** Built as a NEW 6th 3NF table
+   `trial_arm_drug_role` (`trial_arm_id, canonical_id, role`) — NOT a column on `trial_to_intervention` (grain:
+   ~11% of input strings bundle mixed main+aux drugs, so string-grain is lossy; canonical grain joins cleanly to
+   `drug_regulatory_approvals` for per-main TGA/PBS). Additive — the existing 5 drug tables are byte-unchanged. A
+   cheap **per-arm** doer→reviewer classifier (`classify_arm_roles`, NO web_search) on the shared `review_refine`
+   harness; folds in the recovered `DRUG_CURATOR_INSTRUCTIONS` rules. `make agentic-arm-consistency` now checks the
+   new table's FK (`role_dangling`). `make agentic-tests` = **154 green** (145 + 9 new). Touched (drug path only):
+   `schema.py` (dataclass + `ROLE_*` consts + `ArmRoleClassification`), `agents.py` (classifier+reviewer),
+   `workflow.py` (`classify_arm_roles`+`ArmContext`), `store.py` (6th-table I/O + `remove_trial_roles`), `build.py`
+   (arm-context capture + role pass; `--from-trials` drops stale roles), `qa/arm_consistency.py`, tests, docs+diagram.
+   **NB: the role table itself is not yet POPULATED over the universe** — run `make drug-ref-build ALL_TRIALS=1`
+   (or the smoke set) to build it; RESOURCE_INFO row count is TBD until then.
 2. **THE GRAND JOIN → a fresh `combined.tsv`** (the matching-engine flat file): interpreted ⋈ `trial_arms` ⋈ the
    **FINAL vocab maps** (`finalised_*_map.tsv`, use the `*_FINAL` column) ⋈ drug annotations, on `trial_arm_id`; add
    TGA/PBS + the main/aux role. `run._build_combined` exists (PARKED, 16 cols) — extend it. **Open decision:** join

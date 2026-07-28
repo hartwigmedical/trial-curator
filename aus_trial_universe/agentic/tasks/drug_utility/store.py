@@ -25,11 +25,13 @@ from aus_trial_universe.agentic.tasks.drug_utility.schema import (
     DRUG_TARGET_ACTIONS_COLUMNS,
     INTERVENTION_TO_CANONICAL_COLUMNS,
     TABLE_FILES,
+    TRIAL_ARM_DRUG_ROLE_COLUMNS,
     TRIAL_TO_INTERVENTION_COLUMNS,
     DrugRegulatoryApproval,
     DrugAnnotationsCore,
     DrugTargetAction,
     InterventionToCanonical,
+    TrialArmDrugRole,
     TrialToIntervention,
 )
 
@@ -66,6 +68,7 @@ class DrugRefStore:
         self.refs: dict[str, DrugAnnotationsCore] = {}                      # canonical_id -> DrugAnnotationsCore
         self.targets: dict[str, list[DrugTargetAction]] = {}         # canonical_id -> (target, action) rows
         self.indications: dict[str, list[DrugRegulatoryApproval]] = {}  # canonical_id -> rows
+        self.roles: dict[str, list[TrialArmDrugRole]] = {}          # trial_arm_id -> (canonical_id, role) rows
 
     # --- load -------------------------------------------------------------- #
     @classmethod
@@ -101,6 +104,10 @@ class DrugRefStore:
             i = DrugRegulatoryApproval(**{k: row.get(k, "") for k in DRUG_REGULATORY_APPROVALS_COLUMNS})
             if i.canonical_id:
                 store.indications.setdefault(i.canonical_id, []).append(i)
+        for row in _read_tsv(vdir / TABLE_FILES["trial_arm_drug_role"]):
+            r = TrialArmDrugRole(**{k: row.get(k, "") for k in TRIAL_ARM_DRUG_ROLE_COLUMNS})
+            if r.trial_arm_id and r.canonical_id:
+                store.roles.setdefault(r.trial_arm_id, []).append(r)
         return store
 
     # --- lookups ----------------------------------------------------------- #
@@ -124,9 +131,17 @@ class DrugRefStore:
     def indications_for(self, canonical_id: str) -> list[DrugRegulatoryApproval]:
         return self.indications.get(canonical_id, [])
 
+    def roles_for(self, trial_arm_id: str) -> list[TrialArmDrugRole]:
+        """The (canonical_id -> role) rows for a trial arm (Phase 2 main/auxiliary)."""
+        return self.roles.get(trial_arm_id, [])
+
     def trial_arm_ids(self) -> set[str]:
         """Every trial_arm_id referenced by `trial_to_intervention` (its FKs into the shared trial_arms registry)."""
         return {taid for (taid, _name) in self.occurrences}
+
+    def role_trial_arm_ids(self) -> set[str]:
+        """Every trial_arm_id referenced by `trial_arm_drug_role` (its FK into the shared trial_arms registry)."""
+        return {taid for taid in self.roles}
 
     def is_stale(self, canonical_id: str, max_age_days: int, *, today: date | None = None) -> bool:
         """True if the canonical is absent or its research is older than max_age_days."""
@@ -172,6 +187,16 @@ class DrugRefStore:
             del self.occurrences[k]
         return len(keys)
 
+    def remove_trial_roles(self, trial_id: str) -> int:
+        """Drop ALL trial_arm_drug_role rows for a trial (every arm) — overwrite semantics before re-deriving its
+        arms (mirrors `remove_trial_occurrences`, so a re-build cannot leave stale roles). Returns the count of
+        (arm, drug) role rows removed. Drug facts (canonical/annotation tables) are left untouched."""
+        taids = [taid for taid in self.roles if trial_id_of(taid) == trial_id]
+        removed = sum(len(self.roles[taid]) for taid in taids)
+        for taid in taids:
+            del self.roles[taid]
+        return removed
+
     def put_ref(self, ref: DrugAnnotationsCore) -> None:
         self.refs[ref.canonical_id] = ref
 
@@ -180,6 +205,13 @@ class DrugRefStore:
 
     def put_indications(self, canonical_id: str, rows: list[DrugRegulatoryApproval]) -> None:
         self.indications[canonical_id] = list(rows)
+
+    def put_roles(self, trial_arm_id: str, rows: list[TrialArmDrugRole]) -> None:
+        """Set an arm's (canonical_id -> role) rows (Phase 2). Empty list removes the arm's roles."""
+        if rows:
+            self.roles[trial_arm_id] = list(rows)
+        else:
+            self.roles.pop(trial_arm_id, None)
 
     # --- save -------------------------------------------------------------- #
     def save(self, root: Path = DRUG_ANNOTATIONS_ROOT, *, on: date | None = None) -> Path:
@@ -199,4 +231,6 @@ class DrugRefStore:
                    [asdict(t) for rows in self.targets.values() for t in rows])
         _write_tsv(vdir / TABLE_FILES["drug_regulatory_approvals"], DRUG_REGULATORY_APPROVALS_COLUMNS,
                    [asdict(i) for rows in self.indications.values() for i in rows])
+        _write_tsv(vdir / TABLE_FILES["trial_arm_drug_role"], TRIAL_ARM_DRUG_ROLE_COLUMNS,
+                   [asdict(r) for rows in self.roles.values() for r in rows])
         return vdir

@@ -128,12 +128,12 @@
 </style>
 
 <div class="wrap">
-  <p class="date">25 July 2026 &middot; v2 agentic pipeline</p>
+  <p class="date">28 July 2026 &middot; v2 agentic pipeline</p>
   <h1>Drug utility path &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop, and the trustworthy facts
     (<span class="inline-code">rxcui</span>, ATC, POTTR class) are <b>deterministic lookups, never LLM guesses</b>.
-    Each distinct drug is resolved and researched <b>once</b> and reused across every trial. Output = <b>five 3NF
+    Each distinct drug is resolved and researched <b>once</b> and reused across every trial. Output = <b>six 3NF
     relational tables</b>.</p>
 
   <div class="principle">
@@ -254,9 +254,32 @@
     </section>
     <div class="conn"></div>
 
+    <section class="stage gen">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Phase 2 &middot; role</span><h3>Classify &mdash; main vs auxiliary, per arm</h3><span class="badge gen">doer &rarr; reviewer &middot; no web</span></div>
+      <p>Runs <b>once per trial arm</b> (not per drug), after identity/enrichment so each drug's canonical id + class are known. A cheap judgement from the <b>arm context alone</b> &mdash; no web search.</p>
+      <div class="dr">
+        <div class="slot gen"><span class="rl">doer</span>
+          <ul>
+            <li>each drug &rarr; <b>main</b> (the investigational / defining agent under study) or <b>auxiliary</b> (backbone / SoC / comparator / placebo / premedication)</li>
+            <li>signals: <span class="inline-code">arm_type</span> (a control arm is typically all-auxiliary), a novel agent (<span class="inline-code">name:</span> id, no RxNorm entry)</li>
+            <li>echoes each <span class="inline-code">canonical_id</span> exactly &mdash; one role per drug</li>
+          </ul>
+        </div>
+        <div class="slot rev"><span class="rl">reviewer + deterministic guard</span>
+          <ul>
+            <li>investigational=main; backbone/SoC/comparator/placebo=auxiliary; a control arm not spuriously main</li>
+            <li>guard: every drug labelled once &middot; <span class="inline-code">role &isin; {main, auxiliary}</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="out"><span class="t">&rarr; trial_arm_drug_role</span><span class="arrow">joins to drug_regulatory_approvals on canonical_id &rarr; per-main TGA/PBS</span></div>
+    </section>
+    <div class="conn"></div>
+
     <section class="stage">
       <span class="rail"></span>
-      <div class="head"><span class="tag">Persist</span><h3>Five 3NF tables &mdash; incremental, versioned</h3><span class="badge code">code</span></div>
+      <div class="head"><span class="tag">Persist</span><h3>Six 3NF tables &mdash; incremental, versioned</h3><span class="badge code">code</span></div>
       <p>Written to <span class="inline-code">drug_annotations/current_version/</span> (superseded builds &rarr; <span class="inline-code">archive/</span>),
         batched with a checkpoint save (resumable) and soft-failing per drug so one bad drug can't kill a long run.
         Reference data lives under <span class="inline-code">resources/drug_utility/{pottr,rxnorm}/current_version/</span>;
@@ -285,11 +308,12 @@
   </section>
 
   <div class="tables">
-    <h2>The relational model &mdash; two stages, five tables</h2>
-    <p class="sub">Identity (which drug is this?) is separated from enrichment (what is this drug?). Trial provenance
-      joins to the mapping by input name and to the <b>shared <span class="inline-code">trial_arms</span> registry</b>
-      (arm identity, both registries) by <span class="inline-code">trial_arm_id</span>; everything downstream joins by
-      <span class="inline-code">canonical_id</span>. (<span class="inline-code">trial_arms</span> is shared with the eligibility path &mdash; not one of the drug path's five.)</p>
+    <h2>The relational model &mdash; three stages, six tables</h2>
+    <p class="sub">Identity (which drug is this?) is separated from enrichment (what is this drug?) and from role (what
+      part does it play in this arm?). Trial provenance joins to the mapping by input name and to the <b>shared
+      <span class="inline-code">trial_arms</span> registry</b> (arm identity, both registries) by
+      <span class="inline-code">trial_arm_id</span>; everything downstream joins by
+      <span class="inline-code">canonical_id</span>. (<span class="inline-code">trial_arms</span> is shared with the eligibility path &mdash; not one of the drug path's six.)</p>
     <div class="tgrid">
       <div class="tbl"><span class="stg">Stage 1 &middot; identity</span>
         <p class="name">intervention_to_canonical</p>
@@ -311,6 +335,10 @@
         <p class="name">drug_regulatory_approvals</p>
         <p class="key">(canonical_id, indication)</p>
         <p>TGA / PBS approval per as-stated indication + evidence links.</p></div>
+      <div class="tbl"><span class="stg">Phase 2 &middot; role</span>
+        <p class="name">trial_arm_drug_role</p>
+        <p class="key">(trial_arm_id, canonical_id) &rarr; role</p>
+        <p><b>main</b> / <b>auxiliary</b> per drug per arm; joins to <span class="inline-code">drug_regulatory_approvals</span> for per-main TGA/PBS.</p></div>
     </div>
   </div>
 

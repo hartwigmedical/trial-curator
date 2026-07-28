@@ -23,6 +23,11 @@ APPROVED = "approved"
 NOT_APPROVED = "not_approved"
 UNKNOWN = "unknown"
 
+# Drug role within a trial ARM (Phase 2): the investigational/defining agent(s) vs. everything else.
+ROLE_MAIN = "main"            # the agent(s) the trial is actually testing (usually the experimental-arm drug)
+ROLE_AUXILIARY = "auxiliary"  # comparator / chemo backbone / standard-of-care / placebo / premedication
+ROLES = (ROLE_MAIN, ROLE_AUXILIARY)
+
 # Controlled vocabulary for drug modality (pick exactly one).
 MODALITIES = (
     "small molecule", "monoclonal antibody", "antibody-drug conjugate", "bispecific antibody",
@@ -119,6 +124,22 @@ class DrugRegulatoryApproval:
     researched_on: str = ""
 
 
+# --- Table 5: (trial ARM, canonical drug) -> role (main / auxiliary) ---------- #
+@dataclass
+class TrialArmDrugRole:
+    """Phase 2: the role a drug plays IN a given trial ARM — `main` (the investigational/defining agent(s) the
+    trial is actually testing) vs. `auxiliary` (comparator / chemo backbone / standard-of-care / placebo /
+    premedication). Kept at the (arm, canonical drug) grain — NOT on `trial_to_intervention`, whose input strings
+    can bundle several drugs of differing roles — so it joins cleanly to `drug_regulatory_approvals` on
+    canonical_id (per-main TGA/PBS). One row per distinct (trial_arm_id, canonical_id); non-drug inputs (empty
+    canonical_id) get no row. The (arm, canonical) pairs are exactly those derivable from
+    `trial_to_intervention` ⋈ `intervention_to_canonical` (no orphans)."""
+
+    trial_arm_id: str = ""   # FK -> shared trial_arms.trial_arm_id (the (trialId, arm) slug)
+    canonical_id: str = ""   # FK -> DrugAnnotationsCore.canonical_id
+    role: str = ""           # one of ROLES (main | auxiliary)
+
+
 def _columns(dc) -> list[str]:
     return [f.name for f in fields(dc)]
 
@@ -128,6 +149,7 @@ TRIAL_TO_INTERVENTION_COLUMNS = _columns(TrialToIntervention)
 DRUG_ANNOTATIONS_CORE_COLUMNS = _columns(DrugAnnotationsCore)
 DRUG_TARGET_ACTIONS_COLUMNS = _columns(DrugTargetAction)
 DRUG_REGULATORY_APPROVALS_COLUMNS = _columns(DrugRegulatoryApproval)
+TRIAL_ARM_DRUG_ROLE_COLUMNS = _columns(TrialArmDrugRole)
 
 TABLE_FILES = {
     "intervention_to_canonical": "intervention_to_canonical.tsv",
@@ -135,6 +157,7 @@ TABLE_FILES = {
     "drug_annotations_core": "drug_annotations_core.tsv",
     "drug_target_actions": "drug_target_actions.tsv",
     "drug_regulatory_approvals": "drug_regulatory_approvals.tsv",
+    "trial_arm_drug_role": "trial_arm_drug_role.tsv",
 }
 
 
@@ -235,6 +258,26 @@ class ApprovalByIndication(BaseModel):
         default_factory=list,
         description="Every distinct TGA/PBS ONCOLOGY indication. [] if none in Australia.",
     )
+
+
+class ArmDrugRole(BaseModel):
+    """One drug's role within a trial arm (Phase 2 judgement)."""
+
+    canonical_id: str = Field(description="The canonical_id of THIS drug, echoed back EXACTLY as given in the input "
+                                          "(the join key). Do NOT invent, alter, or omit any given id.")
+    role: str = Field(description=f"EXACTLY ONE of: {ROLE_MAIN} | {ROLE_AUXILIARY}. "
+                                  f"{ROLE_MAIN} = the investigational/defining agent(s) the trial is testing; "
+                                  f"{ROLE_AUXILIARY} = comparator / backbone / standard-of-care / placebo / premedication.")
+
+
+class ArmRoleClassification(BaseModel):
+    """Stage (judgement): assign every drug in ONE trial arm a main/auxiliary role. One assignment per input drug —
+    same set of canonical_ids as given, none added or dropped."""
+
+    assignments: list[ArmDrugRole] = Field(
+        default_factory=list,
+        description="One entry per drug given for this arm (echo each canonical_id exactly). [] only if no drugs.")
+    notes: str = Field(default="", description="One line of reasoning (which agent is under study vs. backbone).")
 
 
 class ReviewVerdict(BaseModel):

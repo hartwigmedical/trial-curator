@@ -39,10 +39,11 @@ def _collect(names, occ, arms, trial_id, registry, arm, arm_type, tokens) -> lis
     return seen
 
 
-def _drugs_from_trials(client, ids: list[str]) -> tuple[list[str], list[tuple], list, list[str]]:
-    """(distinct names, occurrences, trial_arms, processed trial-ids) for specific trials — CTGov via armGroups
-    (deterministic), ANZCTR via the SHARED `anzctr_regimes` (identical arms to the eligibility path). `processed`
-    lists EVERY trial derived (incl. no-drug ones), so the caller can overwrite their stale arm rows."""
+def _drugs_from_trials(client, ids: list[str]) -> tuple[list[str], list[tuple], list, list[tuple], list[str]]:
+    """(distinct names, occurrences, trial_arms, arm_contexts, processed trial-ids) for specific trials — CTGov via
+    armGroups (deterministic), ANZCTR via the SHARED `anzctr_regimes` (identical arms to the eligibility path).
+    `arm_contexts` are (trial_arm_id, label, arm_type, description) tuples for the Phase-2 role classifier.
+    `processed` lists EVERY trial derived (incl. no-drug ones), so the caller can overwrite their stale arm rows."""
     from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import load_trials
     from aus_trial_universe.agentic.tasks.shared.cohorts import anzctr_regimes
 
@@ -50,6 +51,7 @@ def _drugs_from_trials(client, ids: list[str]) -> tuple[list[str], list[tuple], 
     names: list[str] = []
     occ: list[tuple] = []
     arms: list = []
+    arm_ctxs: list[tuple] = []
     processed: list[str] = []
     for source, tid, text, cohorts in load_trials(ids=ids):
         regimes = cohorts if cohorts is not None else anzctr_regimes(client, text)   # ANZCTR: shared derivation
@@ -57,15 +59,17 @@ def _drugs_from_trials(client, ids: list[str]) -> tuple[list[str], list[tuple], 
         toks: list[str] = []
         for c in regimes:                                    # one arm = one regime (label + type)
             toks += _collect(names, occ, arms, tid, source, c.label, c.arm_type, (c.drug or "").split(";"))
+            arm_ctxs.append((trial_arm_id(tid, c.label), c.label, c.arm_type, c.description))
         log.info("  [%s] %s → %s", source, tid, "; ".join(dict.fromkeys(toks)) or "(none)")
-    return names, occ, arms, processed
+    return names, occ, arms, arm_ctxs, processed
 
 
-def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tuple], list, list[str]]:
-    """(distinct names, occurrences, trial_arms, processed trial-ids) across ALL ctgov + anzctr trials: CTGov
-    deterministic (armGroups); ANZCTR via the SHARED `anzctr_regimes` (parallel). Every drug is attributed to its
-    trial ARM in `occurrences` (the trial_to_intervention provenance, keyed by trial_arm_id); every arm is
-    registered in `trial_arms`. `processed` lists every trial derived (incl. no-drug ones)."""
+def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tuple], list, list[tuple], list[str]]:
+    """(distinct names, occurrences, trial_arms, arm_contexts, processed trial-ids) across ALL ctgov + anzctr
+    trials: CTGov deterministic (armGroups); ANZCTR via the SHARED `anzctr_regimes` (parallel). Every drug is
+    attributed to its trial ARM in `occurrences` (the trial_to_intervention provenance, keyed by trial_arm_id);
+    every arm is registered in `trial_arms`; `arm_contexts` are (trial_arm_id, label, arm_type, description) tuples
+    for the Phase-2 role classifier. `processed` lists every trial derived (incl. no-drug ones)."""
     from aus_trial_universe.agentic.core.workflow import fan_out
     from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import (
         load_all_anzctr_trials,
@@ -79,6 +83,7 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tup
     names: list[str] = []
     occ: list[tuple] = []
     arms: list = []
+    arm_ctxs: list[tuple] = []
     processed: list[str] = []
     ctgov = load_all_ctgov_trials()
     for nct, _text, cohorts in ctgov:
@@ -86,6 +91,7 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tup
         toks: list[str] = []
         for c in (cohorts or []):                            # per armGroup: label + arm_type (deterministic)
             toks += _collect(names, occ, arms, nct, "ctgov", c.label, c.arm_type, (c.drug or "").split(";"))
+            arm_ctxs.append((trial_arm_id(nct, c.label), c.label, c.arm_type, c.description))
         log.info("  [ctgov] %s → %s", nct, "; ".join(dict.fromkeys(toks)) or "(none)")
     log.info("collected %d distinct CTGov drug(s) from %d trials", len(names), len(ctgov))
 
@@ -112,10 +118,11 @@ def _all_trial_drugs(client, *, use_reviewer: bool) -> tuple[list[str], list[tup
         toks: list[str] = []
         for c in regimes:
             toks += _collect(names, occ, arms, actrn, "anzctr", c.label, c.arm_type, (c.drug or "").split(";"))
+            arm_ctxs.append((trial_arm_id(actrn, c.label), c.label, c.arm_type, c.description))
         log.info("  [anzctr] %s → %s", actrn, "; ".join(dict.fromkeys(toks)) or "(none)")
     log.info("collected %d new distinct ANZCTR drug(s) (%d trials failed); %d distinct drugs total",
              len(names) - before, failed, len(names))
-    return names, occ, arms, processed
+    return names, occ, arms, arm_ctxs, processed
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -153,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     from aus_trial_universe.agentic.core.client import DiskCache, LlmClient
     from aus_trial_universe.agentic.core.paths import CACHE_DIR
     from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
-    from aus_trial_universe.agentic.tasks.drug_utility.workflow import build_drug_ref
+    from aus_trial_universe.agentic.tasks.drug_utility.workflow import ArmContext, build_drug_ref, classify_arm_roles
     from aus_trial_universe.agentic.tasks.shared.store import TrialArmStore
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
@@ -169,14 +176,15 @@ def main(argv: list[str] | None = None) -> int:
 
     occurrences: list[tuple] = []
     arms: list = []
+    arm_ctxs: list[tuple] = []
     processed: list[str] = []
     if args.drugs:
         names = [d.strip() for d in args.drugs.split(";") if d.strip()]
     elif args.from_trials:
-        names, occurrences, arms, processed = _drugs_from_trials(
+        names, occurrences, arms, arm_ctxs, processed = _drugs_from_trials(
             client, [x.strip() for x in args.from_trials.split(",") if x.strip()])
     else:  # --all-trials
-        names, occurrences, arms, processed = _all_trial_drugs(client, use_reviewer=not args.no_review)
+        names, occurrences, arms, arm_ctxs, processed = _all_trial_drugs(client, use_reviewer=not args.no_review)
     if args.limit:
         names = names[: args.limit]
         keep = set(names)
@@ -204,8 +212,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.from_trials:
         for _tid in dict.fromkeys(processed):
             removed = store.remove_trial_occurrences(_tid)
-            if removed:
-                logging.getLogger("agentic.drug_ref").info("  overwrite · %s · dropped %d stale arm row(s)", _tid, removed)
+            removed_roles = store.remove_trial_roles(_tid)
+            if removed or removed_roles:
+                logging.getLogger("agentic.drug_ref").info(
+                    "  overwrite · %s · dropped %d stale arm row(s), %d stale role row(s)", _tid, removed, removed_roles)
     log = logging.getLogger("agentic.drug_ref")
     log.info("drug-ref build · %d drug(s) · refresh=%s · review=%s\n", len(names), args.refresh_drugs, not args.no_review)
 
@@ -215,17 +225,30 @@ def main(argv: list[str] | None = None) -> int:
         use_reviewer=not args.no_review, workers=args.workers,
         checkpoint=lambda: store.save(),   # persist progress after each batch (resilient to interruption)
     )
+
+    # Phase 2 — per-arm main/auxiliary role (needs the drugs' canonical identities, so it runs AFTER the build).
+    # Trial-independent `--drugs` builds have no arms, so nothing to classify.
+    role_summary = None
+    if arm_ctxs:
+        role_summary = classify_arm_roles(
+            client, [ArmContext(*t) for t in arm_ctxs], store,
+            refresh=args.refresh_drugs, use_reviewer=not args.no_review, workers=args.workers,
+            checkpoint=lambda: store.save(),
+        )
     vdir = store.save()
 
     n_map = sum(len(v) for v in store.mappings.values())
     n_tgt = sum(len(v) for v in store.targets.values())
     n_ind = sum(len(v) for v in store.indications.values())
+    n_role = sum(len(v) for v in store.roles.values())
+    role_line = (f" · roles classified={role_summary.classified} · reused={role_summary.reused} · "
+                 f"no_drug={role_summary.no_drugs} · failed={role_summary.failed}") if role_summary else ""
     print(f"\n{'═' * 70}\ndrug-ref → {vdir}/\n"
           f"  this run:  canonicalized={summary.canonicalized} · reused_alias={summary.reused_alias} · "
           f"non_drug={summary.non_drug} · researched={summary.researched} · reused_ref={summary.reused_ref} · "
-          f"failed={summary.failed}\n"
+          f"failed={summary.failed}{role_line}\n"
           f"  resource:  {n_map} mapping rows · {len(store.occurrences)} trial-links · {len(store.refs)} drugs · "
-          f"{n_tgt} target rows · {n_ind} indication rows\n")
+          f"{n_tgt} target rows · {n_ind} indication rows · {n_role} role rows\n")
     return 0
 
 
