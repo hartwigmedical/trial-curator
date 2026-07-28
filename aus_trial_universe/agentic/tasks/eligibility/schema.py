@@ -101,6 +101,18 @@ CANCER_TYPE_MAP_COLUMNS = _columns(CancerTypeMap)
 GENE_ALTERATION_MAP_COLUMNS = _columns(GeneAlterationMap)
 MOLECULAR_SIGNATURE_MAP_COLUMNS = _columns(MolecularSignatureMap)
 
+# The denormalized per-row MAPPED view (mapping Step-1 output): a copy of interpreted_eligibility with each
+# value's vocabulary mapping slotted in next to its source cell. Same grain/rows as interpreted_eligibility (1:1,
+# joined by the provenance-stripped cell value); the two free-text columns pass through unmapped. Step-2
+# reconciliation produces `finalised_eligibility.tsv` with the same columns.
+MAPPED_ELIGIBILITY_COLUMNS = [
+    "trial_arm_id", "conjunction_index",
+    "cancer_type_interpreted", "oncotree_name", "oncotree_code",
+    "gene_alteration_interpreted", "gene_alteration_findingmodel",
+    "molecular_signature_interpreted", "molecular_signature_findingmodel",
+    "molecular_biomarker_interpreted", "prior_therapy_interpreted",
+]
+
 # The five eligibility criterion stems (column base names shared by the raw + interpreted tables).
 CRITERION_STEMS = [
     "cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy",
@@ -112,4 +124,5 @@ TABLE_FILES = {
     "cancer_type_map": "cancer_type_map.tsv",
     "gene_alteration_map": "gene_alteration_map.tsv",
     "molecular_signature_map": "molecular_signature_map.tsv",
+    "mapped_eligibility": "mapped_eligibility.tsv",
 }

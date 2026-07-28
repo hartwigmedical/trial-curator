@@ -1,0 +1,778 @@
+<title>Curating the Trial Universe &mdash; an agentic pipeline</title>
+<style>
+  /* ============ TOKENS — one system, shared with the two workflow diagrams ============ */
+  :root {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7;
+    --ink: #16212e; --ink-soft: #4d5e70; --ink-faint: #7b8a9a;
+    --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2;
+    --gen: #b0741d; --gen-bg: #f6ecd9;
+    --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 22px rgba(20,35,55,.06);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825;
+      --ink: #dde7f1; --ink-soft: #9fb0c1; --ink-faint: #6d7f91;
+      --border: #26333f; --border-strong: #364857;
+      --code: #4fc2cf; --code-bg: #10312f; --gen: #e0a53f; --gen-bg: #3a2e17;
+      --rev: #e08079; --rev-bg: #3a201d;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7; --ink: #16212e; --ink-soft: #4d5e70;
+    --ink-faint: #7b8a9a; --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2; --gen: #b0741d; --gen-bg: #f6ecd9; --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 22px rgba(20,35,55,.06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825; --ink: #dde7f1; --ink-soft: #9fb0c1;
+    --ink-faint: #6d7f91; --border: #26333f; --border-strong: #364857;
+    --code: #4fc2cf; --code-bg: #10312f; --gen: #e0a53f; --gen-bg: #3a2e17; --rev: #e08079; --rev-bg: #3a201d;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.4);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+    line-height: 1.5; -webkit-font-smoothing: antialiased; overflow: hidden; }
+
+  /* ============ DECK SCAFFOLD ============ */
+  .deck { position: fixed; inset: 0; }
+  .slide { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden;
+    opacity: 0; visibility: hidden; transform: translateY(8px);
+    transition: opacity .34s ease, transform .34s ease; }
+  .slide.active { opacity: 1; visibility: visible; transform: none; }
+  .slide-inner { min-height: 100%; box-sizing: border-box;
+    padding: clamp(28px, 6.2vh, 66px) clamp(30px, 7vw, 104px) clamp(56px, 8vh, 84px);
+    display: flex; flex-direction: column; justify-content: center; gap: clamp(12px, 1.8vh, 20px);
+    max-width: 1180px; margin: 0 auto; }
+  @media (prefers-reduced-motion: reduce) { .slide { transition: none; transform: none; } }
+
+  /* ---- shared slide furniture ---- */
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700; display: flex; align-items: center; gap: 10px; }
+  .eyebrow .k { width: 9px; height: 9px; border-radius: 3px; background: var(--code); flex: none; }
+  .eyebrow.gen .k { background: var(--gen); } .eyebrow.rev .k { background: var(--rev); }
+  h1 { font-size: clamp(34px, 5.6vw, 60px); line-height: 1.04; margin: 0; letter-spacing: -.018em;
+    text-wrap: balance; font-weight: 720; }
+  h2 { font-size: clamp(25px, 3.7vw, 40px); line-height: 1.08; margin: 0; letter-spacing: -.014em;
+    text-wrap: balance; font-weight: 680; }
+  .lead { font-size: clamp(15px, 1.55vw, 18.5px); color: var(--ink-soft); margin: 0; max-width: 66ch; }
+  .lead b, .body b { color: var(--ink); font-weight: 650; }
+  p.body { font-size: clamp(14px, 1.4vw, 16.5px); color: var(--ink-soft); margin: 0; max-width: 68ch; }
+  code, .m { font-family: var(--mono); }
+  .ic { font-family: var(--mono); font-size: .86em; background: var(--panel-2); color: var(--ink);
+    padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); white-space: nowrap; }
+  .accent-code { color: var(--code); } .accent-gen { color: var(--gen); } .accent-rev { color: var(--rev); }
+  .thesis { font-family: var(--mono); font-size: clamp(14px, 1.5vw, 18px); line-height: 1.5;
+    color: var(--ink); background: var(--code-bg); border: 1px solid color-mix(in srgb, var(--code) 40%, var(--border));
+    border-left: 4px solid var(--code); border-radius: 12px; padding: 15px 18px; max-width: 74ch; }
+  .thesis b { color: var(--code); }
+
+  /* ---- cards ---- */
+  .cards { display: grid; gap: 12px; }
+  .cards.c2 { grid-template-columns: repeat(2, 1fr); }
+  .cards.c3 { grid-template-columns: repeat(3, 1fr); }
+  .cards.c4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 820px) { .cards.c2, .cards.c3, .cards.c4 { grid-template-columns: 1fr; } }
+  .card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 15px 17px 15px 19px; box-shadow: var(--shadow); }
+  .card::before { content: ""; position: absolute; left: 0; top: 13px; bottom: 13px; width: 4px;
+    border-radius: 4px; background: var(--border-strong); }
+  .card.code::before { background: var(--code); } .card.gen::before { background: var(--gen); }
+  .card.rev::before { background: var(--rev); }
+  .card .ct { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    font-weight: 700; color: var(--ink-faint); margin-bottom: 5px; }
+  .card.code .ct { color: var(--code); } .card.gen .ct { color: var(--gen); } .card.rev .ct { color: var(--rev); }
+  .card h3 { margin: 0 0 5px; font-size: clamp(15px, 1.5vw, 17.5px); font-weight: 650; }
+  .card p { margin: 0; font-size: clamp(12.5px, 1.25vw, 14px); color: var(--ink-soft); }
+  .card p + p { margin-top: 7px; }
+  .card p b { color: var(--ink); }
+
+  /* ---- bullet list ---- */
+  ul.pts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; max-width: 74ch; }
+  ul.pts li { position: relative; padding-left: 22px; font-size: clamp(13.5px, 1.35vw, 16px); color: var(--ink-soft); }
+  ul.pts li::before { content: "\2192"; position: absolute; left: 0; top: 0; color: var(--code); font-weight: 700; }
+  ul.pts li b { color: var(--ink); font-weight: 650; }
+  ul.pts.gen li::before { color: var(--gen); } ul.pts.rev li::before { color: var(--rev); }
+
+  /* ---- stat tiles ---- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 15px 17px;
+    box-shadow: var(--shadow); }
+  .stat .n { font-size: clamp(26px, 3.4vw, 40px); font-weight: 720; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; line-height: 1; }
+  .stat .n .u { font-size: .5em; font-weight: 600; color: var(--ink-faint); letter-spacing: 0; }
+  .stat .l { margin-top: 8px; font-size: 12.5px; color: var(--ink-soft); }
+  .stat.code .n { color: var(--code); } .stat.gen .n { color: var(--gen); } .stat.rev .n { color: var(--rev); }
+
+  /* ---- table ---- */
+  .tblwrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; background: var(--panel); font-size: clamp(12px, 1.2vw, 14px); }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700; background: var(--panel-2); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.dim { color: var(--rev); } td.win { color: var(--code); }
+  td .lab { font-weight: 650; color: var(--ink); }
+  td b { color: var(--ink); }
+
+  /* ---- doer/reviewer loop motif ---- */
+  .loop { border: 2px solid color-mix(in srgb, var(--gen) 40%, var(--border)); border-radius: 16px;
+    background: var(--panel); box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .box { border: 1.6px solid var(--border); border-radius: 12px; padding: 12px 15px; background: var(--panel-2); }
+  .box.gen { border-color: color-mix(in srgb, var(--gen) 55%, var(--border)); }
+  .box.rev { border-color: color-mix(in srgb, var(--rev) 55%, var(--border)); }
+  .box .bh { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; }
+  .box.gen .bh { color: var(--gen); } .box.rev .bh { color: var(--rev); }
+  .box p { margin: 5px 0 0; font-size: clamp(12.5px, 1.25vw, 14px); color: var(--ink-soft); }
+  .box p b { color: var(--ink); }
+  .flow-ar { text-align: center; font-family: var(--mono); color: var(--ink-faint); font-size: 13px; }
+  .flow-ar .a { color: var(--gen); font-size: 16px; }
+  .refine { display: flex; align-items: center; gap: 10px; font-size: clamp(12.5px,1.25vw,14px); color: var(--rev);
+    background: var(--rev-bg); border: 1px dashed var(--rev); border-radius: 11px; padding: 9px 14px; }
+  .refine .ico { font-family: var(--mono); font-weight: 700; font-size: 16px; }
+  .refine b { color: var(--ink); }
+
+  /* ---- pipeline / workflow ---- */
+  .pipe { display: flex; flex-direction: column; gap: 12px; }
+  .inject { text-align: center; font-family: var(--mono); font-size: 12.5px; letter-spacing: .04em;
+    color: var(--ink); background: var(--panel-2); border: 1px solid var(--border); border-radius: 11px; padding: 10px 14px; }
+  .inject b { color: var(--code); }
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 880px) { .lanes { grid-template-columns: 1fr; } }
+  .lane { border: 1.5px solid var(--border); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow);
+    padding: 13px; display: flex; flex-direction: column; gap: 7px; }
+  .lane.elig { border-color: color-mix(in srgb, var(--code) 30%, var(--border)); }
+  .lane.drug { border-color: color-mix(in srgb, var(--gen) 30%, var(--border)); }
+  .lane-h { font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; }
+  .lane.elig .lane-h { color: var(--code); } .lane.drug .lane-h { color: var(--gen); }
+  .step { border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 9px 12px; }
+  .step .st { font-size: clamp(12.5px, 1.2vw, 14px); font-weight: 620; color: var(--ink); }
+  .down { text-align: center; color: var(--border-strong); font-size: 13px; line-height: .6; }
+  .spine { border: 1.5px dashed color-mix(in srgb, var(--code) 45%, var(--border)); border-radius: 12px;
+    background: var(--code-bg); padding: 11px 14px; font-size: clamp(12px,1.2vw,13.5px); color: var(--ink-soft); text-align: center; }
+  .spine b { color: var(--code); } .spine .ic { background: var(--panel); }
+
+  /* ---- agent-overlay chips (workflow slide) ---- */
+  .agents { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .agents .a { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; padding: 2px 7px; border-radius: 999px; }
+  .agents .a.doer { color: var(--gen); background: var(--gen-bg); }
+  .agents .a.rev { color: var(--rev); background: var(--rev-bg); }
+  .agents .a.code { color: var(--code); background: var(--code-bg); }
+  .agents .lk { color: var(--ink-faint); font-family: var(--mono); font-size: 12px; }
+  .agents .loopi { color: var(--rev); font-family: var(--mono); font-weight: 700; font-size: 14px; }
+
+  /* ---- evaluator-optimizer loop diagram, with a return arc (slide 6) ---- */
+  .eo { position: relative; }
+  .eo-arc { position: absolute; left: 15%; right: 15%; top: 0; height: 38px;
+    border: 2px dashed var(--rev); border-bottom: none; border-radius: 12px 12px 0 0; pointer-events: none; }
+  .eo-arc .lbl { position: absolute; top: -11px; left: 50%; transform: translateX(-50%); background: var(--bg);
+    padding: 0 10px; font-family: var(--mono); font-size: clamp(10.5px, 1.1vw, 12.5px); color: var(--rev);
+    white-space: nowrap; font-weight: 600; }
+  .eo-arc .hd { position: absolute; left: -7px; bottom: -9px; width: 0; height: 0;
+    border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 9px solid var(--rev); }
+  .eo-row { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 8px; align-items: stretch; margin-top: 48px; }
+  .node { border: 1.6px solid var(--border); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow);
+    padding: 14px 15px; display: flex; flex-direction: column; }
+  .node.gen { border-color: color-mix(in srgb, var(--gen) 55%, var(--border)); }
+  .node.rev { border-color: color-mix(in srgb, var(--rev) 55%, var(--border)); }
+  .node.gate { border-color: color-mix(in srgb, var(--code) 45%, var(--border)); background: var(--panel-2); }
+  .node .nh { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
+  .node.gen .nh { color: var(--gen); } .node.rev .nh { color: var(--rev); } .node.gate .nh { color: var(--code); }
+  .node p { margin: 0; font-size: clamp(12px, 1.2vw, 13.5px); color: var(--ink-soft); }
+  .node p b { color: var(--ink); font-weight: 650; }
+  .ar { align-self: center; font-family: var(--mono); font-size: 22px; color: var(--ink-faint);
+    display: flex; flex-direction: column; align-items: center; line-height: 1; }
+  .ar .al { font-size: 9.5px; letter-spacing: .05em; text-transform: uppercase; margin-top: 3px; }
+  .rvchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .rvchips .c { font-family: var(--mono); font-size: clamp(10px, 1.1vw, 12px); font-weight: 600; color: var(--rev);
+    background: var(--rev-bg); border-radius: 999px; padding: 3px 10px; }
+  .eo-fallback { display: none; }
+  @media (max-width: 860px) {
+    .eo-arc { display: none; }
+    .eo-row { grid-template-columns: 1fr; margin-top: 6px; }
+    .ar { transform: rotate(90deg); }
+    .eo-fallback { display: block; }
+  }
+
+  /* ---- legend ---- */
+  .legend { display: flex; flex-wrap: wrap; gap: 20px; padding: 13px 17px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 13px; box-shadow: var(--shadow); }
+  .legend .it { display: flex; align-items: center; gap: 10px; font-size: clamp(12.5px,1.3vw,15px); color: var(--ink-soft); }
+  .legend .it b { color: var(--ink); font-weight: 650; }
+  .dot { width: 13px; height: 13px; border-radius: 4px; flex: none; }
+  .dot.code { background: var(--code); } .dot.gen { background: var(--gen); } .dot.rev { background: var(--rev); }
+
+  /* ---- note / example ---- */
+  .note { border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--panel-2);
+    padding: 12px 15px; font-size: clamp(12.5px,1.25vw,14px); color: var(--ink-soft); max-width: 82ch; }
+  .note b { color: var(--ink); } .note .h { font-family: var(--mono); font-size: 11px; letter-spacing: .07em;
+    text-transform: uppercase; font-weight: 700; color: var(--ink-faint); display: block; margin-bottom: 5px; }
+  .ex { font-family: var(--mono); font-size: clamp(11px,1.15vw,13px); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; color: var(--ink-soft); overflow-x: auto;
+    white-space: nowrap; }
+  .ex b { color: var(--gen); } .ex .neg { color: var(--rev); } .ex .ok { color: var(--code); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 820px) { .row2 { grid-template-columns: 1fr; } }
+  .kv { display: flex; flex-direction: column; gap: 3px; }
+
+  /* ---- title slide ---- */
+  .title-wrap { gap: clamp(16px, 3vh, 30px); }
+
+  /* ---- roadmap + act dividers ---- */
+  .roadmap { display: flex; flex-direction: column; gap: 13px; }
+  .rm-item { display: grid; grid-template-columns: auto 1fr; gap: clamp(14px,2vw,22px); align-items: baseline;
+    padding: 15px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+  .rm-item .num { font-family: var(--mono); font-size: clamp(21px, 3vw, 33px); font-weight: 720; color: var(--ink-faint);
+    letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .rm-item h3 { margin: 0 0 3px; font-size: clamp(16px, 1.9vw, 22px); font-weight: 660; }
+  .rm-item p { margin: 0; font-size: clamp(13px, 1.3vw, 15.5px); color: var(--ink-soft); }
+  .rm-item.active { border-color: color-mix(in srgb, var(--code) 55%, var(--border));
+    box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--code) 35%, transparent); }
+  .rm-item.active .num { color: var(--code); }
+  .rm-item.dim { opacity: .48; }
+
+  /* ---- fragments ---- */
+  .frag { opacity: 0; transition: opacity .3s ease; }
+  .frag.shown { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .frag { transition: none; } }
+
+  /* ============ NAV / CHROME ============ */
+  .progress { position: fixed; left: 0; bottom: 0; height: 3px; background: var(--code); width: 0;
+    transition: width .34s ease; z-index: 40; }
+  .chrome { position: fixed; right: 16px; bottom: 12px; display: flex; align-items: center; gap: 8px; z-index: 40;
+    font-family: var(--mono); }
+  .counter { font-size: 12px; color: var(--ink-faint); letter-spacing: .04em; font-variant-numeric: tabular-nums;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; box-shadow: var(--shadow); }
+  .navbtn { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--ink-soft); cursor: pointer; font-size: 15px; line-height: 1; box-shadow: var(--shadow);
+    display: grid; place-items: center; }
+  .navbtn:hover { color: var(--ink); border-color: var(--border-strong); }
+  .navbtn:focus-visible, .slide a:focus-visible { outline: 2px solid var(--code); outline-offset: 2px; }
+  .section-tag { position: fixed; left: 16px; top: 14px; font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-faint); z-index: 40; }
+  .hint { position: fixed; left: 16px; bottom: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint);
+    z-index: 40; opacity: .8; }
+  @media (max-width: 620px) { .hint, .section-tag { display: none; } }
+</style>
+
+<div class="progress" id="progress"></div>
+<div class="section-tag" id="sectionTag"></div>
+<div class="hint">&larr; &rarr; navigate &middot; F fullscreen</div>
+<div class="chrome">
+  <button class="navbtn" id="prevBtn" aria-label="Previous slide">&#8249;</button>
+  <span class="counter" id="counter">1 / 19</span>
+  <button class="navbtn" id="nextBtn" aria-label="Next slide">&#8250;</button>
+</div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide" data-section="">
+    <div class="slide-inner title-wrap">
+      <div class="eyebrow"><span class="k"></span> v2 agentic pipeline &middot; 28 July 2026</div>
+      <h1>Curating the trial universe<br>with an agentic pipeline</h1>
+      <p class="lead">Turning ~2,000 Australian and New Zealand cancer trials of <b>free-text</b> eligibility and drug information into
+        a resource that is <b>structured, auditable, and interpretable by the matching engine</b> &mdash; using an
+        <b>Evaluator&ndash;optimizer</b> agent workflow, on a deterministic orchestration layer.</p>
+      <div class="legend">
+        <div class="it"><span class="dot code"></span> <b>Deterministic code</b> &mdash; owns control flow</div>
+        <div class="it"><span class="dot gen"></span> <b>LLM &middot; doer</b> &mdash; extract / map / research</div>
+        <div class="it"><span class="dot rev"></span> <b>LLM &middot; reviewer</b> &mdash; verify + critique</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · ROADMAP -->
+  <section class="slide" data-section="Roadmap">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Roadmap</div>
+      <h2>The presentation in three acts</h2>
+      <div class="roadmap">
+        <div class="rm-item"><div class="num">01</div><div><h3>The problem</h3>
+          <p>What we're building &mdash; and what the old pydantic curator couldn't do. <i>Brief.</i></p></div></div>
+        <div class="rm-item"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3>
+          <p>The evaluator&ndash;optimizer loop, the workflow of key stages, why it works.</p></div></div>
+        <div class="rm-item"><div class="num">03</div><div><h3>Practice &amp; Implementation</h3>
+          <p>How it actually works, and what we learned building it &mdash; with examples from real trials.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · ACT 1 · THE PROBLEM -->
+  <section class="slide" data-section="Act 1 · Problem">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 1 &middot; the problem</div>
+      <h2>From free text to a structured, matchable resource</h2>
+      <p class="lead">The key sections of each trial arrive as <b>free text</b>. We transform them into a <b>structured resource file with
+        controlled vocabulary</b> for the downstream matching engine.</p>
+      <div class="cards c3">
+        <div class="card code"><div class="ct">Section 1</div><h3>Basic details</h3>
+          <p>Recruitment status, phase, sponsor, locations &mdash; the basic info fields, carried through
+            deterministically.</p></div>
+        <div class="card gen"><div class="ct">Section 2</div><h3>Eligibility</h3>
+          <p>Who qualifies &mdash; cancer type, gene alterations, biomarkers, prior therapy &mdash; as structured logic in
+            controlled vocabulary (OncoTree, finding-model syntax).</p></div>
+        <div class="card gen"><div class="ct">Section 3</div><h3>Drug utility</h3>
+          <p>The interventional drugs &mdash; canonical identity, class, targets, and TGA / PBS approval status.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · ACT 1 · SHORTCOMINGS OF THE OLD CURATOR -->
+  <section class="slide" data-section="Act 1 · Problem">
+    <div class="slide-inner">
+      <div class="eyebrow rev"><span class="k"></span> Act 1 &middot; what came before</div>
+      <h2>Where the old <span class="accent-rev">pydantic curator</span> fell short</h2>
+      <p class="lead">The v1 curator got us started, but four problems it couldn't adequately solve are exactly what
+        motivated the rewrite.</p>
+      <div class="cards c2">
+        <div class="card rev"><div class="ct">Problem 1</div><h3>No automated verification</h3>
+          <p>A linear chain of one-shot LLM calls &mdash; requires a human reviewer. Virtually impossible to manually detect all errors across ~2,000 trials.</p></div>
+        <div class="card rev"><div class="ct">Problem 2</div><h3>No multiple eligibility criteria combinations</h3>
+          <p>E.g. cancer type and gene alterations are treated as independent criteria. Could not handle cancer &times; gene combinations in more complex trials/cohorts without manual overwriting.</p></div>
+        <div class="card rev"><div class="ct">Problem 3</div><h3>No external web search capability for drug enrichment</h3>
+          <p>Drug annotations &mdash; drug class, target&ndash;mechanism, and <b>TGA / PBS</b> status &mdash; can't be filled from the protocol
+            text alone.</p></div>
+        <div class="card rev"><div class="ct">Problem 4</div><h3>Heavy reliance on post-processing manual correction and handcrafted mapping files</h3>
+          <p>No reliable means of transforming input text into our controlled vocabulary without manually created mapping files.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · ACT 2 DIVIDER -->
+  <section class="slide" data-section="Act 2 · Theory">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 2</div>
+      <h2>The solution &mdash; Theory &amp; Intent</h2>
+      <div class="roadmap">
+        <div class="rm-item dim"><div class="num">01</div><div><h3>The problem</h3></div></div>
+        <div class="rm-item active"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3>
+          <p>The evaluator&ndash;optimizer loop, the workflow of key stages, why it works.</p></div></div>
+        <div class="rm-item dim"><div class="num">03</div><div><h3>Practice &amp; Implementation</h3></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · ACT 2 · THE LOOP -->
+  <section class="slide" data-section="Act 2 · Theory">
+    <div class="slide-inner">
+      <div class="eyebrow gen"><span class="k"></span> Act 2 &middot; the chosen solution</div>
+      <h2>An evaluator&ndash;optimizer loop &mdash; a <span class="accent-gen">doer</span> and its <span class="accent-rev">reviewers</span></h2>
+      <p class="lead">A doer <b>generates</b> the answer; one or more reviewer agents <b>evaluate</b> it against the source;
+        if a reviewer flags a problem, its critique <b>feeds back</b> and the doer re-generates.</p>
+
+      <div class="eo">
+        <div class="eo-arc"><span class="lbl">&#10007; a reviewer flags a problem &nbsp;&rarr;&nbsp; back to the doer &middot; re-generate (&le; 6 attempts)</span><span class="hd"></span></div>
+        <div class="eo-row">
+          <div class="node gen"><div class="nh">doer</div><p>Reads the source, emits the <b>whole candidate in one pass</b> &mdash; a DNF table, a drug record, a mapping.</p></div>
+          <div class="ar">&rarr;<span class="al">candidate</span></div>
+          <div class="node rev"><div class="nh">reviewer panel</div><p><b>Several focused agents</b>, each judging <b>one dimension</b>, in parallel &rarr; verdict + problems.</p></div>
+          <div class="ar">&rarr;<span class="al">verdict</span></div>
+          <div class="node gate"><div class="nh">decision</div><p><b class="accent-code">&#10003; all clear</b> &rarr; done.<br><b class="accent-rev">&#10007; a problem</b> &rarr; loop back.</p></div>
+        </div>
+        <div class="eo-fallback note"><span style="color:var(--rev);font-weight:700;font-family:var(--mono)">&#8634;</span> On a problem, the loop returns to the doer to re-generate (&le; 6 attempts).</div>
+      </div>
+
+      <div class="card rev" style="max-width:none">
+        <div class="ct">Why a panel &mdash; not a single reviewer agent</div>
+        <p>When a stage has <b>several independent things to check</b>, the review <b>fans out</b>: each focused agent verifies
+          <b>one</b> dimension, in parallel. A narrow, single-dimension check is <b>easier and more reliable</b> than one agent
+          judging everything at once &mdash; the same generation/verification asymmetry, applied to the reviewer itself.
+          <b>Extraction runs a 5-agent panel</b>; simpler stages (mapping, drug) need only one reviewer.</p>
+        <div class="rvchips"><span class="c">cancer type</span><span class="c">molecular</span><span class="c">structure</span><span class="c">prior therapy</span><span class="c">drug</span></div>
+      </div>
+
+      <div class="note"><span class="h">blocking vs advisory</span> Most reviewers are <b>blocking</b> &mdash; a flagged problem
+        sends the work back to the doer. A few are <b>advisory</b> (e.g. the drug check): they annotate, but don't trigger a re-generation.</div>
+    </div>
+  </section>
+
+  <!-- 7 · ACT 2 · THE WORKFLOW DIAGRAM -->
+  <section class="slide" data-section="Act 2 · Theory">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 2 &middot; the workflow</div>
+      <h2>The same loop runs inside every LLM stage</h2>
+      <div class="pipe">
+        <div class="inject">TRIAL INJECTION &middot; <b>CTGov</b> + <b>ANZCTR</b> &mdash; source auto-detected, assembled into one labelled document</div>
+        <div class="down">&#9662;</div>
+        <div class="lanes">
+          <div class="lane elig">
+            <div class="lane-h">Eligibility path</div>
+            <div class="step"><div class="st">Assemble</div><div class="agents"><span class="a code">code &middot; no LLM</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Arm identification &rarr; <span class="ic">trial_arms</span></div><div class="agents"><span class="a code">code</span><span class="lk">+</span><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Extraction &middot; verbatim &rarr; DNF</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer &times;5</span><span class="loopi">&#8634;</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Mapping &middot; OncoTree / finding-model</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Write &middot; 3NF tables</div><div class="agents"><span class="a code">code &middot; no LLM</span></div></div>
+          </div>
+          <div class="lane drug">
+            <div class="lane-h">Drug utility path</div>
+            <div class="step"><div class="st">Canonicalize &middot; identity</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Annotate &middot; enrichment</div><div class="agents"><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Approvals &middot; TGA / PBS</div><div class="agents"><span class="a doer">doer &middot; web</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div>
+            <div class="down">&#9662;</div>
+            <div class="step"><div class="st">Persist &middot; 5 tables</div><div class="agents"><span class="a code">code &middot; no LLM</span></div></div>
+          </div>
+        </div>
+        <div class="spine">both paths share the <b>trial_arms</b> registry (<span class="ic">trial_arm_id</span>) &nbsp;&rarr;&nbsp; joined into <b>combined.tsv</b> for the matcher</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · ACT 2 · WHY IT WORKS (NP) -->
+  <section class="slide" data-section="Act 2 · Theory">
+    <div class="slide-inner">
+      <div class="eyebrow rev"><span class="k"></span> Act 2 &middot; why it works</div>
+      <h2>Generation is a search problem. Verification is checking a certificate.</h2>
+      <div class="row2">
+        <div class="card gen"><div class="ct">Doer &middot; solves</div><h3>Construct a faithful DNF</h3>
+          <p>Across <b>5 columns &times; cohorts &times; provenance &times; inline negation</b>, jointly. Combinatorial;
+            its natural failure mode is <b>over-enumeration</b> &mdash; multiplying a boolean expression out and losing
+            which ORs are independent axes vs. mutually-exclusive alternatives.</p></div>
+        <div class="card rev"><div class="ct">Reviewer &middot; checks</div><h3>Is <i>this dimension</i> faithful?</h3>
+          <p>Given the finished table and the source, judge <b>one</b> axis. A far cheaper task &mdash; a
+            <b>lower complexity class</b>. Like <b>NP</b>: a solution is verifiable in P even when finding it isn't.
+            (The same reason peer review works: writing the proof &#8811; checking it.)</p></div>
+      </div>
+      <div class="thesis"><b>verification &lt; generation</b> &mdash; but only with an <b>adversarial, fresh-pass,
+        independent</b> checker that can <b>see the whole certificate</b>.</div>
+    </div>
+  </section>
+
+  <!-- 9 · ACT 2 · KEY FEATURES -->
+  <section class="slide" data-section="Act 2 · Theory">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 2 &middot; key features</div>
+      <h2>Six features that make the workflow work</h2>
+      <div class="cards c3">
+        <div class="card code"><div class="ct">Orchestration</div><h3>Deterministic scaffold</h3>
+          <p>Plain Python owns control flow &mdash; parallelism, the loop, durable saves, the join. The LLM never orchestrates.</p></div>
+        <div class="card gen"><div class="ct">The engine</div><h3>Doer &rarr; reviewer loop</h3>
+          <p>One shared refine harness across extraction, mapping and drug &mdash; generate, evaluate, refine.</p></div>
+        <div class="card rev"><div class="ct">Correctness invariant</div><h3>Reviewer only advises</h3>
+          <p>The reviewer returns verdict + problems, never a rewrite; the doer is the <b>sole writer</b>.</p></div>
+        <div class="card gen"><div class="ct">Decomposition</div><h3>One agent per task</h3>
+          <p>Split only genuinely independent work; whole DNF rows stay in one doer; independent checks fan out.</p></div>
+        <div class="card code"><div class="ct">Speed &amp; determinism</div><h3>Content-addressed cache</h3>
+          <p>Identical request &rarr; identical stored output, no API call. Reproducible, near-instant re-runs, no cost on hits.</p></div>
+        <div class="card code"><div class="ct">Output</div><h3>3NF on a shared key</h3>
+          <p>Relational tables joined on <span class="ic">trial_arm_id</span>; a flat <span class="ic">combined.tsv</span> for the matcher.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · ACT 3 DIVIDER -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 3</div>
+      <h2>Practice &amp; Implementation</h2>
+      <div class="roadmap">
+        <div class="rm-item dim"><div class="num">01</div><div><h3>The problem</h3></div></div>
+        <div class="rm-item dim"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3></div></div>
+        <div class="rm-item active"><div class="num">03</div><div><h3>Practice &amp; Implementation</h3>
+          <p>How it actually works, and what we learned building it &mdash; with examples from real trials.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 · ACT 3 · SIOPEN LEARNING -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow rev"><span class="k"></span> Act 3 &middot; learning &middot; the reviewer's vantage point</div>
+      <h2>SIOPEN <span class="ic">NCT04221035</span> &mdash; a real over-enumeration</h2>
+      <p class="lead">The source states one gene criterion: <b>MYCN amplification OR focal MYC OR MYCL amplification</b>
+        &mdash; <b>three alternatives</b>; a patient needs one.</p>
+      <div class="row2">
+        <div class="kv">
+          <div class="note"><span class="h">What the doer produced</span>
+            <b>9 gene values</b>, including 6 spurious AND-pairs like <span class="ex" style="white-space:normal"><span class="neg">MYCN amp AND focal MYCL amp</span></span>
+            &mdash; and both orderings of each. <b>84 / 218 rows (38%)</b> carried a fabricated conjunction.</div>
+          <div class="note frag"><span class="h">Why nothing caught it</span>
+            It's <b>satisfiable</b> (a patient <i>could</i> have two amplifications) &mdash; so the deterministic validator
+            can't flag it. Only comparison to the source reveals it. <b>The reviewer panel missed it too</b> &mdash; every
+            reviewer judged cells, none saw the <b>deduplicated set vs. the source's true alternative count</b>.</div>
+        </div>
+        <div class="kv">
+          <div class="note frag"><span class="h">The fix &mdash; architectural, not a prompt</span>
+            Add a reviewer with the <b>aggregate vantage point</b>: it sees the whole distributed DNF and counts
+            alternatives-vs-source. Plus a deterministic commutative-duplicate dedup (<span class="ic">A AND B == B AND A</span>).</div>
+          <div class="stats frag">
+            <div class="stat rev"><div class="n">218<span class="u"> rows</span></div><div class="l">before &mdash; fabricated</div></div>
+            <div class="stat code"><div class="n">45<span class="u"> rows</span></div><div class="l">after &mdash; faithful</div></div>
+          </div>
+          <div class="note frag"><span class="h">Same lesson, two more cases</span>
+            Cohort cross-product blow-up <b>680&rarr;32</b> rows (587 impossible &rarr; 0); prior-therapy subsuming twins
+            <b>108&rarr;47</b>. All are <b>whole-output</b> properties a forward generator can't see in itself.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 · ACT 3 · THE CONTRACT -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 3 &middot; the contract in practice</div>
+      <h2>The reviewer only advises. The doer is the sole writer.</h2>
+      <div class="loop">
+        <div class="box gen"><div class="bh">doer &middot; generates / re-generates</div>
+          <p>The only thing that ever writes a value. On a failure it gets its <b>own prior table + only the flagged
+            issues</b>, and keeps unflagged rows verbatim (incremental repair &mdash; preserves correct work, aids convergence).</p></div>
+        <div class="flow-ar"><span class="a">&#9660;</span> candidate</div>
+        <div class="box rev"><div class="bh">reviewer &middot; verdict + problems only</div>
+          <p><span class="ic">ReviewVerdict</span> has <b>no output field</b>. It critiques; it never rewrites. Every
+            check &mdash; deterministic validators <b>and</b> the LLM reviewer &mdash; returns only <i>faithful? + problems</i>.</p></div>
+        <div class="refine"><span class="ico">&#8634;</span><div><b>Refine</b> &mdash; feed the critique back; the doer re-generates. Bounded (&le; 6 attempts), returns the
+          <b>best</b> attempt, stops early on convergence or an exact-repeat cycle.</div></div>
+      </div>
+      <div class="row2">
+        <div class="note"><span class="h">Why one writer</span> Every accepted value was <b>re-checked after it was
+          written</b>, and no unchecked edit can reach the output. It's <b>Reflexion, not an editor</b>.</div>
+        <div class="note"><span class="h">Honest trade-off</span> It pays <b>full re-generation</b> on every fail, and can
+          <b>stall convergence</b> on the hardest trials. We accept that for the correctness guarantee.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13 · ACT 3 · ELIGIBILITY PATH -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 3 &middot; the eligibility path</div>
+      <h2>Verbatim &rarr; DNF &rarr; map &rarr; reconcile</h2>
+      <div class="row2">
+        <div class="kv">
+          <ul class="pts">
+            <li><b>Verbatim first.</b> Extract the criteria <i>quoted</i>, tagged with the section they came from &mdash;
+              the audit anchor a human can check against the protocol.</li>
+            <li><b>Interpret to DNF.</b> Rows are ORed, cells are ANDed, exclusions inline as <span class="ic">NOT()</span>.
+              One row = one satisfiable <b>(trial, arm)</b> conjunction &mdash; self-contained for the matcher.</li>
+            <li><b>Map</b> each cell to a controlled representation (OncoTree, finding-model).</li>
+            <li><b>Reconcile</b> across the whole run so semantically-equivalent inputs never get different codes.</li>
+          </ul>
+        </div>
+        <div class="kv">
+          <div class="note"><span class="h">A DNF row, concretely</span>
+            <div class="ex" style="white-space:normal">[<b>C1</b>] cancer_type = <span class="ok">"ES-SCLC AND <span class="neg">NOT(complex SCLC)</span>"</span></div>
+            <div class="ex" style="white-space:normal; margin-top:6px">[<b>C1</b>] molecular_biomarker = <span class="ok">"HR+ AND HER2-"</span></div>
+            <div class="ex" style="white-space:normal; margin-top:6px">[<b>trial-wide</b>] prior_therapy = <span class="ok"><span class="neg">NOT(prior anti-PD-1)</span></span></div>
+          </div>
+          <div class="note"><span class="h">Why DNF (not a boolean tree)</span> The downstream matcher wants
+            <b>flat, self-contained rows</b> it can test one at a time &mdash; not an arbitrary AND/OR/NOT/IF expression
+            tree to interpret. DNF is the contract.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 · ACT 3 · DRUG PATH + TRUST BOUNDARY -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow gen"><span class="k"></span> Act 3 &middot; the drug path &amp; trust boundaries</div>
+      <h2>Researched once per drug &mdash; and the exact facts never touch the model</h2>
+      <div class="cards c3">
+        <div class="card gen"><div class="ct">Stage 1 &middot; identity</div><h3>Canonicalize</h3>
+          <p>Brand / code &rarr; INN; a regimen splits into components. <span class="accent-code">rxcui</span> resolved by lookup.</p></div>
+        <div class="card gen"><div class="ct">Stage 2 &middot; enrichment</div><h3>Annotate</h3>
+          <p>Modality, <b>(target, action)</b> pairs, class. <span class="accent-code">POTTR class + ATC</span> by deterministic lookup.</p></div>
+        <div class="card gen"><div class="ct">Stage 3 &middot; regulatory</div><h3>Approvals</h3>
+          <p><b>TGA / PBS</b> per indication via <b>web search</b> on official sources, each with an evidence link.</p></div>
+      </div>
+      <div class="thesis"><b>Trust boundary</b> &mdash; the LLM supplies judgement and language; <b>code</b> supplies identity.
+        <span class="ic">rxcui</span> / ATC / POTTR class are <b>lookups, never guesses</b>; the reviewer judges plausibility from its
+        own knowledge, it does not re-search. And each distinct drug is researched <b>once</b> (~2,400 raw &rarr; 1,275 canonicals).</div>
+    </div>
+  </section>
+
+  <!-- 15 · ACT 3 · 3NF DATA MODEL -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 3 &middot; the data model</div>
+      <h2>3NF relational tables on one shared join key</h2>
+      <p class="lead">Arm identity is a <b>first-class shared thing</b>, not embedded per path. Both paths write arms to one
+        central <span class="ic">trial_arms</span> registry and link to it by a deterministic slug.</p>
+      <div class="row2">
+        <div class="kv">
+          <div class="card code"><div class="ct">The join key</div><h3><span class="ic">trial_arm_id = {trialId}::{arm}</span></h3>
+            <p>A <b>deterministic slug</b>, chosen over an auto-increment surrogate: reproducible with no sequence
+              authority &rarr; safe for parallel workers, idempotent on re-runs, and human-readable.</p></div>
+          <div class="note"><span class="h">The shape</span> Eligibility = 2 content tables + 3 map tables. Drug = 5 tables.
+            One shared arm registry. Denormalized <span class="ic">combined.tsv</span> is <b>materialized</b> for the matcher.</div>
+        </div>
+        <div class="kv">
+          <ul class="pts">
+            <li><b>Identity separated from enrichment</b> &mdash; &ldquo;which drug is this?&rdquo; is a different table from
+              &ldquo;what is this drug?&rdquo;</li>
+            <li><b>No drug facts in the eligibility store</b> &mdash; drugs join in by <span class="ic">trial_arm_id</span>.</li>
+            <li><b>Each stage checkpoints per trial</b> &mdash; a crash loses only in-flight items.</li>
+            <li><b>One axis to query</b> &mdash; (target, action) pairs, OncoTree codes, finding-model, TGA/PBS all hang off
+              the same key.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 16 · ACT 3 · CACHE / DETERMINISM -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Act 3 &middot; determinism</div>
+      <h2>You can't pin the temperature. So make the <span class="accent-code">system</span> deterministic.</h2>
+      <p class="lead">gpt-5.x won't even accept <span class="ic">temperature</span> or <span class="ic">seed</span> &mdash;
+        we can't constrain the model's sampling. So determinism lives <b>one layer out</b>: a content-addressed response
+        cache that memoizes at the request boundary.</p>
+      <div class="cards c2">
+        <div class="card code"><div class="ct">How it works</div>
+          <p>Key = <span class="ic">sha256({model, instructions, input, schema})</span>. <b>Hit</b> &rarr; return the stored
+            response, <b>no API call</b>. <b>Miss</b> &rarr; call the model, then store. Identical request &rArr; identical
+            output &mdash; reproducibility without touching the sampler.</p></div>
+        <div class="card code"><div class="ct">Three wins, one mechanism</div>
+          <p><b>Determinism</b> (re-runs are byte-stable) &middot; <b>speed</b> (a re-run is near-instant &mdash; 9/10 complex
+            trials re-ran in ~1s) &middot; <b>cost</b> (a hit spends nothing, including the expensive web search).</p></div>
+      </div>
+      <div class="note"><span class="h">Correctness under change &mdash; prune by prompt provenance</span> Each entry stores
+        its agent's <span class="ic">prompt_sha</span>. Change a prompt and its fingerprint changes &mdash; stale entries are
+        garbage-collected automatically, so a re-run recomputes exactly what the edit affected and nothing else.</div>
+    </div>
+  </section>
+
+  <!-- 17 · ACT 3 · PROMPTS AS ML MODELS -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow gen"><span class="k"></span> Act 3 &middot; how prompts are built</div>
+      <h2>Prompts are developed like ML models &mdash; train / validate / test</h2>
+      <p class="lead">Hand-curated answer sets are <b>held out as verification data</b>, not ingested into the prompt. A
+        prompt carries grammar/ontology + ~8&ndash;12 examples; the curated spreadsheets grade it.</p>
+      <div class="cards c3">
+        <div class="card gen"><div class="ct">1 &middot; train</div><h3>Live-test &amp; self-review</h3>
+          <p>Run a trial sample, read every output, find the failure patterns.</p></div>
+        <div class="card gen"><div class="ct">2 &middot; fix</div><h3>Principle-level only</h3>
+          <p>A rule + &le;1 example &mdash; <b>never a per-case patch</b>. If it can't be stated as a principle, it doesn't go in.</p></div>
+        <div class="card rev"><div class="ct">3 &middot; validate</div><h3>On a <b>disjoint</b> sample</h3>
+          <p>A larger, non-overlapping set confirms the fix generalised &mdash; guarding against overfitting the prompt.</p></div>
+      </div>
+      <div class="stats">
+        <div class="stat code"><div class="n">99.7<span class="u">%</span></div><div class="l">cancer_type &mdash; 100 disjoint trials (288 values)</div></div>
+        <div class="stat code"><div class="n">569<span class="u">/572</span></div><div class="l">gene_alteration &mdash; combined faithful</div></div>
+        <div class="stat code"><div class="n">173<span class="u">/173</span></div><div class="l">molecular_signature &mdash; hand-verified</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 18 · ACT 3 · KNOWN LIMITS -->
+  <section class="slide" data-section="Act 3 · Practice">
+    <div class="slide-inner">
+      <div class="eyebrow rev"><span class="k"></span> Act 3 &middot; known limits &middot; no hype</div>
+      <h2>Where it's honest about falling short</h2>
+      <div class="row2">
+        <div class="kv">
+          <div class="stat rev" style="max-width:320px"><div class="n">219<span class="u"> / 1,999</span></div><div class="l">trials finish <span class="ic">faithful=False</span> &mdash; best-effort on hard multi-cohort trials; the extractor exhausts its 6-attempt budget. Output is still written &amp; logged, never silently dropped.</div></div>
+          <ul class="pts rev" style="margin-top:12px">
+            <li><b>Convergence tail</b> &mdash; deep sub-cohort trials return best-of-6; a &ldquo;patience&rdquo; early-stop would trim the waste.</li>
+            <li><b>cancer_type purity</b> &mdash; occasionally ANDs a same-type refinement the 5-column schema has no home for.</li>
+          </ul>
+        </div>
+        <div class="kv">
+          <div class="note"><span class="h">Two open mapping decisions</span> Does bare &ldquo;X mutation&rdquo; expand to the
+            full gene type (incl. amplification) or stay <span class="ic">SmallVariant</span>? Do gene-pathway tokens
+            (<span class="ic">HRR gene alteration</span>) stay empty or expand to a panel? &mdash; domain calls, deferred to the user.</div>
+          <div class="note"><span class="h">Still ahead</span> Drug main/auxiliary role &middot; the finalized flat-file
+            contract (TGA/PBS + role into <span class="ic">combined.tsv</span>) &middot; Stage-I ingestion into agentic +
+            legacy retirement &middot; the join-engine choice (in-process SQLite/DuckDB vs. the Python join).</div>
+          <div class="note"><span class="h">Meta-QA</span> An independent &ldquo;review of the reviewers&rdquo; validator runs
+            <b>outside</b> the loop to catch what the in-loop reviewers let through. <b>141 unit tests</b>, no API.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 19 · TAKEAWAYS -->
+  <section class="slide" data-section="Close">
+    <div class="slide-inner">
+      <div class="eyebrow"><span class="k"></span> Takeaways</div>
+      <h2>The generation / verification asymmetry is the whole game</h2>
+      <div class="cards c3">
+        <div class="card code"><div class="ct">Code</div><p>owns control flow &mdash; parallelism, the loop, the join. Deterministic facts never touch the model.</p></div>
+        <div class="card gen"><div class="ct">Doer</div><p>solves the hard search &mdash; a faithful DNF, a canonical drug &mdash; one independent task at a time.</p></div>
+        <div class="card rev"><div class="ct">Reviewer</div><p>verifies a certificate &mdash; cheaper, from an adversarial, whole-output vantage point.</p></div>
+      </div>
+      <div class="thesis"><b>verification &lt; generation</b> &mdash; but only with an adversarial, fresh-pass, independent
+        checker that can see the whole certificate. Get the vantage point right, and the loop does the rest.</div>
+      <p class="body">Next stop for the resource: the matching engine &mdash; trial eligibility &#8904; drug approvals, on
+        <span class="ic">trial_arm_id</span>.</p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var total = slides.length;
+    var i = 0;
+    var progress = document.getElementById('progress');
+    var counter = document.getElementById('counter');
+    var sectionTag = document.getElementById('sectionTag');
+
+    function frags(s) { return Array.prototype.slice.call(s.querySelectorAll('.frag')); }
+    function revealAll(s) { frags(s).forEach(function (e) { e.classList.add('shown'); }); }
+    function hideAll(s) { frags(s).forEach(function (e) { e.classList.remove('shown'); }); }
+
+    function render(fromHash) {
+      slides.forEach(function (s, idx) { s.classList.toggle('active', idx === i); });
+      var pct = total > 1 ? (i / (total - 1)) * 100 : 100;
+      progress.style.width = pct + '%';
+      counter.textContent = (i + 1) + ' / ' + total;
+      sectionTag.textContent = slides[i].getAttribute('data-section') || '';
+      if (!fromHash) { history.replaceState(null, '', '#' + (i + 1)); }
+      slides[i].focus && slides[i].focus();
+    }
+
+    function next() {
+      var s = slides[i];
+      var hidden = frags(s).filter(function (e) { return !e.classList.contains('shown'); });
+      if (hidden.length) { hidden[0].classList.add('shown'); return; }
+      if (i < total - 1) { i++; hideAll(slides[i]); render(); }
+    }
+    function prev() {
+      var s = slides[i];
+      var shown = frags(s).filter(function (e) { return e.classList.contains('shown'); });
+      if (shown.length) { shown[shown.length - 1].classList.remove('shown'); return; }
+      if (i > 0) { i--; revealAll(slides[i]); render(); }
+    }
+    function goto(n) { i = Math.max(0, Math.min(total - 1, n)); revealAll(slides[i]); render(); }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key) {
+        case 'ArrowRight': case 'PageDown': case ' ': e.preventDefault(); next(); break;
+        case 'ArrowLeft': case 'PageUp': case 'Backspace': e.preventDefault(); prev(); break;
+        case 'Home': e.preventDefault(); goto(0); break;
+        case 'End': e.preventDefault(); goto(total - 1); break;
+        case 'f': case 'F':
+          if (document.fullscreenElement) { document.exitFullscreen(); }
+          else if (document.documentElement.requestFullscreen) { document.documentElement.requestFullscreen(); }
+          break;
+      }
+    });
+
+    document.getElementById('nextBtn').addEventListener('click', next);
+    document.getElementById('prevBtn').addEventListener('click', prev);
+
+    var h = parseInt((location.hash || '').replace('#', ''), 10);
+    if (h && h >= 1 && h <= total) { i = h - 1; }
+    slides.forEach(function (s) { revealAll(s); });
+    hideAll(slides[i]);
+    render(true);
+  })();
+</script>

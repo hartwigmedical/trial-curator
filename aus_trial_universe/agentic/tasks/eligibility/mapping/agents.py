@@ -11,6 +11,7 @@ from aus_trial_universe.agentic.core.agent import Agent
 from aus_trial_universe.agentic.core.client import LlmClient
 from aus_trial_universe.agentic.tasks.eligibility.mapping.schema import (
     FindingModelMapping,
+    GroupReconciliation,
     OncotreeMapping,
     ReviewVerdict,
 )
@@ -571,3 +572,96 @@ def build_molecular_signature_reviewer(client: LlmClient, *, model: str | None =
         client=client,
         model=model,
     )
+
+
+# --------------------------------------------------------------------------- #
+# STEP 2 — cross-value reconciliation adjudicators (doer -> reviewer per flagged group).
+# Prompts finalised with the user 2026-07-28. cancer_type uses OncoTree; gene/signature reuse the same rules with
+# the finding-model grammar. Grounding (vocab / grammar) is appended by the builders.
+# --------------------------------------------------------------------------- #
+_ONCOTREE_RECONCILE_RULES = """\
+You reconcile the OncoTree mapping of a GROUP of cancer-type phrasings that a consistency check flagged as ONE
+underlying concept but which received DIFFERENT OncoTree codes when each was mapped independently (Step 1 mapped each
+value alone, with no sight of its siblings). Return the FINAL value (an OncoTree code expression) for EACH member.
+
+- EQUIVALENT members — same tumour scope, differing only in phrasing / synonym / dropped qualifier-noise — MUST share
+  ONE final code: the code that best represents the shared concept (normally the most-specific OncoTree node the
+  group's wording jointly supports). e.g. "lung cancer" / "NSCLC" / "non-small cell lung carcinoma" -> all NSCLC;
+  "anaplastic astrocytoma" mapped once to HGGNOS and once to DIFG -> pick the ONE correct node for both.
+- GENUINELY-DISTINCT members — the group over-merged a difference OncoTree DOES encode (grade, histology subtype,
+  distinct organ / lineage) — MUST keep each member's own correct code. e.g. "astrocytoma grade 3" -> ASTR3 and
+  "astrocytoma grade 4" -> ASTR4 stay DIFFERENT; do NOT collapse a real distinction to force agreement.
+- A difference OncoTree canNOT encode (laterality, stage, "advanced/metastatic/recurrent") is NOT a real distinction
+  -> unify those members.
+- Fix any Step-1 code that is simply the WRONG node while you are here; obey the mapper's conventions (granularity =
+  the most-specific node covering the wording; the 3 sentinels; organ-node when histology unstated). Preserve each
+  member's AND / OR / NOT() structure and OR-branch content — you are reconciling the CODES, not re-deriving the logic.
+
+Return every input from the group exactly once, with its FINAL OncoTree code expression.
+
+ONCOTREE VOCABULARY (an indented tree — indentation shows the subtype hierarchy; each node is `Name (CODE)`):
+"""
+
+ONCOTREE_RECONCILE_REVIEWER_INSTRUCTIONS = """\
+You audit a reconciliation decision for a flagged group of cancer-type phrasings (each with its FINAL OncoTree code).
+Set faithful=true only if ALL hold; otherwise faithful=false with concrete problems (which members, which code, why):
+1. EQUIVALENT members now share ONE code (phrasing / synonym / qualifier-noise / laterality / stage differences were
+   unified — not left divergent).
+2. GENUINELY-DISTINCT members are kept apart, each with its own correct code (a real OncoTree-encodable difference —
+   grade / histology subtype / distinct organ — was NOT collapsed to force agreement).
+3. Each unifying code is the MOST-SPECIFIC node correctly covering all its members (not an over-broad umbrella, not
+   an inferred subtype the wording doesn't support).
+4. Every final code is a VALID OncoTree code (or a sentinel), following the granularity conventions.
+5. Each member's AND / OR / NOT() structure is preserved.
+
+`suggested_fix` — normally leave EMPTY. ONLY when the input is marked "[ESCALATION-MODE]", fill it with the concrete
+corrected per-member codes you would expect.
+
+ONCOTREE VOCABULARY (an indented tree — indentation shows the subtype hierarchy; each node is `Name (CODE)`):
+"""
+
+_FINDINGMODEL_RECONCILE_RULES = """\
+You reconcile the finding-model mapping of a GROUP of gene-alteration / molecular-signature phrasings that a
+consistency check flagged as ONE underlying concept but which received DIFFERENT finding-model expressions when each
+was mapped independently. Return the FINAL finding-model expression for EACH member.
+
+- EQUIVALENT members (same alteration, differing only in phrasing / synonym / dropped inexpressible qualifier) MUST
+  share ONE final expression (the correct one, per the grammar conventions). e.g. two phrasings of the same fusion
+  that got different orientations -> the one correct rendering.
+- GENUINELY-DISTINCT members (a real difference the grammar DOES encode — different gene, variant, exon,
+  copy-number type, fusion orientation) MUST keep their own correct expression; do NOT collapse a real distinction.
+- Fix any expression that is simply wrong while you are here; obey the mapper's conventions (mutation -> SmallVariant
+  only; families/panels expanded; notation normalised). Preserve each member's AND / OR / NOT() structure.
+
+Return every input from the group exactly once, with its FINAL finding-model expression.
+"""
+
+FINDINGMODEL_RECONCILE_REVIEWER_INSTRUCTIONS = """\
+You audit a reconciliation decision for a flagged group of gene/signature phrasings (each with its FINAL
+finding-model expression). Set faithful=true only if: EQUIVALENT members now share ONE expression (phrasing noise
+unified); GENUINELY-DISTINCT members kept apart with their own correct expression (a real grammar-encodable
+difference NOT collapsed); every expression is valid finding-model following the mapper conventions; AND / OR / NOT()
+structure preserved. Otherwise faithful=false with concrete problems. `suggested_fix` only under "[ESCALATION-MODE]".
+"""
+
+
+def build_oncotree_reconciler(client: LlmClient, *, model: str | None = None) -> Agent[GroupReconciliation]:
+    return Agent(name="oncotree_reconciler", instructions=_ONCOTREE_RECONCILE_RULES + vocab_reference(),
+                 output_schema=GroupReconciliation, client=client, model=model)
+
+
+def build_oncotree_reconcile_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
+    return Agent(name="oncotree_reconcile_reviewer",
+                 instructions=ONCOTREE_RECONCILE_REVIEWER_INSTRUCTIONS + vocab_reference(),
+                 output_schema=ReviewVerdict, client=client, model=model)
+
+
+def build_findingmodel_reconciler(client: LlmClient, *, model: str | None = None) -> Agent[GroupReconciliation]:
+    return Agent(name="findingmodel_reconciler", instructions=_FINDINGMODEL_RECONCILE_RULES + GRAMMAR_REFERENCE,
+                 output_schema=GroupReconciliation, client=client, model=model)
+
+
+def build_findingmodel_reconcile_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
+    return Agent(name="findingmodel_reconcile_reviewer",
+                 instructions=FINDINGMODEL_RECONCILE_REVIEWER_INSTRUCTIONS + "\n" + GRAMMAR_REFERENCE,
+                 output_schema=ReviewVerdict, client=client, model=model)

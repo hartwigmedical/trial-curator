@@ -1,12 +1,35 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (2026-07-27, late — autonomous overnight run)
-**RESUME AT: user SIGN-OFF of the `gene_alteration` + `molecular_signature` mappers (both live-validated overnight),
-then resolve TWO deferred decisions.** The MAPPING stage (Stage II) is rebuilt on the shared loop harness with
-prompts finalised criterion-by-criterion. **All three mappers now built + validated:** `cancer_type` (signed off
-earlier) · **`gene_alteration` (NEW — validated)** · **`molecular_signature` (NEW — validated)**. Single plan/spec:
-**`docs/v2_mapping_and_shared_loop_plan.md`** (§8 gene, §9 signature). Locked decisions: memory
-`v2-mapping-stage-decisions` + `v2-shared-loop-harness`.
+## ▶ NEXT SESSION — START HERE (updated 2026-07-28)
+
+**CURRENT STATE: ELIGIBILITY CURATION IS COMPLETE + user-reviewed.** Extraction (Stage I) → mapping Step 1
+(per-value) → mapping Step 2 (cross-value reconciliation) are all DONE, validated, and signed off. The drug utility
+path is signed off. **All code from this session is UNCOMMITTED in the working tree — the user does all git commits.**
+`make agentic-tests` = **145 green**.
+
+**⏭ RESUME AT: the INTEGRATION backlog (NOT curation — that's done). In dependency order:**
+1. **Drug Phase 2 — main vs auxiliary role.** Cheap per-arm classifier → a `role` (main|auxiliary) column on the
+   drug path's `trial_to_intervention`. Judgement rules in git history (deleted `DRUG_CURATOR_INSTRUCTIONS`, ≤ 52417bc).
+   Prereq for the grand join's main/aux + per-main TGA/PBS. See "Shelved / open".
+2. **THE GRAND JOIN → a fresh `combined.tsv`** (the matching-engine flat file): interpreted ⋈ `trial_arms` ⋈ the
+   **FINAL vocab maps** (`finalised_*_map.tsv`, use the `*_FINAL` column) ⋈ drug annotations, on `trial_arm_id`; add
+   TGA/PBS + the main/aux role. `run._build_combined` exists (PARKED, 16 cols) — extend it. **Open decision:** join
+   engine — in-process SQLite/DuckDB vs keep the Python join (Postgres ruled out; memory `v2-joined-tables-sql-decision`).
+   The old stale `combined.tsv` was DELETED — build it anew here.
+3. **Symmetric-match vocab for drug approvals** — map each `drug_regulatory_approvals` free-text cancer_type/biomarker
+   into the SAME OncoTree + finding-model vocab (reuse the mappers), so trial-eligibility ↔ drug-approval match symmetrically.
+4. **Self-contained pipeline — Stage-I ingestion + legacy retirement.** Move download → drug-filter → POTTR-append →
+   retire-missing into agentic; retire legacy `eligibility_path`/`drug_utility_path`. Biggest piece for a periodic run.
+- **Optional cleanup:** the **11 cancer_type per-value LOGIC residuals** (valid codes, imperfect structure, e.g.
+  subtype-ANDed-with-parent) in the signed-off oncotree mapper's hard-cell tail — a small manual/targeted pass.
+
+**Specs:** mapping = `docs/v2_mapping_and_shared_loop_plan.md` (§8 gene · §9 signature · §10 Step-2 reconciliation).
+Overall = `docs/v2_agentic_pipeline_spec.md`; drug = `docs/agentic/drug_ref_schema.md`; run guide =
+`docs/agentic/combined_agentic_run.md`. Decisions in memory: `v2-mapping-stage-decisions`, `v2-shared-loop-harness`,
+`v2-drug-regime-axis`, `v2-eligibility-orchestration-model`, `v2-joined-tables-sql-decision`.
+
+---
+### What this session did (2026-07-27 → 28) — detail
 
 **DONE overnight (2026-07-27, autonomous — all UNCOMMITTED in the working tree; nothing under `/data` touched):**
 1. **Full finding-model grammar validator** — `tools/finding_model.py` `finding_model_problems()` rewritten from
@@ -31,11 +54,46 @@ earlier) · **`gene_alteration` (NEW — validated)** · **`molecular_signature`
 - **iter4 result:** set A 330/330, set B 239/242; HER2-non-synonymous + both HRR residuals cleared; no regression.
   Result TSVs `scratchpad/gene/setA_iter4.tsv` / `setB_iter4.tsv`.
 
-**⏭ IMMEDIATE NEXT (awaiting user go): the full-store Step-1 build.** All 3 mappers ready + `--map-only` built. Run
-`python -m aus_trial_universe.agentic.run --map-only --workers 80 --max-concurrency 500` → writes the 3 map tables
-(`cancer_type_map` / `gene_alteration_map` / `molecular_signature_map`) into `current_output/`. **FIRST `/data`
-write of this work** — archive `current_output/` first (supersede convention); needs the user's explicit OK. Then an
-independent review of the full output, THEN design **Step 2** (cross-value reconciliation — NOT yet built).
+**✅ FULL-STORE STEP-1 BUILD DONE (2026-07-28).** `run.py --map-only` rebuilt for a full build: `map_all_columns`
+maps all 3 columns' DISTINCT values in ONE concurrent pool; writes the 3 map tables + the new per-row
+`mapped_eligibility.tsv` (interpreted ⋈ vocab maps, 1:1 rows) into `current_output/`; **NEVER re-persists
+raw/interpreted** (new `save_maps` / `save_mapped_eligibility`; byte-identity md5-verified). Step-2 output will be
+`finalised_eligibility.tsv` (same shape). Ran at **500 workers / 500 max-concurrency** (probed: 15k RPM / 40M TPM,
+TPM-bound; 120 was latency-bound at ~20% TPM, 500 hit ~92% TPM, 0 rate-limit errors, ~4.6× faster). Result over
+5,879 distinct values:
+- **cancer_type** 4,853 distinct · 4,834 mapped · 19 empty · 79 unfaithful; **gene** 859 · 808 · 51 empty · 11
+  unfaithful; **signature** 167 · 46 · 121 empty (72%, expected) · 0 unfaithful.
+- **Independent review:** gene + signature CLEAN (0 invalid syntax/non-vocab). cancer_type ~99.5% clean but **~24
+  hard residuals** (13 invalid-code + 11 logic) in the most complex heme/CNS/multi-subtype cells — the mapper leaks
+  NAMES into the code field on long multi-NOT() cells (e.g. `NOT(APL with PML-RARA)` should be code `APLPMLRARA`).
+  These sit in the SIGNED-OFF oncotree mapper → NOT reopened; hand to Step-2 + a targeted cleanup.
+- **Consistency (Step-2 targets):** 25 cancer_type + 1 gene groups (same concept → different code). Review script:
+  `scratchpad/review_full.py`.
+
+**✅ MAPPING STEP 2 — cross-value reconciliation DONE (2026-07-28). ELIGIBILITY CURATION IS COMPLETE (Step 1 + 2).**
+`run.py --reconcile` (`mapping/reconcile.py`): detect (`find_inconsistencies`) → deterministic pre-pass (name→code
+repair for leaked names + OR-branch order-normalise) → LLM adjudicator (doer→reviewer, approved prompts in
+`agents.py`) on the remaining SEMANTIC groups → FINAL value per input. Engine + prompts + output shape all
+user-approved. Result (3NF store byte-identical / untouched):
+- **cancer_type:** 25→**4** inconsistent groups (21 unified; the **4 remaining are genuine GRADE distinctions the
+  adjudicator correctly KEPT apart** — ASTR3 vs ASTR4, LGGNOS vs HGGNOS — the blunt key over-groups them, keeping
+  distinct is correct); **all 13 invalid-code residuals fixed** (name→code repair, 0 unresolved); 181 values changed.
+- **gene:** 1→0; **signature:** 0. Remaining: **11 per-value LOGIC residuals** (valid codes, imperfect structure e.g.
+  subtype-ANDed-with-parent) in the SIGNED-OFF oncotree mapper's hard-cell tail — out of Step-2 scope; manual-review
+  candidates, NOT a defect.
+- **3NF DISCIPLINE (user requirement):** `eligibility/current_output/` = **8 pure-3NF tables** — 2 content + the 3
+  Step-1 maps + the **3 `finalised_*_map.tsv`** (Step-1 cols + a `*_FINAL` col; these ARE 3NF single-key lookups, so
+  they live in the store, NOT joined/). `drug_annotations/current_version/` = 5 pure-3NF. Only the DENORMALIZED flat
+  views live in top-level **`data/agentic/joined/`**: `mapped_eligibility.tsv` (Step-1) + `finalised_mapped_eligibility.tsv`
+  (Step-2, +`*_FINAL`). The stale `combined.tsv` was DELETED (rebuild fresh in the grand-join step). `make
+  agentic-tests` = **145 green**. Step-2 code UNCOMMITTED (user commits): `mapping/reconcile.py`, `agents.py`,
+  `run.py --reconcile`, `core/paths.py` (JOINED_ROOT), `schema.py`/`store.py`, `tools/oncotree.py` (name_to_code), 2 tests.
+
+**⏭ IMMEDIATE NEXT (not eligibility curation — the integration backlog):** (1) **drug Phase 2** — main/aux role on
+`trial_to_intervention`; (2) **the grand join** → `combined.tsv` (eligibility ⋈ drug ⋈ trial_arms on `trial_arm_id`,
+using the FINAL vocab + TGA/PBS + role) = the matching-engine flat file; (3) **Stage-I ingestion** into agentic +
+**legacy retirement**; (4) optional: targeted cleanup of the 11 cancer logic residuals. Plus the drug-indication
+symmetric-match vocab mapping (parked).
 
 **HOW TO REPRODUCE / RE-RUN:** live-test harnesses + frozen 50/100 (gene) & 50/82 (signature) trial+value lists +
 result TSVs are in the session scratchpad (`scratchpad/gene/`, `scratchpad/sig/`; non-persistent — recreate from the
@@ -346,44 +404,47 @@ output vs. source) INTO the loop.** Concrete fixes:
   enumeration exceeds that, an OR was fabricated into an AND. Give a reviewer the *aggregate* view.
 
 ## TL;DR
-The v2 rewrite is a **two-domain agentic pipeline**: the ELIGIBILITY path (`make agentic-run`: extract → map, per
-trial) and the DRUG UTILITY path (`make drug-ref-build`: a separate incremental drug-annotation build). Both emit
-**3NF relational tables**; they join on `trial_arm_id` (via the shared `trial_arms` registry), and `combined.tsv`
-is the grand flat view. Pattern B throughout: deterministic Python owns control flow (parallelism, refine loop,
-per-item durable saves); the LLM fills the doer/reviewer slots. **141 unit tests pass** (fake-client, no API).
-Eligibility output is a **DNF** table — one row = one satisfiable (trial, arm) conjunction; rows ORed, cells ANDed,
-exclusions inline `NOT(...)`.
+The v2 rewrite is a **two-domain agentic pipeline**: the ELIGIBILITY path (extract → map Step 1 → map Step 2) and
+the DRUG UTILITY path (`make drug-ref-build`: a separate incremental drug-annotation build). Both emit **3NF
+relational tables** that join on `trial_arm_id` (via the shared `trial_arms` registry); the grand flat `combined.tsv`
+is built in the (still-to-do) join step. Pattern B throughout: deterministic Python owns control flow (parallelism,
+refine loop, per-item durable saves); the LLM fills the doer/reviewer slots. **145 unit tests pass** (fake-client, no
+API). Eligibility output is a **DNF** table — one row = one satisfiable (trial, arm) conjunction; rows ORed, cells
+ANDed, exclusions inline `NOT(...)`. Mapping is TWO steps: **Step 1** (`--map-only`) maps each distinct value to
+vocab; **Step 2** (`--reconcile`) reconciles equivalent values to one code. Eligibility curation is COMPLETE.
 
 ## Quickstart
 Conda env `trial_curator` (auto-selected); `OPENAI_API_KEY` auto-loaded from `.env`. Needs `openai>=2.x`.
 **Wrap live runs in `caffeinate -i …`** so laptop sleep doesn't drop the connection (memory `feedback-caffeinate-long-jobs`).
 ```bash
-make agentic-run ID=NCT06881784                 # one trial (source auto-detected)
+make agentic-run ID=NCT06881784                 # one trial, full per-trial pipeline (source auto-detected)
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
-make agentic-run                                # ALL trials
 make agentic-run EXTRACT_ONLY=1 RESUME=1 WORKERS=80 MAX_CONCURRENCY=500   # the full-universe extract (2026-07-25 settings)
-python -m aus_trial_universe.agentic.run --map-only --workers 80 --max-concurrency 500   # MAPPING-only: build the 3 map tables over the frozen store (2026-07-27)
+# MAPPING (over the frozen extract store; via python -m aus_trial_universe.agentic.run):
+python -m ...run --map-only  --workers 500 --max-concurrency 500 --no-cache-prune   # STEP 1: per-value maps + joined/mapped_eligibility.tsv (500 = ~92% TPM; 2026-07-28)
+python -m ...run --reconcile --workers 30  --max-concurrency 60                     # STEP 2: reconcile -> finalised_*_map.tsv (store) + joined/finalised_mapped_eligibility.tsv
 make agentic-arm-consistency                    # referential-integrity check on the trial_arm_id join key
-make agentic-drug-migrate-trial-arms            # re-key drug t2i to trial_arm_id + report (APPLY=1 to write)
 make agentic-clean                              # wipe the transient data/agentic/{log,cache} only
-make agentic-tests                              # 141 unit tests, no API
-make agentic-validate                           # QA the newest combined.tsv (review-of-the-reviewers)
-# run.py flags (via `python -m aus_trial_universe.agentic.run`): --workers N (parallel trials, default 8) ·
-#   --map-only (map the store's interpreted cells -> 3 map tables; skip extraction/drug/combined; 2026-07-27) ·
-#   --skip-drug (skip the drug top-up; still joins existing drug data) · --no-cache · --extract-only ·
-#   --no-judge (skip extraction panel) · --no-review (skip mapping reviewers) · --store-root DIR · --max-attempts N
+make agentic-tests                              # 145 unit tests, no API
+# run.py flags: --workers N · --max-concurrency N (global API cap; TPM-bound — probe x-ratelimit headers) ·
+#   --map-only (Step 1: map distinct interpreted cells -> 3 map tables + joined/mapped_eligibility.tsv) ·
+#   --reconcile (Step 2: reconcile maps -> finalised_*_map.tsv in the store + joined/finalised_mapped_eligibility.tsv) ·
+#   --skip-drug · --no-cache · --no-cache-prune · --extract-only · --no-judge · --no-review · --store-root DIR · --max-attempts N
 ```
-Eligibility output → the accumulating `data/agentic/eligibility/current_output/` store (5 3NF tables +
-`combined.tsv`); each run loads it, upserts the run's trials, and writes it back in place (supersede by moving
-`current_output/` → `archive/<date>/`). Log → `data/agentic/log/…`. Drug reference is a SEPARATE build:
-`make drug-ref-build …` → `data/agentic/drug_annotations/current_version/`.
+Eligibility store `data/agentic/eligibility/current_output/` = **8 pure-3NF tables** (2 content + 3 Step-1 maps +
+3 finalised maps); each per-trial run loads it, upserts, writes back in place (supersede by moving `current_output/`
+→ `archive/<date>/`). Denormalized flat views live in **`data/agentic/joined/`** (`mapped_eligibility.tsv`,
+`finalised_mapped_eligibility.tsv`; the grand `combined.tsv` will be rebuilt in the join step). Log →
+`data/agentic/log/…`. Drug reference is a SEPARATE build: `make drug-ref-build …` →
+`data/agentic/drug_annotations/current_version/`. (NB: `make agentic-validate` targets `combined.tsv` — not present
+until the join step is rebuilt.)
 Full detail: `docs/agentic/combined_agentic_run.md`; drug path: `docs/agentic/drug_ref_schema.md`;
 eligibility design: memory `v2-eligibility-orchestration-model`.
 
 ## What's built
 ```
 aus_trial_universe/agentic/
-  run.py                     # ELIGIBILITY ORCHESTRATOR: trials in PARALLEL (run_parallel, --workers) — per trial extract -> map (lookup-first) -> per-trial checkpoint to current_output/; then optional incremental drug top-up + grand combined.tsv join. `--map-only` = _run_map_only() (map the store's cells -> 3 map tables). DiskCache; a failing trial is logged & skipped
+  run.py                     # ORCHESTRATOR. Per-trial: extract -> map (lookup-first) -> checkpoint to current_output/; then drug top-up + combined join. STORE-WIDE mapping modes (work off the frozen extract): `--map-only` = _run_map_only() (Step 1: map_all_columns pools all 3 columns' distinct values in ONE concurrent pool -> 3 map tables in current_output/ + joined/mapped_eligibility.tsv; raw/interpreted NEVER re-persisted); `--reconcile` = _run_reconcile() (Step 2: reconcile maps -> finalised_*_map.tsv in current_output/ + joined/finalised_mapped_eligibility.tsv). DiskCache; a failing trial is logged & skipped
   core/
     paths.py                 # SINGLE relocatable DATA_ROOT (=data/agentic/) + all derived paths + current_version_dir()/archive_current_version()
     client.py                # LlmClient: .parse() (chat.completions) + .research() (Responses API web_search); cache, retries, tracing. NB: _fingerprint hashes the output SCHEMA into the cache key (so reviewer schemas stay stage-local — see review.py)
@@ -406,37 +467,44 @@ aus_trial_universe/agentic/
       loaders.py             # ctgov/anzctr assembly + cohort enumeration (arm_type, drug); load_trials(id/ids/all)
       agents.py              # cohort-aware extractor + 5-reviewer panel (raw + interpret sub-stages)
       schema.py, workflow.py # DnfRow (Cohort imported from tasks/shared); extract_trial() = raw -> interpret -> panel -> refine -> distribute
-    mapping/                 # STAGE II: map the DNF cells -> vocab (mapper -> reviewer, on core.review.review_refine)
-      agents.py, schema.py   # oncotree (cancer_type SIGNED OFF 2026-07-27) / gene / signature mappers + reviewers; ReviewVerdict has suggested_fix. gene+signature prompts NOT yet finalised
-      workflow.py            # map_cancer_types/gene_alterations/molecular_signatures (workers param); _oncotree_logic_problems incl. the parens/precedence checker (_top_level_has)
-    schema.py, store.py      # ArmEligibilityRaw + InterpretedEligibility (keyed by trial_arm_id) + 3 map tables; EligStore
+    mapping/                 # STAGE II: map the DNF cells -> vocab (doer -> reviewer, on core.review.review_refine). ALL 3 mappers SIGNED OFF (2026-07-28)
+      agents.py, schema.py   # oncotree / gene / signature mappers + reviewers (all validated) + the Step-2 reconcile adjudicators (_ONCOTREE_RECONCILE_RULES + reviewer + finding-model analogs); schema has OncotreeMapping/FindingModelMapping/ReviewVerdict(+suggested_fix)/GroupReconciliation
+      workflow.py            # map_cancer_types/gene_alterations/molecular_signatures + map_all_columns (ONE pool across all 3); _oncotree_logic_problems (parens/precedence via _top_level_has)
+      reconcile.py           # STEP 2 (NEW 2026-07-28): detect(find_inconsistencies) -> deterministic pre-pass (repair_oncotree_code name->code + normalize_or_order) -> adjudicate_group (LLM) -> write_finalised_maps (3NF, to store) + write_finalised_mapped_eligibility (flat, to joined/)
+    schema.py, store.py      # ArmEligibilityRaw + InterpretedEligibility + 5 map dataclasses + MAPPED_ELIGIBILITY_COLUMNS; EligStore.save_maps() / save_mapped_eligibility() (write ONLY new files, never re-persist content tables)
     tools/
-      oncotree.py            # reads oncotree.YAML (single source, 2026-07-27): vocab + valid_codes + ancestors + hierarchical vocab_reference() (indented Name (CODE) tree); 3 sentinels
-      finding_model.py       # finding-model grammar + syntax/logic validator (dup + self-contradiction)
-    qa/                      # validate_output.py (make agentic-validate) + arm_consistency.py (make agentic-arm-consistency) + mapping_consistency.py (NEW 2026-07-27: cross-value consistency checker — canonical_key/find_inconsistencies)
-tests/agentic/               # 141 tests (fake-client); mirrors tasks/ layout (core [+test_review], tasks/shared, tasks/eligibility [+qa/test_mapping_consistency, test_run_map_only], tasks/drug_utility)
+      oncotree.py            # oncotree.YAML vocab + valid_codes + ancestors + vocab_reference() (indented Name (CODE) tree) + name_to_code() (reverse, for Step-2 repair); 3 sentinels
+      finding_model.py       # FULL grammar validator (2026-07-28): finding_model_problems() = field/enum/scope/HGVS-aware DSL parser (CLASS_SPEC) — the hard SYNTAX gate; + GRAMMAR_REFERENCE
+    qa/                      # validate_output.py (make agentic-validate) + arm_consistency.py (make agentic-arm-consistency) + mapping_consistency.py (cross-value: canonical_key/find_inconsistencies — used by Step 2)
+tests/agentic/               # 145 tests (fake-client); mirrors tasks/ (core [+test_review], tasks/shared, tasks/eligibility [+ test_mapping_findingmodel (grammar validator), test_run_map_only, test_reconcile, qa/test_mapping_consistency], tasks/drug_utility)
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|clean|tests|cache-prune|arm-consistency|drug-migrate-trial-arms|drug-ref-build|drug-ref-refresh-pottr
 docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
-## Output schema (v2 — shared arm registry + 3NF content tables + a grand flat view; arm registry extracted 2026-07-25)
+## Output schema (v2 — shared arm registry + 3NF stores + a top-level `joined/` for flat views; updated 2026-07-28)
 Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/trial_arms/current_version/trial_arms.tsv`
-(`trial_arm_id, trialId, registry, arm, arm_type`; both registries; `trial_arm_id` = deterministic `{trialId}::{arm}`
-slug), written by whichever path processes a trial. The eligibility store `data/agentic/eligibility/current_output/`
-holds only its **2 content masters + 3 map tables**, each keyed by `trial_arm_id` (re-running a trial replaces its
-rows). The denormalized **grand flat view `combined.tsv` lives OUTSIDE the store**, at
-`data/agentic/eligibility/combined/combined.tsv`. Eligibility tables hold **NO drug info**; drugs join via
-`trial_arm_id` to the drug utility path. Tables + the view:
-- `trial_arms.tsv` (SHARED) — `trial_arm_id` → `trialId, registry, arm, arm_type`. The arm spine; the single join key.
-- `arm_eligibility_raw.tsv` — `trial_arm_id` → the 5 VERBATIM raw cells (`cancer_type, gene_alteration,
-  molecular_signature, molecular_biomarker, prior_therapy`; inline `[source]`, `|`-delimited). The audit anchor.
-- `interpreted_eligibility.tsv` — `(trial_arm_id, conj_id)` → the 5 interpreted DNF cells (inline `NOT()`; rows
-  sharing `trial_arm_id` are ORed).
-- `cancer_type_map.tsv` — `cancer_type` value → `oncotree_name, oncotree_code` (deduped; lookup-first cache).
-- `gene_alteration_map.tsv` / `molecular_signature_map.tsv` — value → `finding_model` (deduped).
-- `combined.tsv` — the grand flat join (interpreted ⋈ trial_arms ⋈ maps ⋈ drug annotations on `trial_arm_id`): the
-  eligibility columns + `oncotree_name/code`, `*_findingmodel`, and `arm_drugs, drug_class, pottr_drug_class` from the
-  drug store. (TGA/PBS + main/auxiliary role come with Phase 2/finalization.)
+(`trial_arm_id → trialId, registry, arm, arm_type`; `trial_arm_id` = deterministic `{trialId}::{arm}` slug). The
+eligibility store `data/agentic/eligibility/current_output/` holds **8 pure-3NF tables**; ALL denormalized/joined
+views live in the top-level **`data/agentic/joined/`** (keeps the stores strictly 3NF). Eligibility tables hold **NO
+drug info**; drugs join via `trial_arm_id` to the drug utility path.
+
+**3NF store — `eligibility/current_output/`:**
+- `arm_eligibility_raw.tsv` — `trial_arm_id` → 5 VERBATIM raw cells (inline `[source]`, `|`-delimited). Audit anchor.
+- `interpreted_eligibility.tsv` — `(trial_arm_id, conj_id)` → 5 interpreted DNF cells (inline `NOT()`; rows sharing
+  `trial_arm_id` are ORed). **The FROZEN source for mapping — never re-derived by Step 1/2.**
+- `cancer_type_map.tsv` — `cancer_type` → `oncotree_name, oncotree_code` (Step-1, per-value).
+- `gene_alteration_map.tsv` / `molecular_signature_map.tsv` — value → `finding_model` (Step-1, per-value).
+- `finalised_cancer_type_map.tsv` — `cancer_type` → `oncotree_name, oncotree_code, oncotree_code_FINAL` (Step-2
+  reconciled in the added `*_FINAL` col; Step-1 cols preserved). **Still 3NF (single-key lookup) → lives here.**
+- `finalised_gene_alteration_map.tsv` / `finalised_molecular_signature_map.tsv` — value → `finding_model, finding_model_FINAL`.
+
+**Denormalized flat views — `data/agentic/joined/`:**
+- `mapped_eligibility.tsv` — Step-1 flat: interpreted ⋈ (Step-1 maps), 1:1 with interpreted; cols = the 2 keys + the
+  5 interpreted cells + `oncotree_name/code`, `gene_alteration_findingmodel`, `molecular_signature_findingmodel`.
+- `finalised_mapped_eligibility.tsv` — Step-2 flat: the above + appended `oncotree_code_FINAL`,
+  `gene_alteration_findingmodel_FINAL`, `molecular_signature_findingmodel_FINAL`. **The eligibility-side review artifact.**
+- `combined.tsv` — the grand join (interpreted ⋈ trial_arms ⋈ FINAL maps ⋈ drug annotations on `trial_arm_id`) +
+  TGA/PBS + main/aux role. **NOT built yet** — the stale one was deleted; rebuild it in the join milestone.
 See `combined_agentic_run.md` §Output Schema for per-column notes.
 
 ## Locked decisions (don't re-litigate)
@@ -455,6 +523,18 @@ See `combined_agentic_run.md` §Output Schema for per-column notes.
 - **gene finding-model (2026-07-10):** never `X & NOT(X)` or duplicate terms; a NOT() qualified by something
   finding-model can't express (e.g. anatomic location) is **omitted**. Inclusion+exclusion of the same
   alteration across cohorts must be **split into rows** upstream (extraction molecular/structural reviewers).
+- **Mapping — gene/signature + Step 2 (SIGNED OFF 2026-07-28; memory `v2-mapping-stage-decisions` §8/§9/§10):**
+  finding-model SYNTAX is enforced by a **full deterministic grammar validator** (`finding_model_problems`,
+  field/enum/scope/HGVS-aware) — the reviewer judges only semantics. **"X mutation" → `SmallVariant[gene=X]` ONLY**
+  (expansion reserved for genuinely unspecified "X alteration"/"aberration"); **gene FAMILIES expand** (`RAS`→
+  KRAS/NRAS/HRAS) and the **HRR panel** = the PROfound 15 genes; disease-`NOT()` **converted when definitional**
+  (`NOT(BCR-ABL-positive leukemia)`→`NOT(Fusion[BCR::ABL1])`), open-ended/inexpressible-qualified NOT() **omitted**
+  (never broadened → over-exclusion). Signature = 6 terms only, `""` is common+correct for non-signatures.
+  **Step 2 reconciliation:** unify semantically-EQUIVALENT values to one code (most-specific covering); KEEP genuine
+  grade/subtype/organ distinctions apart; deterministic name→code repair for leaked names + OR-order normalise.
+- **3NF discipline (2026-07-28):** `eligibility/current_output/` + `drug_annotations/current_version/` hold ONLY 3NF
+  tables (the `finalised_*_map.tsv` are 3NF single-key lookups → they live in the store); ALL denormalized/joined
+  views (`mapped_eligibility`, `finalised_mapped_eligibility`, `combined`) live in top-level `data/agentic/joined/`.
 - **Drug (2026-07-10):** `main_drugs` = the **investigational agent(s) under study by judgement** (not the
   whole regimen — backbone/SoC/comparator/placebo go to `auxiliary_drugs`); `pottr_drug_class` + `drug_class`;
   `tga_status`/`pbs_status` **per main drug** (Approved/Not approved) + `tga_detail`/`pbs_detail`

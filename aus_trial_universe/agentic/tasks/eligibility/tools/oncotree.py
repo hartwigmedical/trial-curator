@@ -68,6 +68,19 @@ def valid_codes() -> frozenset[str]:
 
 
 @functools.lru_cache(maxsize=1)
+def name_to_code() -> dict[str, str]:
+    """Reverse of ``oncotree_vocab``: ``{name: code}`` for every node + the sentinels (which map to themselves).
+    Used by the Step-2 name->code repair to fix a code expression where the mapper leaked a NAME into the code
+    field (e.g. ``Diffuse Large B-Cell Lymphoma, NOS`` -> ``DLBCLNOS``). First name wins on the rare name collision."""
+    rev: dict[str, str] = {}
+    for code, name in oncotree_vocab().items():
+        rev.setdefault(name, code)
+    for s in SENTINELS:
+        rev.setdefault(s, s)
+    return rev
+
+
+@functools.lru_cache(maxsize=1)
 def oncotree_ancestors() -> dict[str, frozenset[str]]:
     """``{code: ancestor codes}`` straight from the YAML nesting (a node's ancestors are the codes on the path
     from the root down to — but excluding — it)."""

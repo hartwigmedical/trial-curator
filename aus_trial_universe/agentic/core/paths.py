@@ -49,13 +49,22 @@ ELIGIBILITY_OUTPUT = DATA_ROOT / "eligibility"
 # (current_version/ + archive/) like the other output stores; written by whichever path processes a trial.
 TRIAL_ARMS_ROOT = DATA_ROOT / "trial_arms"
 
-# The joined flat view (`combined.tsv`) is a DENORMALIZED join, not a 3NF master — it is kept OUT of the
-# eligibility store dir (current_output/) so that dir holds only pure-3NF tables. `combined_dir` is derived per
-# run as `store_root / COMBINED`; COMBINED_OUTPUT is the default (real-run) location. Single overwritten file
-# (regenerable from the store), not versioned.
-COMBINED = "combined"
-COMBINED_OUTPUT = ELIGIBILITY_OUTPUT / COMBINED
+# DENORMALIZED / JOINED views (mapped_eligibility, finalised_*, combined) are NOT 3NF masters, so they live in
+# ONE top-level `joined/` dir — keeping eligibility/current_output/ and drug_annotations/current_version/ strictly
+# 3NF. Single overwritten files, regenerable from the 3NF tables; not versioned.
+JOINED_ROOT = DATA_ROOT / "joined"
+COMBINED = "combined"                       # legacy name kept for back-compat; combined.tsv now lands in JOINED_ROOT
+COMBINED_OUTPUT = JOINED_ROOT
 COMBINED_FILE = "combined.tsv"
+MAPPED_ELIGIBILITY_FILE = "mapped_eligibility.tsv"          # Step-1 flat view (interpreted ⋈ maps) -> joined/
+FINALISED_MAPPED_ELIGIBILITY_FILE = "finalised_mapped_eligibility.tsv"   # Step-2 flat view (+ *_FINAL cols) -> joined/
+# The Step-2 finalised map-table set (Step-1 cols + a `*_FINAL` col). These are still 3NF single-key LOOKUP tables
+# (same kind as the Step-1 maps), so they live in the 3NF store (current_output/), NOT in joined/.
+FINALISED_MAP_FILES = {
+    "cancer_type_map": "finalised_cancer_type_map.tsv",
+    "gene_alteration_map": "finalised_gene_alteration_map.tsv",
+    "molecular_signature_map": "finalised_molecular_signature_map.tsv",
+}
 
 # --- operational ------------------------------------------------------------ #
 LOG_DIR = DATA_ROOT / "log"

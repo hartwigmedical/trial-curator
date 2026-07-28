@@ -300,3 +300,43 @@ def map_molecular_signatures(client: LlmClient, cells: list[str], *, max_attempt
                              workers: int = 8) -> dict[str, FindingModelResult]:
     return _map_column(client, cells, build_molecular_signature_mapper, build_molecular_signature_reviewer,
                        "sig→fm", max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers)
+
+
+def map_all_columns(
+    client: LlmClient, cancer_cells: list[str], gene_cells: list[str], signature_cells: list[str], *,
+    max_attempts: int = 6, use_reviewer: bool = True, workers: int = 8,
+) -> tuple[dict[str, OncotreeResult], dict[str, FindingModelResult], dict[str, FindingModelResult]]:
+    """Map the DISTINCT values of ALL THREE columns in ONE concurrent pool (fastest for a full-store build: the
+    client's global --max-concurrency is the only throttle, with no idle gap between columns). Dedups each column
+    to its distinct provenance-stripped values, runs every value's mapper->reviewer->refine through a single
+    ``fan_out(max_workers=workers)``, and returns the three ``{stripped_value -> Result}`` dicts (same shape as the
+    per-column ``map_*`` functions). Empty values are skipped."""
+    d_ct = list(dict.fromkeys(strip_provenance(c) for c in cancer_cells if strip_provenance(c)))
+    d_ga = list(dict.fromkeys(strip_provenance(c) for c in gene_cells if strip_provenance(c)))
+    d_sig = list(dict.fromkeys(strip_provenance(c) for c in signature_cells if strip_provenance(c)))
+    logger.info("")
+    logger.info("map-all · single pool · oncotree %d · gene %d · signature %d value(s) · %d workers",
+                len(d_ct), len(d_ga), len(d_sig), workers)
+
+    def _ct(v):
+        return lambda: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)
+
+    def _fm(v, build_mapper, build_reviewer):
+        return lambda: _map_finding_model(client, v, build_mapper, build_reviewer,
+                                          max_attempts=max_attempts, use_reviewer=use_reviewer)
+
+    tagged: list[tuple[str, str]] = [("ct", v) for v in d_ct] + [("ga", v) for v in d_ga] + [("sig", v) for v in d_sig]
+    thunks = (
+        [_ct(v) for v in d_ct]
+        + [_fm(v, build_gene_alteration_mapper, build_gene_alteration_reviewer) for v in d_ga]
+        + [_fm(v, build_molecular_signature_mapper, build_molecular_signature_reviewer) for v in d_sig]
+    )
+    results = fan_out(thunks, max_workers=workers) if thunks else []
+    ct: dict[str, OncotreeResult] = {}
+    ga: dict[str, FindingModelResult] = {}
+    sig: dict[str, FindingModelResult] = {}
+    for (tag, v), r in zip(tagged, results):
+        (ct if tag == "ct" else ga if tag == "ga" else sig)[v] = r
+    logger.info("map-all · done · oncotree %d · gene %d · signature %d mapped",
+                len(ct), len(ga), len(sig))
+    return ct, ga, sig

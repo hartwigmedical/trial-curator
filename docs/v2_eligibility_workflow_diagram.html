@@ -165,7 +165,7 @@
 </style>
 
 <div class="wrap">
-  <p class="date">25 July 2026</p>
+  <p class="date">28 July 2026</p>
   <h1>Trial extraction &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, writing the
@@ -217,7 +217,7 @@
 
     <!-- ===== THE LOOP (vertical) ===== -->
     <section class="loop">
-      <div class="loop-title"><span class="t">Stage I &mdash; extraction</span><span class="s">extract &rarr; check &rarr; refine &middot; the bounded evaluator&ndash;optimizer loop at its heart</span></div>
+      <div class="loop-title"><span class="t">Stage I &mdash; extraction</span><span class="s">extract &rarr; check &rarr; refine &middot; the bounded evaluator&ndash;optimizer loop at its heart (the shared <span class="inline-code">core/review.py</span> harness &mdash; the same loop Stage II uses)</span></div>
       <p class="loop-sub">One agent <b>generates</b> the candidate table; a panel of agents <b>verifies</b> it. Verification is an easier
         task than generation and runs on a fresh pass with the finished table in view &mdash; so it catches omissions the
         generator missed. On a gating failure the loop does <b>incremental repair</b>: the extractor gets its OWN previous
@@ -283,21 +283,21 @@
 
     <!-- ===== STAGE II MAPPING ===== -->
     <section class="stage2-band">
-      <div class="stage2-title"><span class="t">Stage II &mdash; mapping</span><span class="s">on the extracted rows &middot; each procedure = doer &rarr; code check &rarr; reviewer (independent task)</span></div>
-      <p class="loop-sub">Each normalized cell is mapped to a controlled representation, then reviewed. Curated resources ground
-        the prompts + tests but are held out as verification data (not ingested) &mdash; so it stays a mapping, not a vlookup.</p>
+      <div class="stage2-title"><span class="t">Stage II &mdash; mapping</span><span class="s">on the extracted rows &middot; each procedure = doer &rarr; code check &rarr; reviewer, on the SAME shared refine loop as Stage I</span></div>
+      <p class="loop-sub">Each normalized cell is mapped to a controlled representation, then reviewed &mdash; running on the <b>same bounded refine loop as extraction</b> (the shared <span class="inline-code">core/review.py</span> harness: on a gating fail the mapper re-generates from the critique, bounded attempts). Curated resources ground
+        the prompts + tests but are held out as verification data (not ingested) &mdash; so it stays a mapping, not a vlookup. <b>All three mappers are built &amp; live-validated</b> (cancer_type signed off; gene_alteration &amp; molecular_signature validated on disjoint samples).</p>
       <div class="procs">
         <div class="proc">
           <div class="ph"><h4>cancer_type &rarr; OncoTree</h4></div>
           <p class="role map"><span class="rlab">doer</span><span>expression &rarr; OncoTree name + code (e.g. "metastatic NSCLC" &rarr; NSCLC). Only 3 non-OncoTree terms allowed: <span class="inline-code">Pan-cancer</span> / <span class="inline-code">solid tumour</span> / <span class="inline-code">Haematological malignancy</span> (no <span class="inline-code">[None]</span>).</span></p>
           <p class="role chk"><span class="rlab">code check</span><span>reject invalid codes and logic errors: <span class="inline-code">X AND X</span>, <span class="inline-code">X AND NOT(X)</span>, a broad term ANDed with its subtype, a subtype ANDed with its parent (hierarchy via <span class="inline-code">is_subcode</span>).</span></p>
           <p class="role rev"><span class="rlab">reviewer</span><span>right node + granularity; structure preserved; NOT(cancer type) kept minimal.</span></p>
-          <p class="ground">grounds: OncoTree ontology + hierarchy (tools/oncotree.py) + a few ConditionsCurationResource examples</p>
+          <p class="ground">grounds: OncoTree ontology as a single-source nested YAML resource &mdash; an indented <span class="inline-code">Name (CODE)</span> hierarchy that aids granularity (tools/oncotree.py) + a few held-out ConditionsCurationResource examples</p>
         </div>
         <div class="proc">
           <div class="ph"><h4>gene_alteration / molecular_signature &rarr; finding-model</h4></div>
           <p class="role map"><span class="rlab">doer</span><span>&rarr; finding-model syntax: <span class="inline-code">SmallVariant[gene=BRAF &amp; &hellip;=p.V600E]</span>, <span class="inline-code">Fusion[geneEnd=ALK]</span>, <span class="inline-code">MicrosatelliteStability[&hellip;=MSI]</span>.</span></p>
-          <p class="role chk"><span class="rlab">code check</span><span>balanced brackets, known classes, gene-scoped SmallVariant; no duplicate terms, no <span class="inline-code">X &amp; NOT(X)</span> self-contradiction.</span></p>
+          <p class="role chk"><span class="rlab">code check</span><span>full finding-model grammar validation &mdash; fields / enums / scope + HGVS shape per class (<span class="inline-code">CLASS_SPEC</span>), not just brackets; no duplicate terms, no <span class="inline-code">X &amp; NOT(X)</span>. The hard <b>syntax gate</b>, so the reviewer judges only semantics.</span></p>
           <p class="role rev"><span class="rlab">reviewer</span><span>faithful + valid grammar (strict); a NOT() qualified by something inexpressible (e.g. a location) is <b>omitted</b>, not negated.</span></p>
           <p class="ground">grounds: finding-model grammar (tools/finding_model.py) + GeneAlteration/MolecularSignature examples</p>
         </div>
@@ -308,6 +308,7 @@
           <p class="ground">grounds: POTTR dataset + live web research (Responses API web_search)</p>
         </div>
       </div>
+      <div class="codecheck" style="margin-top:14px"><span class="cc-lab">consistency</span><span>a deterministic cross-value check (<span class="inline-code">qa/mapping_consistency.py</span>) &mdash; semantically-equivalent inputs must never map to different codes; the full guarantee is a <b>Step-2 reconciliation</b> pass over the built map tables.</span></div>
     </section>
     <div class="conn"></div>
 
@@ -343,10 +344,11 @@
     <div class="layer-grid">
       <div class="layer"><span class="name">client.py</span><p>One door to OpenAI: <span class="inline-code">.parse()</span> (structured) + <span class="inline-code">.research()</span> (web_search); response cache (see below), retries, tracing.</p></div>
       <div class="layer"><span class="name">agent.py</span><p>Agent = prompt + schema + model (+ web_search flag), bound to the client.</p></div>
-      <div class="layer"><span class="name">workflow.py</span><p><span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;incremental-repair loop).</p></div>
+      <div class="layer"><span class="name">workflow.py</span><p><span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;incremental-repair loop) + <span class="inline-code">run_parallel</span>.</p></div>
+      <div class="layer"><span class="name">review.py</span><p>The <b>shared</b> <span class="inline-code">review_refine</span> doer&rarr;reviewer loop &mdash; ONE mechanism across extraction, mapping &amp; drug (verdict-agnostic; each reviewer schema stays stage-local).</p></div>
       <div class="layer"><span class="name">cache_prune.py + prompt_registry.py</span><p>Cache pruning &mdash; see the <b>Response cache &amp; pruning</b> panel below.</p></div>
       <div class="layer"><span class="name">logfmt.py</span><p>Shared run-log formatting: stage banners + doer/reviewer blocks (one field per line, spelled-out PASS/FAIL).</p></div>
-      <div class="layer"><span class="name">tools/</span><p>oncotree.py (vocab + validator + hierarchy/is_subcode, 3 sentinels) &middot; finding_model.py (grammar + syntax/logic validator).</p></div>
+      <div class="layer"><span class="name">tools/</span><p>oncotree.py (YAML vocab + validator + hierarchy/is_subcode, 3 sentinels) &middot; finding_model.py (full field/enum/scope/HGVS grammar validator &mdash; the hard syntax gate).</p></div>
     </div>
   </div>
 </div>

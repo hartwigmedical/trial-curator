@@ -120,6 +120,17 @@ class EligStore:
         self.signature_map[m.molecular_signature] = m
 
     # --- save -------------------------------------------------------------- #
+    def _write_maps(self, vdir: Path) -> None:
+        """Write the 3 value->vocab map tables (ONLY when populated — an extract-only run leaves just the 2 core
+        tables rather than creating empty map placeholders)."""
+        for key, cols, rows in (
+            ("cancer_type_map", CANCER_TYPE_MAP_COLUMNS, [asdict(m) for m in self.cancer_map.values()]),
+            ("gene_alteration_map", GENE_ALTERATION_MAP_COLUMNS, [asdict(m) for m in self.gene_map.values()]),
+            ("molecular_signature_map", MOLECULAR_SIGNATURE_MAP_COLUMNS, [asdict(m) for m in self.signature_map.values()]),
+        ):
+            if rows:
+                _write_tsv(vdir / TABLE_FILES[key], cols, rows)
+
     def save(self, run_dir: Path) -> Path:
         """Write the full current state as a snapshot into ``run_dir`` (the run's timestamp dir)."""
         vdir = Path(run_dir)
@@ -128,13 +139,44 @@ class EligStore:
                    [asdict(r) for rows in self.raw.values() for r in rows])
         _write_tsv(vdir / TABLE_FILES["interpreted_eligibility"], INTERPRETED_ELIGIBILITY_COLUMNS,
                    [asdict(e) for rows in self.interpreted.values() for e in rows])
-        # The value->vocab map tables are written ONLY when populated — an extract-only run (mapping skipped)
-        # leaves just the 2 core tables rather than creating empty map placeholders.
-        for key, cols, rows in (
-            ("cancer_type_map", CANCER_TYPE_MAP_COLUMNS, [asdict(m) for m in self.cancer_map.values()]),
-            ("gene_alteration_map", GENE_ALTERATION_MAP_COLUMNS, [asdict(m) for m in self.gene_map.values()]),
-            ("molecular_signature_map", MOLECULAR_SIGNATURE_MAP_COLUMNS, [asdict(m) for m in self.signature_map.values()]),
-        ):
-            if rows:
-                _write_tsv(vdir / TABLE_FILES[key], cols, rows)
+        self._write_maps(vdir)
+        return vdir
+
+    def save_maps(self, run_dir: Path) -> Path:
+        """Write ONLY the 3 value->vocab map tables into ``run_dir`` — the two content tables
+        (arm_eligibility_raw / interpreted_eligibility) are NOT written/touched. Used by the map-only pass so the
+        frozen source of truth is never re-persisted."""
+        vdir = Path(run_dir)
+        vdir.mkdir(parents=True, exist_ok=True)
+        self._write_maps(vdir)
+        return vdir
+
+    def save_mapped_eligibility(self, run_dir: Path) -> Path:
+        """Write the denormalized per-row MAPPED view: a copy of interpreted_eligibility with each cell's vocabulary
+        mapping joined in (by the provenance-stripped value, the same key the map tables use). 1:1 with
+        interpreted_eligibility; does NOT touch the content tables. This is the mapping Step-1 flat output."""
+        from aus_trial_universe.agentic.tasks.eligibility.schema import MAPPED_ELIGIBILITY_COLUMNS
+        from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import strip_provenance
+        vdir = Path(run_dir)
+        vdir.mkdir(parents=True, exist_ok=True)
+        out: list[dict] = []
+        for rows in self.interpreted.values():
+            for e in rows:
+                ct = self.cancer_map.get(strip_provenance(e.cancer_type_interpreted))
+                ga = self.gene_map.get(strip_provenance(e.gene_alteration_interpreted))
+                sig = self.signature_map.get(strip_provenance(e.molecular_signature_interpreted))
+                out.append({
+                    "trial_arm_id": e.trial_arm_id,
+                    "conjunction_index": e.conjunction_index,
+                    "cancer_type_interpreted": e.cancer_type_interpreted,
+                    "oncotree_name": ct.oncotree_name if ct else "",
+                    "oncotree_code": ct.oncotree_code if ct else "",
+                    "gene_alteration_interpreted": e.gene_alteration_interpreted,
+                    "gene_alteration_findingmodel": ga.finding_model if ga else "",
+                    "molecular_signature_interpreted": e.molecular_signature_interpreted,
+                    "molecular_signature_findingmodel": sig.finding_model if sig else "",
+                    "molecular_biomarker_interpreted": e.molecular_biomarker_interpreted,
+                    "prior_therapy_interpreted": e.prior_therapy_interpreted,
+                })
+        _write_tsv(vdir / TABLE_FILES["mapped_eligibility"], MAPPED_ELIGIBILITY_COLUMNS, out)
         return vdir

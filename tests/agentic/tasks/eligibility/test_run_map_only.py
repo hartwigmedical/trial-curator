@@ -33,25 +33,39 @@ def _read(path):
 def test_map_only_writes_maps_and_preserves_content(tmp_path, monkeypatch):
     store_root = tmp_path / "elig"
     _seed(store_root)
-    monkeypatch.setattr(mw, "map_cancer_types", lambda c, cells, **k: {
-        "advanced NSCLC": OncotreeResult("advanced NSCLC", "Non-Small Cell Lung Cancer", "NSCLC", True, 1, [])})
-    monkeypatch.setattr(mw, "map_gene_alterations", lambda c, cells, **k: {
-        "EGFR L858R": FindingModelResult(
-            "EGFR L858R", "SmallVariant[gene=EGFR & transcriptImpact.hgvsProteinImpact=p.L858R]", True, 1, [])})
-    monkeypatch.setattr(mw, "map_molecular_signatures", lambda c, cells, **k: {
-        "MSI-H": FindingModelResult("MSI-H", "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]", True, 1, [])})
+    cur = store_root / "current_output"
+    # capture the exact bytes of the content tables — the map-only pass must NOT touch them at all.
+    raw_bytes = (cur / "arm_eligibility_raw.tsv").read_bytes()
+    interp_bytes = (cur / "interpreted_eligibility.tsv").read_bytes()
+
+    # patch the single pooled mapper (map-only now maps all 3 columns in one pool via map_all_columns)
+    monkeypatch.setattr(mw, "map_all_columns", lambda c, ct_cells, ga_cells, sig_cells, **k: (
+        {"advanced NSCLC": OncotreeResult("advanced NSCLC", "Non-Small Cell Lung Cancer", "NSCLC", True, 1, [])},
+        {"EGFR L858R": FindingModelResult(
+            "EGFR L858R", "SmallVariant[gene=EGFR & transcriptImpact.hgvsProteinImpact=p.L858R]", True, 1, [])},
+        {"MSI-H": FindingModelResult("MSI-H", "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]", True, 1, [])},
+    ))
 
     rc = run.main(["--map-only", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])
     assert rc == 0
 
-    cur = store_root / "current_output"
+    # the 3 map tables
     assert _read(cur / "cancer_type_map.tsv") == [
         {"cancer_type": "advanced NSCLC", "oncotree_name": "Non-Small Cell Lung Cancer", "oncotree_code": "NSCLC"}]
     assert _read(cur / "gene_alteration_map.tsv")[0]["finding_model"].startswith("SmallVariant[gene=EGFR")
     assert _read(cur / "molecular_signature_map.tsv")[0]["molecular_signature"] == "MSI-H"
 
-    # content tables untouched (same rows as seeded)
-    interp = _read(cur / "interpreted_eligibility.tsv")
-    assert len(interp) == 1 and interp[0]["cancer_type_interpreted"] == "advanced NSCLC"
-    raw = _read(cur / "arm_eligibility_raw.tsv")
-    assert len(raw) == 1 and raw[0]["trial_arm_id"] == "NCT1::A"
+    # current_output/ stays strictly 3NF — the denormalized flat view is NOT here
+    assert not (cur / "mapped_eligibility.tsv").exists()
+
+    # the per-row flat mapped view lives in the top-level joined/ dir (sibling of the store root)
+    mapped = _read(store_root.parent / "joined" / "mapped_eligibility.tsv")
+    assert len(mapped) == 1
+    assert mapped[0]["oncotree_code"] == "NSCLC"
+    assert mapped[0]["gene_alteration_findingmodel"].startswith("SmallVariant[gene=EGFR")
+    assert mapped[0]["molecular_signature_findingmodel"] == "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]"
+    assert mapped[0]["prior_therapy_interpreted"] == ""   # free-text passthrough
+
+    # content tables byte-for-byte untouched
+    assert (cur / "arm_eligibility_raw.tsv").read_bytes() == raw_bytes
+    assert (cur / "interpreted_eligibility.tsv").read_bytes() == interp_bytes

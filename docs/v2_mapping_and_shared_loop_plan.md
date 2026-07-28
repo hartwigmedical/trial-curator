@@ -288,3 +288,33 @@ Prompts (`_SIGNATURE_RULES` + `SIGNATURE_REVIEWER_INSTRUCTIONS`) BAKED (uncommit
   and cross-column routing. No iteration required.
 - Harness + frozen A/B lists + `setA_iter1.tsv`/`setB_iter1.tsv` in `scratchpad/sig/`.
   (Only open item shared with gene: the HRR gene-SET decision — does "HRR gene mutation" stay `""` or expand?)
+
+## 10. Mapping STEP 2 — cross-value reconciliation (DONE 2026-07-28; the last eligibility-curation step)
+
+Step 1 mapped each distinct value alone, so near-equivalent phrasings can diverge. Step 2 makes semantically-
+equivalent inputs share ONE vocab value while keeping genuinely-distinct ones apart. All decisions user-approved.
+
+### 10.1 Design (locked with the user)
+- **Engine:** LLM adjudicator (doer→reviewer) on the flagged groups; deterministic detection + pre-pass. Prompts
+  `_ONCOTREE_RECONCILE_RULES` + `ONCOTREE_RECONCILE_REVIEWER_INSTRUCTIONS` (+ finding-model analogs) — reviewed with
+  the user before baking. Adjudicator returns a FINAL value per member: equivalent members → ONE code (most-specific
+  covering all; phrasing/qualifier/laterality/stage noise unified); genuinely-distinct (grade/subtype/organ) kept apart.
+- **Pipeline (`mapping/reconcile.py`):** `find_inconsistencies` → deterministic pre-pass (per value: **name→code
+  repair** for leaked OncoTree names via `tools/oncotree.name_to_code`, only when invalid tokens present; **OR-branch
+  order-normalise** a flat OR of codes) → re-detect → **LLM-adjudicate the remaining semantic groups** (concurrent,
+  `review_refine`) → FINAL. `run.py --reconcile`, `--workers`/`--max-concurrency` as usual.
+- **Output shape (user choice "finalised map-table set + flat view"):** the `finalised_{cancer_type,gene_alteration,
+  molecular_signature}_map.tsv` set (Step-1 cols + an appended `*_FINAL` col; Step-1 files NOT overwritten) — these
+  are still **3NF single-key lookups**, so they live in the STORE (`current_output/`), NOT joined/. Plus the
+  DENORMALIZED `finalised_mapped_eligibility.tsv` (mapped_eligibility cols + `*_FINAL`) → `joined/`.
+- **3NF discipline (user requirement):** `eligibility/current_output/` (now 8 3NF tables) + `drug_annotations/
+  current_version/` stay strictly 3NF; ONLY denormalized flat views live in `data/agentic/joined/` (JOINED_ROOT).
+  Step 2 adds only new `finalised_*` files; the Step-1 content + map tables are byte-identical (verified). The stale
+  `combined.tsv` was deleted (rebuilt fresh in the grand-join step).
+
+### 10.2 Result (full store, 2026-07-28)
+- cancer_type **25→4** inconsistent groups (21 unified; the 4 remaining are correct GRADE distinctions kept apart);
+  **all 13 invalid-code residuals repaired (0 unresolved)**; 181 values changed. gene **1→0**; signature 0.
+- **Residual (flagged, not a Step-2 defect):** 11 per-value LOGIC residuals (valid codes, imperfect structure) in the
+  signed-off oncotree mapper's hard-cell tail — manual-review / future targeted cleanup.
+- 3NF store untouched; `make agentic-tests` **145 green** (+ `test_reconcile.py`; `test_run_map_only` updated for joined/).
