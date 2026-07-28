@@ -49,6 +49,17 @@ ELIGIBILITY_OUTPUT = DATA_ROOT / "eligibility"
 # (current_version/ + archive/) like the other output stores; written by whichever path processes a trial.
 TRIAL_ARMS_ROOT = DATA_ROOT / "trial_arms"
 
+# Trial-level metadata master (`trial_info`), one row per trialId, derived deterministically from the raw
+# CTGov protocolSection / ANZCTR rows. Feeds the matching-engine export (Set A). Versioned like the other masters.
+TRIAL_INFO_ROOT = DATA_ROOT / "trial_info"
+TRIAL_INFO_FILE = "trial_info.tsv"
+
+# The matching-engine EXPORT (deliverable): Set A = the wide flat `trial_eligibility.tsv`; Set B = the drug tables
+# (referenced in place at drug_annotations/current_version/). `export/snapshot_<ts>/` holds an immutable, self-
+# contained bundle (Set A + a frozen copy of the drug tables) minted on demand for hand-off.
+EXPORT_ROOT = DATA_ROOT / "export"
+EXPORT_FILE = "trial_eligibility.tsv"
+
 # DENORMALIZED / JOINED views (mapped_eligibility, finalised_*, combined) are NOT 3NF masters, so they live in
 # ONE top-level `joined/` dir — keeping eligibility/current_output/ and drug_annotations/current_version/ strictly
 # 3NF. Single overwritten files, regenerable from the 3NF tables; not versioned.

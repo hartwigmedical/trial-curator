@@ -1,4 +1,4 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-refresh-pottr
+.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-refresh-pottr
 
 drug-ontology-pipeline-tsvs:
 	scripts/drug_ontology/pipeline_tsvs.sh
@@ -70,6 +70,15 @@ agentic-cache-prune:
 #   make agentic-arm-consistency
 agentic-arm-consistency:
 	scripts/agentic/pipeline.sh arm-consistency
+
+# Build the matching-engine EXPORT. Set A = the wide flat trial_eligibility.tsv (trial info + eligibility +
+# intervention, one row per (trial_arm_id, conjunction)); Set B = the drug 3NF tables, referenced in place (a
+# MANIFEST points at them). Deterministic join; no API. SNAPSHOT=1 also mints an immutable, self-contained
+# export/snapshot_<ts>/ bundle (Set A + a frozen copy of the drug tables) for hand-off.
+#   make agentic-export                # -> data/agentic/export/{trial_eligibility.tsv, MANIFEST.md}
+#   make agentic-export SNAPSHOT=1     # + export/snapshot_<ts>/ (frozen bundle)
+agentic-export:
+	SNAPSHOT="$(SNAPSHOT)" scripts/agentic/pipeline.sh export
 
 # Re-key the drug path's trial_to_intervention to trial_arm_id against the fresh trial_arms registry, and report
 # intervention-input additions/deletions (ANZCTR arm drift). Rewrites ONLY trial_to_intervention.tsv; the other

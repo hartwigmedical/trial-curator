@@ -3,17 +3,16 @@
 Per trial: EXTRACT eligibility into DNF conjunctions, then MAP each distinct extracted cell to the eligibility
 vocabulary — reusing the persistent value->vocabulary cache so only genuinely-NEW values hit the LLM. Drug
 annotations are a SEPARATE incremental store (`drug_annotations/`), topped up here for any new drug the trials
-introduce (existing drugs = pure lookup — no web search). At the end, one grand flat file joins
-eligibility ⋈ vocab maps ⋈ drug annotations on the (trialId, arm) key.
+introduce (existing drugs = pure lookup — no web search).
 
 The arm spine (`trial_arms`) is the SHARED central registry at `data/agentic/trial_arms/current_version/`
 (written by whichever path processes a trial; both paths link to it by `trial_arm_id`). The eligibility store at
 `data/agentic/eligibility/current_output/` holds ONLY its content masters, keyed by trial_arm_id:
     arm_eligibility_raw.tsv · interpreted_eligibility.tsv · cancer_type_map.tsv ·
     gene_alteration_map.tsv · molecular_signature_map.tsv
-The grand flat view (`combined.tsv` — the masters joined, for consumers) is DENORMALIZED, not 3NF, so it is
-written OUTSIDE the store, to `data/agentic/eligibility/combined/combined.tsv` (single overwritten file).
 Re-running a trial replaces its rows in place. The drug store persists to `drug_annotations/current_version/`.
+The grand flat matching-engine view (`trial_eligibility.tsv`, the masters joined for consumers) is built by the
+SEPARATE `aus_trial_universe.agentic.export` module (`make agentic-export`), not here.
 
   python -m aus_trial_universe.agentic.run --id NCT06881784          # one trial
   python -m aus_trial_universe.agentic.run --ids NCT1,ACTRN2         # a specific set
@@ -25,7 +24,6 @@ Requires OPENAI_API_KEY (auto-loaded from .env / .env.local). Run via `make agen
 from __future__ import annotations
 
 import argparse
-import csv
 import logging
 import os
 import time
@@ -33,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import (
-    CACHE_DIR, COMBINED, COMBINED_FILE, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT,
+    CACHE_DIR, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,18 +47,6 @@ def _load_openai_key() -> None:
                 s = line.strip()
                 if s.startswith("OPENAI_API_KEY=") and not s.startswith("#"):
                     os.environ["OPENAI_API_KEY"] = s.split("=", 1)[1].strip().strip('"').strip("'")
-
-
-# The grand flat view (combined.tsv): eligibility ⋈ vocab maps ⋈ drug annotations, one row per DNF conjunction.
-# PARKED (2026-07-24): only built for non-extract-only runs; the current focus is the 3 masters below.
-COMBINED_COLUMNS = [
-    "trialId", "arm", "arm_type", "conjunction_index",
-    "cancer_type_interpreted", "oncotree_name", "oncotree_code",
-    "gene_alteration_interpreted", "gene_alteration_findingmodel",
-    "molecular_signature_interpreted", "molecular_signature_findingmodel",
-    "molecular_biomarker_interpreted", "prior_therapy_interpreted",
-    "arm_drugs", "drug_class", "pottr_drug_class",
-]
 
 
 def _arm_rows(trial_id, registry, result):
@@ -143,63 +129,6 @@ def _compute_new_maps(client, elig_store, elig_rows, strip_provenance, kw):
            for v, r in map_molecular_signatures(client, _new([r.molecular_signature for r in elig_rows],
                                                              elig_store.lookup_molecular_signature), **kw).items()]
     return ct, ga, sig
-
-
-def _arm_drug_facts(drug_store, trial_arm_id_value):
-    """Join to the drug store on trial_arm_id: distinct canonical drug names + classes + POTTR classes."""
-    if drug_store is None:
-        return "", "", ""
-    inputs = [o.input_intervention_name for (taid, _inp), o in drug_store.occurrences.items()
-              if taid == trial_arm_id_value]
-    cids: list[str] = []
-    for inp in inputs:
-        for cid in drug_store.canonical_ids_for(inp):
-            if cid not in cids:
-                cids.append(cid)
-    names, classes, pottr = [], [], []
-    for cid in cids:
-        ref = drug_store.ref(cid)
-        if not ref:
-            continue
-        for lst, val in ((names, ref.canonical_name), (classes, ref.drug_class), (pottr, ref.pottr_drug_class)):
-            if val and val not in lst:
-                lst.append(val)
-    return "; ".join(names), "; ".join(classes), " | ".join(pottr)
-
-
-def _build_combined(elig_store, arm_store, drug_store, strip_provenance) -> list[dict]:
-    """Materialize the grand flat view: interpreted eligibility ⋈ shared trial_arms ⋈ vocab maps ⋈ drug
-    annotations, all on trial_arm_id.
-
-    PARKED (2026-07-24) — regenerated only for non-extract-only runs; kept correct so `make agentic-run` works."""
-    from aus_trial_universe.agentic.tasks.shared.cohorts import trial_id_of
-    rows: list[dict] = []
-    arm_by_id = {a.trial_arm_id: a for arms in arm_store.arms.values() for a in arms}
-    drug_cache: dict[str, tuple] = {}
-    for _trial_id, elig_rows in elig_store.interpreted.items():
-        for e in elig_rows:
-            ct = elig_store.lookup_cancer_type(strip_provenance(e.cancer_type_interpreted))
-            ga = elig_store.lookup_gene_alteration(strip_provenance(e.gene_alteration_interpreted))
-            sig = elig_store.lookup_molecular_signature(strip_provenance(e.molecular_signature_interpreted))
-            ta = arm_by_id.get(e.trial_arm_id)
-            if e.trial_arm_id not in drug_cache:
-                drug_cache[e.trial_arm_id] = _arm_drug_facts(drug_store, e.trial_arm_id)
-            arm_drugs, drug_class, pottr = drug_cache[e.trial_arm_id]
-            rows.append({
-                "trialId": ta.trialId if ta else trial_id_of(e.trial_arm_id),
-                "arm": ta.arm if ta else "", "arm_type": ta.arm_type if ta else "",
-                "conjunction_index": e.conjunction_index,
-                "cancer_type_interpreted": e.cancer_type_interpreted,
-                "oncotree_name": ct.oncotree_name if ct else "", "oncotree_code": ct.oncotree_code if ct else "",
-                "gene_alteration_interpreted": e.gene_alteration_interpreted,
-                "gene_alteration_findingmodel": ga.finding_model if ga else "",
-                "molecular_signature_interpreted": e.molecular_signature_interpreted,
-                "molecular_signature_findingmodel": sig.finding_model if sig else "",
-                "molecular_biomarker_interpreted": e.molecular_biomarker_interpreted,
-                "prior_therapy_interpreted": e.prior_therapy_interpreted,
-                "arm_drugs": arm_drugs, "drug_class": drug_class, "pottr_drug_class": pottr,
-            })
-    return rows
 
 
 def _run_map_only(client, elig_store, run_dir, joined_dir, *, workers, max_attempts, use_reviewer, log) -> int:
@@ -370,11 +299,11 @@ def main(argv: list[str] | None = None) -> int:
     # current_version/): each run loads it, upserts, and writes it back in place. Superseded runs are archived
     # manually (move current_output/ -> archive/<date>/). `--out-dir` overrides for a one-off/isolated run.
     run_dir = Path(args.out_dir) if args.out_dir else store_root / ELIG_CURRENT_OUTPUT
-    # ALL denormalized/joined views (mapped_eligibility, finalised_*, combined) live in ONE top-level `joined/` dir
-    # (sibling of the store root; = data/agentic/joined/ for a real run). Keeps current_output/ strictly 3NF. Derived
-    # from store_root.parent so a `--store-root <tmp>` run (tests) writes into <tmp>/joined/, never real /data.
+    # The denormalized Step-1/Step-2 joined views (mapped_eligibility, finalised_mapped_eligibility) live in ONE
+    # top-level `joined/` dir (sibling of the store root; = data/agentic/joined/ for a real run). Keeps
+    # current_output/ strictly 3NF. Derived from store_root.parent so a `--store-root <tmp>` run (tests) writes into
+    # <tmp>/joined/, never real /data. The grand matching-engine flat file is built separately by `export.py`.
     joined_dir = store_root.parent / "joined"
-    combined_dir = joined_dir   # combined.tsv now lives in joined/ too (was eligibility/combined/)
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
     _client_kw = dict(cache=cache, max_concurrency=args.max_concurrency)
@@ -504,24 +433,14 @@ def main(argv: list[str] | None = None) -> int:
         drug_store.save()
         timing["drug"] = time.perf_counter() - t2
 
-    # --- persist the 3NF store snapshots, then the joined flat view (elsewhere) - #
+    # --- persist the 3NF store snapshots ---------------------------------- #
     arm_store.save(trial_arms_root)                # the shared trial_arms registry
     elig_store.save(run_dir)                       # the pure-3NF masters -> run_dir (current_output/)
-    # combined.tsv is PARKED (2026-07-24): the grand flat join is being reworked, so it is skipped for
-    # extraction-only runs (the current 3-table focus). Non-extract-only runs still materialize it.
-    combined_note = " · combined SKIPPED (parked)"
-    if not args.extract_only:
-        combined = _build_combined(elig_store, arm_store, drug_store, strip_provenance)
-        combined_dir.mkdir(parents=True, exist_ok=True)
-        with open(combined_dir / COMBINED_FILE, "w", newline="", encoding="utf-8") as fc:
-            w = csv.DictWriter(fc, fieldnames=COMBINED_COLUMNS, delimiter="\t", lineterminator="\n",
-                               extrasaction="ignore")
-            w.writeheader()
-            w.writerows(combined)
-        combined_note = f" · combined → {combined_dir}/"
+    # The grand matching-engine flat file (trial_eligibility.tsv) is built SEPARATELY by `make agentic-export`
+    # (aus_trial_universe.agentic.export) over the finalised maps + trial_info + drug tables — not here.
 
     print(f"\n{'═' * 70}\n{len(trials)} trial(s): {len(summaries)} ok, {len(failures)} failed · "
-          f"{total} conjunction(s) · 3NF → {run_dir}/{combined_note}\n")
+          f"{total} conjunction(s) · 3NF → {run_dir}/\n")
     for source, trial_id, n, faithful, attempts in summaries[:40]:
         print(f"  {PASS if faithful else FAIL}  {trial_id} · conjunctions={n} · attempts={attempts}")
     for trial_id, err in failures:

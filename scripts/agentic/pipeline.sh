@@ -13,6 +13,8 @@
 #             default; APPLY=1 deletes, PURGE_UNKNOWN=1 also drops legacy/untagged entries. No API calls.
 #   validate  Independent output validator ("review of the reviewer agents"): re-checks a finished
 #             output TSV outside the workflow. Var: OUT=<tsv> (default: newest). No API calls.
+#   export  Build the matching-engine export: Set A (trial_eligibility.tsv) + MANIFEST; Set B (drug tables)
+#             referenced in place. Deterministic; no API. SNAPSHOT=1 also mints export/snapshot_<ts>/.
 #   drug-ref-build  Build/refresh the drug reference resource (spec §6.1). Incremental (existing drugs
 #             reused). Vars: DRUGS="a; b" | IDS=NCT1,NCT2 | ALL_TRIALS=1 ; optional LIMIT, REFRESH_DRUGS=1, NO_REVIEW=1, MODEL.
 #   clean   Delete transient run artifacts under data/agentic/ (eligibility/, log/, cache/).
@@ -133,8 +135,15 @@ case "${CMD}" in
     ;;
   arm-consistency)
     # Verify the (trialId, arm) split is identical between the eligibility (trial_arms) and drug
-    # (trial_to_intervention) paths — the combined.tsv join key. No API calls.
+    # (trial_to_intervention) paths — the shared join key. No API calls.
     exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.eligibility.qa.arm_consistency
+    ;;
+  export)
+    # Build the matching-engine export: Set A (trial_eligibility.tsv) + MANIFEST; Set B (drug tables) referenced
+    # in place. Deterministic join, no API. SNAPSHOT=1 also writes an immutable export/snapshot_<ts>/ bundle.
+    eargs=()
+    if [[ -n "${SNAPSHOT:-}" ]]; then eargs+=(--snapshot); fi
+    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.export "${eargs[@]}"
     ;;
   cache-prune)
     # Prune the shared LLM response cache of entries from OUTDATED prompts (both paths).
