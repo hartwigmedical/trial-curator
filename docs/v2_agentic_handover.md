@@ -22,13 +22,20 @@ earlier) · **`gene_alteration` (NEW — validated)** · **`molecular_signature`
    strong legit-empty/anti-hallucination). First draft clean: set A **107/107** + disjoint set B **66/66** =
    **173/173 hand-verified**, no fixes needed. Spec §9.
 
-**⚠ TWO DECISIONS AWAIT THE USER (I deliberately did NOT change these — each reverses/extends signed-off scope):**
-- **(a) Bare "X mutation" → full gene-type EXPANSION (incl. amplification), or `SmallVariant` only?** Current
-  convention expands; evidence: it yields clinically-odd mappings (`IDH1`/`NPM1 mutation`→amplification) AND is
-  applied INCONSISTENTLY run-to-run. My recommendation: "mutation"→`SmallVariant`; reserve expansion for
-  "alteration"/"aberration". Reverses the 2026-07-10 signed-off rule → user's call.
-- **(b) Gene-pathway tokens (`HRR gene alteration`/`HRR gene mutation`) → `""` (current) or expand to the HRR gene
-  panel?** Consistent across gene+signature columns today (empty). Needs a domain call on the canonical HRR gene set.
+**✅ TWO DECISIONS — RESOLVED by the user (2026-07-28) + applied (gene iter4, re-validated):**
+- **(a) Bare "X mutation" → `SmallVariant[gene=X]` ONLY** (NOT expanded to amp/del/fusion); full expansion reserved
+  for genuinely UNSPECIFIED terms ("X alteration"/"aberration"/"X-altered"). Baked in doer+reviewer+GRAMMAR_REFERENCE.
+- **(b) "HRR gene(s)" → the PROfound/FDA 15-gene panel** OR'd (BRCA1, BRCA2, ATM, BARD1, BRIP1, CDK12, CHEK1, CHEK2,
+  FANCL, PALB2, PPP2R2A, RAD51B, RAD51C, RAD51D, RAD54L), per-gene depth by the decision-(a) word logic. "HRD"/"HRR
+  deficiency" stays the `HR_DEFICIENT` signature. Baked in doer+reviewer.
+- **iter4 result:** set A 330/330, set B 239/242; HER2-non-synonymous + both HRR residuals cleared; no regression.
+  Result TSVs `scratchpad/gene/setA_iter4.tsv` / `setB_iter4.tsv`.
+
+**⏭ IMMEDIATE NEXT (awaiting user go): the full-store Step-1 build.** All 3 mappers ready + `--map-only` built. Run
+`python -m aus_trial_universe.agentic.run --map-only --workers 80 --max-concurrency 500` → writes the 3 map tables
+(`cancer_type_map` / `gene_alteration_map` / `molecular_signature_map`) into `current_output/`. **FIRST `/data`
+write of this work** — archive `current_output/` first (supersede convention); needs the user's explicit OK. Then an
+independent review of the full output, THEN design **Step 2** (cross-value reconciliation — NOT yet built).
 
 **HOW TO REPRODUCE / RE-RUN:** live-test harnesses + frozen 50/100 (gene) & 50/82 (signature) trial+value lists +
 result TSVs are in the session scratchpad (`scratchpad/gene/`, `scratchpad/sig/`; non-persistent — recreate from the

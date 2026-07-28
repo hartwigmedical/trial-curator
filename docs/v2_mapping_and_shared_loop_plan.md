@@ -243,14 +243,18 @@ Autonomous iteration DONE: nothing under `/data` touched (scratch cache + read-o
   segmental loss/gain → the ARM-level `Arm[...]` (band range dropped), kept not omitted.
 - **3 residuals (NOT implementation defects):** 2× HRR gene-set (doer→empty, reviewer→wants the HRR panel — the
   gene-pathway decision below), 1× borderline `NOT(EGFR oncogenic-driver mutation)` (reviewer prefers omit).
-- **TWO decisions deferred to the user (I did NOT change them autonomously — both reverse/extend signed-off scope):**
-  1. **Bare "X mutation" → full gene-type EXPANSION (incl. amplification), or `SmallVariant` only?** Current
-     convention expands; evidence shows it yields clinically-odd mappings (`IDH1`/`NPM1 mutation` → amplification)
-     AND is applied INCONSISTENTLY run-to-run (a consistency-requirement concern). Recommendation: "mutation" =
-     sequence variant → `SmallVariant`; reserve expansion for genuinely unspecified terms ("alteration"/"aberration").
-  2. **Gene-pathway tokens (`HRR gene alteration`, `HRR-mutated`) → `""` (current, per G4 "vague pathway") or expand
-     to the HRR gene panel?** Recurs (HRR ~21 cells + HRD/HRR variants). Needs a domain call on the canonical gene set.
-- Harness + frozen A/B trial/value lists + result TSVs (`setA_iter3.tsv`, `setB_iter3.tsv`) in `scratchpad/gene/`.
+- **TWO decisions — RESOLVED by the user (2026-07-28) + applied (iter4):**
+  1. **Bare "X mutation" → `SmallVariant[gene=X]` ONLY** (a sequence variant; NOT expanded to amplification/
+     deletion/fusion). Full TSG/oncogene EXPANSION reserved for genuinely UNSPECIFIED events ("X alteration"/
+     "aberration"/"abnormality"/"genomic alteration"/"X-altered"). Baked in doer + reviewer + `GRAMMAR_REFERENCE`.
+  2. **HRR-gene PANEL expansion** — "HRR gene(s)" → the PROfound/FDA 15-gene panel (BRCA1, BRCA2, ATM, BARD1,
+     BRIP1, CDK12, CHEK1, CHEK2, FANCL, PALB2, PPP2R2A, RAD51B, RAD51C, RAD51D, RAD54L) OR'd, applying the
+     decision-1 word logic per gene ("HRR gene mutation" → 15× SmallVariant; "HRR gene alteration" → full expansion
+     per gene). "HRD"/"HRR deficiency" stays the `HR_DEFICIENT` SIGNATURE (separate). Baked in doer + reviewer.
+- **iter4 (decisions 1+2 applied):** set A **330/330 (100%)**, set B **239/242 (98.8%)** — the HER2-non-synonymous +
+  both HRR residuals CLEARED; the 3 remaining set-B residuals are genuine edge cases (tangled double-negative;
+  vague FGFR3-ligands/pathway; the `BRAF Class III alteration` boundary — a defensible `SmallVariant`). No regression.
+- Harness + frozen A/B trial/value lists + result TSVs (`setA_iter4.tsv`, `setB_iter4.tsv`) in `scratchpad/gene/`.
 
 ## 9. `molecular_signature → finding-model` — mapper spec (VALIDATED 2026-07-27, awaiting sign-off)
 
