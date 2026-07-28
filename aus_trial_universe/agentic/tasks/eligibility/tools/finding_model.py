@@ -43,7 +43,9 @@ Molecular signatures:
 - tumorMutationBurden[Status=HIGH]     (TMB-high)
 - tumorMutationLoad[Status=HIGH]       (TML-high)
 
-Expansion when NO specific variant is given (a bare "mutation"/"alteration"/"positive"):
+"X mutation" / "mutated" / "-mutant" (no specific variant) denotes a SEQUENCE variant -> SmallVariant[gene=X] ONLY
+(do NOT add amplification/deletion/fusion). Reserve the full EXPANSION for a genuinely UNSPECIFIED event —
+"X alteration"/"aberration"/"abnormality"/"genomic alteration"/"X-altered":
 - tumour suppressor gene  -> SmallVariant[gene=X] | GainDeletion[gene=X & type=HOM_DEL] | Disruption[gene=X]
 - oncogene                -> SmallVariant[gene=X] | GainDeletion[gene=X & type=GAIN]   (add Fusion[...] if the gene is a known fusion partner)
 

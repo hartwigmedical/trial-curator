@@ -260,8 +260,12 @@ GRANULARITY — as specific as the wording supports, no more, no less:
 - Named protein change / exon / effect -> include it. NEVER invent detail the source does not state.
 - Copy number: name the TYPE only — GAIN (amplification / copy-number gain), HOM_DEL (homozygous / biallelic / deep
   deletion or an unspecified "deletion"/"loss" of a gene), HET_DEL (heterozygous / single-copy loss). Drop counts.
-- A bare "mutation" / "alteration" / "aberration" / "positive" with NO specific variant -> the EXPANSION RULE
-  (tumour-suppressor vs oncogene) in the grammar. Do NOT expand when a specific variant IS named.
+- A bare "X mutation" / "X mutated" / "X-mutant" with NO specific variant -> SmallVariant[gene=X] ONLY. "Mutation"
+  denotes a SEQUENCE variant (SNV/indel); do NOT expand it to amplification/deletion/fusion (those are different
+  events named by their own words). Functional/origin qualifiers still drop ("activating/deleterious/germline X
+  mutation" -> SmallVariant[gene=X]). Do NOT expand when a specific variant IS named.
+- Only a genuinely UNSPECIFIED event — "X alteration" / "aberration" / "abnormality" / "genomic alteration" /
+  "aberrant X" / "X-altered" -> the EXPANSION RULE (tumour-suppressor vs oncogene) in the grammar.
 
 ALTERATION VOCABULARY (word -> class):
 - amplification / copy-number gain             -> GainDeletion[gene=X & type=GAIN]
@@ -287,9 +291,16 @@ WILD-TYPE:
   more faithful as the negation of that specific change: NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12X])
   & NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G13X]).
 
-GENE FAMILIES / PATHWAY TOKENS:
+GENE FAMILIES / PANELS / PATHWAY TOKENS:
 - A recognised gene FAMILY (not a single gene) -> expand to its member genes OR'd, applying the SAME variant to
-  each. RAS = KRAS, NRAS, HRAS. A vague PATHWAY with no specific gene ("RAS/MAPK pathway alteration") -> "".
+  each. RAS = KRAS, NRAS, HRAS.
+- The HRR / HRR-gene / "homologous recombination repair gene" PANEL -> expand to these 15 genes OR'd (the PROfound
+  panel): BRCA1, BRCA2, ATM, BARD1, BRIP1, CDK12, CHEK1, CHEK2, FANCL, PALB2, PPP2R2A, RAD51B, RAD51C, RAD51D,
+  RAD54L. Apply the word logic per gene: "HRR gene MUTATION" -> SmallVariant[gene=BRCA1] | SmallVariant[gene=BRCA2]
+  | ... (one SmallVariant per gene); "HRR gene ALTERATION" -> the full TSG expansion per gene
+  (SmallVariant | GainDeletion[type=HOM_DEL] | Disruption, OR'd across all 15). NB: "HRR deficiency" / "HRD" is the
+  functional SIGNATURE (homologousRecombination[ChordStatus=HR_DEFICIENT]), a molecular_signature — NOT this panel.
+- A vague PATHWAY with no defined gene set ("RAS/MAPK pathway alteration") -> "".
 
 NEGATION — NOT(...):
 - An excluded ALTERATION -> wrap the mapped alteration: "no BRAF V600E" -> NOT(SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=p.V600E]).
@@ -326,9 +337,11 @@ EXAMPLES (source -> finding_model):
 - "ERBB2 (HER2) amplification"         -> GainDeletion[gene=ERBB2 & type=GAIN]
 - "PDGFRA amplification with >=5 copy numbers" -> GainDeletion[gene=PDGFRA & type=GAIN]
 - "MTAP homozygous deletion"           -> GainDeletion[gene=MTAP & type=HOM_DEL]
-- "activating PIK3CA mutation"         -> SmallVariant[gene=PIK3CA] | GainDeletion[gene=PIK3CA & type=GAIN]
-- "germline or somatic deleterious or suspected deleterious BRCA1 mutation" -> SmallVariant[gene=BRCA1] | GainDeletion[gene=BRCA1 & type=HOM_DEL] | Disruption[gene=BRCA1]
-- "KRAS mutation"                      -> SmallVariant[gene=KRAS] | GainDeletion[gene=KRAS & type=GAIN]
+- "activating PIK3CA mutation"         -> SmallVariant[gene=PIK3CA]   ("mutation" = sequence variant; do NOT add amplification)
+- "germline or somatic deleterious or suspected deleterious BRCA1 mutation" -> SmallVariant[gene=BRCA1]
+- "KRAS mutation"                      -> SmallVariant[gene=KRAS]
+- "TP53 alteration"                    -> SmallVariant[gene=TP53] | GainDeletion[gene=TP53 & type=HOM_DEL] | Disruption[gene=TP53]   ("alteration" is UNSPECIFIED -> full TSG expansion)
+- "deleterious mutation in an HRR gene" -> SmallVariant[gene=BRCA1] | SmallVariant[gene=BRCA2] | SmallVariant[gene=ATM] | SmallVariant[gene=BARD1] | SmallVariant[gene=BRIP1] | SmallVariant[gene=CDK12] | SmallVariant[gene=CHEK1] | SmallVariant[gene=CHEK2] | SmallVariant[gene=FANCL] | SmallVariant[gene=PALB2] | SmallVariant[gene=PPP2R2A] | SmallVariant[gene=RAD51B] | SmallVariant[gene=RAD51C] | SmallVariant[gene=RAD51D] | SmallVariant[gene=RAD54L]
 - "ALK fusion"                         -> Fusion[geneStart=ALK | geneEnd=ALK]
 - "NTRK gene fusion"                   -> Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]
 - "BCR-ABL fusion"                     -> Fusion[geneStart=BCR & geneEnd=ABL1]
@@ -350,12 +363,15 @@ machine-validated (real classes/fields/enums, balanced, gene-scoped), so judge S
 
 Set faithful=true only if ALL hold; otherwise faithful=false with concrete, actionable problems:
 
-1. RIGHT GENE(S) — the correct gene(s). A gene FAMILY (RAS) is expanded to its members (KRAS/NRAS/HRAS), not left
-   as a non-gene token or a single arbitrary member.
+1. RIGHT GENE(S) — the correct gene(s). A gene FAMILY (RAS -> KRAS/NRAS/HRAS) or the HRR PANEL (BRCA1, BRCA2, ATM,
+   BARD1, BRIP1, CDK12, CHEK1, CHEK2, FANCL, PALB2, PPP2R2A, RAD51B, RAD51C, RAD51D, RAD54L) is expanded to its
+   members, not left as a non-gene token or a single arbitrary member.
 2. RIGHT ALTERATION — the stated variant / exon / protein change / copy-number TYPE / fusion orientation is
    captured; notation normalised (HGVS `p.`; the `X` wildcard when the substituted residue is unstated).
-3. RIGHT EXPANSION — a bare "mutation" / "alteration" is expanded per the grammar's tumour-suppressor vs oncogene
-   rule; a SPECIFIC named variant is NOT over-expanded.
+3. RIGHT EXPANSION — a bare "X mutation" / "mutated" / "-mutant" maps to SmallVariant[gene=X] ONLY (a sequence
+   variant — NOT expanded to amplification/deletion/fusion); the full tumour-suppressor-vs-oncogene EXPANSION is
+   ONLY for a genuinely UNSPECIFIED event ("X alteration" / "aberration" / "genomic alteration" / "X-altered"). A
+   SPECIFIC named variant is NOT over-expanded.
 4. NEGATION — a disease-phrased exclusion DEFINED BY an expressible alteration is CONVERTED
    ("NOT(BCR-ABL-positive leukemia)" -> NOT(Fusion[geneStart=BCR & geneEnd=ABL1])); an OPEN-ENDED clinical /
    actionability exclusion, or one qualified by an inexpressible location / context / protein domain, is OMITTED
@@ -382,7 +398,8 @@ CORRECT REFERENCE MAPPINGS — accept a proposal that maps this way (note the qu
 - "IDH1 R132 mutation"                 -> SmallVariant[gene=IDH1 & transcriptImpact.hgvsProteinImpact=p.R132X]
 - "EGFR exon 20 insertion"             -> SmallVariant[gene=EGFR & transcriptImpact.affectedExon=20 & transcriptImpact.effects=INFRAME_INSERTION]
 - "MET exon 14 skipping mutation"      -> SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.effects=SPLICE]
-- "germline or somatic deleterious BRCA1 mutation" -> SmallVariant[gene=BRCA1] | GainDeletion[gene=BRCA1 & type=HOM_DEL] | Disruption[gene=BRCA1]
+- "germline or somatic deleterious BRCA1 mutation" -> SmallVariant[gene=BRCA1]   ("mutation" -> SmallVariant only)
+- "TP53 alteration" -> SmallVariant[gene=TP53] | GainDeletion[gene=TP53 & type=HOM_DEL] | Disruption[gene=TP53]   ("alteration" -> full expansion)
 - "PDGFRA amplification with >=5 copy numbers" -> GainDeletion[gene=PDGFRA & type=GAIN]
 - "ALK fusion"                         -> Fusion[geneStart=ALK | geneEnd=ALK]
 - "NTRK gene fusion"                   -> Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]
@@ -410,6 +427,11 @@ MAPPINGS YOU MUST FAIL (proposed -> problem -> fix):
     -> a whole-gene wild-type uses the Wildtype class. fix "Wildtype[gene=ALK]"
 - SOURCE "KRAS amplification with >=5 copies", proposed problems=["dropped the copy count"]
     -> dropping the copy count is CORRECT; do NOT fail for it.
+- SOURCE "EGFR mutation", proposed "SmallVariant[gene=EGFR] | GainDeletion[gene=EGFR & type=GAIN]"
+    -> "mutation" is a sequence variant; amplification must NOT be added. fix "SmallVariant[gene=EGFR]"
+- SOURCE "HRR gene mutation", proposed "SmallVariant[gene=BRCA1] | SmallVariant[gene=BRCA2]"
+    -> the HRR panel is 15 genes; only 2 listed. fix the full 15-gene SmallVariant OR (BRCA1/2, ATM, BARD1, BRIP1,
+       CDK12, CHEK1/2, FANCL, PALB2, PPP2R2A, RAD51B/C/D, RAD54L).
 - SOURCE "FLT3-ITD", proposed "SmallVariant[gene=FLT3 & transcriptImpact.affectedExon=14 & transcriptImpact.effects=INFRAME_INSERTION]"
     -> the source does not state an exon; do not infer it. fix "SmallVariant[gene=FLT3 & transcriptImpact.effects=INFRAME_INSERTION]"
 - SOURCE "NOT(bZIP CEBPA mutation)", proposed "NOT(SmallVariant[gene=CEBPA])"
