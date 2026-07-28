@@ -25,13 +25,23 @@ path is signed off. **All code from this session is UNCOMMITTED in the working t
    ~1k tok, ~3.8s/call → RPM-bound) → **800 workers / 800 max-concurrency** (~85% RPM, under the 1000-conn pool), 0
    rate-limit pushback. md5-verified the existing 5 tables + `trial_arms` byte-unchanged; `make
    agentic-arm-consistency` CONSISTENT ✓ (role refs=4,990). Snapshot: `drug_annotations/archive/pre_role_build_28072026/`.
-2. **THE GRAND JOIN → a fresh `combined.tsv`** (the matching-engine flat file): interpreted ⋈ `trial_arms` ⋈ the
-   **FINAL vocab maps** (`finalised_*_map.tsv`, use the `*_FINAL` column) ⋈ drug annotations, on `trial_arm_id`; add
-   TGA/PBS + the main/aux role. `run._build_combined` exists (PARKED, 16 cols) — extend it. **Open decision:** join
-   engine — in-process SQLite/DuckDB vs keep the Python join (Postgres ruled out; memory `v2-joined-tables-sql-decision`).
-   The old stale `combined.tsv` was DELETED — build it anew here.
+2. **THE GRAND JOIN → the matching-engine EXPORT. ✅ DONE (2026-07-28, UNCOMMITTED).** Delivered as TWO sets (design
+   agreed with the user): **Set A** = a wide flat `data/agentic/export/trial_eligibility.tsv` (38 cols, one row per
+   `(trial_arm_id, conjunction_index)`) = basic trial info ⋈ interpreted DNF eligibility ⋈ **FINAL** vocab codes ⋈
+   the arm's interventions (role-split main/aux); **Set B** = the 6 drug 3NF tables, **referenced in place** (a
+   `MANIFEST.md` points at `drug_annotations/current_version/`) — NO drifting duplicate. `make agentic-export`
+   builds Set A + manifest; `make agentic-export SNAPSHOT=1` also mints an immutable self-contained
+   `export/snapshot_<ts>/` (Set A + a frozen copy of Set B) for hand-off. NEW top-level modules
+   `agentic/export.py` + `agentic/trial_info.py` (a new deterministic `trial_info` master, from raw
+   CTGov/ANZCTR); the parked `run._build_combined`/`COMBINED_*` were RETIRED (superseded). Built over the full
+   store: **17,659 rows · 5,195 arms · 1,983 trials.** Join engine = in-process (Python join now; SQLite/DuckDB when
+   the engine consumes it). Column set locked with the user; `min_age`/`max_age`/`sex` included; `*_raw` +
+   `extraction_faithful` excluded. `make agentic-tests` = **162 green** (154 + 8). NB: the legacy `make
+   agentic-validate` still points at the old `combined.tsv` path — repoint it to the export (follow-up).
 3. **Symmetric-match vocab for drug approvals** — map each `drug_regulatory_approvals` free-text cancer_type/biomarker
-   into the SAME OncoTree + finding-model vocab (reuse the mappers), so trial-eligibility ↔ drug-approval match symmetrically.
+   into the SAME OncoTree + finding-model vocab (reuse the mappers), so trial-eligibility ↔ drug-approval match
+   symmetrically. **This is now the TOP remaining item** — the export flags it: TGA/PBS approval is indication-specific,
+   so matching a trial's OncoTree code ↔ a drug's approved indication needs the drug side in the same vocab.
 4. **Self-contained pipeline — Stage-I ingestion + legacy retirement.** Move download → drug-filter → POTTR-append →
    retire-missing into agentic; retire legacy `eligibility_path`/`drug_utility_path`. Biggest piece for a periodic run.
 - **Optional cleanup:** the **11 cancer_type per-value LOGIC residuals** (valid codes, imperfect structure, e.g.

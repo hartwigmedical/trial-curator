@@ -140,15 +140,15 @@
     <div class="h">Guiding principle &mdash; research once per drug, reuse everywhere</div>
     <p>A drug's intrinsic facts depend only on the <b>drug</b>, not the trial or the raw string &mdash; so they live
       <b>once</b>, keyed by a namespaced <span class="inline-code">canonical_id</span>, and every trial that uses the
-      drug is a <b>pure lookup</b>. The expensive LLM + web search runs once per distinct drug (~2,400 raw tokens
-      &rarr; ~1,300 canonicals); an existing, non-stale drug is never re-researched. Normalization <i>is</i> the speed win.</p>
+      drug is a <b>pure lookup</b>. The expensive LLM + web search runs once per distinct drug (~2,400 distinct raw names
+      &rarr; ~1,275 canonicals); an existing, non-stale drug is never re-researched. Normalization <i>is</i> the speed win.</p>
   </div>
 
   <div class="principle">
     <div class="h">Guiding principle &mdash; the reviewer only advises; deterministic facts aren't LLM'd</div>
     <p>Each judgement stage pairs a <b>doer</b> (web search) with an adversarial <b>reviewer</b> that returns only a
-      <b>verdict + problems</b>, never a rewritten value; on a failure the critique feeds back to the doer (bounded,
-      &le;3 attempts). The reviewer judges plausibility from its own knowledge &mdash; it does <b>not</b> re-search.
+      <b>verdict + problems</b>, never a rewritten value; on a failure the critique feeds back to the doer (the shared
+      <span class="inline-code">core/review.py</span> refine harness; bounded, &le;3 attempts). The reviewer judges plausibility from its own knowledge &mdash; it does <b>not</b> re-search.
       The identity/classification facts that must be exact &mdash; <span class="inline-code">rxcui</span> + ATC (RxNorm),
       POTTR drug class, trial provenance &mdash; bypass the LLM entirely.</p>
   </div>
@@ -164,7 +164,7 @@
     <section class="stage mix">
       <span class="rail"></span>
       <div class="head"><span class="tag">Collect</span><h3>Every drug across the trial universe, with its arm</h3><span class="badge mix">code + llm</span></div>
-      <p>Arm identification is the <b>path-neutral shared module</b> (<span class="inline-code">tasks/shared</span>) &mdash; the SAME code the eligibility path uses &mdash; so arms are written once to the central <span class="inline-code">trial_arms</span> registry and both paths link to them by the deterministic <span class="inline-code">trial_arm_id = {trialId}::{arm}</span> slug.</p>
+      <p>Arm identification is the <b>path-neutral shared module</b> (<span class="inline-code">tasks/shared</span>) &mdash; the SAME code the eligibility path uses &mdash; so arms are written once to the central <span class="inline-code">trial_arms</span> registry and both paths link to them by the deterministic <span class="inline-code">trial_arm_id = {trialId}::{arm}</span> id.</p>
       <div class="branch">
         <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
           <p>each drug-bearing <span class="inline-code">armGroups</span> entry &rarr; an arm (&rarr; <span class="inline-code">trial_arms</span>) + a

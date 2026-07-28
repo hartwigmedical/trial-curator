@@ -1,4 +1,4 @@
-<title>Trial Extraction &mdash; Workflow</title>
+<title>Eligibility path &mdash; Workflow</title>
 <style>
   :root {
     --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7;
@@ -166,7 +166,7 @@
 
 <div class="wrap">
   <p class="date">28 July 2026</p>
-  <h1>Trial extraction &mdash; how the modules interact</h1>
+  <h1>Eligibility path &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, writing the
     arm spine to the <b>shared <span class="inline-code">trial_arms</span> registry</b> (keyed by <span class="inline-code">trial_arm_id</span>) and the eligibility content to normalized 3NF masters (the combined flat view is materialized separately &mdash; see Write).</p>
@@ -205,7 +205,7 @@
     <section class="stage">
       <span class="rail"></span>
       <div class="head"><span class="tag">Regimes (the axis)</span><h3>Arm identification &rarr; the shared <span class="inline-code">trial_arms</span> registry</h3><span class="badge mix">code + llm</span></div>
-      <p>A <b>path-neutral shared module</b> (<span class="inline-code">tasks/shared</span>) identifies a trial's arms &mdash; the SAME code the drug path uses &mdash; so the <span class="inline-code">(trialId, arm)</span> split, and the deterministic <span class="inline-code">trial_arm_id = {trialId}::{arm}</span> slug derived from it, is <b>identical across both paths</b> (the join key). Each arm is written to the central <span class="inline-code">trial_arms</span> registry (<span class="inline-code">trial_arm_id, trialId, registry, arm, arm_type</span>); the eligibility + drug tables link to it by <span class="inline-code">trial_arm_id</span>.</p>
+      <p>A <b>path-neutral shared module</b> (<span class="inline-code">tasks/shared</span>) identifies a trial's arms &mdash; the SAME code the drug path uses &mdash; so the <span class="inline-code">(trialId, arm)</span> split, and the deterministic <span class="inline-code">trial_arm_id = {trialId}::{arm}</span> id derived from it, is <b>identical across both paths</b> (the join key). Each arm is written to the central <span class="inline-code">trial_arms</span> registry (<span class="inline-code">trial_arm_id, trialId, registry, arm, arm_type</span>); the eligibility + drug tables link to it by <span class="inline-code">trial_arm_id</span>.</p>
       <div class="branch">
         <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
           <p>one regime per <b>drug-bearing</b> <span class="inline-code">armGroups</span> entry (filtered to <span class="inline-code">{Drug, Biological}</span>; placebo / RT-only / procedure arms dropped): label, <span class="inline-code">arm_type</span> (flags control), drug, + <span class="inline-code">description</span> (the assignment signal). No LLM.</p></div>
@@ -270,7 +270,7 @@
       <div class="refine-bar">
         <span class="loop-ico">&#8634;</span>
         <div><b>Refine (incremental)</b> &mdash; any of the 4 gating reviewers fails &rarr; <b>Extract</b> re-runs with its OWN prior
-          table + only the flagged issues, keeping unflagged rows as-is (the drug reviewer is advisory, so it never blocks). Bounded at 6 attempts (returns the best attempt; stops early on convergence or an exact-repeat cycle).</div>
+          table + only the flagged issues, keeping unflagged rows as-is (the drug reviewer is advisory, so it never blocks). Bounded at 6 attempts, returning the best attempt (stops early on convergence or an exact-repeat cycle); as a last resort it re-reviews in <span class="inline-code">escalation-mode</span> &mdash; the reviewer supplies a concrete fix the doer applies once.</div>
       </div>
 
       <div class="loop-exits">

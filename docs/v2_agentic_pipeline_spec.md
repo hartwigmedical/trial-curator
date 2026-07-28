@@ -87,14 +87,14 @@ cache, corrections & pruning".
 timestamped run directory + one log per run. No intermediate files.
 
 ```
-SELECT/ASSEMBLE ─▶ ARMS ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ split → trial_arms/eligibility/combined
-   loaders        §7.3    §7 (LLM)         §7.5                      §8.1-2   §8.3     §9
+SELECT/ASSEMBLE ─▶ ARMS ─▶ EXTRACT ─▶ (rule-check + REVIEW panel) ─refine▶ MAP ─▶ DRUG ─▶ split → trial_arms + eligibility masters
+   loaders        §7.3    §7 (LLM)         §7.5                      §8.1-2   §8.3     §9      (export = separate: make agentic-export)
 ```
 
 Run modes: `ID=<id>` (one) · `IDS=<a,b,c>` (a set) · no arg = ALL trials. Options: `MODEL=` · `NO_JUDGE=1` ·
 `NO_REVIEW=1` · `EXTRACT_ONLY=1` (skip map+drug). Output: the shared `trial_arms` registry + the 2 eligibility
-content masters (+ vocab maps) in `data/agentic/eligibility/current_output/`, all keyed by `trial_arm_id`, + the
-joined `combined.tsv` in `eligibility/combined/` (§9).
+content masters (+ vocab maps) in `data/agentic/eligibility/current_output/`, all keyed by `trial_arm_id`. The
+matching-engine flat file (`export/trial_eligibility.tsv`) is built separately by `make agentic-export` (§9).
 
 ## 6. The relational data model
 
@@ -354,7 +354,7 @@ overwrites) are **held-out verification data**, checked **manually** later (esp.
 legacy `eligibility_*_resource_*.tsv` — never ingested wholesale (which would degenerate into a mechanical vlookup).
 The OncoTree ontology and finding-model grammar are the controlled *output vocabulary*, so they are fair to expose.
 
-## 9. Output — shared arm registry + eligibility content masters + combined view (§6.1; decoupled 2026-07-21; arm registry extracted 2026-07-25)
+## 9. Output — shared arm registry + eligibility content masters + the matching-engine export (§6.1; decoupled 2026-07-21; arm registry extracted 2026-07-25; export 2026-07-28)
 Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/trial_arms/current_version/trial_arms.tsv`
 — `trial_arm_id, trialId, registry, arm, arm_type` (both registries; `trial_arm_id` = the deterministic
 `{trialId}::{arm}` slug), written by whichever path processes a trial. The eligibility store
@@ -369,19 +369,22 @@ Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/tr
   criteria replicated onto each arm). The audit anchor.
 - **`interpreted_eligibility.tsv`** — PK `(trial_arm_id, conj_id)` → the 5 interpreted DNF cells (inline `NOT()`;
   rows sharing `trial_arm_id` are ORed). `conj_id` numbers the OR-conjunctions within an arm.
-- **`cancer_type_map.tsv`** — `cancer_type` value → `oncotree_name, oncotree_code` (deduped, universe-wide cache).
+- **`cancer_type_map.tsv`** — `cancer_type` value → `oncotree_name, oncotree_code` (deduped, universe-wide cache);
+  Step-2 adds **`finalised_cancer_type_map.tsv`** (+ an `oncotree_code_FINAL` col). Analogous `finalised_*` for gene/signature.
 - **`gene_alteration_map.tsv`** / **`molecular_signature_map.tsv`** — value → `finding_model` (deduped).
 
-The denormalized **`combined.tsv`** (the materialized join, for the matching engine) is NOT 3NF, so it is written
-**outside the store**, at `data/agentic/eligibility/combined/combined.tsv` (single overwritten file, regenerable).
-It joins interpreted eligibility ⋈ `trial_arms` ⋈ vocab maps ⋈ drug annotations on `trial_arm_id` — **16 columns**:
-`trialId, arm, arm_type, conj_id, cancer_type, oncotree_name, oncotree_code, gene_alteration,
-gene_alteration_findingmodel, molecular_signature, molecular_signature_findingmodel, molecular_biomarker,
-prior_therapy, arm_drugs, drug_class, pottr_drug_class`.
+**The matching-engine EXPORT (2026-07-28)** is built SEPARATELY by `agentic/export.py` (`make agentic-export`), not by
+`run.py`. TWO sets: **Set A** = the denormalized flat **`data/agentic/export/trial_eligibility.tsv`** (38 cols, one
+row per `(trial_arm_id, conj_id)`) = a new deterministic **`trial_info`** master (raw CTGov/ANZCTR basic info) ⋈
+interpreted eligibility ⋈ **FINAL** vocab maps ⋈ per-arm intervention rollups (role-split main/aux from
+`trial_arm_drug_role`); **Set B** = the 6 drug 3NF tables **referenced in place** (a `MANIFEST.md` points at
+`drug_annotations/current_version/` — no duplicate). `SNAPSHOT=1` mints an immutable `export/snapshot_<ts>/` bundle
+(Set A + a frozen copy of Set B). The old parked `combined.tsv` / `run._build_combined` were RETIRED.
 
 The raw text (grain: arm) and the interpreted conjunctions (grain: arm × conjunction) are separate 3NF entities;
-trial-wide criteria are AND-combined into each arm by `_distribute` upstream. **Still owed** on `combined.tsv`
-(items A/B in the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
+trial-wide criteria are AND-combined into each arm by `_distribute` upstream. **Owed** (top follow-up): drug-side
+`drug_regulatory_approvals` free-text cancer_type/biomarker mapped into the same vocab, so TGA/PBS
+(indication-specific) matches trial-eligibility ↔ drug-approval symmetrically.
 
 ## 10. Repo layout & retirement
 
@@ -389,7 +392,8 @@ trial-wide criteria are AND-combined into each arm by `_distribute` upstream. **
 aus_trial_universe/
   eligibility_path/  drug_utility_path/   # legacy — reference (resource source) until superseded
   agentic/
-    run.py                               # ELIGIBILITY orchestrator (extract → map → drug top-up → combined)
+    run.py                               # ELIGIBILITY orchestrator (extract → map → drug top-up); export is separate
+    export.py  trial_info.py             # matching-engine export (Set A trial_eligibility.tsv) + trial_info master
     core/    client.py agent.py workflow.py pipeline_io.py paths.py cache_prune.py prompt_registry.py logfmt.py
     tasks/
       shared/        cohorts.py agents.py schema.py store.py  # PATH-NEUTRAL arm identification: Cohort,

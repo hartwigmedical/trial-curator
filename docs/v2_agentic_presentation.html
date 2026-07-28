@@ -48,7 +48,7 @@
   .slide.active { opacity: 1; visibility: visible; transform: none; }
   .slide-inner { min-height: 100%; box-sizing: border-box;
     padding: clamp(28px, 6.2vh, 66px) clamp(30px, 7vw, 104px) clamp(56px, 8vh, 84px);
-    display: flex; flex-direction: column; justify-content: center; gap: clamp(12px, 1.8vh, 20px);
+    display: flex; flex-direction: column; justify-content: safe center; gap: clamp(12px, 1.8vh, 20px);
     max-width: 1180px; margin: 0 auto; }
   @media (prefers-reduced-motion: reduce) { .slide { transition: none; transform: none; } }
 
@@ -298,7 +298,7 @@
         <div class="rm-item"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3>
           <p>The evaluator&ndash;optimizer loop, the end-to-end workflow, and how it works &mdash; the agent contract, data model, and determinism.</p></div></div>
         <div class="rm-item"><div class="num">03</div><div><h3>Deep Dives</h3>
-          <p>Real deep dives grounded in the trials &mdash; tracing eligibility and drugs, a bug we caught, mapping as an ML problem, and the limits.</p></div></div>
+          <p>Tracing eligibility and drugs, a bug we caught, mapping as an ML problem, and the limits.</p></div></div>
       </div>
     </div>
   </section>
@@ -328,7 +328,7 @@
       <h2>Where the old <span class="accent-rev">pydantic curator</span> fell short</h2>
       <p class="lead">The v1 curator got us started, but five problems it couldn't adequately solve are exactly what
         motivated the rewrite.</p>
-      <div class="cards c2">
+      <div class="cards">
         <div class="card rev"><div class="ct">Problem 1</div><h3>No automated verification</h3>
           <p>A linear chain of one-shot LLM calls &mdash; requires a human reviewer. Virtually impossible to manually detect all errors across ~2,000 trials.</p></div>
         <div class="card rev"><div class="ct">Problem 2</div><h3>No multiple eligibility criteria combinations</h3>
@@ -338,7 +338,7 @@
             text alone.</p></div>
         <div class="card rev"><div class="ct">Problem 4</div><h3>Heavy reliance on post-processing manual correction and handcrafted mapping files</h3>
           <p>No reliable means of transforming input text into our controlled vocabulary without manually created mapping files.</p></div>
-        <div class="card rev" style="grid-column:1/-1"><div class="ct">Problem 5</div><h3>Read only the eligibility section</h3>
+        <div class="card rev"><div class="ct">Problem 5</div><h3>Read only the eligibility section</h3>
           <p>Eligibility-relevant detail also appears in the <b>title, description, conditions, and arm text</b> &mdash; v1 read only the eligibility criteria and missed it.</p></div>
       </div>
     </div>
@@ -402,7 +402,7 @@
         <div class="card rev"><div class="ct">the reviewer &mdash; the easy part</div><h3>Check the answer</h3>
           <p>Given a finished answer and the source, judge <b>one dimension</b> &mdash; a direct comparison. Cheaper, and more reliable.</p></div>
       </div>
-      <div class="note" style="max-width:none"><span class="h">what &ldquo;verification &lt; generation&rdquo; means</span> Producing the right answer from scratch is hard; <b>checking whether a proposed one is right is much easier</b> &mdash; it takes less work, and less capability. Think of a sudoku: <b>solving</b> the grid is the effort; <b>confirming</b> a finished grid is valid is a quick scan. So we spend our strongest effort on the <b>doer</b>, and use cheaper, focused <b>reviewers</b> to catch its mistakes &mdash; and we can afford several of them.</div>
+      <div class="note" style="max-width:none"><span class="h">what &ldquo;verification &lt; generation&rdquo; means</span> Producing the right answer from scratch is hard; <b>checking whether a proposed one is right is much easier</b> &mdash; it takes less work, and less capability. Think of a mathematical proof: <b>finding</b> it can take years; <b>checking</b> a written proof is a careful read-through. So we spend our strongest effort on the <b>doer</b>, and use cheaper, focused <b>reviewers</b> to catch its mistakes &mdash; and we can afford several of them.</div>
       <div class="thesis"><b>verification &lt; generation</b> &mdash; but the payoff only lands if the checker is <b>independent</b>, sees the <b>whole answer</b>, and is actively <b>looking for faults</b>.</div>
     </div>
   </section>
@@ -549,12 +549,14 @@
     <div class="slide-inner">
       <div class="eyebrow"><span class="k"></span> Act 2 &middot; determinism, speed &amp; cost</div>
       <h2>One cache, three wins</h2>
-      <p class="lead">We re-run the pipeline constantly &mdash; iterating prompts, resuming interrupted runs. LLM calls are non-deterministic, slow, and paid-for. We want re-runs to be <b>reproducible and cheap</b>.</p>
-      <div class="cards c2">
-        <div class="card code"><div class="ct">the mechanism</div><h3>Content-addressed cache</h3>
-          <p>The key is a hash of the <b>exact request</b> (model + instructions + input + schema). <b>Hit</b> &rarr; return the stored response, no API call. <b>Miss</b> &rarr; call the model, then store.</p></div>
-        <div class="card code"><div class="ct">the payoff</div><h3>Reproducible, instant, free re-runs</h3>
-          <p>Identical request &rArr; identical output &mdash; the <b>effect we'd want from temperature 0</b>, at the system level. Re-running already-seen work costs <b>no time and no tokens</b>.</p></div>
+      <p class="lead">We re-run the pipeline constantly &mdash; iterating prompts, resuming interrupted runs. Every LLM call is served through a <b>content-addressed cache</b>: the key is a hash of the exact request (model + instructions + input + schema); a <b>hit</b> returns the stored response with no API call. That buys three things:</p>
+      <div class="cards c3">
+        <div class="card code"><div class="ct">win 1</div><h3>Determinism</h3>
+          <p>Identical request &rArr; identical output &mdash; byte-stable re-runs. Our <b>equivalent of temperature 0</b>, at the system level.</p></div>
+        <div class="card code"><div class="ct">win 2</div><h3>Speed</h3>
+          <p>Re-running already-seen work is <b>near-instant</b> &mdash; 9 of 10 complex trials re-ran in ~1 second.</p></div>
+        <div class="card code"><div class="ct">win 3</div><h3>Cost</h3>
+          <p>A cache hit spends <b>nothing</b> &mdash; including the expensive web search on the drug side.</p></div>
       </div>
       <div class="note"><span class="h">staying correct when a prompt changes</span> Each entry records the prompt it came from. <b>Change a prompt and its fingerprint changes</b> &mdash; stale entries are dropped automatically, so a re-run recomputes exactly what the edit affected and reuses everything else.</div>
     </div>
@@ -569,7 +571,7 @@
         <div class="rm-item dim"><div class="num">01</div><div><h3>The problem</h3></div></div>
         <div class="rm-item dim"><div class="num">02</div><div><h3>The solution &mdash; Theory &amp; Intent</h3></div></div>
         <div class="rm-item active"><div class="num">03</div><div><h3>Deep Dives</h3>
-          <p>Real deep dives grounded in the trials &mdash; tracing eligibility and drugs, a bug we caught, mapping as an ML problem, and the limits.</p></div></div>
+          <p>Tracing eligibility and drugs, a bug we caught, mapping as an ML problem, and the limits.</p></div></div>
       </div>
     </div>
   </section>
@@ -628,10 +630,10 @@
       <div class="row2">
         <div class="kv">
           <div class="note"><span class="h">what went wrong</span> The doer expanded those alternatives into <b>spurious AND-combinations</b> (e.g. <span class="ic">MYCN amp AND focal MYCL amp</span>) &mdash; <b>84 of 218 rows</b> carried a fabricated conjunction.</div>
-          <div class="note"><span class="h">why nothing caught it</span> The rows are <b>satisfiable</b>, so the deterministic validator passed them. And the panel missed it too &mdash; each reviewer judged <b>single cells</b>; none compared the <b>whole set of rows</b> to the source's alternative count.</div>
+          <div class="note"><span class="h">why nothing caught it</span> Each pair is individually <b>satisfiable</b> (a patient <i>could</i> have both), so the validator passed it and every <b>single-cell</b> reviewer accepted it. And the doer emits rows <b>one at a time</b>, never seeing its own finished table &mdash; so it can't notice the explosion either.</div>
         </div>
         <div class="kv">
-          <div class="note"><span class="h">the fix</span> Add a reviewer with the <b>whole-output vantage point</b> &mdash; it counts the distinct alternatives per criterion and flags fabricated ANDs &mdash; plus a deterministic dedup of commutative pairs.</div>
+          <div class="note"><span class="h">the fix &mdash; two parts</span> <b>(1)</b> a new reviewer that sees the <b>whole de-duplicated table</b> (not one cell): it counts how many alternatives the source states for each criterion &mdash; here, <b>3</b> &mdash; and flags any output enumerating <b>more combinations than that</b> as fabricated ANDs. <b>(2)</b> a deterministic pass that drops rows which are merely <b>reorderings</b> of each other (<span class="ic">A AND B</span> = <span class="ic">B AND A</span>).</div>
           <div class="stats">
             <div class="stat rev"><div class="n">218</div><div class="l">rows before &mdash; fabricated</div></div>
             <div class="stat code"><div class="n">45</div><div class="l">rows after &mdash; faithful</div></div>
@@ -646,7 +648,7 @@
   <section class="slide" data-section="Act 3 · Deep dives">
     <div class="slide-inner">
       <div class="eyebrow gen"><span class="k"></span> Deep dive &middot; mapping via ML methodology</div>
-      <h2>Mapping prompts, developed like a model</h2>
+      <h2>Mapping prompts, developed with ML methodology</h2>
       <p class="lead">Mapping free text to a controlled vocabulary is where we borrow ML discipline. The hand-curated answer sets are the <b>ground truth</b>, <b>held out</b> as the test set.</p>
       <div class="cards c3">
         <div class="card gen"><div class="ct">the doer prompt</div><h3>Grammar + worked examples</h3>
@@ -691,7 +693,6 @@
       <h2>The vision</h2>
       <p class="lead">Today: a structured, auditable resource for ~2,000 AU / NZ cancer trials &mdash; eligibility as DNF, drugs in 3NF, joined on <span class="ic">trial_arm_id</span>.</p>
       <div class="thesis">The goal is a <b>fully self-contained, automated pipeline</b> &mdash; every new trial flowing from <b>raw registry input</b> straight through to <b>finished, structured resource files</b>, end to end and on a schedule, with no manual step.</div>
-      <p class="body">What's left to get there: fold data ingestion into the pipeline, and retire the legacy paths.</p>
     </div>
   </section>
 

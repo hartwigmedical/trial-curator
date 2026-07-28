@@ -17,9 +17,10 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 | `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
 | `make agentic-clean` | Wipe transient run artifacts under `data/agentic/{eligibility,log,cache}` — never touches the colocated inputs/resources/drug_annotations. |
 | `make agentic-cache-prune` | **Prune the response cache of OUTDATED-prompt entries** (both paths share one cache). Dry-run by default; `APPLY=1` deletes, `PURGE_UNKNOWN=1` also drops legacy entries. See below. No API calls. |
-| `make agentic-arm-consistency` | **Referential-integrity check** on the arm join key: every `trial_arm_id` referenced by the eligibility tables + drug `trial_to_intervention` exists in the shared `trial_arms` registry. Exit 0 = consistent. No API. |
+| `make agentic-arm-consistency` | **Referential-integrity check** on the arm join key: every `trial_arm_id` referenced by the eligibility tables + drug `trial_to_intervention` + `trial_arm_drug_role` exists in the shared `trial_arms` registry. Exit 0 = consistent. No API. |
+| `make agentic-export` | **Build the matching-engine export.** Set A = the wide flat `export/trial_eligibility.tsv` (trial info + eligibility + intervention, one row per `(trial_arm_id, conjunction)`); Set B = the 6 drug 3NF tables, referenced in place (a `MANIFEST.md` points at them). Deterministic join; no API. `SNAPSHOT=1` also mints an immutable self-contained `export/snapshot_<ts>/` bundle (Set A + a frozen copy of Set B). |
 | `make agentic-drug-migrate-trial-arms` | Re-key drug `trial_to_intervention` to `trial_arm_id` against the fresh registry + report intervention-input additions/deletions → `data/agentic/analysis/`. Dry-run by default; `APPLY=1` rewrites ONLY that drug file. No API. |
-| `make drug-ref-build` | Build/refresh the drug reference (5 tables). See below. |
+| `make drug-ref-build` | Build/refresh the drug reference (6 tables). See below. |
 | `make drug-ref-refresh-pottr` | Download the current POTTR files from GitHub (archives the previous). See below. |
 | `make agentic-tests` | Run the unit-test suite (no API calls). |
 
@@ -124,9 +125,9 @@ completes (so partial results survive an interrupt):
 
 **Output:** the shared `trial_arms` registry `data/agentic/trial_arms/current_version/trial_arms.tsv` (the arm
 spine) + the eligibility content store `data/agentic/eligibility/current_output/` (`arm_eligibility_raw.tsv`,
-`interpreted_eligibility.tsv`, and the three `*_map.tsv` lookups), all keyed by `trial_arm_id`. The materialized-join
-`combined.tsv` (the flat, self-contained rows the matching engine reads) is denormalized, not 3NF, so it is written
-OUTSIDE the store, to `data/agentic/eligibility/combined/combined.tsv`.
+`interpreted_eligibility.tsv`, the three `*_map.tsv` lookups + the three `finalised_*_map.tsv`), all keyed by
+`trial_arm_id`. The materialized matching-engine flat file (`trial_eligibility.tsv`) is built SEPARATELY by
+`make agentic-export` (see the Export section), not by `agentic-run`.
 **Log:** `data/agentic/log/agentic_run_<label>_<timestamp>.log` (the whole run, both stages).
 
 ---
@@ -140,31 +141,37 @@ deterministic slug `{trialId}::{arm}`). Both paths link to it by `trial_arm_id`:
   `trial_arm_id`) + the 3 value→vocab map tables.
 - **Drug** (`drug_annotations/current_version/`): `trial_to_intervention` = `(trial_arm_id, input_intervention_name)`.
 
-The **denormalized joined view** `combined.tsv` (in `eligibility/combined/` — outside the store) is the flat file
-the matching engine reads: one row per satisfiable `(trialId, arm, conj_id)` conjunction (DNF — rows sharing
-`(trialId, arm)` are ORed, cells within a row ANDed, exclusions inline as `NOT(...)`). It is assembled by joining
-eligibility ⋈ `trial_arms` ⋈ vocab maps ⋈ drug annotations, all on `trial_arm_id`. Its **16 columns**, in order:
+## The matching-engine export (`make agentic-export`)
 
-| Column | Source | Notes |
-|---|---|---|
-| `trialId` | regime/elig | NCT… or ACTRN… |
-| `arm` | regime/elig | CTGov `armGroups[].label`; ANZCTR `intervention`/`comparator`; `all` — the join key to the drug path |
-| `arm_type` | regime | CTGov `armGroups[].type` (EXPERIMENTAL / ACTIVE_COMPARATOR / …) |
-| `conj_id` | elig | conjunction index within `(trialId, arm)` |
-| `cancer_type` | extract | trial's wording, `value [source]`, inline `NOT()` |
-| `oncotree_name` / `oncotree_code` | map | OncoTree mapping of `cancer_type` (via `cancer_type_map`) |
-| `gene_alteration` | extract | trial's wording, `value [source]` |
-| `gene_alteration_findingmodel` | map | Hartwig finding-model syntax (via `gene_alteration_map`) |
-| `molecular_signature` | extract | `value [source]` |
-| `molecular_signature_findingmodel` | map | finding-model syntax (via `molecular_signature_map`) |
-| `molecular_biomarker` | extract | `value [source]` |
-| `prior_therapy` | extract | `value [source]` |
-| `arm_drugs` | drug join | distinct canonical drug names for the arm (`trial_arm_id` → drug store), `; `-joined |
-| `drug_class` | drug join | general drug class(es) of the arm's drugs, `; `-joined |
-| `pottr_drug_class` | drug join | POTTR class hierarchy of the arm's drugs, ` | `-joined |
+The deliverable is TWO sets (built by `aus_trial_universe.agentic.export`, deterministic, no API):
 
-Drug facts join in via the `trial_arm_id` key to the drug utility path. **Not yet in `combined.tsv`** (owed —
-see the handover): TGA/PBS regulatory status + the **main vs auxiliary** drug-role distinction (drug Phase 2).
+**Set A — `data/agentic/export/trial_eligibility.tsv`** — one wide flat file, **one row per
+`(trial_arm_id, conjunction_index)`** = one satisfiable eligibility path of one arm (DNF: rows sharing an arm are
+ORed, cells ANDed, exclusions inline `NOT()`). It joins `interpreted_eligibility` ⋈ `trial_arms` ⋈ the new
+`trial_info` master ⋈ the **FINAL** vocab maps (`finalised_*_map.tsv`, `*_FINAL` columns; `oncotree_name` rendered
+from the FINAL code) ⋈ the per-arm drug rollups (from `trial_arm_drug_role` + `drug_annotations_core`). **38
+columns** in four groups (full list in the export `MANIFEST.md`):
+- *keys/arm* — `trial_arm_id, conjunction_index, trialId, registry, arm, arm_type`
+- *trial info* — `official_title, phase, overall_status, study_type, lead_sponsor, min_age, max_age, sex, start_date,
+  primary_completion_date, completion_date, last_update_date, countries, has_AU_site, AU_site_status, AU_site_cities,
+  trial_url` (from the `trial_info` master — raw CTGov/ANZCTR, deterministic)
+- *eligibility* — `cancer_type_interpreted, oncotree_name, oncotree_code, gene_alteration_interpreted,
+  gene_alteration_findingmodel, molecular_signature_interpreted, molecular_signature_findingmodel,
+  molecular_biomarker_interpreted, prior_therapy_interpreted`
+- *intervention* — `arm_intervention_names_raw, arm_canonical_ids, arm_main_drugs, arm_auxiliary_drugs,
+  arm_main_drug_classes, arm_main_pottr_classes`
+
+**Set B — the 6 drug 3NF tables** at `drug_annotations/current_version/`, **referenced in place** (single source of
+truth — a `MANIFEST.md` in `export/` points at them; NO duplicate). The engine joins from Set A into Set B:
+`arm_intervention_names_raw → intervention_to_canonical → drug_annotations_core (pottr class) →
+drug_regulatory_approvals (TGA/PBS per indication)`, and `trial_arm_id → trial_arm_drug_role (main/aux)`.
+
+`make agentic-export SNAPSHOT=1` also writes an **immutable, self-contained** `export/snapshot_<ts>/` (Set A + a
+frozen copy of Set B + manifest) for hand-off — a dated copy that can't drift.
+
+**Owed (top follow-up):** TGA/PBS approval is *indication-specific*, so matching a trial's OncoTree code ↔ a drug's
+approved indication needs the drug side's free-text `cancer_type`/`biomarker` mapped into the same vocab (the
+symmetric-match mapping). Until then the engine string-matches / defers the approval leg.
 
 > **Verification:** the finding-model / OncoTree / drug outputs are checked **manually** against the legacy
 > `data/eligibility_path/exports/final/eligibility_*_resource_*.tsv` and the hand-curated resource files.
