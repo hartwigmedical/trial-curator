@@ -4,20 +4,29 @@
 retire the legacy `data/drug_utility_path/` and `data/eligibility_path/` trees. Every data path derives from the
 single `DATA_ROOT` constant here, so promotion to the top-level `data/` later is a one-line change.
 
-Layout (see docs/agentic/drug_ref_schema.md):
+Layout (grouped by ROLE; see docs/agentic/drug_ref_schema.md):
     <DATA_ROOT>/
-      trial_universe/{ctgov,anzctr}/                 INPUT  trials
-      resources/drug_utility/{pottr,rxnorm}/         INPUT  reference data — current_version/ + archive/
-      resources/eligibility/oncotree/                INPUT  reference data — current_version/ + archive/
-      trial_arms/                                    OUTPUT the SHARED arm registry — current_version/ + archive/
-      drug_annotations/                              OUTPUT the 5 relational tables — current_version/ + archive/
-      eligibility/                                   OUTPUT the pure-3NF store (current_output/ + archive/)
-      eligibility/combined/                          OUTPUT the joined flat view (NOT 3NF) — kept out of the store
-      log/  analysis/                                operational
+      inputs/                                        INPUT — external data we ingest (read-only to the pipeline)
+        trial_universe/{ctgov,anzctr}/               trials
+        resources/drug_utility/{pottr,rxnorm}/       reference data — current_version/ + archive/
+        resources/eligibility/oncotree/              reference data — current_version/ + archive/
+      masters/                                       OUTPUT — produced, VERSIONED stores (current_version/ + archive/)
+        trial_arms/                                  the SHARED arm registry (FK target)
+        trial_info/                                  trial-level metadata master
+        drug_annotations/                            the 6 relational tables + 2 approval vocab maps
+        eligibility/                                 the pure-3NF eligibility store
+      derived/                                       OUTPUT — regenerable, NON-versioned flat views/deliverables
+        joined/{eligibility,drug_annotations}/       denormalized review views
+        export/                                      the matching-engine deliverable (Set A + MANIFEST)
+      transient/                                     wipeable operational (safe to delete — make agentic-clean)
+        cache/  log/
+      analysis/                                      ad-hoc analysis workspace
+      demo/                                          isolated live-demo sandbox (self-contained; re-roots here)
 
-Versioned datasets (resources + drug_annotations) use a fixed `current_version/` folder for the live data and
-`archive/` for superseded versions; the exact date lives in a metadata file inside the version dir. (Trial inputs
-keep their own `version_<ddmmyyyy>/` dirs, managed by the download pipeline and read via `latest_version_dir`.)
+Versioned stores (everything under masters/ + the input resources) use a fixed `current_version/` folder for the
+live data and `archive/` for superseded versions; the exact date lives in a metadata file inside the version dir.
+(Trial inputs keep their own `version_<ddmmyyyy>/` dirs, managed by the download pipeline and read via
+`latest_version_dir`.)
 """
 from __future__ import annotations
 
@@ -31,40 +40,47 @@ _TIMESTAMP_RE = re.compile(r"^\d{8}_\d{6}$")
 # The single relocatable root. Promote to `REPO_ROOT / "data"` when the legacy trees are removed.
 DATA_ROOT = REPO_ROOT / "data/agentic"
 
+# --- role buckets (the top-level grouping; every leaf derives from one of these) --------------------------- #
+INPUTS = DATA_ROOT / "inputs"          # external data we ingest (read-only to the pipeline)
+MASTERS = DATA_ROOT / "masters"        # produced, VERSIONED stores (current_version/ + archive/)
+DERIVED = DATA_ROOT / "derived"        # regenerable, NON-versioned flat views/deliverables
+TRANSIENT = DATA_ROOT / "transient"    # wipeable operational (cache, log)
+
 # --- INPUT: trials ---------------------------------------------------------- #
-TRIAL_UNIVERSE = DATA_ROOT / "trial_universe"
+TRIAL_UNIVERSE = INPUTS / "trial_universe"
 CTGOV_ROOT = TRIAL_UNIVERSE / "ctgov"
 ANZCTR_ROOT = TRIAL_UNIVERSE / "anzctr"
 
 # --- INPUT: external reference data (versioned; current_version/ + archive/) - #
-RESOURCES = DATA_ROOT / "resources"
+RESOURCES = INPUTS / "resources"
 POTTR_ROOT = RESOURCES / "drug_utility/pottr"
 RXNORM_ROOT = RESOURCES / "drug_utility/rxnorm"
 ONCOTREE_ROOT = RESOURCES / "eligibility/oncotree"
 
-# --- OUTPUT ----------------------------------------------------------------- #
-DRUG_ANNOTATIONS_ROOT = DATA_ROOT / "drug_annotations"
-ELIGIBILITY_OUTPUT = DATA_ROOT / "eligibility"
+# --- MASTERS: the produced, versioned stores -------------------------------- #
+DRUG_ANNOTATIONS_ROOT = MASTERS / "drug_annotations"
+ELIGIBILITY_OUTPUT = MASTERS / "eligibility"
 # The SHARED arm registry (`trial_arms`): the central table both paths link to by `trial_arm_id`. Versioned
-# (current_version/ + archive/) like the other output stores; written by whichever path processes a trial.
-TRIAL_ARMS_ROOT = DATA_ROOT / "trial_arms"
+# (current_version/ + archive/) like the other masters; written by whichever path processes a trial.
+TRIAL_ARMS_ROOT = MASTERS / "trial_arms"
 
 # Trial-level metadata master (`trial_info`), one row per trialId, derived deterministically from the raw
 # CTGov protocolSection / ANZCTR rows. Feeds the matching-engine export (Set A). Versioned like the other masters.
-TRIAL_INFO_ROOT = DATA_ROOT / "trial_info"
+TRIAL_INFO_ROOT = MASTERS / "trial_info"
 TRIAL_INFO_FILE = "trial_info.tsv"
 
+# --- DERIVED: regenerable flat outputs -------------------------------------- #
 # The matching-engine EXPORT (deliverable): Set A = the wide flat `trial_eligibility.tsv`; Set B = the drug tables
-# (referenced in place at drug_annotations/current_version/). `export/snapshot_<ts>/` holds an immutable, self-
-# contained bundle (Set A + a frozen copy of the drug tables) minted on demand for hand-off.
-EXPORT_ROOT = DATA_ROOT / "export"
+# (referenced in place at masters/drug_annotations/current_version/). `export/snapshot_<ts>/` holds an immutable,
+# self-contained bundle (Set A + a frozen copy of the drug tables) minted on demand for hand-off.
+EXPORT_ROOT = DERIVED / "export"
 EXPORT_FILE = "trial_eligibility.tsv"
 
 # DENORMALIZED / JOINED views (mapped_eligibility, finalised_*, mapped_drug_regulatory_approval) are NOT 3NF
-# masters, so they live under ONE top-level `joined/` dir — keeping eligibility/current_output/ and
-# drug_annotations/current_version/ strictly 3NF. `joined/` is split per producing subsystem into `eligibility/`
-# and `drug_annotations/` subfolders. Single overwritten files, regenerable from the 3NF tables; not versioned.
-JOINED_ROOT = DATA_ROOT / "joined"
+# masters, so they live under `derived/joined/` — keeping the masters/ stores strictly 3NF. `joined/` is split per
+# producing subsystem into `eligibility/` and `drug_annotations/` subfolders. Single overwritten files, regenerable
+# from the 3NF tables; not versioned.
+JOINED_ROOT = DERIVED / "joined"
 JOINED_ELIGIBILITY = "eligibility"          # joined/eligibility/  — the eligibility flat views
 JOINED_DRUG = "drug_annotations"            # joined/drug_annotations/ — the drug-approval flat view
 COMBINED = "combined"                       # legacy name kept for back-compat; combined.tsv now lands in JOINED_ROOT
@@ -81,13 +97,12 @@ FINALISED_MAP_FILES = {
     "molecular_signature_map": "finalised_molecular_signature_map.tsv",
 }
 
-# --- operational ------------------------------------------------------------ #
-LOG_DIR = DATA_ROOT / "log"
-ANALYSIS_DIR = DATA_ROOT / "analysis"
-CACHE_DIR = DATA_ROOT / "cache"   # LLM response DiskCache (run-to-run reuse); safe to wipe (make agentic-clean)
+# --- TRANSIENT + operational ------------------------------------------------ #
+LOG_DIR = TRANSIENT / "log"
+CACHE_DIR = TRANSIENT / "cache"   # LLM response DiskCache (run-to-run reuse); safe to wipe (make agentic-clean)
+ANALYSIS_DIR = DATA_ROOT / "analysis"   # ad-hoc analysis workspace (top-level, not a role bucket)
 
-CURRENT_VERSION = "current_version"
-ELIG_CURRENT_OUTPUT = "current_output"   # eligibility live store (current/archive pattern; parallels current_version)
+CURRENT_VERSION = "current_version"   # the live version folder for EVERY versioned store (masters/ + input resources)
 ARCHIVE = "archive"
 
 

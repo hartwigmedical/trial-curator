@@ -7,6 +7,22 @@ takes a trial from free text all the way to a fully-enriched DNF (disjunctive no
 - **One run = one output + one log.** No intermediate files.
 - Design detail lives in `docs/v2_agentic_pipeline_spec.md` (single spec) and the diagram `docs/v2_workflow_diagram.html`.
 
+## Data layout (grouped by role)
+
+Everything lives under one relocatable `DATA_ROOT` (`core/paths.py`; = `data/agentic/` today), top level grouped by role:
+
+```
+data/agentic/
+  inputs/       trial_universe/ (ctgov, anzctr) · resources/ (drug_utility, eligibility)   — ingested, read-only
+  masters/      trial_arms/ · trial_info/ · drug_annotations/ · eligibility/                — produced, VERSIONED (current_version/ + archive/)
+  derived/      joined/{eligibility,drug_annotations}/ · export/                            — regenerable flat views + the deliverable
+  transient/    cache/ · log/                                                               — wipeable (make agentic-clean)
+  analysis/     ad-hoc analysis            demo/  isolated live-demo sandbox
+```
+
+Every versioned store uses a fixed `current_version/` live folder (+ `archive/` for superseded sets). `make
+agentic-clean` wipes ONLY `transient/`; the masters (incl. the curated eligibility output) are never auto-wiped.
+
 ---
 
 ## Make Commands
@@ -67,7 +83,7 @@ Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_unive
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
 Builds the standalone drug reference (6 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,
-`drug_target_actions`, `drug_regulatory_approvals`, `trial_arm_drug_role`) at `<DATA_ROOT>/drug_annotations/current_version/`. LLM doer→reviewer for
+`drug_target_actions`, `drug_regulatory_approvals`, `trial_arm_drug_role`) at `<DATA_ROOT>/masters/drug_annotations/current_version/`. LLM doer→reviewer for
 judgement (canonicalize / annotate / approvals); deterministic offline lookups for `rxcui`+`atc_code` (RxNorm) and
 `pottr_drug_class` (POTTR). `canonicalize` splits a combination/regimen token into its component standalone drugs
 (`1 input → N` canonicals; a single engineered molecule like an ADC/bispecific stays one) and records
@@ -75,7 +91,7 @@ judgement (canonicalize / annotate / approvals); deterministic offline lookups f
 each input name came from as `(trial_arm_id, input_intervention_name)` (linking to the shared `trial_arms`
 registry, which the build also populates), and the build **logs per-trial drug attribution**. Incremental
 (existing non-stale drugs are pure lookups), batched with a checkpoint save after each batch (resumable),
-soft-fails per drug. Logs to `data/agentic/log/`.
+soft-fails per drug. Logs to `data/agentic/transient/log/`.
 ```bash
 make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"   # explicit list
 make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5        # drugs from specific trials (CTGov)
@@ -85,7 +101,7 @@ make drug-ref-build ALL_TRIALS=1                               # every distinct 
 ### `make drug-ref-map-approvals` — symmetric-match vocab for the approvals
 Maps the free-text `cancer_type` / `biomarker` of `drug_regulatory_approvals` into the SAME vocab the trial side
 uses (OncoTree + finding-model), so a drug's approved indication can be matched directly against a trial's
-eligibility. Writes **2 additive 3NF tables** into `<DATA_ROOT>/drug_annotations/current_version/`: `approval_cancer_type_map`
+eligibility. Writes **2 additive 3NF tables** into `<DATA_ROOT>/masters/drug_annotations/current_version/`: `approval_cancer_type_map`
 (`cancer_type → oncotree_name, oncotree_code, oncotree_code_FINAL`) and `approval_biomarker_map` (`biomarker` split
 into gene/signature/expression + the gene & signature finding-models) — plus a denormalized flat view
 `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` (each approval ⋈ its vocab maps). **Reuses the
@@ -102,7 +118,7 @@ make drug-ref-map-approvals WORKERS=80 MAX_CONCURRENCY=500     # sized to the ac
 ```
 ### `make drug-ref-refresh-pottr` — refresh the POTTR reference data
 Downloads the two public POTTR files (`drug_database.txt`, `drug_class_hierarchy.txt`) from
-`raw.githubusercontent.com/fpylin/POTTR` into `<DATA_ROOT>/resources/drug_utility/pottr/current_version/`, moving the
+`raw.githubusercontent.com/fpylin/POTTR` into `<DATA_ROOT>/inputs/resources/drug_utility/pottr/current_version/`, moving the
 previous version to `…/pottr/archive/<date>/` and recording the download date in `SOURCE.txt`. RxNorm is a manual
 drop-in (UMLS-licensed) under `resources/drug_utility/rxnorm/current_version/`.
 ```bash
@@ -142,29 +158,29 @@ completes (so partial results survive an interrupt):
    TGA approval (+year) and PBS reimbursement for the main drug(s).
 6. **WRITE** — the enriched rows stream to one TSV.
 
-**Output:** the shared `trial_arms` registry `data/agentic/trial_arms/current_version/trial_arms.tsv` (the arm
-spine) + the eligibility content store `data/agentic/eligibility/current_output/` (`arm_eligibility_raw.tsv`,
+**Output:** the shared `trial_arms` registry `data/agentic/masters/trial_arms/current_version/trial_arms.tsv` (the arm
+spine) + the eligibility content store `data/agentic/masters/eligibility/current_version/` (`arm_eligibility_raw.tsv`,
 `interpreted_eligibility.tsv`, the three `*_map.tsv` lookups + the three `finalised_*_map.tsv`), all keyed by
 `trial_arm_id`. The materialized matching-engine flat file (`trial_eligibility.tsv`) is built SEPARATELY by
 `make agentic-export` (see the Export section), not by `agentic-run`.
-**Log:** `data/agentic/log/agentic_run_<label>_<timestamp>.log` (the whole run, both stages).
+**Log:** `data/agentic/transient/log/agentic_run_<label>_<timestamp>.log` (the whole run, both stages).
 
 ---
 
 ## Output Schema
 
-Arm identity lives ONCE in the **shared `trial_arms` registry** (`data/agentic/trial_arms/current_version/
+Arm identity lives ONCE in the **shared `trial_arms` registry** (`data/agentic/masters/trial_arms/current_version/
 trial_arms.tsv`: `trial_arm_id, trialId, registry, arm, arm_type` — both registries; `trial_arm_id` is the
 deterministic slug `{trialId}::{arm}`). Both paths link to it by `trial_arm_id`:
-- **Eligibility** (`eligibility/current_output/`): `arm_eligibility_raw` + `interpreted_eligibility` (each keyed by
+- **Eligibility** (`masters/eligibility/current_version/`): `arm_eligibility_raw` + `interpreted_eligibility` (each keyed by
   `trial_arm_id`) + the 3 value→vocab map tables.
-- **Drug** (`drug_annotations/current_version/`): `trial_to_intervention` = `(trial_arm_id, input_intervention_name)`.
+- **Drug** (`masters/drug_annotations/current_version/`): `trial_to_intervention` = `(trial_arm_id, input_intervention_name)`.
 
 ## The matching-engine export (`make agentic-export`)
 
 The deliverable is TWO sets (built by `aus_trial_universe.agentic.export`, deterministic, no API):
 
-**Set A — `data/agentic/export/trial_eligibility.tsv`** — one wide flat file, **one row per
+**Set A — `data/agentic/derived/export/trial_eligibility.tsv`** — one wide flat file, **one row per
 `(trial_arm_id, conjunction_index)`** = one satisfiable eligibility path of one arm (DNF: rows sharing an arm are
 ORed, cells ANDed, exclusions inline `NOT()`). It joins `interpreted_eligibility` ⋈ `trial_arms` ⋈ the new
 `trial_info` master ⋈ the **FINAL** vocab maps (`finalised_*_map.tsv`, `*_FINAL` columns; `oncotree_name` rendered
@@ -180,7 +196,7 @@ columns** in four groups (full list in the export `MANIFEST.md`):
 - *intervention* — `arm_intervention_names_raw` (the raw-intervention join key into Set B; canonical ids, the
   main/auxiliary role split, drug classes and TGA/PBS are reached through Set B, NOT duplicated into Set A)
 
-**Set B — the 6 drug 3NF tables** at `drug_annotations/current_version/`, **referenced in place** (single source of
+**Set B — the 6 drug 3NF tables** at `masters/drug_annotations/current_version/`, **referenced in place** (single source of
 truth — a `MANIFEST.md` in `export/` points at them; NO duplicate). The engine joins from Set A into Set B:
 `arm_intervention_names_raw → intervention_to_canonical → drug_annotations_core (pottr class) →
 drug_regulatory_approvals (TGA/PBS per indication)`, and `trial_arm_id → trial_arm_drug_role (main/aux)`.
@@ -223,7 +239,7 @@ join back to `arm_eligibility_raw` on `trial_arm_id` and compare against the ver
 ---
 
 ## Response cache, corrections & pruning
-The LLM response cache (`data/agentic/cache/`) is the pipeline's **determinism layer** and its
+The LLM response cache (`data/agentic/transient/cache/`) is the pipeline's **determinism layer** and its
 **fast-re-run** mechanism — one directory shared by BOTH paths (eligibility `run.py` + drug `build.py`).
 Each entry is content-addressed: the filename is a SHA-256 of the full request `{model, instructions
 (the prompt), input, schema, …}`, and the file holds the validated response. Identical request → cache
@@ -255,7 +271,7 @@ entries, never `live` or legacy), so a prompt edit self-cleans its old cache on 
    its fingerprint, so those calls recompute live (and auto-prune drops the old entries); everything unchanged
    stays cached. Applies the fix across all trials. This is how you fix a *systematic* error.
 2. **Hand-edit a map table** (`cancer_type_map.tsv` / `gene_alteration_map.tsv` / `molecular_signature_map.tsv`
-   in `current_output/`) — a durable curated override. Mapping is **lookup-first**: a value already in the map
+   in `current_version/`) — a durable curated override. Mapping is **lookup-first**: a value already in the map
    is never recomputed, so your edit sticks and propagates to every trial sharing that value. Use for one-off
    mapping errors.
 3. **Hand-editing `arm_eligibility_raw.tsv` / `interpreted_eligibility.tsv` (or the shared `trial_arms.tsv`) does
@@ -276,8 +292,8 @@ Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 
 ## Clean between runs
 ```bash
-make agentic-clean        # rm -rf data/agentic/{eligibility,log,cache}; recreate eligibility/ + log/
+make agentic-clean        # rm -rf data/agentic/transient/{cache,log}; recreate transient/log/
 ```
-Scoped strictly to the transient artifacts `data/agentic/{eligibility,log,cache}` — it never touches the colocated
-inputs/resources (`trial_universe/`, `resources/`, `drug_annotations/`, `analysis/`). Note this wipes the whole
-`eligibility/` tree (the accumulating `current_output/` store, `combined/`, and `archive/`) — all regenerable.
+Scoped strictly to the wipeable `transient/` bucket (`cache/` + `log/`). It NEVER touches `inputs/` (trial_universe,
+resources), `masters/` (the produced stores — **including the curated eligibility output**), `derived/` (joined,
+export), or `analysis/`. To reset a master, archive it explicitly (`current_version/` → `archive/<date>/`).

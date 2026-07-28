@@ -1,9 +1,12 @@
 # Drug reference — relational schema & design (spec §6.1)
 
 The drug reference is **six 3NF relational tables** (+ two additive symmetric-match vocab maps), persisted as TSVs
-under `<DATA_ROOT>/drug_annotations/current_version/` (superseded builds go to `drug_annotations/archive/`). All data
-paths derive from one relocatable `DATA_ROOT` constant (`core/paths.py`; = `data/agentic/` today, promotable to
-`data/`). The tables split into stages that mirror the build workflow:
+under `<DATA_ROOT>/masters/drug_annotations/current_version/` (superseded builds go to
+`masters/drug_annotations/archive/`). All data paths derive from one relocatable `DATA_ROOT` constant
+(`core/paths.py`; = `data/agentic/` today, promotable to `data/`), whose top level is grouped by ROLE:
+`inputs/` (trial_universe, resources), `masters/` (the produced versioned stores: trial_arms, trial_info,
+drug_annotations, eligibility), `derived/` (regenerable flat views: joined, export), `transient/` (cache, log),
+plus `analysis/` and the isolated `demo/` sandbox. The tables split into stages that mirror the build workflow:
 
 - **Stage 1 — drug identity** ("*which drug is this?*"): resolve each trial's raw intervention string to a canonical
   drug, and record which trials used it. Tables: `trial_to_intervention`, `intervention_to_canonical`.
@@ -103,7 +106,7 @@ splits `1 input → N` rows; a non-drug is one row with an empty `canonical_id`.
 **`trial_to_intervention`** — the provenance / traceability record. Grain: one row per (trial arm × input
 string); many-to-many (a string can appear in many arms; a trial arm has many interventions). The arm identity
 (trialId / registry / arm label / arm_type) lives ONCE in the **shared `trial_arms` registry**
-(`<DATA_ROOT>/trial_arms/`; `trial_arm_id, trialId, registry, arm, arm_type`, both registries, populated by the
+(`<DATA_ROOT>/masters/trial_arms/`; `trial_arm_id, trialId, registry, arm, arm_type`, both registries, populated by the
 shared cohort-identification module); this table links to it by `trial_arm_id` (a deterministic `{trialId}::{arm}`
 slug). Both the drug and eligibility paths reference `trial_arms` — it is the single arm join key.
 
@@ -335,11 +338,11 @@ match reuses the trial's FINAL code with **no LLM call** — so a concept shared
 cancer" → the same OncoTree code) is guaranteed identical and the pass is cheaper. Novel values go through the
 mappers (same prompts + shared cache, so still consistent). Disable with `--no-seed`.
 
-**Joined view.** A denormalized flat view `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` (one row per
-`(canonical_id, indication_id)` = each approval ⋈ its cancer_type/biomarker vocab mappings incl. `oncotree_code_FINAL`
-+ `tga_status`/`pbs_status`) is written alongside the store update — the drug-side analog of
-`joined/eligibility/mapped_eligibility.tsv`. It is NOT 3NF, so it lives under `joined/`, never in the store (which
-stays strictly 3NF). `joined/` is split per producing subsystem: `joined/eligibility/` + `joined/drug_annotations/`.
+**Joined view.** A denormalized flat view `derived/joined/drug_annotations/mapped_drug_regulatory_approval.tsv` (one
+row per `(canonical_id, indication_id)` = each approval ⋈ its cancer_type/biomarker vocab mappings incl.
+`oncotree_code_FINAL` + `tga_status`/`pbs_status`) is written alongside the store update — the drug-side analog of
+`derived/joined/eligibility/mapped_eligibility.tsv`. It is NOT 3NF, so it lives under `derived/joined/`, never in the
+store (which stays strictly 3NF). `derived/joined/` is split per producing subsystem: `eligibility/` + `drug_annotations/`.
 
 **Additive.** The 3NF maps are written by `DrugRefStore.save_approval_maps` (only those two tables); the six core
 tables are byte-untouched. A plain `drug-ref-build` never emits them (the writes are populated-guarded).

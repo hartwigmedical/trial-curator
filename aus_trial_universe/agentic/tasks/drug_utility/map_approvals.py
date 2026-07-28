@@ -116,7 +116,7 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
     """Map the store's distinct approval cancer_type / biomarker values into the eligibility vocab, writing the two
     new map tables into `store` (mutated in place). Seeds from the trial FINAL maps unless `seed=False`."""
     from aus_trial_universe.agentic.export import _read_map, _render_oncotree_name
-    from aus_trial_universe.agentic.core.paths import ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT
+    from aus_trial_universe.agentic.core.paths import CURRENT_VERSION, ELIGIBILITY_OUTPUT
     from aus_trial_universe.agentic.tasks.eligibility.mapping.reconcile import reconcile_column
     from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import map_all_columns
     from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import oncotree_vocab
@@ -130,7 +130,7 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
     summary.ct_total, summary.bm_total = len(ct_values), len(bm_values)
 
     # Trial FINAL (Step-2 reconciled) maps — the seed source for cross-domain consistency.
-    elig_dir = ELIGIBILITY_OUTPUT / ELIG_CURRENT_OUTPUT
+    elig_dir = ELIGIBILITY_OUTPUT / CURRENT_VERSION
     seed_ct = _read_map(elig_dir / "finalised_cancer_type_map.tsv", "cancer_type", "oncotree_code_FINAL") if seed else {}
     seed_ga = _read_map(elig_dir / "finalised_gene_alteration_map.tsv", "gene_alteration", "finding_model_FINAL") if seed else {}
     seed_sig = _read_map(elig_dir / "finalised_molecular_signature_map.tsv", "molecular_signature", "finding_model_FINAL") if seed else {}
@@ -251,9 +251,9 @@ def write_mapped_approvals(store: DrugRefStore, joined_dir: Path) -> Path:
 
 
 def _drug_joined_dir() -> Path:
-    """joined/drug_annotations/ — sibling of the drug store root (so a demo re-root of DATA_ROOT follows)."""
-    from aus_trial_universe.agentic.core.paths import DRUG_ANNOTATIONS_ROOT, JOINED_DRUG
-    return DRUG_ANNOTATIONS_ROOT.parent / "joined" / JOINED_DRUG
+    """derived/joined/drug_annotations/ (the bucketed JOINED_ROOT; a demo re-root of JOINED_ROOT follows)."""
+    from aus_trial_universe.agentic.core.paths import JOINED_DRUG, JOINED_ROOT
+    return JOINED_ROOT / JOINED_DRUG
 
 
 def main(argv: list[str] | None = None) -> int:

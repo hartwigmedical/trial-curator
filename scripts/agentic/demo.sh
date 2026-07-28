@@ -59,7 +59,7 @@ mkdir -p "${LOG_DIR}"
 # Seed the demo drug reference from the production annotations. The drug reference is universe-wide reference
 # data (like OncoTree / POTTR), so the demo REUSES it — every demo drug is then a pure LOOKUP and the drug stage
 # does ZERO web search. The demo still WRITES only under demo/ (this is a copy; production is never touched).
-PROD_DRUG="${REPO_ROOT}/data/agentic/drug_annotations/current_version"
+PROD_DRUG="${REPO_ROOT}/data/agentic/masters/drug_annotations/current_version"
 DEMO_DRUG="${DEMO_DIR}/drug_annotations/current_version"
 if [[ -d "${PROD_DRUG}" && ! -d "${DEMO_DRUG}" ]]; then
   mkdir -p "${DEMO_DIR}/drug_annotations"

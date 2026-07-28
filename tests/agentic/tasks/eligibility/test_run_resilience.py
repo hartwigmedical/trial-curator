@@ -48,7 +48,7 @@ def test_batch_continues_past_a_failing_trial(tmp_path, monkeypatch):
     rc = run.main(["--ids", "GOOD1,BADX,GOOD2", "--store-root", str(tmp_path), "--extract-only"])
 
     assert rc == 0                                  # batch completes despite the failure
-    snap = tmp_path / "current_output"              # the eligibility content store
+    snap = tmp_path / "current_version"              # the eligibility content store
     interp = list(csv.DictReader(open(snap / "interpreted_eligibility.tsv"), delimiter="\t"))
     # rows are keyed by trial_arm_id now; derive the trialId to check which trials were written
     assert sorted({trial_id_of(r["trial_arm_id"]) for r in interp}) == ["GOOD1", "GOOD2"]

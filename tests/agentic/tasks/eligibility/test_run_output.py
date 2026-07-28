@@ -52,7 +52,7 @@ def test_run_writes_3nf_masters(tmp_path, monkeypatch):
 
     rc = run.main(["--ids", "NCT1", "--store-root", str(tmp_path), "--extract-only"])
     assert rc == 0
-    snap = tmp_path / "current_output"                         # the eligibility store (content masters only)
+    snap = tmp_path / "current_version"                         # the eligibility store (content masters only)
 
     arms = _trial_arms_rows()                                  # the SHARED registry
     raw = list(csv.DictReader(open(snap / "arm_eligibility_raw.tsv"), delimiter="\t"))
@@ -145,7 +145,7 @@ def test_resume_skips_completed_and_returns_0_when_all_present(tmp_path, monkeyp
                         lambda **kw: [("ctgov", i, "text", None) for i in (kw.get("ids") or [])])
     monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
                         _resumable_extract(calls))
-    out = str(tmp_path / "current_output")
+    out = str(tmp_path / "current_version")
     run.main(["--ids", "NCTA", "--store-root", str(tmp_path), "--out-dir", out, "--extract-only"])
     assert calls == ["NCTA"]
     calls.clear()
@@ -161,5 +161,5 @@ def test_resume_returns_3_when_a_trial_is_missing(tmp_path, monkeypatch):
     monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
                         _resumable_extract(calls))
     rc = run.main(["--ids", "GOODA,FAILME", "--store-root", str(tmp_path),
-                   "--out-dir", str(tmp_path / "current_output"), "--extract-only", "--resume"])
+                   "--out-dir", str(tmp_path / "current_version"), "--extract-only", "--resume"])
     assert rc == 3   # FAILME failed -> still missing -> non-zero so a loop driver retries

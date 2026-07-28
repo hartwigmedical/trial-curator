@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import (
+    CURRENT_VERSION,
     DRUG_ANNOTATIONS_ROOT,
-    ELIG_CURRENT_OUTPUT,
     ELIGIBILITY_OUTPUT,
     EXPORT_FILE,
     EXPORT_ROOT,
@@ -217,7 +217,7 @@ def run_export(*, snapshot: bool = False,
     from aus_trial_universe.agentic.tasks.shared.store import TrialArmStore
 
     stamp = stamp or datetime.now().strftime("%Y-%m-%d %H:%M")
-    elig_dir = elig_root / ELIG_CURRENT_OUTPUT
+    elig_dir = elig_root / CURRENT_VERSION
     drug_dir = drug_root / "current_version"
 
     logger.info("export · building trial_info master …")

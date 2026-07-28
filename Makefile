@@ -37,8 +37,8 @@ eligibility-path-tests:
 	scripts/eligibility/pipeline.sh tests
 
 # --- v2 agentic pipeline (aus_trial_universe/agentic) ---
-# Full pipeline (extract -> map -> drug); the pure-3NF store in eligibility/current_output/ + the joined flat
-# view in eligibility/combined/combined.tsv (kept out of the store) + one log per run. Runs unit tests first.
+# Full pipeline (extract -> map -> drug); the pure-3NF store in masters/eligibility/current_version/ + the joined
+# flat views in derived/joined/ (kept out of the store) + one log per run. Runs unit tests first.
 #   make agentic-run ID=NCT06881784          # one trial (source auto-detected)
 #   make agentic-run IDS=NCT1,ACTRN2,NCT3    # a specific set of trials
 #   make agentic-run                         # ALL trials (ctgov + anzctr)
@@ -59,14 +59,15 @@ agentic-run:
 agentic-demo:
 	IDS="$(IDS)" RESET="$(RESET)" scripts/agentic/demo.sh
 
-# Wipe run artifacts under data/agentic/{output,log,cache} (handy between test runs).
+# Wipe the transient bucket data/agentic/transient/{cache,log} (handy between test runs). Never touches inputs/,
+# masters/ (incl. the curated eligibility store), derived/, or analysis/.
 agentic-clean:
 	scripts/agentic/pipeline.sh clean
 
 agentic-tests:
 	scripts/agentic/pipeline.sh tests
 
-# Prune the LLM response cache (data/agentic/cache/) of entries from OUTDATED prompts — an entry whose agent
+# Prune the LLM response cache (data/agentic/transient/cache/) of entries from OUTDATED prompts — an entry whose agent
 # prompt has since changed (or whose agent was removed). Covers BOTH paths (they share one cache). Dry-run by
 # default; APPLY=1 to delete; PURGE_UNKNOWN=1 to also drop legacy/untagged (pre-provenance) entries.
 #   make agentic-cache-prune                        # dry-run report
@@ -85,7 +86,7 @@ agentic-arm-consistency:
 # intervention, one row per (trial_arm_id, conjunction)); Set B = the drug 3NF tables, referenced in place (a
 # MANIFEST points at them). Deterministic join; no API. SNAPSHOT=1 also mints an immutable, self-contained
 # export/snapshot_<ts>/ bundle (Set A + a frozen copy of the drug tables) for hand-off.
-#   make agentic-export                # -> data/agentic/export/{trial_eligibility.tsv, MANIFEST.md}
+#   make agentic-export                # -> data/agentic/derived/export/{trial_eligibility.tsv, MANIFEST.md}
 #   make agentic-export SNAPSHOT=1     # + export/snapshot_<ts>/ (frozen bundle)
 agentic-export:
 	SNAPSHOT="$(SNAPSHOT)" scripts/agentic/pipeline.sh export
@@ -101,13 +102,13 @@ agentic-drug-migrate-trial-arms:
 # Independent output validator — a "review of the reviewer agents". Deterministic, runs OUTSIDE
 # the workflow to catch what the in-loop reviewers let through. Testing-period QA step (not the
 # production path). OUT defaults to the newest output TSV.
-#   make agentic-validate                 # data/agentic/eligibility/combined/combined.tsv
-#   make agentic-validate OUT=<combined.tsv>  # a specific run's combined view
+# NOTE: still points at the RETIRED combined.tsv path — pending a repoint to derived/export/trial_eligibility.tsv
+# (tracked as an optional cleanup in the handover). OUT=<tsv> overrides.
 agentic-validate:
 	OUT="$(OUT)" scripts/agentic/pipeline.sh validate
 
 # Standalone drug-reference builder (spec §6.1). Incremental — existing drugs are reused (pure lookup);
-# only new (or REFRESH_DRUGS=1) drugs are researched. Writes data/agentic/drug_annotations/current_version/.
+# only new (or REFRESH_DRUGS=1) drugs are researched. Writes data/agentic/masters/drug_annotations/current_version/.
 #   make drug-ref-build DRUGS="pembrolizumab; Keytruda; Ris-Rez"
 #   make drug-ref-build IDS=NCT07099898,NCT05009992 LIMIT=5
 #   make drug-ref-build ALL_TRIALS=1                 # every distinct drug across all ctgov + anzctr

@@ -25,21 +25,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 AGENTIC_DATA="${REPO_ROOT}/data/agentic"
-LOG_DIR="${AGENTIC_DATA}/log"
+LOG_DIR="${AGENTIC_DATA}/transient/log"
 
 # `clean` needs neither Python nor .env; handle it before the interpreter pick.
-# Scoped STRICTLY to transient run artifacts (eligibility/, log/, cache/) — it must NEVER touch the colocated
-# INPUTS/OUTPUTS (trial_universe/, resources/, drug_annotations/, analysis/) now living under data/agentic/.
+# Scoped STRICTLY to the `transient/` bucket (cache/ + log/) — the only wipeable, regenerable operational data.
+# It must NEVER touch inputs/ (trial_universe, resources), masters/ (the produced stores incl. the curated
+# eligibility output), derived/ (joined, export), or analysis/. (Reset a master explicitly by archiving it.)
 if [[ "${1:-}" == "clean" ]]; then
-  for sub in eligibility log cache; do
+  for sub in transient/cache transient/log; do
     dir="${AGENTIC_DATA}/${sub}"
     if [[ -d "${dir}" ]]; then
       echo "removing ${dir}" >&2
       rm -rf "${dir}"
     fi
   done
-  mkdir -p "${AGENTIC_DATA}/eligibility" "${AGENTIC_DATA}/log"
-  echo "cleaned: data/agentic/{eligibility,log,cache}" >&2
+  mkdir -p "${AGENTIC_DATA}/transient/log"
+  echo "cleaned: data/agentic/transient/{cache,log}" >&2
   exit 0
 fi
 

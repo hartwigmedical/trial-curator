@@ -18,7 +18,7 @@ import csv
 from dataclasses import asdict
 from pathlib import Path
 
-from aus_trial_universe.agentic.core.paths import ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT, latest_snapshot_dir
+from aus_trial_universe.agentic.core.paths import CURRENT_VERSION, ELIGIBILITY_OUTPUT, latest_snapshot_dir
 from aus_trial_universe.agentic.tasks.eligibility.schema import (
     ARM_ELIGIBILITY_RAW_COLUMNS,
     CANCER_TYPE_MAP_COLUMNS,
@@ -63,8 +63,8 @@ class EligStore:
     @classmethod
     def load(cls, root: Path = ELIGIBILITY_OUTPUT) -> "EligStore":
         store = cls()
-        cur = Path(root) / ELIG_CURRENT_OUTPUT
-        vdir = cur if cur.exists() else latest_snapshot_dir(root)   # prefer current_output/; else newest snapshot
+        cur = Path(root) / CURRENT_VERSION
+        vdir = cur if cur.exists() else latest_snapshot_dir(root)   # prefer current_version/; else newest snapshot
         if vdir is None:
             return store  # first run — empty store
         for row in _read_tsv(vdir / TABLE_FILES["arm_eligibility_raw"]):

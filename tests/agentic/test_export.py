@@ -98,7 +98,7 @@ def test_run_export_writes_setA_and_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(DrugRefStore, "load", classmethod(lambda cls, *a, **k: drug))
 
     elig_root = tmp_path / "eligibility"
-    _write_finalised_maps(elig_root / "current_output")
+    _write_finalised_maps(elig_root / "current_version")
     drug_root = tmp_path / "drug_annotations"
     (drug_root / "current_version").mkdir(parents=True)
     for name in EX.DRUG_TABLES:                                              # dummy drug tables for the snapshot copy

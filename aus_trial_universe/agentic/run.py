@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 
 from aus_trial_universe.agentic.core.paths import (
-    CACHE_DIR, ELIG_CURRENT_OUTPUT, ELIGIBILITY_OUTPUT, JOINED_ELIGIBILITY,
+    CACHE_DIR, CURRENT_VERSION, ELIGIBILITY_OUTPUT, JOINED_ELIGIBILITY, JOINED_ROOT,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -298,13 +298,14 @@ def main(argv: list[str] | None = None) -> int:
     # The live accumulating store is `current_output/` (current/archive pattern, parallels drug_annotations'
     # current_version/): each run loads it, upserts, and writes it back in place. Superseded runs are archived
     # manually (move current_output/ -> archive/<date>/). `--out-dir` overrides for a one-off/isolated run.
-    run_dir = Path(args.out_dir) if args.out_dir else store_root / ELIG_CURRENT_OUTPUT
-    # The denormalized Step-1/Step-2 joined views (mapped_eligibility, finalised_mapped_eligibility) live under the
-    # top-level `joined/` dir, in its per-subsystem `eligibility/` subfolder (the drug path writes `joined/
-    # drug_annotations/`). Keeps current_output/ strictly 3NF. Derived from store_root.parent so a `--store-root
-    # <tmp>` run (tests) writes into <tmp>/joined/eligibility/, never real /data. The grand matching-engine flat
-    # file is built separately by `export.py`.
-    joined_dir = store_root.parent / "joined" / JOINED_ELIGIBILITY
+    run_dir = Path(args.out_dir) if args.out_dir else store_root / CURRENT_VERSION
+    # The denormalized Step-1/Step-2 joined views (mapped_eligibility, finalised_mapped_eligibility) live under
+    # `derived/joined/eligibility/` (the drug path writes `derived/joined/drug_annotations/`). Keeps the masters/
+    # stores strictly 3NF. In production this is the bucketed `JOINED_ROOT`; under a `--store-root <tmp>` run (tests)
+    # it is derived as a sibling of the tmp store so the run writes into <tmp>/joined/eligibility/, never real /data.
+    # The grand matching-engine flat file is built separately by `export.py`.
+    joined_root = (Path(args.store_root).parent / "joined") if args.store_root else JOINED_ROOT
+    joined_dir = joined_root / JOINED_ELIGIBILITY
 
     cache = None if args.no_cache else DiskCache(CACHE_DIR)
     _client_kw = dict(cache=cache, max_concurrency=args.max_concurrency)

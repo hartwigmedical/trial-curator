@@ -80,7 +80,7 @@ def _export_demo(ids: list[str], *, log: logging.Logger) -> int:
     elig = EligStore.load(_paths.ELIGIBILITY_OUTPUT)
     arms = TrialArmStore.load(_paths.TRIAL_ARMS_ROOT)
     drug = DrugRefStore.load(_paths.DRUG_ANNOTATIONS_ROOT)
-    elig_dir = _paths.ELIGIBILITY_OUTPUT / _paths.ELIG_CURRENT_OUTPUT
+    elig_dir = _paths.ELIGIBILITY_OUTPUT / _paths.CURRENT_VERSION
     rows = _export.build_export_rows(elig, arms, drug, infos, elig_dir=elig_dir)
 
     _paths.EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  DEMO COMPLETE  ·  {time.perf_counter() - t0:.0f}s  ·  every output under {DEMO_ROOT}/")
     print(f"{'█' * _WIDTH}")
     print("  key files:")
-    print(f"    eligibility (3NF)   {_paths.ELIGIBILITY_OUTPUT / _paths.ELIG_CURRENT_OUTPUT}/")
+    print(f"    eligibility (3NF)   {_paths.ELIGIBILITY_OUTPUT / _paths.CURRENT_VERSION}/")
     print(f"    joined views        {_paths.JOINED_ROOT}/")
     print(f"    drug annotations    {_paths.DRUG_ANNOTATIONS_ROOT / _paths.CURRENT_VERSION}/")
     print(f"    ► deliverable       {_paths.EXPORT_ROOT / _paths.EXPORT_FILE}\n")

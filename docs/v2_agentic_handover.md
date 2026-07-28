@@ -80,7 +80,7 @@ UNCOMMITTED** in the working tree — the user does ALL git commits.
   12,102 rows (main 5,780 · aux 6,322) · 92 no-drug arms skipped**, at 800 workers / 800 max-concurrency (RPM-bound;
   0 rate-limit pushback). Files: `tasks/drug_utility/{schema,agents,workflow,store,build}.py`, `qa/arm_consistency.py`.
 - **The matching-engine EXPORT** (the grand join, delivered as the user's TWO sets). **Set A** =
-  `data/agentic/export/trial_eligibility.tsv` — a wide flat file, **33 cols, one row per
+  `data/agentic/derived/export/trial_eligibility.tsv` — a wide flat file, **33 cols, one row per
   `(trial_arm_id, conjunction_index)`** = trial info (a new `trial_info` master) ⋈ interpreted DNF eligibility ⋈ the
   **FINAL** vocab codes ⋈ the per-arm raw intervention names (`arm_intervention_names_raw`, the Set-B join key).
   **17,659 rows · 5,195 arms · 1,983 trials.** **Set B** = the 6 drug 3NF tables **referenced in place** (a
@@ -99,18 +99,17 @@ UNCOMMITTED** in the working tree — the user does ALL git commits.
   join. *Optional follow-on:* a within-drug Step-2 reconciliation pass (unify equivalent drug-side values to one
   code) — the same mechanism the trial side uses; not built (cross-domain consistency is covered by seeding + shared
   prompts/cache, so this is a polish item, not a defect).
-1. **AUDIT `data/agentic/` subfolder organisation (NEW — user, 2026-07-28).** The tree grew organically; review it for
-   a cleaner structure before the eventual promotion to top-level `data/` (memory `agentic-data-root-temporary`).
-   Current top-level dirs: `analysis/ cache/ drug_annotations/ eligibility/ export/ joined/ log/ resources/
-   trial_arms/ trial_info/ trial_universe/`. Things to reconcile: (a) **versioned-dir naming is inconsistent** —
-   most masters use `current_version/` but eligibility uses `current_output/`; standardise. (b) **`joined/` may be
-   redundant** now — it holds the Step-1/Step-2 QA flat views (`mapped_eligibility.tsv`,
-   `finalised_mapped_eligibility.tsv`); decide whether they stay, fold into `export/`, or retire. (c) **grouping** —
-   consider grouping by role: masters (`drug_annotations, eligibility, trial_arms, trial_info`) vs derived
-   (`joined, export`) vs inputs (`trial_universe, resources`) vs transient (`cache, log`) vs `analysis`. (d) stray
-   `.DS_Store`; confirm gitignore coverage. Paths are ALL centralised in `core/paths.py` (one relocatable
-   `DATA_ROOT`), so a reorg is mostly editing that file + a data move — low blast radius. Propose a layout first.
-2. **Self-contained pipeline — Stage-I ingestion + legacy retirement.** Move download → drug-filter → POTTR-append →
+- ~~**AUDIT `data/agentic/` subfolder organisation (user, 2026-07-28).**~~ **✅ DONE (2026-07-28, full role-based
+   grouping).** The flat top level is now grouped by role: `inputs/` (trial_universe, resources) · `masters/`
+   (trial_arms, trial_info, drug_annotations, eligibility — all `current_version/`) · `derived/` (joined, export) ·
+   `transient/` (cache, log) · plus top-level `analysis/` + the `demo/` sandbox. **(a)** naming standardised —
+   eligibility `current_output/` → `current_version/` (retired the `ELIG_CURRENT_OUTPUT` constant). **(b)** `joined/`
+   kept + split per subsystem (`joined/{eligibility,drug_annotations}/`) — a review-artifact area, not redundant.
+   **(c)** role grouping done. **(d)** stray `.DS_Store` removed (all `data/` is gitignored). All Python paths derive
+   from the bucket roots in `core/paths.py`; bash hardcodes in `pipeline.sh`/`demo.sh` updated. `make agentic-clean`
+   now wipes ONLY `transient/` (no longer destroys the eligibility store — a safety fix). 173 tests green; data
+   moved by `mv` (rename, no copy; verified no loss). UNCOMMITTED.
+1. **Self-contained pipeline — Stage-I ingestion + legacy retirement.** Move download → drug-filter → POTTR-append →
    retire-missing into agentic; retire legacy `eligibility_path`/`drug_utility_path`. Biggest piece for a periodic run.
 - **Optional cleanups:** (a) the **11 cancer_type per-value LOGIC residuals** (valid codes, imperfect structure e.g.
   subtype-ANDed-with-parent) in the signed-off oncotree mapper's hard-cell tail — a small manual/targeted pass; (b)
@@ -181,7 +180,7 @@ user-approved. Result (3NF store byte-identical / untouched):
 - **3NF DISCIPLINE (user requirement):** `eligibility/current_output/` = **8 pure-3NF tables** — 2 content + the 3
   Step-1 maps + the **3 `finalised_*_map.tsv`** (Step-1 cols + a `*_FINAL` col; these ARE 3NF single-key lookups, so
   they live in the store, NOT joined/). `drug_annotations/current_version/` = 5 pure-3NF. Only the DENORMALIZED flat
-  views live in top-level **`data/agentic/joined/`**: `mapped_eligibility.tsv` (Step-1) + `finalised_mapped_eligibility.tsv`
+  views live in top-level **`data/agentic/derived/joined/`**: `mapped_eligibility.tsv` (Step-1) + `finalised_mapped_eligibility.tsv`
   (Step-2, +`*_FINAL`). The stale `combined.tsv` was DELETED (rebuild fresh in the grand-join step). `make
   agentic-tests` = **145 green**. Step-2 code UNCOMMITTED (user commits): `mapping/reconcile.py`, `agents.py`,
   `run.py --reconcile`, `core/paths.py` (JOINED_ROOT), `schema.py`/`store.py`, `tools/oncotree.py` (name_to_code), 2 tests.
@@ -240,7 +239,7 @@ disease-phrased `NOT()` → the underlying alteration (`NOT(BCR-ABL-positive leu
 anti-lazy-`""`. Then reviewer, then `molecular_signature`.
 
 **HOW TO WORK A MAPPER (operational — reproduce this for gene_alteration + molecular_signature):**
-- Input = the FROZEN store `data/agentic/eligibility/current_output/interpreted_eligibility.tsv` — DO NOT rebuild it.
+- Input = the FROZEN store `data/agentic/masters/eligibility/current_output/interpreted_eligibility.tsv` — DO NOT rebuild it.
 - Prompts live in `tasks/eligibility/mapping/agents.py`: gene = `_GENE_RULES` (doer) + `GENE_REVIEWER_INSTRUCTIONS`
   + the SHARED `GRAMMAR_REFERENCE` (both agents; edit shared grammar there). signature = `_SIGNATURE_RULES` +
   `SIGNATURE_REVIEWER_INSTRUCTIONS`. Finalise WITH the user, bake in ONLY after sign-off.
@@ -287,7 +286,7 @@ NOT touching extraction during the mapping work. Full detail below + memory `v2-
      `trial_arm_id()` slug, the ANZCTR drug-extractor agents + `DrugExtraction`/`RegimeVerdict`,
      `extract_anzctr_drugs`, `anzctr_regimes`, and `TrialArm` + `TrialArmStore`. Both paths import it; the old
      backwards drug→eligibility import is gone.
-  2. **New central table `data/agentic/trial_arms/trial_arms.tsv`** (`TrialArmStore`, current_version/ + archive/):
+  2. **New central table `data/agentic/masters/trial_arms/trial_arms.tsv`** (`TrialArmStore`, current_version/ + archive/):
      `trial_arm_id, trialId, registry, arm, arm_type`, **both registries**. `trial_arm_id` = a **deterministic
      slug** `{trialId}::{arm}` (chosen over an auto-increment surrogate: reproducible with no sequence authority —
      safe for parallel workers + idempotent re-runs — and human-readable). Written by whichever path processes a
@@ -321,13 +320,13 @@ NOT touching extraction during the mapping work. Full detail below + memory `v2-
   PATH was signed off (2026-07-20); the ELIGIBILITY PATH v2 was rewritten + validated (2026-07-21): decoupled from
   drug enrichment, reshaped into 3NF relational tables, parallelised + cached + per-item-durable, over-enumeration
   fixed (SIOPEN `NCT04221035` 218→45 rows, no explosion anywhere). **113 unit tests pass.** Validated on 10 complex
-  + 50 standard trials → a unified 60-trial store at `data/agentic/eligibility/current_output/`.
+  + 50 standard trials → a unified 60-trial store at `data/agentic/masters/eligibility/current_output/`.
 - **3NF-purity relocation (2026-07-24):** the store dirs now hold ONLY pure-3NF tables. The denormalized joined
   view `combined.tsv` was moved OUT of `eligibility/current_output/` to **`eligibility/combined/combined.tsv`**
   (`combined_dir = store_root / COMBINED` in `run.py`; `COMBINED_OUTPUT`/`COMBINED`/`COMBINED_FILE` in
   `core/paths.py`; validator + 2 tests repointed; docs updated). The drug `current_version/` was already pure 3NF.
   Easily hoisted to a top-level `data/agentic/combined/` if preferred (one line).
-- **Prunable response cache (2026-07-24):** the shared `DiskCache` (`data/agentic/cache/`, used by BOTH paths)
+- **Prunable response cache (2026-07-24):** the shared `DiskCache` (`data/agentic/transient/cache/`, used by BOTH paths)
   now stores each entry as a provenance envelope — agent `name` + `prompt_sha` (sha256 of `instructions`) — with
   back-compat reads of legacy bare-JSON entries. New `core/prompt_registry.py` enumerates live agents offline;
   new `core/cache_prune.py` GCs entries from **outdated prompts** (agent's `prompt_sha` changed / agent removed).
@@ -367,7 +366,7 @@ NOT touching extraction during the mapping work. Full detail below + memory `v2-
     promotable to `data/`): `trial_universe/` · `resources/{drug_utility,eligibility}/…/current_version/` ·
     `drug_annotations/current_version/` (+ `archive/`) · `eligibility/` · `log/` · `analysis/`. Loaders read
     `current_version/` (not `latest_version_dir`). `make drug-ref-refresh-pottr` refreshes POTTR from GitHub.
-  - **Current build:** `data/agentic/drug_annotations/current_version/` (**1275 drugs** after the 2026-07-25
+  - **Current build:** `data/agentic/masters/drug_annotations/current_version/` (**1275 drugs** after the 2026-07-25
     migration + orphan prune; metadata in `RESOURCE_INFO.md`).
   - **Doc-currency pass (2026-07-20):** re-verified tests + docs + diagram at sign-off. Fixed stale references left
     over from the data restructure — `drug_ref_schema.md` `trial_to_intervention` was missing the `arm`/`arm_type`
@@ -403,12 +402,12 @@ drug-side is outstanding** except two PARKED integration pieces to revisit AFTER
 ## ✅ ELIGIBILITY PATH v2 — DONE + VALIDATED (2026-07-21). Full detail: memory `v2-eligibility-orchestration-model`.
 The per-trial pipeline is now **extract → map (lookup-first) → grand-flat join**; drug enrichment is a SEPARATE
 incremental build that joins in via `(trialId, arm)`. `make agentic-run` (see Quickstart). Output: the accumulating
-`data/agentic/eligibility/current_output/` store — 5 3NF tables + `combined.tsv` (see "Output schema"). The three
+`data/agentic/masters/eligibility/current_output/` store — 5 3NF tables + `combined.tsv` (see "Output schema"). The three
 originally-outstanding issues were all addressed:
 
 **⓿ SPEED — done.** Root cause measured: extraction is ~85% of wall-clock (a hard trial ≈ 1000s at the 6-attempt
 cap; standard ≈ 30–150s). Levers applied: (1) **trial-level parallelism** (`run_parallel`, `--workers` default 8);
-(2) **`DiskCache`** under `data/agentic/cache/` — run-to-run reuse makes re-runs near-instant (proven: 9/10 complex
+(2) **`DiskCache`** under `data/agentic/transient/cache/` — run-to-run reuse makes re-runs near-instant (proven: 9/10 complex
 re-ran in ~1s); (3) drug enrichment removed from the per-trial path (no per-trial `web_search`); (4) enum reviewer
 folded into the panel `fan_out`. Nested-concurrency sweep (trials × 6-reviewer fan_out) still owed — see memory
 `feedback-max-allowable-concurrency`.
@@ -533,12 +532,12 @@ make agentic-tests                              # 162 unit tests, no API
 #   --reconcile (Step 2: reconcile maps -> finalised_*_map.tsv in the store + joined/finalised_mapped_eligibility.tsv) ·
 #   --skip-drug · --no-cache · --no-cache-prune · --extract-only · --no-judge · --no-review · --store-root DIR · --max-attempts N
 ```
-Eligibility store `data/agentic/eligibility/current_output/` = **8 pure-3NF tables** (2 content + 3 Step-1 maps +
+Eligibility store `data/agentic/masters/eligibility/current_output/` = **8 pure-3NF tables** (2 content + 3 Step-1 maps +
 3 finalised maps); each per-trial run loads it, upserts, writes back in place (supersede by moving `current_output/`
-→ `archive/<date>/`). Denormalized Step-1/2 flat views live in **`data/agentic/joined/`** (`mapped_eligibility.tsv`,
-`finalised_mapped_eligibility.tsv`). The grand matching-engine flat file is **`data/agentic/export/trial_eligibility.tsv`**
-(built by `make agentic-export`, NOT `agentic-run`). Log → `data/agentic/log/…`. Drug reference is a SEPARATE build:
-`make drug-ref-build …` → `data/agentic/drug_annotations/current_version/` (6 tables). (NB: legacy `make agentic-validate`
+→ `archive/<date>/`). Denormalized Step-1/2 flat views live in **`data/agentic/derived/joined/`** (`mapped_eligibility.tsv`,
+`finalised_mapped_eligibility.tsv`). The grand matching-engine flat file is **`data/agentic/derived/export/trial_eligibility.tsv`**
+(built by `make agentic-export`, NOT `agentic-run`). Log → `data/agentic/transient/log/…`. Drug reference is a SEPARATE build:
+`make drug-ref-build …` → `data/agentic/masters/drug_annotations/current_version/` (6 tables). (NB: legacy `make agentic-validate`
 still targets the retired `combined.tsv` path — repoint to the export; see START-HERE optional cleanups.)
 Full detail: `docs/agentic/combined_agentic_run.md`; drug path: `docs/agentic/drug_ref_schema.md`;
 eligibility design: memory `v2-eligibility-orchestration-model`.
@@ -549,7 +548,7 @@ aus_trial_universe/agentic/
   run.py                     # ORCHESTRATOR. Per-trial: extract -> map (lookup-first) -> checkpoint to current_output/; then drug top-up. STORE-WIDE mapping modes (work off the frozen extract): `--map-only` = _run_map_only() (Step 1: map_all_columns pools all 3 columns' distinct values in ONE concurrent pool -> 3 map tables in current_output/ + joined/mapped_eligibility.tsv; raw/interpreted NEVER re-persisted); `--reconcile` = _run_reconcile() (Step 2: reconcile maps -> finalised_*_map.tsv in current_output/ + joined/finalised_mapped_eligibility.tsv). DiskCache; a failing trial is logged & skipped. (The parked _build_combined was RETIRED 2026-07-28 -> export.py.)
   export.py                  # THE MATCHING-ENGINE EXPORT (make agentic-export; 2026-07-28). build_export_rows() joins interpreted ⋈ trial_arms ⋈ trial_info ⋈ FINAL vocab maps ⋈ per-arm raw intervention names (arm_intervention_names_raw, the Set-B join key) -> Set A export/trial_eligibility.tsv (33 cols, one row per (trial_arm_id, conj)) + MANIFEST (Set B = drug tables referenced in place). --snapshot -> immutable export/snapshot_<ts>/. Deterministic, no API
   demo.py                    # ISOLATED presentation demo (make agentic-demo; session 3). Re-roots ONLY the OUTPUT path constants in core.paths -> data/agentic/demo/ BEFORE importing run/build/export, then drives their real entry points as 5 banner-headed stages. Inputs + cache stay shared. NO core code touched. Nothing imports it.
-  trial_info.py              # NEW trial-metadata master (2026-07-28): TrialInfo dataclass + ctgov/anzctr extraction (deterministic, from raw protocolSection / ANZCTR rows) + save/load -> data/agentic/trial_info/current_version/trial_info.tsv
+  trial_info.py              # NEW trial-metadata master (2026-07-28): TrialInfo dataclass + ctgov/anzctr extraction (deterministic, from raw protocolSection / ANZCTR rows) + save/load -> data/agentic/masters/trial_info/current_version/trial_info.tsv
   core/
     paths.py                 # SINGLE relocatable DATA_ROOT (=data/agentic/) + all derived paths + current_version_dir()/archive_current_version()
     client.py                # LlmClient: .parse() (chat.completions) + .research() (Responses API web_search); cache, retries, tracing. NB: _fingerprint hashes the output SCHEMA into the cache key (so reviewer schemas stay stage-local — see review.py)
@@ -561,7 +560,7 @@ aus_trial_universe/agentic/
   tasks/shared/              # PATH-NEUTRAL arm identification (used by BOTH paths; 2026-07-25)
     cohorts.py               # Cohort, trial_arm_id() slug, anzctr_regimes / extract_anzctr_drugs (fresh derivation), resolve_cohorts
     agents.py                # ANZCTR drug doer + reviewer (DrugExtraction / RegimeVerdict) — moved here from eligibility
-    schema.py, store.py      # TrialArm + TrialArmStore -> data/agentic/trial_arms/current_version/trial_arms.tsv
+    schema.py, store.py      # TrialArm + TrialArmStore -> data/agentic/masters/trial_arms/current_version/trial_arms.tsv
   tasks/drug_utility/        # DRUG UTILITY PATH — 6 3NF tables; see docs/agentic/drug_ref_schema.md
     schema.py, store.py      # 6-table schema (+ trial_arm_drug_role: (trial_arm_id, canonical_id)->role main|auxiliary, 2026-07-28) + DrugRefStore (roles/put_roles/remove_trial_roles/role_trial_arm_ids)
     rxnorm.py, pottr.py      # DETERMINISTIC offline lookups (rxcui+atc; POTTR class walk); pottr.refresh_pottr() downloads POTTR
@@ -588,11 +587,11 @@ docs/agentic/combined_agentic_run.md   # run/setup guide
 ```
 
 ## Output schema (v2 — shared arm registry + 3NF stores + trial_info master + `joined/` views + the `export/`; updated 2026-07-28)
-Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/trial_arms/current_version/trial_arms.tsv`
+Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/masters/trial_arms/current_version/trial_arms.tsv`
 (`trial_arm_id → trialId, registry, arm, arm_type`; `trial_arm_id` = deterministic `{trialId}::{arm}` slug). The
-eligibility store `data/agentic/eligibility/current_output/` holds **8 pure-3NF tables**; the drug store holds **6**;
+eligibility store `data/agentic/masters/eligibility/current_output/` holds **8 pure-3NF tables**; the drug store holds **6**;
 the new **`trial_info`** master holds trial-level metadata; Step-1/2 denormalized views live in
-**`data/agentic/joined/`**; the matching-engine deliverable lives in **`data/agentic/export/`**. Eligibility tables
+**`data/agentic/derived/joined/`**; the matching-engine deliverable lives in **`data/agentic/derived/export/`**. Eligibility tables
 hold **NO drug info**; drugs join via `trial_arm_id` to the drug utility path.
 
 **3NF store — `eligibility/current_output/`:**
@@ -616,7 +615,7 @@ from raw CTGov `protocolSection` / ANZCTR rows (no LLM). Feeds the export's tria
 rows); + the additive `approval_cancer_type_map` (385) / `approval_biomarker_map` (211) symmetric-match vocab maps
 (session 4; `make drug-ref-map-approvals`). See `docs/agentic/drug_ref_schema.md`.
 
-**Denormalized views — `data/agentic/joined/` (split per producing subsystem into `eligibility/` + `drug_annotations/`):**
+**Denormalized views — `data/agentic/derived/joined/` (split per producing subsystem into `eligibility/` + `drug_annotations/`):**
 - `joined/eligibility/mapped_eligibility.tsv` — Step-1 flat: interpreted ⋈ (Step-1 maps), 1:1 with interpreted; cols
   = the 2 keys + the 5 interpreted cells + `oncotree_name/code`, `gene_alteration_findingmodel`, `molecular_signature_findingmodel`.
 - `joined/eligibility/finalised_mapped_eligibility.tsv` — Step-2 flat: the above + appended `oncotree_code_FINAL`,
@@ -625,7 +624,7 @@ rows); + the additive `approval_cancer_type_map` (385) / `approval_biomarker_map
   `(canonical_id, indication_id)` = each approval ⋈ its cancer_type/biomarker vocab maps (`oncotree_code`/`_FINAL`,
   gene & signature finding-models, the expression free text) + `tga_status`/`pbs_status`. **The drug-side review artifact.**
 
-**The matching-engine EXPORT — `data/agentic/export/` (the deliverable; `make agentic-export`):**
+**The matching-engine EXPORT — `data/agentic/derived/export/` (the deliverable; `make agentic-export`):**
 - `trial_eligibility.tsv` (**Set A**) — the grand join, **33 cols, one row per `(trial_arm_id, conjunction_index)`**:
   keys/arm ⋈ `trial_info` ⋈ interpreted eligibility ⋈ **FINAL** vocab (`oncotree_code/name`, `*_findingmodel`) ⋈
   the per-arm raw intervention names (`arm_intervention_names_raw`, the Set-B join key). 17,659 rows. (The 5
@@ -662,7 +661,7 @@ See `combined_agentic_run.md` §"The matching-engine export" for the full column
   grade/subtype/organ distinctions apart; deterministic name→code repair for leaked names + OR-order normalise.
 - **3NF discipline (2026-07-28):** `eligibility/current_output/` + `drug_annotations/current_version/` hold ONLY 3NF
   tables (the `finalised_*_map.tsv` are 3NF single-key lookups → they live in the store); ALL denormalized/joined
-  views (`mapped_eligibility`, `finalised_mapped_eligibility`, `combined`) live in top-level `data/agentic/joined/`.
+  views (`mapped_eligibility`, `finalised_mapped_eligibility`, `combined`) live in top-level `data/agentic/derived/joined/`.
 - **Drug (2026-07-10):** `main_drugs` = the **investigational agent(s) under study by judgement** (not the
   whole regimen — backbone/SoC/comparator/placebo go to `auxiliary_drugs`); `pottr_drug_class` + `drug_class`;
   `tga_status`/`pbs_status` **per main drug** (Approved/Not approved) + `tga_detail`/`pbs_detail`
@@ -805,7 +804,7 @@ Former TODOs now closed:
   dependency (agentic already does ANZCTR drugs via LLM) or copy `matcher.py` (self-contained, stdlib-only) into an
   agentic-owned home per the copy-don't-import rule. Also already dead (fix or drop when convenient): the Makefile
   `drug-ontology-pipeline-tsvs` / `drug-ontology-analysis-tsvs` targets point at a non-existent
-  `aus_trial_universe.ctgov.drug_ontology.*` module path. Benign leftover: `data/agentic/trial_universe/ctgov/
+  `aus_trial_universe.ctgov.drug_ontology.*` module path. Benign leftover: `data/agentic/inputs/trial_universe/ctgov/
   extracted_trials/ctgov_field_extractions.csv` is not read by agentic (CTGov reads `input_trials/` + `download_state/`).
 
 ## Gotchas
@@ -817,5 +816,7 @@ Former TODOs now closed:
 - **Paths:** import all data paths from `core/paths.py` — never hard-code `data/agentic/...`. Versioned datasets
   (resources + drug_annotations) live under `current_version/` (date in a metadata file) with prior sets in
   `archive/`; loaders use `current_version_dir()`, NOT `latest_version_dir` (which now serves only ctgov `input_trials`).
-- **Data safety:** `data/` is gitignored (~31 GB). Never `git clean -fdx`. `make agentic-clean` is scoped to the
-  transient `data/agentic/{eligibility,log,cache}` only — it never touches `trial_universe/`, `resources/`, or `drug_annotations/`.
+- **Data safety:** `data/` is gitignored (~31 GB). Never `git clean -fdx`. Layout is grouped by role
+  (`inputs/ masters/ derived/ transient/` + `analysis/` + `demo/`). `make agentic-clean` is scoped to the wipeable
+  `data/agentic/transient/{cache,log}` ONLY — it never touches `inputs/`, `masters/` (incl. the curated eligibility
+  store — a safety fix; it used to wipe eligibility), `derived/`, or `analysis/`.

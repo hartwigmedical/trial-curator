@@ -23,7 +23,7 @@ def _seed(store_root):
                                 gene_alteration_interpreted="EGFR L858R",
                                 molecular_signature_interpreted="MSI-H")],
     )
-    s.save(store_root / "current_output")
+    s.save(store_root / "current_version")
 
 
 def _read(path):
@@ -33,7 +33,7 @@ def _read(path):
 def test_map_only_writes_maps_and_preserves_content(tmp_path, monkeypatch):
     store_root = tmp_path / "elig"
     _seed(store_root)
-    cur = store_root / "current_output"
+    cur = store_root / "current_version"
     # capture the exact bytes of the content tables — the map-only pass must NOT touch them at all.
     raw_bytes = (cur / "arm_eligibility_raw.tsv").read_bytes()
     interp_bytes = (cur / "interpreted_eligibility.tsv").read_bytes()
@@ -55,7 +55,7 @@ def test_map_only_writes_maps_and_preserves_content(tmp_path, monkeypatch):
     assert _read(cur / "gene_alteration_map.tsv")[0]["finding_model"].startswith("SmallVariant[gene=EGFR")
     assert _read(cur / "molecular_signature_map.tsv")[0]["molecular_signature"] == "MSI-H"
 
-    # current_output/ stays strictly 3NF — the denormalized flat view is NOT here
+    # current_version/ stays strictly 3NF — the denormalized flat view is NOT here
     assert not (cur / "mapped_eligibility.tsv").exists()
 
     # the per-row flat mapped view lives in the top-level joined/eligibility/ subfolder (sibling of the store root)

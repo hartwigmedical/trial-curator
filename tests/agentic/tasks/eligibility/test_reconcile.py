@@ -49,13 +49,13 @@ def _seed(store_root):
                                                               "Breast Invasive Ductal Carcinoma", "IDC")}
     s.gene_map = {"KRAS mutation": GeneAlterationMap("KRAS mutation", "SmallVariant[gene=KRAS]")}
     s.signature_map = {"MSI-H": MolecularSignatureMap("MSI-H", "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]")}
-    s.save(store_root / "current_output")
+    s.save(store_root / "current_version")
 
 
 def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeypatch):
     store_root = tmp_path / "elig"
     _seed(store_root)
-    cur = store_root / "current_output"
+    cur = store_root / "current_version"
     maps_before = {f: (cur / f).read_bytes() for f in
                    ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map.tsv")}
 
@@ -68,7 +68,7 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
     assert rc == 0
 
     joined = store_root.parent / "joined" / "eligibility"
-    # the finalised map-table SET is 3NF -> it lives in the store (current_output/), NOT joined/
+    # the finalised map-table SET is 3NF -> it lives in the store (current_version/), NOT joined/
     by = {r["cancer_type"]: r for r in _read(cur / "finalised_cancer_type_map.tsv")}
     assert by["metastatic breast cancer"]["oncotree_code"] == "IDC"           # Step-1 preserved
     assert by["metastatic breast cancer"]["oncotree_code_FINAL"] == "BREAST"  # reconciled in the added col
