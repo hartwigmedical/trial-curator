@@ -21,12 +21,14 @@ from pathlib import Path
 from aus_trial_universe.core.paths import CURRENT_VERSION, ELIGIBILITY_OUTPUT, latest_snapshot_dir
 from aus_trial_universe.tasks.eligibility.schema import (
     ARM_ELIGIBILITY_RAW_COLUMNS,
+    ARM_SCOPE_COLUMNS,
     CANCER_TYPE_MAP_COLUMNS,
     GENE_ALTERATION_MAP_COLUMNS,
     INTERPRETED_ELIGIBILITY_COLUMNS,
     MOLECULAR_SIGNATURE_MAP_COLUMNS,
     TABLE_FILES,
     ArmEligibilityRaw,
+    ArmScope,
     CancerTypeMap,
     GeneAlterationMap,
     InterpretedEligibility,
@@ -58,6 +60,7 @@ class EligStore:
         self.cancer_map: dict[str, CancerTypeMap] = {}                 # cancer_type value -> mapping
         self.gene_map: dict[str, GeneAlterationMap] = {}               # gene_alteration value -> mapping
         self.signature_map: dict[str, MolecularSignatureMap] = {}      # molecular_signature value -> mapping
+        self.scope: dict[str, ArmScope] = {}                           # trial_arm_id -> why it has NO interpreted rows
 
     # --- load -------------------------------------------------------------- #
     @classmethod
@@ -88,6 +91,10 @@ class EligStore:
             m = MolecularSignatureMap(**{k: row.get(k, "") for k in MOLECULAR_SIGNATURE_MAP_COLUMNS})
             if m.molecular_signature:
                 store.signature_map[m.molecular_signature] = m
+        for row in _read_tsv(vdir / TABLE_FILES["arm_scope"]):
+            s = ArmScope(**{k: row.get(k, "") for k in ARM_SCOPE_COLUMNS})
+            if s.trial_arm_id:
+                store.scope[s.trial_arm_id] = s
         return store
 
     @classmethod
@@ -151,6 +158,15 @@ class EligStore:
     def put_molecular_signature(self, m: MolecularSignatureMap) -> None:
         self.signature_map[m.molecular_signature] = m
 
+    def put_scope(self, s: ArmScope) -> None:
+        self.scope[s.trial_arm_id] = s
+
+    def empty_arms(self, arm_ids: set[str]) -> list[str]:
+        """Of `arm_ids` (the registry's arms), those with NO interpreted conjunctions — the arms that contribute
+        no export row and therefore need a scope verdict."""
+        with_rows = {e.trial_arm_id for rows in self.interpreted.values() for e in rows}
+        return sorted(a for a in arm_ids if a not in with_rows)
+
     # --- save -------------------------------------------------------------- #
     def _write_maps(self, vdir: Path) -> None:
         """Write the 3 value->vocab map tables (ONLY when populated — an extract-only run leaves just the 2 core
@@ -172,6 +188,15 @@ class EligStore:
         _write_tsv(vdir / TABLE_FILES["interpreted_eligibility"], INTERPRETED_ELIGIBILITY_COLUMNS,
                    [asdict(e) for rows in self.interpreted.values() for e in rows])
         self._write_maps(vdir)
+        return vdir
+
+    def save_scope(self, run_dir: Path) -> Path:
+        """Write ONLY the arm_scope table — the content tables and the maps are NOT touched (same additive
+        discipline as `save_maps`: the frozen source of truth is never re-persisted)."""
+        vdir = Path(run_dir)
+        vdir.mkdir(parents=True, exist_ok=True)
+        _write_tsv(vdir / TABLE_FILES["arm_scope"], ARM_SCOPE_COLUMNS,
+                   [asdict(s) for s in self.scope.values()])
         return vdir
 
     def save_maps(self, run_dir: Path) -> Path:

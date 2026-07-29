@@ -31,6 +31,7 @@ live data and `archive/` for superseded versions; the exact date lives in a meta
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -101,6 +102,7 @@ FINALISED_MAP_FILES = {
 LOG_DIR = TRANSIENT / "log"
 CACHE_DIR = TRANSIENT / "cache"   # LLM response DiskCache (run-to-run reuse); safe to wipe (make agentic-clean)
 ANALYSIS_DIR = DATA_ROOT / "analysis"   # ad-hoc analysis workspace (top-level, not a role bucket)
+RUN_REPORT_DIR = DATA_ROOT / "run_report"   # one durable Markdown record per e2e refresh (top-level; never wiped)
 
 CURRENT_VERSION = "current_version"   # the live version folder for EVERY versioned store (masters/ + input resources)
 ARCHIVE = "archive"
@@ -129,13 +131,42 @@ def latest_snapshot_dir(root: Path) -> Path | None:
     return max(subs, key=lambda d: d.name) if subs else None
 
 
+ARCHIVE_KEEP = 5   # versions retained per input registry; each refresh archives ~230 MB, so unbounded growth is real
+
+
+def prune_archive(root: Path, *, keep: int = ARCHIVE_KEEP) -> list[Path]:
+    """Keep only the `keep` newest entries under ``root/archive/`` and delete the rest; returns what was removed.
+
+    Unattended operation means nobody notices disk creep. Ordering is by directory mtime (the moment the version
+    was archived), which is robust to the ``<label>``/``<label>_2`` same-day suffixes that a date sort would
+    mis-order. Only ever prunes INPUT archives — masters' archives are curation history and are never touched."""
+    adir = Path(root) / ARCHIVE
+    if keep < 1 or not adir.exists():
+        return []
+    entries = sorted((d for d in adir.iterdir() if d.is_dir()), key=lambda d: d.stat().st_mtime, reverse=True)
+    removed = []
+    for d in entries[keep:]:
+        shutil.rmtree(d, ignore_errors=True)
+        removed.append(d)
+    return removed
+
+
 def archive_current_version(root: Path, label: str) -> Path | None:
     """Move ``root/current_version`` → ``root/archive/<label>/`` (archive-on-refresh). Returns the archive path,
-    or None if there was no current version to archive."""
+    or None if there was no current version to archive.
+
+    Labels are date-stamped (``ddmmyyyy``), so a second run on the SAME day would reuse a taken label — and
+    ``rename`` onto a non-empty directory fails (OSError 66 Directory not empty), which would abort the run at
+    ingest. A taken label therefore gets a ``_2``, ``_3``, … suffix instead."""
     cur = Path(root) / CURRENT_VERSION
     if not cur.exists():
         return None
-    dest = Path(root) / ARCHIVE / label
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    archive_root = Path(root) / ARCHIVE
+    archive_root.mkdir(parents=True, exist_ok=True)
+    dest = archive_root / label
+    seq = 2
+    while dest.exists():
+        dest = archive_root / f"{label}_{seq}"
+        seq += 1
     cur.rename(dest)
     return dest

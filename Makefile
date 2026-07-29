@@ -1,4 +1,4 @@
-.PHONY: agentic-run agentic-ingest agentic-refresh agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
+.PHONY: agentic-run agentic-ingest agentic-refresh agentic-gates agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
 
 # --- v2 agentic pipeline (aus_trial_universe) — the only pipeline; legacy eligibility_path/drug_utility_path retired ---
 # Full pipeline (extract -> map -> drug); the pure-3NF store in masters/eligibility/current_version/ + the joined
@@ -60,6 +60,14 @@ agentic-cache-prune:
 #   make agentic-arm-consistency
 agentic-arm-consistency:
 	scripts/agentic/pipeline.sh arm-consistency
+
+# PRODUCTION GATES — the deterministic trust decision for an unattended cycle: FK integrity · expiry completeness ·
+# additive safety · curation completeness · empty-output reasons · export integrity. Run automatically as the last
+# stage of `agentic-refresh` (a FAIL there makes the refresh exit non-zero); this target gates the CURRENT on-disk
+# state on demand. Exit 0 = trustworthy, 1 = at least one FAIL. Deterministic, no API.
+#   make agentic-gates
+agentic-gates:
+	scripts/agentic/pipeline.sh gates
 
 # Build the matching-engine EXPORT. Set A = the wide flat trial_eligibility.tsv (trial info + eligibility +
 # intervention, one row per (trial_arm_id, conjunction)); Set B = the drug 3NF tables, referenced in place (a

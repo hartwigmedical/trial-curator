@@ -198,6 +198,19 @@ def load_ctgov_trial(trial_id: str) -> tuple[str, list[Cohort]]:
     raise KeyError(f"{trial_id} not found in ctgov input")
 
 
+def ctgov_healthy_volunteer_flags() -> dict[str, bool]:
+    """nctId -> `eligibilityModule.healthyVolunteers`. A STRUCTURED field CTGov publishes (ANZCTR has no
+    equivalent), so a healthy-volunteer study can be recognised deterministically rather than judged — see
+    `tasks/eligibility/scope.py`. Absent/unset ids are simply omitted."""
+    out: dict[str, bool] = {}
+    for rec in _ctgov_records():
+        nct = _ctgov_nct(rec)
+        hv = ((rec.get("protocolSection", {}) or {}).get("eligibilityModule", {}) or {}).get("healthyVolunteers")
+        if nct and isinstance(hv, bool):
+            out[nct] = hv
+    return out
+
+
 def load_all_ctgov_trials() -> list[tuple[str, str, list[Cohort]]]:
     out: list[tuple[str, str, list[Cohort]]] = []
     for rec in _ctgov_records():

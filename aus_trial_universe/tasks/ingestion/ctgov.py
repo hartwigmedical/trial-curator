@@ -29,6 +29,7 @@ from aus_trial_universe.core.paths import (
     CTGOV_ROOT,
     CURRENT_VERSION,
     archive_current_version,
+    prune_archive,
 )
 
 logger = logging.getLogger(__name__)
@@ -545,6 +546,8 @@ def write_ctgov_current_version(
     """
     label = (on_date or date.today()).strftime("%d%m%Y")
     archive_current_version(CTGOV_ROOT, label)
+    for gone in prune_archive(CTGOV_ROOT):        # ~138 MB per version — retention keeps disk bounded unattended
+        logger.info("pruned stale ctgov input archive: %s", gone.name)
 
     current = CTGOV_ROOT / CURRENT_VERSION
     current.mkdir(parents=True, exist_ok=True)

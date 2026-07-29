@@ -134,6 +134,10 @@ case "${CMD}" in
   tests)
     exec "${PYTHON_BIN}" -m pytest tests/agentic -q
     ;;
+  gates)
+    # Production gates on the current on-disk state (exit 1 on any FAIL). Deterministic, no API.
+    exec "${PYTHON_BIN}" -m aus_trial_universe.qa.gates
+    ;;
   arm-consistency)
     # Verify the (trialId, arm) split is identical between the eligibility (trial_arms) and drug
     # (trial_to_intervention) paths — the shared join key. No API calls.

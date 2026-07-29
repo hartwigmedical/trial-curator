@@ -2,6 +2,7 @@
 into intervention_to_canonical (mapping) + trial_to_intervention (provenance) (spec §6.1)."""
 from __future__ import annotations
 
+import os
 from datetime import date
 
 import pytest
@@ -25,6 +26,35 @@ def test_current_version_and_archive_helpers(tmp_path):
     assert dest == tmp_path / "archive" / "20260101" and (dest / "x.txt").read_text() == "hi"
     assert not (tmp_path / "current_version").exists()
     assert archive_current_version(tmp_path, "again") is None          # nothing left to archive
+
+
+def test_archive_label_collision_gets_a_suffix(tmp_path):
+    """Two runs on the SAME day reuse the ddmmyyyy label; rename onto a non-empty dir fails (OSError 66), so a
+    taken label must fall through to <label>_2, _3, … rather than aborting the run at ingest."""
+    for expected in ("29072026", "29072026_2", "29072026_3"):
+        (tmp_path / "current_version").mkdir()
+        (tmp_path / "current_version" / "x.txt").write_text(expected)
+        assert archive_current_version(tmp_path, "29072026") == tmp_path / "archive" / expected
+    assert sorted(p.name for p in (tmp_path / "archive").iterdir()) == [
+        "29072026", "29072026_2", "29072026_3"]
+    assert (tmp_path / "archive" / "29072026" / "x.txt").read_text() == "29072026"   # earlier ones intact
+
+
+def test_prune_archive_keeps_the_newest_n(tmp_path):
+    """Each refresh archives ~230 MB of raw registry input; unattended, nobody notices the creep. Retention is by
+    mtime, not name, so the same-day `<label>_2` suffixes cannot mis-order it."""
+    from aus_trial_universe.core.paths import prune_archive
+    adir = tmp_path / "archive"
+    for i, name in enumerate(["29072026", "29072026_2", "30072026", "31072026", "01082026", "02082026"]):
+        d = adir / name
+        d.mkdir(parents=True)
+        (d / "payload.txt").write_text(name)
+        os.utime(d, (1_800_000_000 + i * 60, 1_800_000_000 + i * 60))   # ascending mtime == archive order
+    removed = prune_archive(tmp_path, keep=3)
+    assert sorted(p.name for p in removed) == ["29072026", "29072026_2", "30072026"]
+    assert sorted(d.name for d in adir.iterdir()) == ["01082026", "02082026", "31072026"]
+    assert prune_archive(tmp_path, keep=3) == []            # idempotent once at the limit
+    assert prune_archive(tmp_path / "nope", keep=3) == []   # no archive dir -> no-op, never raises
 
 
 def test_empty_load_when_no_versions(tmp_path):

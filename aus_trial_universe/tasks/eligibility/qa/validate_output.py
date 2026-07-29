@@ -2,8 +2,9 @@
 
 Deterministic, runs OUTSIDE the agentic workflow: it re-checks a finished output TSV so it
 can catch what the in-loop reviewers let through (mapping degrades gracefully — output is
-written even when a stage finishes `faithful=False`). It is a **testing-period QA step**, not
-part of the production path; keep it in sync with the pipeline's own validators.
+written even when a stage finishes `faithful=False`). Its checks are deliberately blunt (some flags are validator crudeness rather than
+real defects — e.g. a same-type histology+stage AND), so the production gates surface its problem COUNT as a
+WARN rather than failing a cycle on it; keep it in sync with the pipeline's own validators.
 
 Two layers of checks:
 1. Re-run the pipeline's OWN validators on the final cells (they run during mapping, but
@@ -16,8 +17,8 @@ Two layers of checks:
    rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 
 Usage:
-    python -m aus_trial_universe.tasks.eligibility.qa.validate_output [COMBINED.tsv]
-    (no arg -> data/agentic/eligibility/combined/combined.tsv)
+    python -m aus_trial_universe.tasks.eligibility.qa.validate_output [OUTPUT.tsv]
+    (no arg -> the Set-A export, data/agentic/derived/export/trial_eligibility.tsv)
 """
 from __future__ import annotations
 
@@ -28,12 +29,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from aus_trial_universe.core.paths import COMBINED_FILE, COMBINED_OUTPUT, ELIGIBILITY_OUTPUT
+from aus_trial_universe.core.paths import EXPORT_FILE, EXPORT_ROOT
 from aus_trial_universe.tasks.eligibility.mapping.workflow import _oncotree_logic_problems, strip_provenance
 from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
 from aus_trial_universe.tasks.eligibility.tools.oncotree import invalid_codes
 
-OUTPUT_DIR = ELIGIBILITY_OUTPUT
 ELIGIBILITY_COLUMNS = ("cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy")
 
 
@@ -136,25 +136,34 @@ def validate_rows(rows: list[dict]) -> list[TrialReport]:
     return reports
 
 
+def load_output_rows(path: Path) -> list[dict]:
+    """Read a finished output TSV, aliasing the export's `<stem>_interpreted` columns to the bare stems the checks
+    below are written against. The Set-A export renamed the five eligibility columns; the CHECK logic is signed off,
+    so the adaptation belongs in the reader, not in `validate_rows`."""
+    rows = list(csv.DictReader(open(path, encoding="utf-8"), delimiter="\t"))
+    for r in rows:
+        for stem in ELIGIBILITY_COLUMNS:
+            if stem not in r and f"{stem}_interpreted" in r:
+                r[stem] = r[f"{stem}_interpreted"]
+    return rows
+
+
 def _newest_output() -> Path:
-    """The combined view at `eligibility/combined/combined.tsv`; falls back to legacy in-store snapshots
-    (`<timestamp>/combined.tsv`) and the pre-v2 `trial_resource_*.tsv`."""
-    primary = COMBINED_OUTPUT / COMBINED_FILE
+    """The matching-engine export (Set A) — the current deliverable this validator judges."""
+    primary = EXPORT_ROOT / EXPORT_FILE
     if primary.exists():
         return primary
-    candidates = list(OUTPUT_DIR.glob("*/combined.tsv")) + list(OUTPUT_DIR.glob("trial_resource_*.tsv"))
-    if not candidates:
-        raise SystemExit(f"no combined view at {primary} (or legacy <timestamp>/combined.tsv / trial_resource_*.tsv under {OUTPUT_DIR})")
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+    raise SystemExit(f"no export at {primary} — run `make agentic-export` (or pass a TSV explicitly)")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Independent validator (review of the reviewer agents) for an agentic output TSV.")
-    parser.add_argument("output", nargs="?", help="combined-view TSV (default: data/agentic/eligibility/combined/combined.tsv)")
+    parser.add_argument("output", nargs="?",
+                        help="output TSV to judge (default: the Set-A export, derived/export/trial_eligibility.tsv)")
     args = parser.parse_args(argv)
 
     path = Path(args.output) if args.output else _newest_output()
-    rows = list(csv.DictReader(open(path, encoding="utf-8"), delimiter="\t"))
+    rows = load_output_rows(path)
     reports = validate_rows(rows)
 
     total = sum(len(r.problems) for r in reports)

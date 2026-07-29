@@ -91,11 +91,43 @@ class MolecularSignatureMap:
     finding_model: str = ""
 
 
+# --- Table 6: why an arm produced NO interpreted rows (the empty-output verdict) --------------- #
+# An arm with an empty DNF contributes no export row, so its trial can be fully curated and still be absent from
+# the deliverable. "Correctly out of scope" and "extraction failed" look IDENTICAL without a recorded reason —
+# and in unattended operation nobody reads the log to tell them apart. This table makes the distinction explicit
+# so a gate can assert `unexplained == 0` and fail the run the moment a genuine miss appears.
+# Deterministic verdicts are preferred (CTGov exposes `healthyVolunteers` as a structured field); the LLM is only
+# consulted for arms no deterministic rule explains.
+SCOPE_HEALTHY_VOLUNTEERS = "healthy_volunteers"          # enrols healthy people (PK/bioavailability/FIH of an onc drug)
+SCOPE_NOT_ONCOLOGY = "not_oncology"                      # not a cancer trial at all
+SCOPE_NOT_CANCER_SELECTIVE = "population_not_cancer_selective"  # supportive care / risk reduction; population not cancer-restricted
+SCOPE_NO_ELIGIBILITY_TEXT = "no_eligibility_text"        # the source carries no usable eligibility text for this arm
+SCOPE_UNEXPLAINED = "unexplained"                        # ← the failure signal: a possible extraction MISS
+
+SCOPE_VERDICTS = (
+    SCOPE_HEALTHY_VOLUNTEERS, SCOPE_NOT_ONCOLOGY, SCOPE_NOT_CANCER_SELECTIVE,
+    SCOPE_NO_ELIGIBILITY_TEXT, SCOPE_UNEXPLAINED,
+)
+IN_SCOPE_VERDICTS = tuple(v for v in SCOPE_VERDICTS if v != SCOPE_UNEXPLAINED)   # i.e. legitimately empty
+
+
+@dataclass
+class ArmScope:
+    """Why an arm has NO interpreted eligibility. Grain: (trial_arm_id). Only empty arms get a row — a curated
+    arm with conjunctions needs no verdict. `source` records whether a deterministic rule or the LLM decided."""
+
+    trial_arm_id: str = ""   # FK -> shared trial_arms.trial_arm_id
+    scope_verdict: str = ""  # one of SCOPE_VERDICTS
+    scope_reason: str = ""   # one line of justification (auditable)
+    source: str = ""         # "deterministic" | "llm"
+
+
 def _columns(dc) -> list[str]:
     return [f.name for f in fields(dc)]
 
 
 ARM_ELIGIBILITY_RAW_COLUMNS = _columns(ArmEligibilityRaw)
+ARM_SCOPE_COLUMNS = _columns(ArmScope)
 INTERPRETED_ELIGIBILITY_COLUMNS = _columns(InterpretedEligibility)
 CANCER_TYPE_MAP_COLUMNS = _columns(CancerTypeMap)
 GENE_ALTERATION_MAP_COLUMNS = _columns(GeneAlterationMap)
@@ -121,6 +153,7 @@ CRITERION_STEMS = [
 TABLE_FILES = {
     "arm_eligibility_raw": "arm_eligibility_raw.tsv",
     "interpreted_eligibility": "interpreted_eligibility.tsv",
+    "arm_scope": "arm_scope.tsv",
     "cancer_type_map": "cancer_type_map.tsv",
     "gene_alteration_map": "gene_alteration_map.tsv",
     "molecular_signature_map": "molecular_signature_map.tsv",

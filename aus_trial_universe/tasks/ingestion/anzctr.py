@@ -38,6 +38,7 @@ from aus_trial_universe.core.paths import (
     ANZCTR_ROOT,
     CURRENT_VERSION,
     archive_current_version,
+    prune_archive,
 )
 from aus_trial_universe.tasks.ingestion.pottr_ids import should_remove_trial
 
@@ -986,6 +987,8 @@ def write_anzctr_current_version(
     """
     label = (on_date or date.today()).strftime("%d%m%Y")
     archive_current_version(ANZCTR_ROOT, label)
+    for gone in prune_archive(ANZCTR_ROOT):       # ~91 MB per version — retention keeps disk bounded unattended
+        logger.info("pruned stale anzctr input archive: %s", gone.name)
 
     current = ANZCTR_ROOT / CURRENT_VERSION
     extracted_dir = current / EXTRACTED_TRIALS_SUBDIR
