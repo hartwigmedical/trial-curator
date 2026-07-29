@@ -2,6 +2,14 @@
 
 ## ▶ NEXT SESSION — START HERE (updated 2026-07-29, end of session 5)
 
+> **▶ CONTINUATION (resumed after a `/clear`).** Session 5's Stage-I ingestion + legacy retirement + package flatten
+> is **code-complete, 179 tests green, and the full `make agentic-refresh` acceptance run was CLEAN** (see below) —
+> but the user considers the broader task **NOT finished** and will continue in this fresh window. Everything session
+> 5 is **UNCOMMITTED** in the working tree (the user does ALL git commits — do not commit). The authoritative,
+> phase-by-phase record + acceptance figures are in memory **`v2-stage1-ingestion`**; read that first. Likely
+> next steps (confirm with the user): commit the session-5 changeset; the optional cleanups listed under RESUME-AT;
+> or a quality review of the refreshed output. Safety backups: `data/backups/{pre_stage1_*, pre_refresh_*}`.
+
 **CURRENT STATE — the pipeline is now SELF-CONTAINED, periodically runnable end-to-end, and FLATTENED.** One command
 `make agentic-refresh` does the whole loop: **ingest (download → filter → POTTR → version, both registries) → expire
 trials that fell out of the kept universe (recoverable) → curate ONLY new trials (eligibility + drug) → reconcile →
@@ -28,6 +36,18 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
 `drug_utility_path` severed (ANZCTR `iii_extract_drugs` dropped — agentic re-derives ANZCTR drugs via the LLM cohort step).
 
 **⏭ RESUME AT — remaining backlog (dependency-ordered):**
+- **🔴 ONCOTREE CODE-RENDERING CONSISTENCY — NEEDS A DEDICATED SESSION (user, 2026-07-29).** The FINAL vocab can
+  express the SAME logic two ways, and Step-2 does not catch it. Found live on the 2026-07-29 refresh's one new
+  trial (`ACTRN12626000937314`, endometrial): its two arms produced
+  `UCEC AND NOT(UCS) AND NOT(ESS)` and `UCEC AND NOT(UCS OR ESS)` — **logically identical by De Morgan, same three
+  codes, two renderings**. Step-2 left both because `find_inconsistencies` groups by INPUT-value similarity and the
+  two inputs genuinely differ ("advanced (stage III or IV)" vs "recurrent"), so the pair never forms a group. The
+  deterministic pre-pass normalises OR-branch ORDER (`normalize_or_order`) but has no De Morgan / negation-form
+  normalisation. **Impact depends on the matching engine:** cosmetic if it parses the boolean expression, a REAL
+  miss if it string- or set-compares. Scope for the session: a canonical negation form (probably factor to
+  `NOT(A OR B)`), applied deterministically in `mapping/reconcile.py`'s pre-pass + asserted by a checker, then a
+  full-store sweep for how many existing FINAL values are affected. Related: the **11 cancer_type per-value LOGIC
+  residuals** below are the same family (valid codes, imperfect structure) — do both in that session.
 - **Optional cleanups:** (a) the **11 cancer_type per-value LOGIC residuals** (see the session-3/4 notes); (b) repoint
   `make agentic-validate` from the retired `combined.tsv` to `derived/export/trial_eligibility.tsv`; (c) rename the
   `tests/agentic/` folder → `tests/` for full consistency (kept as-is to avoid colliding with `tests/trialcurator`);
@@ -567,6 +587,14 @@ Full detail: `docs/agentic/combined_agentic_run.md`; drug path: `docs/agentic/dr
 eligibility design: memory `v2-eligibility-orchestration-model`.
 
 ## What's built
+> **NOTE (session 5 flatten):** the package root is now **`aus_trial_universe/`** (the `agentic/` sub-layer was
+> removed; every import is `aus_trial_universe.…`, no `.agentic.`). Read the paths below WITHOUT the `agentic/`
+> segment. NEW in session 5 (not shown in the tree below): top-level **`ingest.py`** (Stage-I download CLI) +
+> **`refresh.py`** (the `make agentic-refresh` end-to-end orchestrator), and **`tasks/ingestion/`** =
+> `ctgov.py` (CT.gov API-v2 download+filters+POTTR), `anzctr.py` (curl_cffi all.xls download+filter),
+> `pottr_ids.py` (POTTR trial-id/alias loaders + removal list), `expiry.py` (recoverable trial expiry/restore).
+> Inputs are now versioned `inputs/trial_universe/<reg>/current_version/` (+ `archive/`). Legacy
+> `eligibility_path`/`drug_utility_path` are DELETED.
 ```
 aus_trial_universe/agentic/
   run.py                     # ORCHESTRATOR. Per-trial: extract -> map (lookup-first) -> checkpoint to current_output/; then drug top-up. STORE-WIDE mapping modes (work off the frozen extract): `--map-only` = _run_map_only() (Step 1: map_all_columns pools all 3 columns' distinct values in ONE concurrent pool -> 3 map tables in current_output/ + joined/mapped_eligibility.tsv; raw/interpreted NEVER re-persisted); `--reconcile` = _run_reconcile() (Step 2: reconcile maps -> finalised_*_map.tsv in current_output/ + joined/finalised_mapped_eligibility.tsv). DiskCache; a failing trial is logged & skipped. (The parked _build_combined was RETIRED 2026-07-28 -> export.py.)
