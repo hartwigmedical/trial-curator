@@ -1,14 +1,22 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-07-29, end of session 5)
+## ▶ NEXT SESSION — START HERE (updated 2026-07-29, end of session 6)
 
-> **▶ CONTINUATION (resumed after a `/clear`).** Session 5's Stage-I ingestion + legacy retirement + package flatten
-> is **code-complete, 179 tests green, and the full `make agentic-refresh` acceptance run was CLEAN** (see below) —
-> but the user considers the broader task **NOT finished** and will continue in this fresh window. Everything session
-> 5 is **UNCOMMITTED** in the working tree (the user does ALL git commits — do not commit). The authoritative,
-> phase-by-phase record + acceptance figures are in memory **`v2-stage1-ingestion`**; read that first. Likely
-> next steps (confirm with the user): commit the session-5 changeset; the optional cleanups listed under RESUME-AT;
-> or a quality review of the refreshed output. Safety backups: `data/backups/{pre_stage1_*, pre_refresh_*}`.
+> **▶ SESSION 6 = PRODUCTION HARDENING (unattended operation) + a surgical extraction repair.** The user's framing:
+> *"in production this e2e pipeline runs on its own — without an AI monitoring its progress & applying fixes, so we
+> can NOT move on until this is completely verified."* Everything below is UNCOMMITTED (the user does ALL commits).
+>
+> **What changed (detail in "Session 6" further down):** the pipeline now **verifies itself and fails loud** —
+> `qa/gates.py` (8 deterministic gates run as refresh stage 9/9; any FAIL → **non-zero exit**, which `refresh.py`
+> previously never returned), a per-run **`run_report/`** record + machine-readable **`STATUS.json`**, a new
+> `arm_scope` table recording **why** an arm is empty (so "out of scope" ≠ "extraction missed it"), a waiver
+> register (`qa/waivers.py`), and keep-5 retention for input archives + run reports. **212 tests green.**
+>
+> **The immediate to-do list is the "⏭ RESUME AT" block below** — it is the authoritative task list.
+> **Order the user set:** (1) inspect the e2e run's output + run report → (2) **A3** file restructure
+> (`pipeline/` + `outputs/` + `qa/`) → (3) **A4** legacy module removal → then the rest of the backlog.
+> Safety: `data/backups/known_good_20260729_post_refresh/` + **`data/backups/RECOVERY.md`** (read this first if
+> anything looks wrong — it has the exact copy-back commands).
 
 **CURRENT STATE — the pipeline is now SELF-CONTAINED, periodically runnable end-to-end, and FLATTENED.** One command
 `make agentic-refresh` does the whole loop: **ingest (download → filter → POTTR → version, both registries) → expire
@@ -35,8 +43,90 @@ agentic-ingest`/`agentic-refresh`; loaders/trial_info read `current_version/`; l
 targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 import refs rewritten). RxNorm dep on
 `drug_utility_path` severed (ANZCTR `iii_extract_drugs` dropped — agentic re-derives ANZCTR drugs via the LLM cohort step).
 
-**⏭ RESUME AT — remaining backlog (dependency-ordered):**
-- **🔴 ONCOTREE CODE-RENDERING CONSISTENCY — NEEDS A DEDICATED SESSION (user, 2026-07-29).** The FINAL vocab can
+**⏭ RESUME AT — THE AUTHORITATIVE TO-DO LIST (dependency-ordered; agreed with the user 2026-07-29).**
+
+### A. Do next, in this order (structure + cleanup; nothing here needs an LLM run)
+- **A1 ✅ e2e run done** (session 6) — the user inspects its output + `run_report/` first.
+- **A2 — RESTRUCTURE `aus_trial_universe/` (layout APPROVED by the user).** Six loose modules sit next to `core/`
+  + `tasks/`; group them so every top-level folder answers one question:
+  - `pipeline/` = the runnable entry points — `ingest.py` · `run.py` · `refresh.py` · `demo.py`
+  - `outputs/` = what a run emits — `export.py` · `trial_info.py` · `run_report.py`
+  - `qa/` **IS IN SCOPE (user, 2026-07-29)** — it already holds `gates.py` + `waivers.py`; ALSO move in
+    `tasks/eligibility/qa/{arm_consistency,validate_output}.py` (`arm_consistency` checks BOTH paths' tables, so
+    living under `tasks/eligibility/` is simply wrong). Leave `mapping_consistency.py` in eligibility — it is a
+    library `reconcile` uses, not a QA entry point.
+  - Blast radius measured: **17 files, ~32 references**, plus the two `-m` invocations in `scripts/agentic/
+    {pipeline,demo}.sh`. `make` commands stay identical for the user. Verify with the suite + `make agentic-demo`
+    (~35 s, exercises extract → map → reconcile → drug → export for real).
+- **A3 — REMOVE ALL LEGACY / NON-AGENTIC CODE (user: "basically anything that is not part of the current agentic
+  workflow"). Scope measured: 74 tracked files, ~6,200 lines of Python.** `aus_trial_universe` imports NONE of it
+  and it imports nothing from `aus_trial_universe` — every remaining mention is a docstring provenance note, so the
+  removal is mechanical. Delete in reviewable groups, `make agentic-tests` after each: (i) `trialcurator/` +
+  `pydantic_curator/` + `tests/trialcurator/` + `utils/`; (ii) `actin_curator/` + `Dockerfile` + `actin_curator.sh`;
+  (iii) `sql/` + `docker-compose.postgres.yml` + `requirements-db.txt`; (iv) `docs/eligibility_path/` +
+  `docs/drug_utility_path/` + `scripts/one_off/`.
+  **⚠ `data/` trees stay for now — the user chose "code only" (2026-07-29).** (`data/{drug_utility_path 28 GB,
+  eligibility_path 95 MB, matched_trials 41 MB, trial_inputs 65 MB}` are detached: nothing reads them, no symlinks,
+  and the agentic RxNorm resource is a real 621 MB copy.)
+- **A4 — tail cleanup, with A3:** **`PyYAML` is MISSING from `requirements.txt`** (a latent fresh-install failure —
+  `tools/oncotree.py` reads `oncotree.yaml` and it only works because the conda env happens to have it); prune the
+  rest of `requirements.txt`; rename `tests/agentic/` → `tests/` (free once `tests/trialcurator/` is gone);
+  optionally promote `data/agentic/` → `data/` (one `DATA_ROOT` line).
+- **A5 — HIGH-QUALITY `README.md` (user, 2026-07-29).** The current 33 lines are entirely about the retired ACTIN
+  Docker flow. Benchmark: the READMEs at https://github.com/hartwigmedical/hmftools — **and do better than those**.
+  Should cover: what the pipeline is and produces (Set A + Set B), the 9-stage refresh, how to run it, the data
+  layout, the QA/gates story, and how to recover (`data/backups/RECOVERY.md`). Do it AFTER A2/A3 so paths are final.
+
+### B. Needs a DEDICATED SESSION — prompt/vocab work (sign-off → cache invalidation → full re-run)
+Do B1 + B2 + B3 together: one cache invalidation, one re-run.
+- **🔴 B1 — ONCOTREE CODE-FIELD DEFECTS REPORTED BY THE MATCHING ENGINE (user, 2026-07-29). "Find all such
+  instances & fix them."** The four reported values:
+  1. `Solid tumour AND NOT((NSCLC AND NOT(LUSC)) OR HGSOC OR STAD OR ESCA OR GEJ OR COADREAD OR PANCREAS)`
+  2. `Haematological malignancy AND NOT(APLPMLRARA) AND NOT(MDS) AND NOT(MS)`
+  3. `Diffuse Glioma AND NOT(DMG) AND NOT(HGGNOS)`
+  4. `Pancreatic Adenocarcinoma AND NOT(Pancreatic Neuroendocrine Tumor)`
+  **Deterministic scan over the 4,969 distinct FINAL codes (2026-07-29) → three classes:**
+  - **(a) NAMES leaked into the code field** (#3, #4) — **ROOT CAUSE FOUND: a hole in the deterministic validator.**
+    `tools/oncotree.py:invalid_codes` only checks tokens matching `_TOKEN_RE = [A-Z][A-Z0-9_]+`, i.e. ALL-CAPS
+    tokens — mixed-case is skipped ON PURPOSE so the sentinels (`Solid tumour`, `Pan-cancer`) pass. But OncoTree
+    NAMES are mixed-case too, so `invalid_codes("Pancreatic Adenocarcinoma")` returns `[]` and every leaked name
+    sails through the hard gate. In the export: **45 rows** carry `Pancreatic Adenocarcinoma AND NOT(...)`, **8**
+    carry `Diffuse Glioma AND NOT(...)`. **FIXABLE WITHOUT ANY PROMPT CHANGE:** make the validator operand-level
+    (split on AND/OR/NOT/parens; every operand must be a valid code or one of the 3 sentinels), then re-run the
+    EXISTING deterministic name→code repair (`reconcile.repair_oncotree_code` + `tools/oncotree.name_to_code`).
+    No LLM, no cache invalidation. **Do this part first and separately.**
+  - **(b) Multiple separate `NOT()` clauses instead of one factored `NOT(A OR B)` — 480 values.** Same family as
+    the De Morgan item (B2): `OCSC AND NOT(NPC) AND NOT(SNSC) AND NOT(HNSCUP)` should be
+    `OCSC AND NOT(NPC OR SNSC OR HNSCUP)`. Deterministic to normalise.
+  - **(c) Nested / double negation — 18 values.** `HGSOC AND NOT(UCEC AND NOT(UEC))` — a `NOT()` containing a
+    `NOT()`. Needs a decision on the canonical form (probably: resolve to the intended positive/negative set, or
+    forbid nesting and re-map), then a rule in the mapper + a deterministic checker.
+  - Also verify the sentinel-plus-exclusion pattern in #1 is intended (`Solid tumour AND NOT(<7 types>)`), and that
+    `GEJ` / `MS` / `PANCREAS` are the codes actually meant (all three ARE valid OncoTree codes — confirmed).
+- **🔴 B2 — ONCOTREE CODE-RENDERING CONSISTENCY (the De Morgan item).** See the detailed entry below; same family
+  as B1(b)/(c). Fold the 11 cancer_type per-value LOGIC residuals in here too.
+- **🔴 B3 — EXTRACTION MISSES ON SPECIFIC ARMS — 5 WAIVED, NEED A PROMPT FIX (user-approved waiver 2026-07-29).**
+  Five arms produce ZERO interpreted eligibility even though the source states cancer-patient eligibility. Found by
+  the new `arm_scope` mechanism (see below), confirmed by a full cache-bypass re-extraction at the signed-off
+  prompts that left all five empty → **systematic, not sampling**. Registered in `aus_trial_universe/qa/waivers.py`
+  (`WAIVED_EMPTY_ARMS`) so the gates FAIL only on NEW unexplained arms while surfacing these as a standing WARN.
+  **To fix (needs a prompt change → user sign-off → invalidates the cache → full re-run; do it in the SAME session
+  as the OncoTree item below):**
+  - `NCT06400472` cohorts **A3 / A4 / A5** — the raw stage captures only the *Exclusion Criteria* block for these
+    three cohorts; the "Have one of the following solid tumor cancers" inclusion list never reaches them (siblings
+    A1/A2/A6/B1-B4 extract fine). Root cause is in the RAW sub-stage's per-cohort text assembly.
+  - `NCT04419649::Long-term Extension Cohort` — no rows though the source states MDS (IPSS-R very low/low/
+    intermediate) eligibility; the 12 sibling cohorts extract fine.
+  - `NCT05538130::Phase 1a Monotherapy Dose Escalation` — no rows though the trial is "People With Advanced Solid
+    Tumors" with BRAF-mutant melanoma in the official title; the Phase 1b arm carries both of the trial's rows.
+  **Two arms of the same batch WERE repaired** (2026-07-29) by an **arm-surgical** re-extraction, no prompt change:
+  `NCT06999980::Treatment Arm F` (+2 rows) and `NCT02637687::Phase 2: Bone health assessment_sub-cohort` (+14).
+  ⚠ **LESSON — never adopt a whole-trial re-roll.** Re-running a trial re-extracts ALL its arms and a fresh sample
+  can REGRESS the good ones: `NCT06999980`'s re-roll dropped the "fully resectable" criterion from all 19 existing
+  rows (19 cancer_type + 12 prior_therapy cells → 0). The fix must merge in the repaired ARM only and restore the
+  reviewed rows for every sibling — and the restore scope is EVERY re-extracted trial, not just the ones with a
+  repaired arm.
+- **(B2 detail) 🔴 ONCOTREE CODE-RENDERING CONSISTENCY — NEEDS A DEDICATED SESSION (user, 2026-07-29).** The FINAL vocab can
   express the SAME logic two ways, and Step-2 does not catch it. Found live on the 2026-07-29 refresh's one new
   trial (`ACTRN12626000937314`, endometrial): its two arms produced
   `UCEC AND NOT(UCS) AND NOT(ESS)` and `UCEC AND NOT(UCS OR ESS)` — **logically identical by De Morgan, same three
@@ -48,11 +138,126 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
   `NOT(A OR B)`), applied deterministically in `mapping/reconcile.py`'s pre-pass + asserted by a checker, then a
   full-store sweep for how many existing FINAL values are affected. Related: the **11 cancer_type per-value LOGIC
   residuals** below are the same family (valid codes, imperfect structure) — do both in that session.
-- **Optional cleanups:** (a) the **11 cancer_type per-value LOGIC residuals** (see the session-3/4 notes); (b) repoint
-  `make agentic-validate` from the retired `combined.tsv` to `derived/export/trial_eligibility.tsv`; (c) rename the
-  `tests/agentic/` folder → `tests/` for full consistency (kept as-is to avoid colliding with `tests/trialcurator`);
-  (d) optionally promote `data/agentic/` → top-level `data/` (one `DATA_ROOT` line). None are blocking.
-- The pipeline is feature-complete for periodic operation; next is whatever the user prioritizes.
+
+### C. NEW capabilities the user asked for (2026-07-29) — not started
+- **C1 — CROSS-CHECK AGAINST THE OLD ELIGIBILITY-PATH OUTPUT.** Compare the v2 export against the **v1**
+  `eligibility_path` trial-resource outputs (`data/eligibility_path/exports/final/eligibility_*_resource_*.tsv`,
+  still on disk — A3 deletes only CODE, not `data/`). Per-trial / per-column agreement + a diff of disagreements, so
+  v2-vs-v1 regressions are visible rather than assumed. NB the v1 grain differs (no `trial_arm_id` spine), so the
+  join key needs deciding — probably (trialId, cancer_type) with manual adjudication of the tail.
+- **C2 — CROSS-CHECK AGAINST POTTR / REGISTRY GROUND TRUTH.** For a trial present in **POTTR eligibility**, compare
+  our curated eligibility against POTTR's; where POTTR has no entry, compare against the **registry files**
+  themselves. This is the closest thing to an external gold standard the project has.
+- **C3 — A DE-DUPLICATED JOINED TABLE (on MAPPED values).** An additional joined table at the very end that
+  de-duplicates rows on the **mapped/FINAL** values (`oncotree_code_FINAL`, the finding-models) rather than on the
+  free text. Rationale: two rows whose free text differs but whose mapped codes are identical are the SAME
+  matchable row to the engine — collapsing them shrinks the deliverable and removes an arbitrary choice.
+- **C4 — DNF-PRINCIPLE VIOLATIONS: deterministic detector + LLM fix.** Apply a **deterministic check** for rows that
+  violate the DNF principle (a row must be ONE satisfiable conjunction — e.g. two positive tumour types ANDed,
+  `X AND NOT(X)`, an OR left inside a cell) and then an **LLM repair** for the ones it flags. Runs on the joined
+  table (or wherever the rows land). NB `qa/validate_output.py` already DETECTS several of these
+  (unsatisfiable positive-AND-positive cancer_type, in-cell `X AND NOT(X)`, prior_therapy subsuming twins) and
+  currently reports **1,047 flags across 186 trials** — start from that detector, then add the repair stage.
+
+### D. Gates / QA hardening (small, production-integrity)
+- **D1 — no gate for VOCAB-MAPPING COVERAGE.** Nothing asserts "every interpreted value has a mapping". Hit for
+  real in session 6: an arm repaired outside per-trial curation left its new values unmapped until `--map-only` was
+  run BY HAND (refresh has no Step-1 mapping stage — it relies on per-trial mapping during curation).
+- **D2 — ANZCTR filter-drift signal is still LOG-ONLY.** `anzctr.py` warns "local filter kept 791 trials but the
+  live search reported 776 — ANZCTR may have changed its export" to a human reading the log. Unattended, nobody
+  reads it. Promote to a report line + a gate (it self-resolved between the two 2026-07-29 runs, which is exactly
+  why it needs tracking rather than a one-off glance).
+- **D3 — `output_validator`'s 1,047 flags are UNCHARACTERISED.** WARN-only today. Triage into (i) known validator
+  crudeness (e.g. same-type histology+stage AND — satisfiable and faithful) vs (ii) real defects. Feeds C4.
+- **D4 — reconcile + approval vocab re-run in FULL every cycle** (~10 of 17 min) even with zero churn. A
+  fingerprint over the distinct-value set would skip them. Optimisation, not a defect.
+
+### E. Long-standing / previously deferred with the user's agreement
+- **219 trials `faithful=False`** (hard multi-cohort extraction, best-of-6) · **weighted "best attempt"** in
+  `refine()` (parked pending calibrated reviewer severity) · **extraction convergence** on hard trials ·
+  **run-comparison method** (spec §12) · **`make` command-set review** (mostly moot: legacy targets gone,
+  `agentic-gates` added).
+- **Effectively CLOSED:** the SQL-for-joined-tables decision (the Python join builds the export fine; external
+  querying was dropped) and session 5's Stage-I ingestion / legacy-retirement work.
+
+---
+### Session 6 (2026-07-29) — PRODUCTION HARDENING + the arm-surgical repair. All UNCOMMITTED.
+
+**Why:** the pipeline will run unattended, with no AI watching the log. Session 6 made it verify itself.
+
+**1. It now FAILS LOUD.** The break was at the top of the chain: `run.py` correctly returns **rc=3** when trials are
+missing, `pipeline.sh` correctly propagates exit codes (`set -euo pipefail`; verified empirically that an exit 7
+survives the `tee`) — but **`refresh.py` returned 0 unconditionally**, so a partially-curated store reported success
+and still shipped an export. A scheduler could not tell a broken cycle from a clean one. `refresh` now returns
+non-zero on any gate FAIL. Contract pinned by `tests/agentic/test_refresh_exit_codes.py`.
+
+**2. `qa/gates.py` — 8 deterministic gates, run as refresh stage 9/9 and standalone (`make agentic-gates`).**
+FK integrity · expiry completeness (no orphans in ANY master, `trial_info` tracks the registry exactly) · additive
+safety (reference tables may never shrink; trial tables only as expiry explains; plus the EXACT identity
+`after == before − expired + curated`) · curation completeness (kept ⊆ store, `elig_rc == 0`) · empty-output
+reasons · export integrity (shape + coverage) · universe swing (WARN) · expiry-guard trip · `output_validator`
+(WARN). Any FAIL ⇒ non-zero exit + `status: fail`. Gate tests assert the FAILURE directions — a gate that cannot
+fail is decoration.
+
+**3. `run_report/` + `STATUS.json` (the user asked for a per-run report).** `outputs`-side module `run_report.py`
+writes `data/agentic/run_report/refresh_<ts>.md` per cycle: fresh universe per registry · churn WITH trial ids ·
+a before→after delta table over all 15 master tables · export shape · the integrity block · the gate table.
+`STATUS.json` is the machine-readable last-run status an external monitor polls (the user chose "exit code + a
+status file" over email/Slack) and also supplies `previous_kept` for the universe-swing gate. **Retention: keep 5**
+per-run reports (by mtime, same rule + count as the input archives); `STATUS.json` is exempt — it is the single
+current-status file, overwritten by design, with history living in the timestamped reports. Pruning happens AFTER
+the current report + status are on disk.
+
+**4. `arm_scope` — the 6th eligibility table: WHY an arm is empty.** An arm with an empty DNF contributes no export
+row, so a trial can be fully curated and still be absent from the deliverable — and "correctly out of scope" looked
+IDENTICAL to "extraction missed it". Two tiers: deterministic (CTGov's structured `eligibilityModule.
+healthyVolunteers`, tight healthy-volunteer text rules) then an LLM verdict for the residue. Verdicts:
+`healthy_volunteers` · `not_oncology` · `population_not_cancer_selective` · `no_eligibility_text` ·
+`unexplained` (= the miss signal; the gate FAILs on it). Idempotent + lookup-first, so it back-fills and maintains
+itself; stale verdicts for repaired/expired arms are pruned. **Design lesson baked in:** "the arm's raw row is
+empty" is deliberately NOT a deterministic excuse — that restates the problem instead of explaining it, and while
+it WAS one, it auto-absolved 7 arms of which **2 turned out to be real misses**.
+- Result over the universe: **29 empty arms** = 17 healthy-volunteer · 7 population-not-cancer-selective ·
+  5 waived misses. Investigated separately: the **18 trials entirely absent from the export are ALL correctly
+  empty** (10 healthy-volunteer PK/bioavailability studies of oncology drugs, 5 non-cancer-selective populations,
+  3 not oncology at all — male contraceptive, paediatric pancreatitis, STAREE statins).
+
+**5. `qa/waivers.py` — known-accepted findings.** A gate that fails every cycle for a known reason trains people to
+ignore it. Waived items are surfaced as a standing **WARN** (`waived_findings`), never silently absolved, and every
+waiver must name its follow-up. Deliberately a code constant, not a data file: `data/` is gitignored, so a waiver is
+visible in review and `git log`.
+
+**6. Fixes + retention.** Same-day **archive-label collision** — `archive_current_version` labels by `ddmmyyyy` and
+`rename()` fails on a non-empty dir (OSError 66), so ANY second run on one calendar day died in ingest before
+downloading a byte; a taken label now falls through to `_2`, `_3`, … (proven live: `archive/29072026_2`).
+**Input-archive retention: keep 5** (~230 MB/run was unbounded → ~12 GB/yr). `make agentic-validate` **repointed**
+from the retired `combined.tsv` to the Set-A export (column aliasing in the READER so the signed-off check logic is
+untouched) and folded into the gates as a WARN.
+
+**7. Arm-surgical extraction repair — 2 of 7 arms fixed, no prompt touched.** See B3 above for the arms, the
+still-broken five, and the ⚠ never-adopt-a-whole-trial-re-roll lesson (the `NCT06999980` resectability regression).
+
+**8. Data safety (user asked explicitly).** All snapshots verified to parse; drug md5 record 0 mismatches. The
+current good state had been split across two snapshots, so it was consolidated into
+**`data/backups/known_good_20260729_post_refresh/`** (all masters + export + report + `MD5SUMS.txt` over 75 TSVs)
+with **`data/backups/RECOVERY.md`** giving the exact copy-back commands, what each of the five snapshots covers, and
+what needs no backup (inputs re-fetch via `make agentic-ingest`; the LLM cache is a speed optimisation, not truth).
+`pre_stage1_*` is the ONLY backup of the raw registry downloads.
+
+**Concurrency note (the user pushed on this).** A 30-minute repair run was NOT unused headroom: 5 trials at
+`--workers 5 --max-concurrency 40` peaked at ~35 in-flight against a cap of 40. The cost is per-trial SERIAL
+latency — up to 6 refine attempts in sequence, each an extractor call plus a 6-reviewer panel (`NCT02637687` alone
+took 2,229 s and burned all 6). More workers compresses MANY trials, not one hard trial. Everything since ran at
+maximum (`--map-only` 500/500, reconcile 200/400, refresh 80/500).
+
+**Files touched (session 6):** NEW `qa/{gates,waivers}.py`, `run_report.py`, `tasks/eligibility/scope.py`;
+CHANGED `refresh.py` (stages 7-9 + exit codes), `core/paths.py` (`RUN_REPORT_DIR`, `ARCHIVE_KEEP`, `prune_archive`,
+collision-safe `archive_current_version`), `tasks/eligibility/{schema,store}.py` (`ArmScope` + `arm_scope` table +
+`save_scope`/`empty_arms`), `tasks/eligibility/extraction/loaders.py` (`ctgov_healthy_volunteer_flags`),
+`tasks/eligibility/qa/validate_output.py` (repoint + `load_output_rows`), `tasks/ingestion/{ctgov,anzctr}.py`
+(archive pruning), `Makefile` + `scripts/agentic/pipeline.sh` (`agentic-gates`). NEW tests
+`tests/agentic/{test_run_report,test_refresh_exit_codes}.py`, `tests/agentic/qa/test_gates.py`,
+`tests/agentic/tasks/eligibility/test_scope.py`. **212 green.**
 
 ---
 ### (prior START-HERE — session 4, symmetric-match vocab; superseded by the block above)
@@ -549,7 +754,7 @@ the DRUG UTILITY path (`make drug-ref-build`: a separate incremental drug-annota
 main/aux roles). Both emit **3NF relational tables** that join on `trial_arm_id` (via the shared `trial_arms`
 registry); the grand flat matching-engine file is built by `make agentic-export` → Set A `trial_eligibility.tsv`
 (+ Set B = the drug tables referenced in place). Pattern B throughout: deterministic Python owns control flow
-(parallelism, refine loop, per-item durable saves); the LLM fills the doer/reviewer slots. **162 unit tests pass**
+(parallelism, refine loop, per-item durable saves); the LLM fills the doer/reviewer slots. **212 unit tests pass**
 (fake-client, no API). Eligibility output is a **DNF** table — one row = one satisfiable (trial, arm) conjunction;
 rows ORed, cells ANDed, exclusions inline `NOT(...)`. Mapping is TWO steps: **Step 1** (`--map-only`) maps each
 distinct value to vocab; **Step 2** (`--reconcile`) reconciles equivalent values to one code. Eligibility curation
@@ -570,19 +775,21 @@ make agentic-export SNAPSHOT=1                  # + an immutable export/snapshot
 make agentic-demo                               # ISOLATED presentation demo: full pipeline over 2 trials -> data/agentic/demo/ (shared cache + seeded drug ref = 0 web search; ~35s). IDS=… to override; RESET=0 to keep.
 make agentic-arm-consistency                    # referential-integrity check on the trial_arm_id join key (incl. role table)
 make agentic-clean                              # wipe the transient data/agentic/{log,cache} only
-make agentic-tests                              # 162 unit tests, no API
+make agentic-gates                              # PRODUCTION GATES on the current on-disk state (exit 1 on any FAIL). No API
+make agentic-tests                              # 212 unit tests, no API
 # run.py flags: --workers N · --max-concurrency N (global API cap; TPM-bound — probe x-ratelimit headers) ·
 #   --map-only (Step 1: map distinct interpreted cells -> 3 map tables + joined/mapped_eligibility.tsv) ·
 #   --reconcile (Step 2: reconcile maps -> finalised_*_map.tsv in the store + joined/finalised_mapped_eligibility.tsv) ·
 #   --skip-drug · --no-cache · --no-cache-prune · --extract-only · --no-judge · --no-review · --store-root DIR · --max-attempts N
 ```
-Eligibility store `data/agentic/masters/eligibility/current_output/` = **8 pure-3NF tables** (2 content + 3 Step-1 maps +
-3 finalised maps); each per-trial run loads it, upserts, writes back in place (supersede by moving `current_output/`
-→ `archive/<date>/`). Denormalized Step-1/2 flat views live in **`data/agentic/derived/joined/`** (`mapped_eligibility.tsv`,
+Eligibility store `data/agentic/masters/eligibility/current_version/` = **9 pure-3NF tables** (2 content + 3 Step-1 maps +
+3 finalised maps + `arm_scope`); each per-trial run loads it, upserts, writes back in place (supersede by moving
+`current_version/` → `archive/<date>/`). Denormalized Step-1/2 flat views live in **`data/agentic/derived/joined/`** (`mapped_eligibility.tsv`,
 `finalised_mapped_eligibility.tsv`). The grand matching-engine flat file is **`data/agentic/derived/export/trial_eligibility.tsv`**
-(built by `make agentic-export`, NOT `agentic-run`). Log → `data/agentic/transient/log/…`. Drug reference is a SEPARATE build:
-`make drug-ref-build …` → `data/agentic/masters/drug_annotations/current_version/` (6 tables). (NB: legacy `make agentic-validate`
-still targets the retired `combined.tsv` path — repoint to the export; see START-HERE optional cleanups.)
+(built by `make agentic-export`, NOT `agentic-run`). Per-cycle records → `data/agentic/run_report/` (keep 5) +
+`STATUS.json`. Log → `data/agentic/transient/log/…`. Drug reference is a SEPARATE build:
+`make drug-ref-build …` → `data/agentic/masters/drug_annotations/current_version/` (6 core + 2 approval-vocab tables).
+`make agentic-validate` now targets the Set-A export (repointed in session 6) and is also folded into the gates as a WARN.
 Full detail: `docs/agentic/combined_agentic_run.md`; drug path: `docs/agentic/drug_ref_schema.md`;
 eligibility design: memory `v2-eligibility-orchestration-model`.
 
@@ -641,7 +848,7 @@ docs/agentic/combined_agentic_run.md   # run/setup guide
 ## Output schema (v2 — shared arm registry + 3NF stores + trial_info master + `joined/` views + the `export/`; updated 2026-07-28)
 Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/masters/trial_arms/current_version/trial_arms.tsv`
 (`trial_arm_id → trialId, registry, arm, arm_type`; `trial_arm_id` = deterministic `{trialId}::{arm}` slug). The
-eligibility store `data/agentic/masters/eligibility/current_output/` holds **8 pure-3NF tables**; the drug store holds **6**;
+eligibility store `data/agentic/masters/eligibility/current_version/` holds **9 pure-3NF tables**; the drug store holds **6**;
 the new **`trial_info`** master holds trial-level metadata; Step-1/2 denormalized views live in
 **`data/agentic/derived/joined/`**; the matching-engine deliverable lives in **`data/agentic/derived/export/`**. Eligibility tables
 hold **NO drug info**; drugs join via `trial_arm_id` to the drug utility path.
@@ -655,6 +862,12 @@ hold **NO drug info**; drugs join via `trial_arm_id` to the drug utility path.
 - `finalised_cancer_type_map.tsv` — `cancer_type` → `oncotree_name, oncotree_code, oncotree_code_FINAL` (Step-2
   reconciled in the added `*_FINAL` col; Step-1 cols preserved). **Still 3NF (single-key lookup) → lives here.**
 - `finalised_gene_alteration_map.tsv` / `finalised_molecular_signature_map.tsv` — value → `finding_model, finding_model_FINAL`.
+- `arm_scope.tsv` (NEW, session 6) — `trial_arm_id` → `scope_verdict, scope_reason, source`. **Only arms with NO
+  interpreted rows get a row.** Records WHY an arm is empty so "correctly out of scope" is distinguishable from
+  "extraction missed it": `healthy_volunteers` · `not_oncology` · `population_not_cancer_selective` ·
+  `no_eligibility_text` · `unexplained` (the miss signal — the `empty_output_reasons` gate FAILs on it unless the
+  arm is registered in `qa/waivers.py`). Deterministic verdicts first (CTGov's structured `healthyVolunteers`
+  field + tight healthy-volunteer text rules), LLM only for the residue. Built by refresh stage 7/9; idempotent.
 
 **Trial metadata master — `trial_info/current_version/trial_info.tsv`** (NEW 2026-07-28): one row per trialId →
 `official_title, phase, overall_status, study_type, lead_sponsor, min/max_age, sex, start/primary_completion/

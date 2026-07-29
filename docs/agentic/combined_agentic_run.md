@@ -31,7 +31,8 @@ agentic-clean` wipes ONLY `transient/`; the masters (incl. the curated eligibili
 |---|---|
 | `make agentic-run` | Full pipeline (extract → map → drug), streamed to one output + one log. Runs the unit tests first (aborts on failure). |
 | `make agentic-ingest` | **Stage-I ingestion** — full download + cohort filter of the trial universe into `inputs/trial_universe/<reg>/current_version/` (previous → `archive/`). `REGISTRY=ctgov\|anzctr\|all` (default all). See below. |
-| `make agentic-refresh` | **End-to-end periodic refresh loop** — ingest all → expire/restore → eligibility (`run --resume --skip-drug`) → Step-2 (`run --reconcile`) → drug facts for new/restored → map approvals → export. Incremental (cache-reuse; existing drugs skip web search). See below. |
+| `make agentic-refresh` | **End-to-end periodic refresh loop (9 stages)** — ingest all → expire/restore → eligibility (`run --resume --skip-drug`) → Step-2 (`run --reconcile`) → drug facts for new/restored → map approvals → scope verdicts → export → **gates**. Incremental (cache-reuse; existing drugs skip web search). Exits non-zero on a gate FAIL. See below. |
+| `make agentic-gates` | **Production gates** on the current on-disk state — the deterministic trust decision. Exit 0 = trustworthy, 1 = at least one FAIL. No API. See below. |
 | `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
 | `make agentic-clean` | Wipe ONLY the transient bucket `data/agentic/transient/{cache,log}` — never touches `inputs/`, `masters/` (incl. the curated eligibility store), `derived/`, or `analysis/`. |
 | `make agentic-cache-prune` | **Prune the response cache of OUTDATED-prompt entries** (both paths share one cache). Dry-run by default; `APPLY=1` deletes, `PURGE_UNKNOWN=1` also drops legacy entries. See below. No API calls. |
@@ -73,14 +74,20 @@ make agentic-run IDS=$(cat data/agentic/analysis/complex_trials_ids.txt),$(cat d
 A **deterministic** validator that runs OUTSIDE the agentic workflow, so it catches what the in-loop
 reviewer agents let through (mapping degrades gracefully — output is written even when a stage finishes
 `faithful=False`). **It is a testing-period QA step, not part of the production path** — always run it on a
-fresh output while iterating, and keep its checks in sync with the pipeline's validators. It (1) re-runs the
+fresh output while iterating, and keep its checks in sync with the pipeline's validators. Its checks are
+deliberately blunt (some flags are validator crudeness rather than real defects — e.g. a same-type histology+stage
+AND is satisfiable and faithful), so the production gates surface its problem COUNT as a WARN and never fail a
+cycle on it. It (1) re-runs the
 pipeline's own OncoTree + finding-model validators on the final cells, and (2) adds cross-row DNF / cohort /
 exclusion checks nothing else performs: unsatisfiable `A AND B` cancer_type, all-empty rows, exact-duplicate
 rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 ```bash
-make agentic-validate                 # data/agentic/eligibility/combined/combined.tsv
-make agentic-validate OUT=<path.tsv>  # a specific run
+make agentic-validate                 # default: the Set-A export, derived/export/trial_eligibility.tsv
+make agentic-validate OUT=<path.tsv>  # a specific TSV
 ```
+**Repointed in session 6** from the retired `combined.tsv` to the export. The export renamed the five eligibility
+columns to `<stem>_interpreted`; that is aliased in the READER (`load_output_rows`) so the signed-off check logic is
+untouched.
 Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/tasks/eligibility/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
@@ -169,16 +176,53 @@ One command for a periodic universe refresh (module `aus_trial_universe.refresh`
 5. **drug facts** — `drug-ref-build --from-trials <new/restored>` (drug annotations + occurrences + main/aux
    roles); existing drugs are pure lookups (no web search).
 6. **approvals** — `map_approvals` (symmetric-match vocab for the approvals).
-7. **export** — the matching-engine deliverable.
+7. **scope verdicts** — why any arm has NO interpreted eligibility → the `arm_scope` table (deterministic rules
+   first, LLM only for the residue; idempotent, so it back-fills and self-maintains).
+8. **export** — the matching-engine deliverable.
+9. **gates** — the deterministic trust decision (below). **Any FAIL ⇒ `refresh` exits non-zero.**
 
 **Incremental by construction:** unchanged trials re-hit the response cache (no API), and drugs already in the
-reference skip the web-search step. Latest acceptance run (2026-07-29): expired 32, curated 71 new trials, drug
-researched=34 / reused=73 (no web search), export 2,020 trials, arm-consistency CONSISTENT, 0 failures; 179 unit
-tests green.
+reference skip the web-search step. A second consecutive refresh is a near-no-op: verified 2026-07-29, the
+2,038 already-curated trials cost nothing, `to-expire=0 · to-restore=0`, and only the 1 genuinely new trial ran.
 
 ```bash
-make agentic-refresh
+make agentic-refresh                                  # defaults (8 workers)
+make agentic-refresh WORKERS=80 MAX_CONCURRENCY=500   # the probed maximum (15k RPM / 40M TPM)
 ```
+
+**Wrap in `caffeinate -i`.** Optional: `NO_REVIEW=1` · `SKIP_INGEST=1` (reuse current inputs) ·
+`DRY_RUN_EXPIRY=1` (report expiry without mutating the stores).
+
+### Unattended operation — how a bad cycle announces itself
+The pipeline is designed to run on a schedule with nobody reading the log, so it verifies itself:
+
+| artefact | what it is |
+|---|---|
+| **exit code** | `refresh` returns **non-zero** on any gate FAIL. `pipeline.sh` runs `set -euo pipefail`, so the code survives the `tee` and reaches the scheduler. |
+| `data/agentic/run_report/refresh_<ts>.md` | the per-cycle record: universe per registry · churn WITH trial ids · a before→after delta over all 15 master tables · export shape · integrity · the gate table. **Keep 5** (by mtime). |
+| `data/agentic/run_report/STATUS.json` | machine-readable last-run status for an external monitor: `status` (ok/fail), the gate list, universe, churn, export shape, and the report path. Overwritten each run **by design** — it is the single current-status file; history lives in the timestamped reports, so it is never pruned. |
+
+### `make agentic-gates` — the production gates
+Deterministic (no LLM, no network), reads only what a run left on disk, and returns PASS / WARN / FAIL per check.
+**FAIL = "do not trust this cycle"; WARN = "look, but the data is usable".** Runs automatically as refresh stage 9/9;
+this target gates the CURRENT on-disk state on demand. Exit 0 = trustworthy, 1 = at least one FAIL.
+
+| gate | asserts |
+|---|---|
+| `fk_integrity` | every `trial_arm_id` referenced by eligibility/drug/role exists in the shared registry |
+| `expiry_completeness` | an expired trial is gone from EVERY live master; `trial_info` tracks the registry exactly |
+| `additive_safety` | reference tables never shrink; trial tables only as expiry explains; plus the exact identity `after == before − expired + curated` |
+| `curation_completeness` | every kept trial is in the store and the eligibility run returned rc=0 |
+| `empty_output_reasons` | every arm with no DNF has a recorded reason — **`unexplained` == 0** (the extraction-miss signal) |
+| `export_integrity` | export exists, non-empty, expected column count, no curated trial missing without a reason |
+| `waived_findings` | WARN — known-accepted findings from `qa/waivers.py`, so they stay visible instead of silently absolved |
+| `output_validator` | WARN — the "review of the reviewers" problem count over the export (blunt by design; must not fail a cycle) |
+| `universe_swing` | WARN — kept-universe change >10% vs the previous run (from `STATUS.json`) |
+| `expiry_guard` | FAIL if the >½-of-store guard tripped (the download was judged untrustworthy) |
+
+**Waivers** (`aus_trial_universe/qa/waivers.py`): a gate that fails every cycle for a known reason trains people to
+ignore it. A waived item stops the FAIL but keeps a standing WARN, and every waiver must name its follow-up. It is a
+code constant, not a data file, so adding one is visible in review and `git log` (`data/` is gitignored).
 
 ---
 
@@ -336,7 +380,7 @@ entries, never `live` or legacy), so a prompt edit self-cleans its old cache on 
 
 ## Testing
 ```bash
-make agentic-tests        # 134 unit tests, no API, all fake-client
+make agentic-tests        # 212 unit tests, no API, all fake-client
 ```
 Every `make agentic-run` also runs these as a preflight and aborts if any fail.
 

@@ -358,7 +358,8 @@ The OncoTree ontology and finding-model grammar are the controlled *output vocab
 Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/trial_arms/current_version/trial_arms.tsv`
 — `trial_arm_id, trialId, registry, arm, arm_type` (both registries; `trial_arm_id` = the deterministic
 `{trialId}::{arm}` slug), written by whichever path processes a trial. The eligibility store
-`data/agentic/eligibility/current_output/` holds only its **2 content masters + 3 map tables**, each keyed by
+`data/agentic/masters/eligibility/current_version/` holds its **2 content masters + 3 Step-1 map tables + 3
+finalised (Step-2) map tables + `arm_scope` (§12.1) = 9 pure-3NF tables**, each keyed by
 `trial_arm_id` (re-running a trial replaces its rows; superseded stores → `archive/`). Eligibility masters hold
 **NO drug facts** — drugs join in via `trial_arm_id` to the drug utility path (§6.1):
 
@@ -391,8 +392,13 @@ trial-wide criteria are AND-combined into each arm by `_distribute` upstream. **
 The pipeline now **downloads and versions its own trial universe** — no legacy/external step. Ingestion lives
 in-package at `aus_trial_universe/tasks/ingestion/` and produces the versioned inputs the rest of the pipeline reads.
 
+**The periodic refresh is 9 stages** (`make agentic-refresh`): ingest → expire/restore → curate new trials →
+Step-2 reconcile → drug utility → approval vocab → **scope verdicts** (§12.1) → export → **gates** (§12.0).
+A gate FAIL makes the whole refresh exit non-zero.
+
 **Ingestion** (`make agentic-ingest REGISTRY=ctgov|anzctr|all`, module `aus_trial_universe.ingest`, default `all`).
-Each run does a FULL download, archives the previous input set (`current_version/` → `archive/<date>/`), and writes
+Each run does a FULL download, archives the previous input set (`current_version/` → `archive/<label>/`, retaining
+the newest **5**; a label already taken by an earlier run on the same day falls through to `_2`, `_3`, …), and writes
 the fresh one to `data/agentic/inputs/trial_universe/<registry>/current_version/` — input versioning now mirrors the
 masters (`current_version/` + `archive/`).
 - **`ctgov.py`** — paged CT.gov **API-v2** download with Essie filters: recruitment status
@@ -448,7 +454,41 @@ drugs are now re-derived by the shared LLM cohort step, §6.1). `ui/` deleted; `
 `trialcurator/`, `qa/` retire as v2 supersedes each.
 
 ## 12. Verification
-- **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (64 tests).
+
+### 12.0 Unattended operation — the pipeline verifies ITSELF (added 2026-07-29, session 6)
+In production the refresh runs on a schedule with no one reading the log, and nothing downstream can tell a good
+cycle from a bad one by looking at the output — a partially-curated store still yields a plausible export. Three
+mechanisms close that:
+
+1. **Fail-loud exit codes.** `run.py` returns rc=3 when requested trials are still missing; `refresh.py` propagates
+   a non-zero exit on **any gate FAIL** (it previously returned 0 unconditionally, which made a broken cycle
+   indistinguishable from a clean one); `scripts/agentic/pipeline.sh` runs `set -euo pipefail` so the code survives
+   the `tee` and reaches the scheduler.
+2. **`qa/gates.py` — the deterministic trust decision** (refresh stage 9/9; also `make agentic-gates`). No LLM, no
+   network: the same bytes always give the same verdict. PASS / WARN / FAIL per check, FAIL = "do not trust this
+   cycle". Checks: FK integrity · expiry completeness (no orphans in ANY master; `trial_info` tracks the registry) ·
+   additive safety (reference tables never shrink; trial tables only as expiry explains; plus the exact identity
+   `after == before − expired + curated`) · curation completeness · **empty-output reasons** (§12.1) · export
+   integrity · `output_validator` (WARN) · `waived_findings` (WARN) · universe swing (WARN) · expiry-guard trip.
+   **Known-accepted findings are waived** in `qa/waivers.py` — a waiver removes the FAIL but keeps a standing WARN
+   and must name its follow-up, because a gate that fails every cycle for a known reason gets ignored.
+3. **A durable per-cycle record.** `run_report/refresh_<ts>.md` (keep 5) + a machine-readable `STATUS.json` for an
+   external monitor. Masters are mutated in place and the export overwritten, so without this a completed cycle
+   left no trace but its log.
+
+### 12.1 Why an arm is EMPTY — the `arm_scope` table
+An arm whose interpreted DNF is empty contributes no export row, so a trial can be fully curated and still be absent
+from the deliverable — and **"correctly out of scope" is indistinguishable from "extraction missed it"** without
+reading the source. Unattended, nobody reads it, so a genuine miss would only nudge a row count. `arm_scope` records
+a verdict per empty arm: `healthy_volunteers` · `not_oncology` · `population_not_cancer_selective` ·
+`no_eligibility_text` · **`unexplained`** (the miss signal the gate fails on). Deterministic rules first (CTGov's
+structured `eligibilityModule.healthyVolunteers`; tight healthy-volunteer text patterns), LLM verdict only for the
+residue. **Deliberately NOT a deterministic excuse: "the arm's raw row is empty"** — that restates the problem
+rather than explaining it, and while it was a rule it auto-absolved 7 arms of which 2 were real misses.
+
+### 12.2 Test + validator layers
+- **Code (orchestration/consolidate/validators/gates):** unit-tested with fake clients — no API (**212 tests**).
+  The gate tests assert the FAILURE directions specifically: a gate that cannot fail is decoration.
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
 - **Independent output validator (`make agentic-validate`, `tasks/eligibility/qa/validate_output.py`):** a deterministic
   *review of the reviewer agents* — runs OUTSIDE the workflow on a finished output TSV to catch what the in-loop
@@ -462,6 +502,11 @@ drugs are now re-derived by the shared LLM cohort step, §6.1). `ui/` deleted; `
   run-comparison method is deferred (§13).
 
 ## 13. Open / deferred
+> The authoritative, prioritised to-do list lives in `docs/v2_agentic_handover.md` ("⏭ RESUME AT"). Highlights:
+> OncoTree code-field defects reported by the matching engine (leaked NAMES — root-caused to a hole in
+> `invalid_codes`, which only checks ALL-CAPS tokens; multiple un-factored `NOT()` clauses; nested negation) ·
+> 5 waived extraction misses · cross-checks against the v1 output and POTTR/registry ground truth · a
+> mapped-value-deduplicated joined table · a deterministic DNF-violation detector + LLM repair.
 - **Run-comparison method** — replacement for `qa/final_resource_diff.py`; how it treats residual LLM variance is TBD.
 - **RxNorm cross-check** for ANZCTR drugs (currently LLM-only) — shelved; may return as a validation layer.
 - **OncoTree granularity** — occasional over-strict "unfaithful" on subtype-heavy trials; tune against the manual review.

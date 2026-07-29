@@ -47,8 +47,7 @@
   /* ---- furniture ---- */
   .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
     color: var(--ink-faint); font-weight: 700; display: flex; align-items: center; gap: 9px; }
-  .eyebrow .k { width: 9px; height: 9px; border-radius: 3px; background: var(--code); flex: none; }
-  .eyebrow.gen .k { background: var(--gen); } .eyebrow.rev .k { background: var(--rev); }
+  .eyebrow .k { width: 9px; height: 9px; border-radius: 3px; background: var(--ink-faint); flex: none; }
   h1 { font-size: 52px; line-height: 1.05; margin: 0; letter-spacing: -.02em; font-weight: 700; color: var(--code); }
   h2 { font-size: 41px; line-height: 1.1; margin: 0; letter-spacing: -.014em; font-weight: 700; color: var(--code); }
   h2.sm { font-size: 36px; }
@@ -100,7 +99,7 @@
   .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 11px; padding: 14px 16px;
     box-shadow: var(--shadow); }
   .stat .n { font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums;
-    line-height: 1; color: var(--code); }
+    line-height: 1; color: var(--code-deep); }
   .stat .n .u { font-size: .46em; font-weight: 700; color: var(--ink-faint); letter-spacing: 0; }
   .stat .l { margin-top: 8px; font-size: 15px; color: var(--ink-soft); line-height: 1.3; }
   .stat.gen .n { color: var(--gen-ink); } .stat.rev .n { color: var(--rev-ink); }
@@ -193,6 +192,11 @@
   .fstep .fd { font-size: 14.5px; color: var(--ink-soft); margin-top: 3px; line-height: 1.3; }
   .fstep.rv { border-color: #f4bdb8; } .fstep.rv .fn { color: var(--rev-ink); }
 
+  /* ---- part headers (identical for part 1 and part 2) ---- */
+  .part { text-align: center; font-family: var(--mono); font-size: 14px; letter-spacing: .12em;
+    text-transform: uppercase; font-weight: 700; color: #ffffff; background: var(--code);
+    border-radius: 8px; padding: 7px 14px; }
+
   /* ---- refresh flowchart ---- */
   .fc { display: flex; flex-direction: column; gap: 7px; }
   .fc-top { text-align: center; font-family: var(--mono); font-size: 14.5px; color: var(--ink);
@@ -204,18 +208,16 @@
   .fc-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .fc-col { border: 1.6px solid var(--border); border-radius: 11px; background: var(--panel);
     box-shadow: var(--shadow); padding: 11px 13px; display: flex; flex-direction: column; gap: 4px; }
-  .fc-col.new { border-color: #b9cdf3; } .fc-col.same { border-color: var(--border-strong); }
-  .fc-col.gone { border-color: #f4bdb8; }
+  .fc-col.new, .fc-col.same, .fc-col.gone { border-color: var(--border-strong); }
   .fc-col .fh { font-family: var(--mono); font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
     font-weight: 700; }
-  .fc-col.new .fh { color: var(--code); } .fc-col.same .fh { color: var(--ink-faint); }
-  .fc-col.gone .fh { color: var(--rev-ink); }
+  .fc-col .fh { color: var(--ink-faint); }
   .fc-col .fa { font-size: 17px; font-weight: 700; color: var(--ink); }
   .fc-col .fb { font-size: 15px; color: var(--ink-soft); line-height: 1.32; }
-  .fc-col .fn { font-family: var(--mono); font-size: 13px; font-weight: 700; margin-top: 2px; }
-  .fc-col.new .fn { color: var(--code); } .fc-col.gone .fn { color: var(--rev-ink); }
-  .fc-col.same .fn { color: var(--ink-faint); }
-  .fc-back { font-size: 14.5px; color: var(--rev-ink); background: var(--rev-bg); border-radius: 8px;
+  .fc-col .fn { font-family: var(--mono); font-size: 13px; font-weight: 700; margin-top: 2px; color: var(--ink); }
+  .fc-col .agents { margin-top: 6px; }
+  .fc-back { font-size: 14.5px; color: var(--ink-soft); background: var(--panel-2);
+    border: 1px dashed var(--border-strong); border-radius: 8px;
     padding: 6px 12px; text-align: center; font-weight: 700; }
   .fc-arrow { text-align: center; color: var(--border-strong); font-size: 13px; line-height: .8; }
 
@@ -228,17 +230,18 @@
 
   /* ---- gate grid (two columns of compact gates) ---- */
   .gategrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 16px; }
-  .gitem { border-left: 3px solid var(--rev); padding-left: 11px; }
-  .gitem.warn { border-left-color: var(--gen); }
+  .gitem { border-left: 3px solid var(--code); padding-left: 11px; }
   .gitem .gn { display: flex; align-items: baseline; gap: 8px; }
   .gitem .gn b { font-family: var(--mono); font-size: 14.5px; color: var(--ink); }
-  .gitem .gn .gc { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
-    color: var(--rev-ink); background: var(--rev-bg); border-radius: 999px; padding: 1px 7px; }
-  .gitem.warn .gn .gc { color: var(--gen-ink); background: var(--gen-bg); }
+  .gitem .gn .gc { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+    color: var(--ink-soft); background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 1px 7px; }
   .gitem p { margin: 2px 0 0; font-size: 15.5px; color: var(--ink-soft); line-height: 1.33; }
   .gitem p b { color: var(--ink); }
 
   /* ---- legend ---- */
+  .legend.flat { background: none; border: none; box-shadow: none; padding: 2px 0; justify-content: center; }
+  .legend.flat .it { font-size: 15.5px; }
   .legend { display: flex; flex-wrap: nowrap; gap: 26px; padding: 9px 15px; background: var(--panel);
     border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
   .legend .it { display: flex; align-items: center; gap: 9px; font-size: 17px; color: var(--ink-soft); }
@@ -312,11 +315,11 @@
         profile can be matched against the trials open to them. Two properties of that universe determine how it has to
         be built.</p>
       <div class="cards c2">
-        <div class="card code"><div class="ct">Scale</div><h3>2,038 open oncology trials</h3>
+        <div class="card"><div class="ct">Scale</div><h3>2,038 open oncology trials</h3>
           <p>Across two registries: <b>5,272</b> trial arms and <b>17,786</b> distinct combinations of eligibility
             requirements.</p>
           <p>The eligibility of each arm, and the drugs it administers, are described in <b>free text</b>.</p></div>
-        <div class="card gen"><div class="ct">Continuous change</div><h3>Records are added, amended and closed</h3>
+        <div class="card"><div class="ct">Continuous change</div><h3>Records are added, amended and closed</h3>
           <p>Between our <b>25 July</b> snapshot and the <b>29 July</b> download &mdash; four days &mdash; <b>71</b>
             trials had entered the universe and <b>32</b> had left it.</p>
           <p>A curated resource therefore has a short shelf life.</p></div>
@@ -352,24 +355,24 @@
   <!-- ============ 4 · WHY THE TRANSFORMATION IS DIFFICULT ============ -->
   <section class="slide">
     <div class="inner tight">
-      <div class="eyebrow rev"><span class="k"></span> The problem</div>
+      <div class="eyebrow"><span class="k"></span> The problem</div>
       <h2 class="sm">Transforming free text into structured vocabulary is difficult</h2>
       <p class="lead">Eligibility criteria are written for human readers. The structure a matching engine needs is
         present in the text but not marked, and has to be recovered before any value can be mapped to vocabulary. Four
         recurring difficulties:</p>
       <div class="cards c2">
-        <div class="card rev"><div class="ct">Difficulty 1</div><h3 class="sm">Alternatives are not delimited</h3>
+        <div class="card"><div class="ct">Difficulty 1</div><h3 class="sm">Alternatives are not delimited</h3>
           <p>&ldquo;with MYCN amplification, or focal high level MYC or MYCL amplification&rdquo;
             <span class="ic">NCT04221035</span> states <b>three</b> alternatives, of which a patient needs one. Nothing
             in the text marks where one ends and the next begins.</p></div>
-        <div class="card rev"><div class="ct">Difficulty 2</div><h3 class="sm">Requirements combine</h3>
+        <div class="card"><div class="ct">Difficulty 2</div><h3 class="sm">Requirements combine</h3>
           <p>A cancer type, an alteration and a prior-therapy condition usually apply together, and different arms of
             the same trial combine them differently. Each valid combination is a separate way to qualify.</p></div>
-        <div class="card rev"><div class="ct">Difficulty 3</div><h3 class="sm">Exclusions have a scope</h3>
+        <div class="card"><div class="ct">Difficulty 3</div><h3 class="sm">Exclusions have a scope</h3>
           <p>An exclusion may apply to the whole trial or to one arm of it. &ldquo;not eligible for the surgical
             cohort&rdquo; constrains that cohort only, and applying it trial-wide would exclude eligible
             patients.</p></div>
-        <div class="card rev"><div class="ct">Difficulty 4</div><h3 class="sm">Terminology varies</h3>
+        <div class="card"><div class="ct">Difficulty 4</div><h3 class="sm">Terminology varies</h3>
           <p>The same disease appears as an abbreviation, a full name, or a list of histologies. Across the trial
             universe there are <b>4,963</b> distinct ways of writing a cancer type, and each has to resolve to the
             correct code.</p></div>
@@ -380,24 +383,24 @@
   <!-- ============ 5 · OUR FIRST ATTEMPT ============ -->
   <section class="slide">
     <div class="inner tight">
-      <div class="eyebrow rev"><span class="k"></span> The problem</div>
+      <div class="eyebrow"><span class="k"></span> The problem</div>
       <h2 class="sm">Where our first attempt fell short</h2>
       <p class="lead">Version 1 was a linear chain of one-shot LLM calls over the eligibility section, corrected
         manually afterwards. Five problems motivated the rewrite.</p>
       <div class="cards c2">
-        <div class="card rev"><div class="ct">Problem 1</div><h3 class="sm">No automated verification</h3>
+        <div class="card"><div class="ct">Problem 1</div><h3 class="sm">No automated verification</h3>
           <p>A linear chain of one-shot LLM calls requires a human reviewer. Virtually impossible to manually detect all
             errors across ~2,000 trials.</p></div>
-        <div class="card rev"><div class="ct">Problem 2</div><h3 class="sm">No combinations of eligibility criteria</h3>
+        <div class="card"><div class="ct">Problem 2</div><h3 class="sm">No combinations of eligibility criteria</h3>
           <p>Cancer type and gene alterations were treated as independent criteria, so cancer &times; gene
             combinations needed manual overwriting.</p></div>
-        <div class="card rev"><div class="ct">Problem 3</div><h3 class="sm">No external web search for drug enrichment</h3>
+        <div class="card"><div class="ct">Problem 3</div><h3 class="sm">No external web search for drug enrichment</h3>
           <p>Drug annotations &mdash; drug class, target&ndash;mechanism, and <b>TGA / PBS</b> status &mdash; cannot be
             filled from the protocol text alone.</p></div>
-        <div class="card rev"><div class="ct">Problem 4</div><h3 class="sm">Reliance on handcrafted mapping files</h3>
+        <div class="card"><div class="ct">Problem 4</div><h3 class="sm">Reliance on handcrafted mapping files</h3>
           <p>No reliable means of transforming input text into our controlled vocabulary without manually created
             mapping files.</p></div>
-        <div class="card rev"><div class="ct">Problem 5</div><h3 class="sm">Read only the eligibility section</h3>
+        <div class="card"><div class="ct">Problem 5</div><h3 class="sm">Read only the eligibility section</h3>
           <p>Eligibility-relevant detail also appears in the <b>title, description, conditions and arm text</b>, which
             version 1 did not read.</p></div>
       </div>
@@ -424,17 +427,16 @@
       <div class="eyebrow"><span class="k"></span> The pipeline</div>
       <h2 class="sm">The whole pipeline at a glance</h2>
       <div class="pipe">
-        <div class="inject"><b>PART 1 &middot; INGESTION</b> &mdash; download <b>ClinicalTrials.gov</b> + <b>ANZCTR</b>
-          in full, then keep trials <b>open to recruitment</b>, with an <b>AU or NZ site</b>, a <b>drug intervention</b>
-          and a <b>cancer condition</b></div>
+        <div class="part">Part 1 &nbsp;&middot;&nbsp; Trial ingestion and updating</div>
+        <div class="inject">downloaded <b>in full</b> &middot; kept if <b>open to recruitment</b>, <b>AU / NZ site</b>,
+          <b>drug intervention</b>, <b>cancer condition</b></div>
         <div class="down">&#9662;</div>
         <div class="step"><div class="sh"><div class="st">Assemble the source, and identify the arms of the trial</div>
           <div class="agents"><span class="a code">code</span><span class="lk">/</span><span class="a doer">doer</span><span class="lk">&rarr;</span><span class="a rev">reviewer</span><span class="loopi">&#8634;</span></div></div>
           <div class="sd">every section kept with its origin &mdash; <span class="ic">TITLE</span>
             <span class="ic">CONDITIONS</span> <span class="ic">DESCRIPTION</span> <span class="ic">ELIGIBILITY</span>
-            <span class="ic">ARMS</span>. ClinicalTrials.gov lists its arms; ANZCTR does not, so there a model derives
-            them and a reviewer checks.</div></div>
-        <div class="downlbl">&#9662;&nbsp;&nbsp; <b>PART 2 &middot; CURATION</b> &mdash; two independent paths &nbsp;&nbsp;&#9662;</div>
+            <span class="ic">ARMS</span>. ClinicalTrials.gov lists its arms; ANZCTR does not.</div></div>
+        <div class="part">Part 2 &nbsp;&middot;&nbsp; Trial curation &mdash; two independent paths</div>
         <div class="lanes">
           <div class="lane elig">
             <div class="lane-h">Eligibility &mdash; for every arm</div>
@@ -454,10 +456,10 @@
         <div class="step combine"><div class="sh"><div class="st">Join both paths on the arm, and write one flat file</div><div class="agents"><span class="a code">code</span></div></div>
           <div class="sd">the matching engine reads this file &mdash; one row per set of requirements a patient can satisfy</div></div>
       </div>
-      <div class="legend">
-        <div class="it"><span class="dot code"></span> <b>code</b> &mdash; no model involved</div>
-        <div class="it"><span class="dot gen"></span> <b>doer</b> &mdash; writes the answer</div>
-        <div class="it"><span class="dot rev"></span> <b>reviewer</b> &mdash; checks it &nbsp;<span class="ic">&#8634; sent back</span></div>
+      <div class="legend flat">
+        <div class="it"><span class="dot code"></span> <b>code</b> &mdash; no LLM involved</div>
+        <div class="it"><span class="dot gen"></span> <b>doer</b> &mdash; the LLM that writes the answer</div>
+        <div class="it"><span class="dot rev"></span> <b>reviewer</b> &mdash; an LLM that checks it &nbsp;<span class="ic">&#8634; sent back</span></div>
       </div>
     </div>
   </section>
@@ -471,7 +473,7 @@
       <div class="row2">
         <div class="card code"><div class="ct">ClinicalTrials.gov &mdash; 1,523 trials</div><h3>Retrieved by API</h3>
           <p>A paged search with the filters applied at the registry.</p></div>
-        <div class="card gen"><div class="ct">ANZCTR &mdash; 515 trials</div><h3>Retrieved as a whole-registry export</h3>
+        <div class="card code"><div class="ct">ANZCTR &mdash; 515 trials</div><h3>Retrieved as a whole-registry export</h3>
           <p>ANZCTR has no search API, so we download the entire registry (91 MB) and apply the same filters locally.
             <b>776</b> trials matched; <b>515</b> had a drug intervention.</p></div>
       </div>
@@ -490,38 +492,39 @@
     <div class="inner tight">
       <div class="eyebrow"><span class="k"></span> Part 1 &middot; trial ingestion and updating</div>
       <h2 class="sm">Keeping the resource up to date</h2>
-      <p class="lead">The pipeline is designed to be re-run regularly. One command performs the whole cycle, and only
-        work that has not been done before consumes any model calls.</p>
+      <p class="lead">The pipeline is designed to be re-run regularly. Each cycle compares the fresh download against
+        what is already curated, and only work that has not been done before consumes any LLM calls.</p>
       <div class="fc">
         <div class="fc-top"><b>1 &middot; RE-DOWNLOAD BOTH REGISTRIES IN FULL</b> &nbsp;&mdash;&nbsp; apply the filters
           &nbsp;&rarr;&nbsp; <b>the current set of trials we keep</b></div>
         <div class="fc-arrow">&#9662;</div>
-        <div class="fc-cmp"><b>2 &middot; compare that set against the trials already curated</b> &mdash; each trial
-          falls into one of three cases</div>
+        <div class="fc-cmp"><b>2 &middot; each trial falls into one of three cases.</b> &ldquo;New&rdquo; here means
+          <b>new to the kept set</b>, which is not the same as newly registered</div>
         <div class="fc-arrow">&#9662;</div>
         <div class="fc-3">
           <div class="fc-col new"><div class="fh">in the download, not yet curated</div>
             <div class="fa">New &rarr; curate it</div>
-            <div class="fb">The full doer&ndash;reviewer treatment: extract, interpret, map, then its drugs.</div>
-            <div class="fn">71 trials · 25 &rarr; 29 July</div></div>
+            <div class="fb">Either a new registration, or an <b>existing trial whose record changed</b> so that it now
+              matches the filters. Within it, only drugs absent from the reference are researched.</div>
+            <div class="fn">71 trials &middot; 25 &rarr; 29 July</div></div>
           <div class="fc-col same"><div class="fh">in the download, already curated</div>
             <div class="fa">Unchanged &rarr; skip it</div>
-            <div class="fb">The stored answer is returned against a fingerprint of the request, so no model call is
+            <div class="fb">The stored answer is returned against a fingerprint of the request, so no LLM call is
               made.</div>
             <div class="fn">~1,960 trials, near-instant</div></div>
           <div class="fc-col gone"><div class="fh">curated, absent from the download</div>
             <div class="fa">Retired &rarr; moved aside</div>
-            <div class="fb">Its recruitment status has changed &mdash; completed, withdrawn or terminated &mdash; so it
-              no longer passes the filters and no longer appears in the download. Its rows are <b>moved</b> to a holding
-              area.</div>
-            <div class="fn">32 trials · 25 &rarr; 29 July</div></div>
+            <div class="fb">Its recruitment status changed &mdash; completed, withdrawn or terminated &mdash; so it no
+              longer matches. Its rows are <b>moved</b> to a holding area, and <b>restored intact</b> if it
+              returns.</div>
+            <div class="fn">32 trials &middot; 25 &rarr; 29 July</div></div>
         </div>
-        <div class="fc-back">&#8634;&nbsp; a retired trial that re-appears in a later download is <b>restored
-          intact</b>, without being curated again</div>
-        <div class="fc-arrow">&#9662;</div>
-        <div class="fc-cmp"><b>3 &middot; within the new trials, only unseen work runs</b> &mdash; a drug already in the
-          reference is reused by lookup: in this cycle <b>34</b> new drugs were researched and <b>73</b> reused with
-          <b>zero web searches</b>. The output file is then rebuilt deterministically.</div>
+        <div class="fc-cmp" style="text-align:left"><b>3 &middot; the common case, from this week.</b>
+          <span class="ic">NCT06652438</span> is a phase&nbsp;3 AML trial first submitted on <b>2 October 2024</b>, with
+          no Australian site. Its record was updated on <b>27 July 2026</b> and posted on <b>29 July</b>, adding
+          <b>10 Australian sites</b> &mdash; so it began matching the location filter and entered the kept set that day.
+          An international trial opening Australian sites is precisely the change a regular refresh exists to
+          catch.</div>
       </div>
     </div>
   </section>
@@ -529,9 +532,9 @@
   <!-- ============ 10 · THE CORE IDEA ============ -->
   <section class="slide">
     <div class="inner">
-      <div class="eyebrow gen"><span class="k"></span> Part 2 &middot; trial curation &middot; the shared pattern</div>
+      <div class="eyebrow"><span class="k"></span> Part 2 &middot; trial curation &middot; the shared pattern</div>
       <h2 class="sm">Both curation paths use the same pattern: a <span class="accent-gen">doer</span> and its <span class="accent-rev">reviewers</span></h2>
-      <p class="lead">Every model step on the eligibility path and the drug utility path has the same shape: one agent
+      <p class="lead">Every LLM step on the eligibility path and the drug utility path has the same shape: one agent
         writes the whole answer, focused reviewers judge it against the source, and any objection sends it back to be
         rewritten.</p>
       <div class="eo">
@@ -565,9 +568,9 @@
   <section class="slide">
     <div class="inner">
       <div class="eyebrow"><span class="k"></span> Part 2 &middot; trial curation &middot; dividing the work</div>
-      <h2>What code computes, and what a model must judge</h2>
-      <p class="lead">Anything with one correct value that can be looked up is resolved by code and is never asked of a
-        model. This split has the largest effect on whether the output can be trusted.</p>
+      <h2>What code computes, and what an LLM must judge</h2>
+      <p class="lead">Anything with one correct value that can be looked up is resolved by code, and is never asked of
+        an LLM.</p>
       <div class="row2">
         <div class="card code"><div class="ct">Computed programmatically</div><h3>Facts with one right answer</h3>
           <ul class="pts">
@@ -576,9 +579,9 @@
             <li>which trials are new and which have gone</li>
             <li>every join, de-duplication and the final file</li>
           </ul>
-          <p style="margin-top:9px">The model supplies a drug's <b>name</b>; code turns that name into its
+          <p style="margin-top:9px">The LLM supplies a drug's <b>name</b>; code turns that name into its
             <b>identifier</b>. A wrong identifier would corrupt every join that depends on it.</p></div>
-        <div class="card gen"><div class="ct">Judged by a model</div><h3>Reading, interpretation, search</h3>
+        <div class="card gen"><div class="ct">Judged by an LLM</div><h3>Reading, interpretation, search</h3>
           <ul class="pts gen">
             <li>what a sentence actually <b>requires</b> of a patient</li>
             <li>which alternatives are real, and which are examples</li>
@@ -588,89 +591,110 @@
           </ul>
           <p style="margin-top:9px">Each of these requires reading the source and forming a judgement about it.</p></div>
       </div>
-      <div class="thesis">Each side is given only the work it is reliable at: <b>the model reads and interprets; the
+      <div class="thesis">Each side is given only the work it is reliable at: <b>the LLM reads and interprets; the
         code computes, validates and joins.</b></div>
     </div>
   </section>
 
-  <!-- ============ QA 1 — CHECKS INSIDE THE PIPELINE ============ -->
+  <!-- ============ QA 1 — SPOT CHECKS ============ -->
   <section class="slide">
-    <div class="inner tight">
-      <div class="eyebrow rev"><span class="k"></span> Part 2 &middot; trial curation &middot; verifying correctness (1 of 2)</div>
-      <h2 class="sm">Every check we run inside the pipeline</h2>
-      <p class="lead">Every value passes two independent layers: a <b class="accent-rev">model reviewer</b> assesses
-        whether it is <b>faithful to the source</b>, and <b class="accent-code">code</b> assesses whether it is
-        <b>well-formed and self-consistent</b>. Both must pass.</p>
+    <div class="inner">
+      <div class="eyebrow"><span class="k"></span> Part 2 &middot; trial curation &middot; verifying correctness</div>
+      <h2 class="sm">Spot checks &mdash; every individual value, as it is produced</h2>
+      <p class="lead">Each value is checked twice before it is stored: once for <b>faithfulness</b> to the source, and
+        once for <b>form</b>.</p>
       <div class="row2">
-        <div class="card rev"><div class="ct">Checked by a model reviewer &mdash; every stage, in the loop</div>
+        <div class="card rev"><div class="ct">Is it faithful to the source &mdash; checked by an LLM reviewer</div>
           <ul class="pts rev">
-            <li><b>Quoting:</b> does every extracted span really appear in the source record</li>
-            <li><b>The 5-reviewer panel, in parallel:</b> is the cancer type the tumour <i>under study</i>, not one
-              mentioned in passing &middot; is each molecular value in the right column &middot; are only <i>required</i>
-              and <i>excluded</i> prior therapies treated as constraints &middot; is the row structure and per-arm scope
-              right &middot; do the arm's drugs match</li>
-            <li><b>Whole-table:</b> does the output enumerate <i>more combinations</i> than the source states</li>
-            <li><b>Mapping:</b> is the code faithful, and at the right level of detail</li>
-            <li><b>Drugs:</b> is a regimen split into the right ingredients &middot; are mechanism, class and
-              TGA / PBS entries plausible <i>and</i> sourced &middot; tested or supporting</li>
-            <li><b>ANZCTR:</b> are the derived arms and their drugs right</li>
+            <li>Does every quoted span really appear in the source</li>
+            <li>Is the cancer type the tumour <b>under study</b></li>
+            <li>Is each molecular value in the <b>right column</b></li>
+            <li>Are only <b>required</b> and <b>excluded</b> prior therapies treated as constraints</li>
+            <li>Is the row structure and per-arm scope correct</li>
+            <li>Is the vocabulary code faithful, at the right level of detail</li>
+            <li>For a drug: the right ingredients, a plausible mechanism and class, sourced TGA / PBS entries, and
+              its role in the arm</li>
           </ul></div>
-        <div class="card code"><div class="ct">Checked by code &mdash; no model, same verdict every time</div>
+        <div class="card code"><div class="ct">Is it well-formed &mdash; checked by code</div>
           <ul class="pts">
-            <li><b>Cancer-type logic:</b> no code both required <i>and</i> excluded &middot; no duplicate code &middot;
-              no broad type ANDed with its own subtype &middot; no ambiguous <span class="ic">OR</span> /
-              <span class="ic">AND</span> precedence</li>
-            <li><b>Alteration syntax:</b> known classes and fields only &middot; values from the allowed set &middot;
-              valid protein-change and chromosome forms &middot; no term both required and excluded</li>
-            <li><b>Identifiers:</b> drug identifier, class and ATC code come from a lookup &mdash; a model never
-              supplies one</li>
-            <li><b>Rows:</b> exact duplicates and rows that are only re-orderings are dropped</li>
-            <li><b>Afterwards, independently:</b> a separate pass re-checks the finished file against all of the
-              above</li>
+            <li>Is the cancer code <b>valid</b>, and the alteration expression <b>syntactically valid</b></li>
+            <li>Is anything <b>self-contradictory</b> &mdash; the same term required and excluded</li>
+            <li>Is a code <b>duplicated</b>, or a broad type ANDed with its own subtype</li>
+            <li>Is the <span class="ic">OR</span> / <span class="ic">AND</span> precedence unambiguous</li>
+            <li>Did the drug identifier, class and ATC code come from a <b>lookup</b></li>
+            <li>Are exact-duplicate and merely re-ordered rows removed</li>
           </ul></div>
       </div>
     </div>
   </section>
 
-  <!-- ============ QA 2 — CHECKS ON THE WHOLE RUN ============ -->
+  <!-- ============ QA 2 — OVERALL CHECKS ============ -->
   <section class="slide">
     <div class="inner tight">
-      <div class="eyebrow rev"><span class="k"></span> Part 2 &middot; trial curation &middot; verifying correctness (2 of 2)</div>
-      <h2 class="sm">Checks on the whole cycle, and how failure surfaces</h2>
-      <p class="lead">Per-value checks cannot see a cycle that curated half the universe and still produced a
-        plausible-looking file. <b>Eight deterministic gates</b> close that gap &mdash; no model, no network, and
-        <b>exact arithmetic wherever an identity exists</b> rather than a threshold.</p>
+      <div class="eyebrow"><span class="k"></span> Part 2 &middot; trial curation &middot; verifying correctness</div>
+      <h2 class="sm">Overall checks &mdash; the finished cycle, before it is trusted</h2>
+      <p class="lead">Spot checks cannot detect a cycle that curated only half the universe and still produced a
+        plausible-looking file. Eight <b>deterministic gates</b> examine the finished state on disk &mdash; no LLM, no
+        network, and exact arithmetic wherever an identity exists.</p>
       <div class="gategrid">
         <div class="gitem"><div class="gn"><b>integrity</b><span class="gc">fail</span></div>
-          <p>Every eligibility, drug and role row points at an arm that exists. A dangling reference would silently
-            drop a row at join time.</p></div>
+          <p>Every eligibility, drug and role row points at an arm that exists.</p></div>
         <div class="gitem"><div class="gn"><b>empty output</b><span class="gc">fail</span></div>
-          <p>Every arm that produced <b>no</b> eligibility carries a <b>reason</b> &mdash; healthy volunteers, no
-            eligibility text, not oncology. An unexplained empty is a possible miss.</p></div>
+          <p>Every arm producing <b>no</b> eligibility carries a reason &mdash; healthy volunteers, no eligibility text,
+            not oncology. An unexplained empty is a possible miss.</p></div>
         <div class="gitem"><div class="gn"><b>retirement</b><span class="gc">fail</span></div>
-          <p>A retired trial is gone from <b>every</b> table, and the trial index matches the arm registry
-            exactly.</p></div>
+          <p>A retired trial is gone from <b>every</b> table.</p></div>
         <div class="gitem"><div class="gn"><b>export</b><span class="gc">fail</span></div>
-          <p>The file is non-empty with exactly the expected columns, and no curated trial is missing from it without a
-            recorded reason.</p></div>
+          <p>Exactly the expected columns, and no curated trial missing without a recorded reason.</p></div>
         <div class="gitem"><div class="gn"><b>nothing lost</b><span class="gc">fail</span></div>
-          <p>Reference data never shrank, and the trial count satisfies
-            <span class="ic">after = before &minus; retired + newly curated</span> exactly.</p></div>
+          <p>Reference data never shrank, and
+            <span class="ic">after = before &minus; retired + newly curated</span> holds exactly.</p></div>
         <div class="gitem"><div class="gn"><b>download sanity</b><span class="gc">fail</span></div>
-          <p>Retirement was not skipped by its own safety guard, and the priority list was reachable.</p></div>
+          <p>Retirement was not skipped by its own safety guard.</p></div>
         <div class="gitem"><div class="gn"><b>completeness</b><span class="gc">fail</span></div>
-          <p>Every trial in the fresh universe is in the store, and the curation run itself reported success.</p></div>
+          <p>Every trial in the fresh universe is in the store.</p></div>
         <div class="gitem warn"><div class="gn"><b>universe swing</b><span class="gc">warn</span></div>
-          <p>The kept universe did not change by more than <b>10%</b> against the previous cycle.</p></div>
+          <p>The kept universe changed by less than <b>10%</b> against the previous cycle.</p></div>
       </div>
       <div class="row2">
         <div class="note sm"><span class="h">how a failure surfaces</span> Any <b class="accent-rev">FAIL</b> makes the
-          run <b>exit non-zero</b> so the scheduler sees it, and writes <span class="ic">STATUS.json</span> &mdash; a
-          machine-readable last-run record a monitor can poll. <b>WARN</b> means look, but the data is usable.</div>
-        <div class="note sm"><span class="h">and a durable record per cycle</span> One Markdown <b>run report</b>:
-          the universe, <b>which trial ids</b> were retired / restored / newly curated, a before&ndash;after delta for
-          every table, the export shape, and each gate's verdict.</div>
+          run <b>exit non-zero</b> so the scheduler sees it, and writes <span class="ic">STATUS.json</span> for a monitor
+          to poll. <b>WARN</b> means look, but the data is usable.</div>
+        <div class="note sm"><span class="h">a durable record per cycle</span> One Markdown <b>run report</b>: the
+          universe, <b>which trial ids</b> were retired, restored and newly curated, a before&ndash;after delta for every
+          table, and each gate's verdict.</div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ CORRECTIONS THE CHECKS CAUGHT ============ -->
+  <section class="slide">
+    <div class="inner tight">
+      <div class="eyebrow"><span class="k"></span> Part 2 &middot; trial curation &middot; the checks in practice</div>
+      <h2 class="sm">Three real corrections, one from each layer of checking</h2>
+      <div class="cards c3">
+        <div class="card rev"><div class="ct">Caught by an LLM reviewer</div><h3 class="sm">An example became a requirement</h3>
+          <p>The source excluded EGFR mutations, then added <i>&ldquo;gene mutations that do not routinely use
+            immunotherapy (e.g. ALK fusion)&rdquo;</i>. The doer made the example <b>mandatory</b>:</p>
+          <p><span class="ic">NOT(EGFR) AND Fusion[ALK]</span></p>
+          <p>The reviewer objected: the phrase is open-ended and ALK is only an illustration &mdash; requiring it
+            <b>narrows the trial to patients it never specified</b>. Corrected to drop the term.</p></div>
+        <div class="card code"><div class="ct">Caught by a deterministic check</div><h3 class="sm">A mapping that contradicted itself</h3>
+          <p>A mapping came back with the same cancer code both <b>required and excluded</b> in one expression:</p>
+          <p><span class="ic">&hellip; PCM &hellip; AND NOT(PCM)</span></p>
+          <p>No patient can satisfy that, so the row would silently match nobody. The validator rejects
+            <b>X AND NOT(X)</b> outright &mdash; it needs no judgement, so it never gets one wrong. The usual cause:
+            two cohorts' requirements folded into one row.</p></div>
+        <div class="card"><div class="ct">Caught across all trials</div><h3 class="sm">The same disease, two different codes</h3>
+          <p>Mapped trial by trial, equivalent phrasings drift apart. A run-wide pass compares every value across all
+            trials: code normalises the equivalent ones, and an LLM adjudicates genuine conflicts.</p>
+          <p><span class="ic">&ldquo;Astrocytoma&rdquo;: DIFG &rarr; ASTR</span><br>
+             <span class="ic">&ldquo;recurrent lymphoma&rdquo;: HL OR NHL &rarr; LNM</span></p>
+          <p><b>184 of 4,965</b> cancer-type values were changed by this pass &mdash; each one a trial that would
+            otherwise have been unmatchable against its own disease.</p></div>
+      </div>
+      <div class="thesis" style="font-size:18px">The three layers detect <b>different classes of error</b>, and each of
+        these corrections was found by only one of them.</div>
     </div>
   </section>
 
@@ -722,14 +746,14 @@
   <!-- ============ 14 · ONE DRUG, END TO END ============ -->
   <section class="slide">
     <div class="inner">
-      <div class="eyebrow gen"><span class="k"></span> Worked example</div>
+      <div class="eyebrow"><span class="k"></span> Worked example</div>
       <h2 class="sm">One drug, end to end &mdash; <span class="ic" style="font-size:24px">pembrolizumab</span></h2>
       <p class="lead">A drug's facts are properties of the drug itself, so each is researched <b>once</b> and reused
         across every arm that administers it. <b>2,897</b> raw intervention names resolve to <b>1,309</b> distinct
         drugs.</p>
       <div class="cards c2">
         <div class="card gen"><div class="ct">Step 1 &middot; identity</div><h3 class="sm">Brand and code names, resolved</h3>
-          <p>&ldquo;Keytruda&rdquo;, &ldquo;MK-3475&rdquo; &rarr; <b>pembrolizumab</b>. The model supplies the name;
+          <p>&ldquo;Keytruda&rdquo;, &ldquo;MK-3475&rdquo; &rarr; <b>pembrolizumab</b>. The LLM supplies the name;
             the identifier <span class="ic">rxcui:1547545</span> comes from a <b>lookup</b>.</p></div>
         <div class="card gen"><div class="ct">Step 2 &middot; what it is and does</div><h3 class="sm">Mechanism, by web search</h3>
           <p>Monoclonal antibody &mdash; target <b>PD-1</b>, action <b>inhibitor</b>. Its class codes are then
@@ -747,7 +771,39 @@
     </div>
   </section>
 
-  <!-- ============ 15 · WHAT THE MATCHING ENGINE RECEIVES ============ -->
+  <!-- ============ MAPPING METHODOLOGY (ML WORKFLOW) ============ -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="k"></span> How the mapping was developed</div>
+      <h2 class="sm">Mapping prompts, developed with ML methodology</h2>
+      <p class="lead">Mapping free text to a controlled vocabulary is where we borrow ML discipline. Our own
+        <b>hand-curated resource files</b> are the ground truth, and are <b>held out</b> as the test set.</p>
+      <div class="cards c3">
+        <div class="card gen"><div class="ct">The doer prompt</div><h3 class="sm">Grammar and worked examples</h3>
+          <p>The ontology and grammar, plus a handful of <b>positive examples</b> taken from the curated files &mdash;
+            what a correct mapping looks like.</p></div>
+        <div class="card rev"><div class="ct">The reviewer prompt</div><h3 class="sm">Counter-examples</h3>
+          <p>Deliberately seeded with <b>plausible-looking wrong mappings</b> &mdash; the traps &mdash; so the reviewer
+            learns what to reject, not only what to accept.</p></div>
+        <div class="card"><div class="ct">The process</div><h3 class="sm">Train, then validate</h3>
+          <p>Live-test on one set, fix at the <b>level of a rule</b> rather than a single case, then <b>validate on a
+            disjoint set</b> to guard against overfitting.</p></div>
+      </div>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>mapping</th><th>trained on</th><th>held-out validation</th><th>passed review</th></tr></thead>
+          <tbody>
+            <tr><td><span class="lab">cancer type &rarr; OncoTree</span></td><td>50 trials</td><td>100 trials, 288 values</td><td class="win">287 / 288 &nbsp;(99.7%)</td></tr>
+            <tr><td><span class="lab">gene alteration &rarr; finding-model</span></td><td>50 trials, 330 values</td><td>100 trials, 242 values</td><td class="win">239 / 242 &nbsp;(98.8%)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="body">The rest of each curated resource file is never shown to the mappers, so the validation set is
+        genuinely unseen.</p>
+    </div>
+  </section>
+
+  <!-- ============ WHAT THE MATCHING ENGINE RECEIVES ============ -->
   <section class="slide">
     <div class="inner">
       <div class="eyebrow"><span class="k"></span> The result</div>
@@ -763,106 +819,55 @@
         requirements a patient can satisfy</b> for one arm of one trial, so the matching engine compares values
         directly.</p>
       <div class="row2">
-        <div class="card code"><div class="ct">How faithful is the vocabulary mapping</div><h3 class="sm">Measured on trials held back from development</h3>
-          <div class="tblwrap" style="margin-top:9px;box-shadow:none">
-            <table>
-              <thead><tr><th>mapping</th><th>held-out set</th><th>agreed</th></tr></thead>
-              <tbody>
-                <tr><td><span class="lab">cancer type &rarr; OncoTree</span></td><td>100 trials, 288 values</td><td class="win">287 / 288 &nbsp;(99.7%)</td></tr>
-                <tr><td><span class="lab">gene alteration &rarr; finding-model</span></td><td>100 trials, 242 values</td><td class="win">239 / 242 &nbsp;(98.8%)</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p style="margin-top:8px">The prompts were developed on a separate set of 50 trials and fixed at the level of
-            <b>rules</b> rather than individual cases; these trials were never used for that.</p></div>
-        <div class="kv">
-          <div class="note"><span class="h">every value stays traceable</span> Each interpreted value keeps the
-            <b>quoted source text</b> it came from and the <b>section</b> it was found in, so any row in the output can
-            be taken back to the sentence that produced it.</div>
-          <div class="note"><span class="h">re-runs are cheap on purpose</span> Every model call is stored against a
-            fingerprint of its exact request, so an unchanged trial costs <b>nothing</b> to re-process. Change a prompt
-            and only the work that prompt affected is recomputed.</div>
-        </div>
+        <div class="note"><span class="h">every value stays traceable</span> Each interpreted value keeps the
+          <b>quoted source text</b> it came from and the <b>section</b> it was found in, so any row in the output can be
+          taken back to the sentence that produced it.</div>
+        <div class="note"><span class="h">re-runs are cheap on purpose</span> Every LLM call is stored against a
+          fingerprint of its exact request, so an unchanged trial costs <b>nothing</b> to re-process. Change a prompt and
+          only the work that prompt affected is recomputed.</div>
       </div>
-    </div>
-  </section>
-
-  <!-- ============ CORRECTIONS THE CHECKS CAUGHT ============ -->
-  <section class="slide">
-    <div class="inner tight">
-      <div class="eyebrow rev"><span class="k"></span> What we learned</div>
-      <h2 class="sm">Three real corrections, one from each layer of checking</h2>
-      <div class="cards c3">
-        <div class="card rev"><div class="ct">Caught by a model reviewer</div><h3 class="sm">An example became a requirement</h3>
-          <p>The source excluded EGFR mutations, then added <i>&ldquo;gene mutations that do not routinely use
-            immunotherapy (e.g. ALK fusion)&rdquo;</i>. The doer made the example <b>mandatory</b>:</p>
-          <p><span class="ic">NOT(EGFR) AND Fusion[ALK]</span></p>
-          <p>The reviewer objected: the phrase is open-ended and ALK is only an illustration &mdash; requiring it
-            <b>narrows the trial to patients it never specified</b>. Corrected to drop the term.</p></div>
-        <div class="card code"><div class="ct">Caught by a deterministic check</div><h3 class="sm">A mapping that contradicted itself</h3>
-          <p>A mapping came back with the same cancer code both <b>required and excluded</b> in one expression:</p>
-          <p><span class="ic">&hellip; PCM &hellip; AND NOT(PCM)</span></p>
-          <p>No patient can satisfy that, so the row would silently match nobody. The validator rejects
-            <b>X AND NOT(X)</b> outright &mdash; it needs no judgement, so it never gets one wrong. The usual cause:
-            two cohorts' requirements folded into one row.</p></div>
-        <div class="card gen"><div class="ct">Caught across all trials</div><h3 class="sm">The same disease, two different codes</h3>
-          <p>Mapped trial by trial, equivalent phrasings drift apart. A final pass compares every value across all
-            trials and forces agreement:</p>
-          <p><span class="ic">&ldquo;Astrocytoma&rdquo;: DIFG &rarr; ASTR</span><br>
-             <span class="ic">&ldquo;recurrent lymphoma&rdquo;: HL OR NHL &rarr; LNM</span></p>
-          <p><b>184 of 4,965</b> cancer-type values were changed by this pass &mdash; each one a trial that would
-            otherwise have been unmatchable against its own disease.</p></div>
-      </div>
-      <div class="thesis" style="font-size:18px">The three layers detect <b>different classes of error</b>, and each of
-        these corrections was found by only one of them.</div>
     </div>
   </section>
 
   <!-- ============ 17 · LIMITS ============ -->
   <section class="slide">
     <div class="inner">
-      <div class="eyebrow rev"><span class="k"></span> What we learned</div>
+      <div class="eyebrow"><span class="k"></span> What we learned</div>
       <h2>Where it still struggles</h2>
-      <p class="lead">Three limits we have not solved, stated plainly &mdash; they are the ones you would hit too.</p>
       <div class="cards c3">
-        <div class="card rev"><div class="ct">Limit 1</div><h3 class="sm">The hardest trials do not converge</h3>
+        <div class="card"><div class="ct">Limit 1</div><h3 class="sm">The hardest trials do not converge</h3>
           <p>On deeply nested, many-cohort protocols the doer cannot satisfy every reviewer within the round budget.
             In our last full run, <b>219 of 1,999 trials (11%)</b> ended on a best-effort answer.</p>
           <p>Those outputs are <b>written and marked</b> for human review, rather than dropped.</p></div>
-        <div class="card rev"><div class="ct">Limit 2</div><h3 class="sm">Correctness costs compute</h3>
+        <div class="card"><div class="ct">Limit 2</div><h3 class="sm">Correctness costs compute</h3>
           <p>Because a reviewer may object but never edit, the doer <b>rewrites the whole answer</b> each round rather
             than patching it. This costs more tokens and more time than a targeted edit.</p></div>
-        <div class="card rev"><div class="ct">Limit 3</div><h3 class="sm">Reviewers only catch what they are asked</h3>
+        <div class="card"><div class="ct">Limit 3</div><h3 class="sm">Reviewers only catch what they are asked</h3>
           <p>A mistake that no reviewer is looking for will pass. We found one such gap and closed it by adding a
             reviewer that reads the whole table; we cannot demonstrate that no further gap remains.</p></div>
       </div>
     </div>
   </section>
 
-  <!-- ============ 18 · IF YOU'RE BUILDING THIS ============ -->
+  <!-- ============ HOW LONG CURATION TAKES ============ -->
   <section class="slide">
     <div class="inner">
-      <div class="eyebrow"><span class="k"></span> What we learned</div>
-      <h2>If you are building this</h2>
-      <p class="lead">Six points we would want to know at the start, ordered by how much they cost us.</p>
-      <div class="cards c3">
-        <div class="card code"><div class="ct">01</div><h3 class="sm">Never let a model produce an identifier</h3>
-          <p>Take names from the model and identifiers from a lookup. One incorrect identifier corrupts every join
-            built on it.</p></div>
-        <div class="card rev"><div class="ct">02</div><h3 class="sm">Make each check narrow</h3>
-          <p>Several reviewers judging one aspect each are more reliable than one reviewer judging everything. An error
-            in the output as a whole requires a reviewer that reads the output as a whole.</p></div>
-        <div class="card gen"><div class="ct">03</div><h3 class="sm">Read every section</h3>
-          <p>Eligibility-relevant detail also appears in the title, conditions, description and arm text.</p></div>
-        <div class="card code"><div class="ct">04</div><h3 class="sm">Make re-runs nearly free</h3>
-          <p>You will re-run far more than you expect while iterating prompts. Cache on the exact request, and
-            invalidate only what a prompt change actually touched.</p></div>
-        <div class="card gen"><div class="ct">05</div><h3 class="sm">Treat vocabulary mapping as a measurement problem</h3>
-          <p>Hold out part of your curated answer set, fix prompts at the level of rules rather than cases, and
-            report accuracy on data you did not develop against.</p></div>
-        <div class="card rev"><div class="ct">06</div><h3 class="sm">Plan for the tail that will not converge</h3>
-          <p>Some inputs never fully resolve. Decide in advance to <b>write the best answer and mark it</b> for
-            review.</p></div>
+      <div class="eyebrow"><span class="k"></span> The result</div>
+      <h2>How long curation takes</h2>
+      <p class="lead">The <b>71</b> trials newly curated in the 29 July cycle, measured end to end &mdash; quoting,
+        interpreting, mapping and their drugs, including every review round.</p>
+      <div class="stats">
+        <div class="stat"><div class="n">22<span class="u">s</span></div><div class="l">fastest trial</div></div>
+        <div class="stat"><div class="n">1.9<span class="u">min</span></div><div class="l">median trial</div></div>
+        <div class="stat"><div class="n">20.5<span class="u">min</span></div><div class="l">slowest trial</div></div>
+        <div class="stat"><div class="n">38<span class="u">min</span></div><div class="l">all 71 trials, start to finish</div></div>
+      </div>
+      <div class="row2">
+        <div class="card"><div class="ct">The spread</div><h3 class="sm">Most trials are quick</h3>
+          <p><b>57 of the 71</b> finished in under five minutes. The long tail is made up of multi-cohort protocols that
+            take several rounds with their reviewers.</p></div>
+        <div class="card"><div class="ct">Why the total is not the sum</div><h3 class="sm">Trials are curated concurrently</h3>
+          <p>The whole set took <b>38 minutes</b> rather than the four hours the individual times add up to.</p></div>
       </div>
     </div>
   </section>
