@@ -312,8 +312,8 @@
         profile can be matched against the trials open to them. Two properties of that universe determine how it has to
         be built.</p>
       <div class="cards c2">
-        <div class="card"><div class="ct">Scale</div><h3>2,038 open oncology trials</h3>
-          <p>Across two registries: <b>5,272</b> trial arms and <b>17,786</b> distinct combinations of eligibility
+        <div class="card"><div class="ct">Scale</div><h3>2,041 open oncology trials</h3>
+          <p>Across two registries: <b>5,284</b> trial arms and <b>17,830</b> distinct combinations of eligibility
             requirements.</p>
           <p>The eligibility of each arm, and the drugs it administers, are described in <b>free text</b>.</p></div>
         <div class="card"><div class="ct">Continuous change</div><h3>Records are added, amended and closed</h3>
@@ -371,7 +371,7 @@
             patients.</p></div>
         <div class="card"><div class="ct">Difficulty 4</div><h3 class="sm">Terminology varies</h3>
           <p>The same disease appears as an abbreviation, a full name, or a list of histologies. Across the trial
-            universe there are <b>4,963</b> distinct ways of writing a cancer type, and each has to resolve to the
+            universe there are <b>4,971</b> distinct ways of writing a cancer type, and each has to resolve to the
             correct code.</p></div>
       </div>
     </div>
@@ -461,11 +461,11 @@
       <h2>Where the trials come from</h2>
       <p class="lead">Two registries, downloaded in full on every run and filtered locally to the trials we curate.</p>
       <div class="row2">
-        <div class="card code"><div class="ct">ClinicalTrials.gov &mdash; 1,523 trials</div><h3>Retrieved by API</h3>
+        <div class="card code"><div class="ct">ClinicalTrials.gov &mdash; 1,525 trials</div><h3>Retrieved by API</h3>
           <p>A paged search with the filters applied at the registry.</p></div>
-        <div class="card code"><div class="ct">ANZCTR &mdash; 515 trials</div><h3>Retrieved as a whole-registry export</h3>
+        <div class="card code"><div class="ct">ANZCTR &mdash; 516 trials</div><h3>Retrieved as a whole-registry export</h3>
           <p>ANZCTR has no search API, so we download the entire registry (91 MB) and apply the same filters locally.
-            <b>776</b> trials matched; <b>515</b> had a drug intervention.</p></div>
+            <b>777</b> trials matched; <b>516</b> had a drug intervention.</p></div>
       </div>
       <div class="row2">
         <div class="note"><span class="h">a priority list that overrides the filters</span> A published list of
@@ -624,18 +624,17 @@
       <div class="eyebrow"><span class="k"></span> Part 2 &middot; trial curation &middot; verifying correctness</div>
       <h2 class="sm">Overall checks &mdash; the finished cycle, before it is trusted</h2>
       <p class="lead">Spot checks cannot detect a cycle that curated only half the universe and still produced a
-        plausible-looking file. Eight <b>deterministic gates</b> examine the finished state on disk &mdash; no LLM, no
-        network, and exact arithmetic wherever an identity exists.</p>
+        plausible-looking file. <b>Ten deterministic gates</b> examine the finished state on disk &mdash; no LLM, no
+        network.</p>
       <div class="gategrid">
         <div class="gitem"><div class="gn"><b>integrity</b><span class="gc">fail</span></div>
           <p>Every eligibility, drug and role row points at an arm that exists.</p></div>
         <div class="gitem"><div class="gn"><b>empty output</b><span class="gc">fail</span></div>
-          <p>Every arm producing <b>no</b> eligibility carries a reason &mdash; healthy volunteers, no eligibility text,
-            not oncology. An unexplained empty is a possible miss.</p></div>
+          <p>Every arm producing <b>no</b> eligibility carries a reason. An unexplained empty is a possible miss.</p></div>
         <div class="gitem"><div class="gn"><b>retirement</b><span class="gc">fail</span></div>
           <p>A retired trial is gone from <b>every</b> table.</p></div>
         <div class="gitem"><div class="gn"><b>export</b><span class="gc">fail</span></div>
-          <p>Exactly the expected columns, and no curated trial missing without a recorded reason.</p></div>
+          <p>Exactly the expected columns; no curated trial missing without a reason.</p></div>
         <div class="gitem"><div class="gn"><b>nothing lost</b><span class="gc">fail</span></div>
           <p>Reference data never shrank, and
             <span class="ic">after = before &minus; retired + newly curated</span> holds exactly.</p></div>
@@ -643,8 +642,13 @@
           <p>Retirement was not skipped by its own safety guard.</p></div>
         <div class="gitem"><div class="gn"><b>completeness</b><span class="gc">fail</span></div>
           <p>Every trial in the fresh universe is in the store.</p></div>
-        <div class="gitem warn"><div class="gn"><b>universe swing</b><span class="gc">warn</span></div>
+        <div class="gitem"><div class="gn"><b>universe swing</b><span class="gc">warn</span></div>
           <p>The kept universe changed by less than <b>10%</b> against the previous cycle.</p></div>
+        <div class="gitem"><div class="gn"><b>output validator</b><span class="gc">warn</span></div>
+          <p>An independent pass re-checks the finished file and reports how many trials are clean.</p></div>
+        <div class="gitem"><div class="gn"><b>waived findings</b><span class="gc">warn</span></div>
+          <p>Known, accepted findings stay visible as a warning, so a gate fails on <b>new</b> problems rather than on a
+            standing backlog. Each waiver is code, reviewed in git, and names its follow-up.</p></div>
       </div>
       <div class="row2">
         <div class="note sm"><span class="h">how a failure surfaces</span> Any <b class="accent-rev">FAIL</b> makes the
@@ -680,7 +684,7 @@
             trials: code normalises the equivalent ones, and an LLM adjudicates genuine conflicts.</p>
           <p><span class="ic">&ldquo;Astrocytoma&rdquo;: DIFG &rarr; ASTR</span><br>
              <span class="ic">&ldquo;recurrent lymphoma&rdquo;: HL OR NHL &rarr; LNM</span></p>
-          <p><b>184 of 4,965</b> cancer-type values were changed by this pass &mdash; each one a trial that would
+          <p><b>185 of 4,971</b> cancer-type values were changed by this pass &mdash; each one a trial that would
             otherwise have been unmatchable against its own disease.</p></div>
       </div>
       <div class="thesis" style="font-size:18px">The three layers detect <b>different classes of error</b>, and each of
@@ -732,7 +736,7 @@
       <div class="eyebrow"><span class="k"></span> Worked example</div>
       <h2 class="sm">One drug, end to end &mdash; <span class="ic" style="font-size:24px">pembrolizumab</span></h2>
       <p class="lead">A drug's facts are properties of the drug itself, so each is researched <b>once</b> and reused
-        across every arm that administers it. <b>2,897</b> raw intervention names resolve to <b>1,309</b> distinct
+        across every arm that administers it. <b>2,899</b> raw intervention names resolve to <b>1,310</b> distinct
         drugs.</p>
       <div class="cards c2">
         <div class="card gen"><div class="ct">Step 1 &middot; identity</div><h3 class="sm">Brand and code names, resolved</h3>
@@ -792,10 +796,10 @@
       <div class="eyebrow"><span class="k"></span> The result</div>
       <h2>What the matching engine receives</h2>
       <div class="stats">
-        <div class="stat"><div class="n">2,020</div><div class="l">trials</div></div>
-        <div class="stat"><div class="n">5,272</div><div class="l">trial arms</div></div>
-        <div class="stat"><div class="n">17,786</div><div class="l">eligibility paths</div></div>
-        <div class="stat"><div class="n">1,309</div><div class="l">distinct drugs</div></div>
+        <div class="stat"><div class="n">2,023</div><div class="l">trials in the deliverable</div></div>
+        <div class="stat"><div class="n">5,284</div><div class="l">trial arms</div></div>
+        <div class="stat"><div class="n">17,830</div><div class="l">eligibility paths</div></div>
+        <div class="stat"><div class="n">1,310</div><div class="l">distinct drugs</div></div>
         <div class="stat"><div class="n">8</div><div class="l">linked drug tables</div></div>
       </div>
       <p class="lead">One flat file for eligibility, plus a set of linked drug tables. <b>One row = one combination of

@@ -15,8 +15,21 @@
 > **The immediate to-do list is the "⏭ RESUME AT" block below** — it is the authoritative task list.
 > **Order the user set:** (1) inspect the e2e run's output + run report → (2) **A3** file restructure
 > (`pipeline/` + `outputs/` + `qa/`) → (3) **A4** legacy module removal → then the rest of the backlog.
-> Safety: `data/backups/known_good_20260729_post_refresh/` + **`data/backups/RECOVERY.md`** (read this first if
-> anything looks wrong — it has the exact copy-back commands).
+> Safety: **`data/backups/known_good_20260729_post_e2e/`** = the verified end-state of session 6 (all masters +
+> export + report + `MD5SUMS.txt`) + **`data/backups/RECOVERY.md`** — read that FIRST if anything looks wrong; it
+> has the exact copy-back commands and the pruning rule (**always keep ≥1 `known_good_*`**: the masters are
+> LLM-curated, gitignored, and cost hours to re-derive, so it is the only real fallback).
+>
+> **FINAL e2e OF SESSION 6 (2026-07-29 22:31, 29 min, exit 0):** `gates=WARN` (6 PASS · 2 WARN · **0 FAIL**) ·
+> expired 0 · restored 0 · **curated 2** (`NCT06652438`, `NCT07524140` — both PRE-EXISTING trials that entered the
+> universe because their records gained AU sites that day, not new registrations) · export **17,830 rows · 2,023
+> trials · 5,284 arms · 33 cols** · FK integrity CONSISTENT (0 dangling) · additive-safety trial-count identity
+> holds exactly at 2,041 · every delta reconciles (+9 arms = 1+8, +26 conjunctions = 2+24, +9 role rows for those
+> 9 arms) · **0 unmapped cancer_type cells** for the new trials (the normal per-trial path maps correctly — the
+> mapping gap in D1 only bites values changed OUTSIDE curation). The 2 WARNs are the intended ones: the 5 waived
+> extraction misses, and `output_validator` at 1,046 flags / 1,838-of-2,023 trials clean.
+> Report: `data/agentic/run_report/refresh_20260729_223139.md`; monitor file: `run_report/STATUS.json`
+> (`status: ok`, `gates_verdict: WARN`).
 
 **CURRENT STATE — the pipeline is now SELF-CONTAINED, periodically runnable end-to-end, and FLATTENED.** One command
 `make agentic-refresh` does the whole loop: **ingest (download → filter → POTTR → version, both registries) → expire
@@ -72,6 +85,10 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
   `tools/oncotree.py` reads `oncotree.yaml` and it only works because the conda env happens to have it); prune the
   rest of `requirements.txt`; rename `tests/agentic/` → `tests/` (free once `tests/trialcurator/` is gone);
   optionally promote `data/agentic/` → `data/` (one `DATA_ROOT` line).
+- **A4b — REPUBLISH THE TWO WORKFLOW DIAGRAMS.** `docs/v2_{eligibility,drug}_workflow_diagram.html` predate
+  `arm_scope`, the gates and the run report; the eligibility one still shows a 7-stage refresh. **Overwrite the
+  EXISTING Artifact URLs — never mint new ones** (memory `workflow-diagram-artifact`;
+  `scripts/publish_diagram_artifact.sh`). Do AFTER A2/A3 so the module paths shown are final.
 - **A5 — HIGH-QUALITY `README.md` (user, 2026-07-29).** The current 33 lines are entirely about the retired ACTIN
   Docker flow. Benchmark: the READMEs at https://github.com/hartwigmedical/hmftools — **and do better than those**.
   Should cover: what the pipeline is and produces (Set A + Set B), the 9-stage refresh, how to run it, the data
@@ -249,6 +266,20 @@ what needs no backup (inputs re-fetch via `make agentic-ingest`; the LLM cache i
 latency — up to 6 refine attempts in sequence, each an extractor call plus a 6-reviewer panel (`NCT02637687` alone
 took 2,229 s and burned all 6). More workers compresses MANY trials, not one hard trial. Everything since ran at
 maximum (`--map-only` 500/500, reconcile 200/400, refresh 80/500).
+
+**9. Late session-6 fixes.** Stage banners were left reading `1/7 … 6/7` alongside the new `7/9, 8/9, 9/9` — now
+consistently `/9`. And the report's `newly curated` list could not distinguish a brand-new registration from an
+EXISTING trial whose record changed to match our filters (AU/NZ sites added, status flipped into scope) — it now
+labels each id **new registration** vs **newly matching** with `first posted` / `last update` from the raw registry
+inputs (`NEW_REGISTRATION_DAYS = 30`; falls back to a flat list above 200 ids and never reads the registry then).
+Both trials of the final e2e turned out to be *newly matching*, which is the common case and the reason the
+distinction matters. Unit tests never read the real registry inputs (patched).
+
+**⚠ STILL OUTSTANDING from the session-6 doc pass:** the **two workflow diagrams**
+(`docs/v2_eligibility_workflow_diagram.html`, `docs/v2_drug_workflow_diagram.html`) predate `arm_scope`, the gates,
+and the run report, and the eligibility one still shows a 7-stage refresh. They must be re-published to their
+EXISTING Artifact URLs (never mint new ones) — see memory `workflow-diagram-artifact` +
+`scripts/publish_diagram_artifact.sh`.
 
 **Files touched (session 6):** NEW `qa/{gates,waivers}.py`, `run_report.py`, `tasks/eligibility/scope.py`;
 CHANGED `refresh.py` (stages 7-9 + exit codes), `core/paths.py` (`RUN_REPORT_DIR`, `ARCHIVE_KEEP`, `prune_archive`,

@@ -41,6 +41,7 @@ def test_write_report_records_churn_deltas_and_gap(tmp_path, monkeypatch):
     """The report must name the expired/curated ids, show the store delta, and surface curated-but-not-exported
     trials (an empty interpreted DNF yields no export row — silent without this)."""
     monkeypatch.setattr(RR, "_coverage", lambda: {"empty_arms": 2, "empty_trials": ["NCT9", "NCT_GONE"]})
+    monkeypatch.setattr(RR, "_registry_dates", lambda ids: {})   # never read the real registry inputs in a unit test
     monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
                         lambda: {"registry": 10, "elig_refs": 10, "drug_refs": 9, "role_refs": 9,
                                  "elig_dangling": [], "drug_dangling": [], "role_dangling": [], "unused": ["NCT1::X"]})
@@ -66,7 +67,7 @@ def test_write_report_records_churn_deltas_and_gap(tmp_path, monkeypatch):
     assert "| ctgov | 2 |" in body and "| anzctr | 1 |" in body               # split by id prefix
     assert "**expired 1**" in body and "`NCT_GONE`" in body
     assert "dry-run" not in body                                              # a real run must never claim dry-run
-    assert "**newly curated 2**" in body and "`ACTRN1`, `NCT9`" in body
+    assert "**newly curated 2**" in body and "- `ACTRN1`" in body and "- `NCT9`" in body
     assert "| trials curated | 100 | 105 | +5 |" in body
     assert "**1 rows · 1 trials · 1 arms · 2 cols**" in body
     assert "**CONSISTENT**" in body
@@ -88,6 +89,31 @@ def test_dry_run_note_comes_from_the_caller_not_the_expiry_flag(tmp_path, monkey
     assert "dry-run" not in RR.write_report(**common, expiry=nothing_to_do, report_dir=tmp_path / "a").read_text()
     assert "dry-run" in RR.write_report(**common, expiry=nothing_to_do, dry_run=True,
                                         report_dir=tmp_path / "b").read_text()
+
+
+def test_curated_lines_distinguish_new_registration_from_newly_matching(monkeypatch):
+    """A "newly curated" count cannot tell a brand-new registration from an EXISTING trial whose record changed to
+    match our filters (AU/NZ sites added, status flipped into scope) — and the latter is the common case."""
+    monkeypatch.setattr(RR, "_registry_dates", lambda ids: {
+        "NCT_FRESH": ("2026-07-20", "2026-07-28"),      # registered 9 days before the run
+        "NCT_OLD": ("2024-10-22", "2026-07-29"),        # registered 2024, record updated the day of the run
+        "NCT_NODATE": ("", ""),                          # absent from the raw input
+    })
+    lines = RR._curated_lines(["NCT_OLD", "NCT_FRESH", "NCT_NODATE"], datetime(2026, 7, 29, 22, 31))
+    body = "\n".join(lines)
+    assert "`NCT_FRESH` — **new registration** · first posted 2026-07-20 · last update 2026-07-28" in body
+    assert "`NCT_OLD` — **newly matching**" in body and "first posted 2024-10-22" in body
+    assert "  - `NCT_NODATE`" in lines                  # no dates -> no claim about why it appeared
+    assert RR._curated_lines([], datetime(2026, 7, 29)) == ["  - _none_"]
+
+
+def test_curated_lines_fall_back_to_a_flat_list_when_huge(monkeypatch):
+    """A first build curates thousands of trials; don't emit thousands of date-annotated bullets (or read the raw
+    registry for them)."""
+    called = []
+    monkeypatch.setattr(RR, "_registry_dates", lambda ids: called.append(ids) or {})
+    lines = RR._curated_lines([f"NCT{i:05d}" for i in range(RR._ID_LIST_CAP + 1)], datetime(2026, 7, 29))
+    assert len(lines) == 1 and "and 1 more" in lines[0] and not called
 
 
 def test_reports_accumulate_and_retain_the_newest_five(tmp_path):

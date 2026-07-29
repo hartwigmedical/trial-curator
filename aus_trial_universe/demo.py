@@ -42,12 +42,18 @@ _paths.LOG_DIR = DEMO_ROOT / "log"
 _paths.ANALYSIS_DIR = DEMO_ROOT / "analysis"
 # Intentionally shared (still on DATA_ROOT): TRIAL_UNIVERSE / RESOURCES (inputs) and CACHE_DIR (LLM cache).
 
-# Two CTGov trials with rich cancer-type + gene-alteration content but modest structure — chosen to show every
-# stage doing something interesting while staying easy to follow live:
-#   NCT02393625  ALK+ NSCLC (solid) · 2 arms · ALK rearrangement→Fusion · Ceritinib + Nivolumab
-#   NCT05453903  AML (heme) · 3 setting-arms · KMT2A/NPM1/NUP98/NUP214 "alteration" (unspecified→expansion) ·
-#                Bleximenib (main) + Venetoclax/Azacitidine/chemo (auxiliary)
-DEFAULT_IDS = "NCT02393625,NCT05453903"
+# The two trials used as worked examples in the CKB deck, so the audience watches the pipeline reproduce
+# exactly what they have just seen on the slides:
+#   NCT07247110  solid tumour / NSCLC · 3 drug-regimen arms that want DIFFERENT cancer types and prior therapy ·
+#                KRAS alteration → SmallVariant | GainDeletion · MK-4716 + pembrolizumab / cetuximab
+#   NCT06652438  AML (heme) · NPM1-mutated or KMT2A-rearranged · the trial that entered the kept set on
+#                29 July 2026 when its record added 10 Australian sites · revumenib + azacitidine + venetoclax
+DEFAULT_IDS = "NCT07247110,NCT06652438"
+
+# Alternates kept for variety if a run is wanted on trials that are not on the slides:
+#   NCT02393625  ALK+ NSCLC · 2 arms · ALK rearrangement → Fusion · Ceritinib + Nivolumab
+#   NCT05453903  AML · 3 setting-arms · KMT2A/NPM1/NUP98/NUP214 "alteration" (unspecified → expansion)
+ALTERNATE_IDS = "NCT02393625,NCT05453903"
 
 _WIDTH = 76
 
@@ -60,6 +66,21 @@ def _banner(step: int, total: int, title: str, what_to_watch: str) -> None:
     print(f"║{head:<{_WIDTH}}║")
     print(f"╚{line}╝")
     print(f"  ▸ {what_to_watch}\n")
+
+
+def _prod_readonly(module: str, *, log: logging.Logger) -> int:
+    """Run a module against the REAL stores, in a subprocess.
+
+    This process has its output paths re-rooted to `demo/`, so anything importing the stores here would read the
+    (nearly empty) demo copies. A subprocess gets the unpatched paths and therefore the production numbers.
+    Only READ-ONLY commands are run this way: `ingestion.expiry` without `--apply` is a dry run, and `qa.gates`
+    only inspects what is already on disk.
+    """
+    import subprocess
+    import sys
+    cmd = [sys.executable, "-m", module]
+    log.info("$ python -m %s   (read-only, against the real store)\n", module)
+    return subprocess.run(cmd, cwd=str(_paths.REPO_ROOT)).returncode
 
 
 def _export_demo(ids: list[str], *, log: logging.Logger) -> int:
@@ -111,32 +132,44 @@ def main(argv: list[str] | None = None) -> int:
 
     id_arg = ",".join(ids)
     # `--workers 1` keeps the log readable (no interleaving); `--no-cache-prune` leaves the shared cache untouched.
+    # Each stage is (title, what-to-watch, thunk, fatal). The two read-only production stages are non-fatal so a
+    # WARN/FAIL verdict is shown and discussed rather than ending the demo.
     stages = [
+        ("INGESTION — the retirement decision, computed live",
+         "compares the current kept universe against everything already curated: which trials would be newly "
+         "curated, which retired, which restored. Read-only dry run against the REAL store.",
+         lambda: _prod_readonly("aus_trial_universe.tasks.ingestion.expiry", log=log), False),
         ("ELIGIBILITY — Extraction (free text → DNF rows)",
          "doer extracts cancer-type / gene / drug per arm; the 5-reviewer panel critiques; refine loops until faithful.",
-         lambda: _run.main(["--ids", id_arg, "--extract-only", "--workers", "1", "--no-cache-prune"])),
+         lambda: _run.main(["--ids", id_arg, "--extract-only", "--workers", "1", "--no-cache-prune"]), True),
         ("ELIGIBILITY — Mapping Step 1 (value → vocabulary)",
          "each distinct cancer-type → OncoTree code; each gene/signature → finding-model; mapper→reviewer per value.",
-         lambda: _run.main(["--map-only", "--workers", "1", "--no-cache-prune"])),
+         lambda: _run.main(["--map-only", "--workers", "1", "--no-cache-prune"]), True),
         ("ELIGIBILITY — Mapping Step 2 (reconcile across values)",
          "same concept phrased differently → one agreed code (e.g. the NSCLC / AML phrasings); genuine distinctions kept apart.",
-         lambda: _run.main(["--reconcile", "--workers", "1", "--no-cache-prune"])),
+         lambda: _run.main(["--reconcile", "--workers", "1", "--no-cache-prune"]), True),
         ("DRUG — reference lookup + main / auxiliary role",
          "each drug is already annotated → a pure LOOKUP (canonical id, class, TGA/PBS — NO web search); then per-arm main (investigational) vs auxiliary (backbone).",
-         lambda: _drug.main(["--from-trials", id_arg, "--workers", "1", "--no-cache-prune"])),
+         lambda: _drug.main(["--from-trials", id_arg, "--workers", "1", "--no-cache-prune"]), True),
         ("EXPORT — matching-engine deliverable (grand join)",
          "trial info ⋈ interpreted eligibility ⋈ FINAL vocab codes ⋈ per-arm drugs → one wide flat file.",
-         lambda: _export_demo(ids, log=log)),
+         lambda: _export_demo(ids, log=log), True),
+        ("QA — the production gates",
+         "eight deterministic checks over the real store: referential integrity, retirement completeness, the "
+         "nothing-lost arithmetic, curation completeness, empty-output reasons, export shape. No LLM, no network.",
+         lambda: _prod_readonly("aus_trial_universe.qa.gates", log=log), False),
     ]
 
     print(f"\nAGENTIC PIPELINE — LIVE DEMO   ·   trials: {id_arg}   ·   outputs → {DEMO_ROOT}/   ·   cache: shared")
     t0 = time.perf_counter()
-    for i, (title, watch, fn) in enumerate(stages, 1):
+    for i, (title, watch, fn, fatal) in enumerate(stages, 1):
         _banner(i, len(stages), title, watch)
         rc = fn() or 0
         if rc != 0:
-            print(f"\n✗ stage {i} returned rc={rc} — aborting demo")
-            return rc
+            if fatal:
+                print(f"\n✗ stage {i} returned rc={rc} — aborting demo")
+                return rc
+            print(f"\n  ⚠ stage {i} reported rc={rc} — see the verdict above (non-fatal; continuing)")
 
     print(f"\n\n{'█' * _WIDTH}")
     print(f"  DEMO COMPLETE  ·  {time.perf_counter() - t0:.0f}s  ·  every output under {DEMO_ROOT}/")
