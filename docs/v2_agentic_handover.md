@@ -197,6 +197,53 @@ Do B1 + B2 + B3 together: one cache invalidation, one re-run.
 - **Effectively CLOSED:** the SQL-for-joined-tables decision (the Python join builds the export fine; external
   querying was dropped) and session 5's Stage-I ingestion / legacy-retirement work.
 
+### F. Data durability & storage strategy — NOT started. **F1 is the highest-value quick win in this doc.**
+User's question (2026-07-29): *"the codes have git, but the data files are too large to git push to a remote repo,
+so what is the best practice for data files?"*
+
+**The reframe that decides everything — the irreplaceable data is TINY** (measured 2026-07-29):
+
+| bucket | size | recreatable? |
+|---|---:|---|
+| `inputs/` | 2.0 GB | registry downloads: re-fetchable but **point-in-time** (yesterday's CTGov cannot be re-downloaded) · `resources/drug_utility/` **621 MB RxNorm — needs a UMLS licence/account to re-fetch** |
+| `transient/` | 276 MB | wipeable cache, pure speed (`make agentic-clean`) |
+| `masters/` | 74 MB (**28 MB** current TSVs) | **NO — this is the LLM-curated output**; **2.9 MB gzipped** |
+| `derived/` | 48 MB | deterministic from masters (`make agentic-export`) |
+
+So the problem is NOT "how do I version 2.4 GB". It is **"how do I durably version ~3 MB with provenance, and treat
+the other 2.4 GB as a cache"**. The existing role-based layout (`inputs/ masters/ derived/ transient/`) already
+encodes that split, so the policy falls straight out of it.
+
+- **F1 — TIER 1: put the curated masters IN GIT, UNCOMPRESSED. Do this FIRST (≈an afternoon).**
+  28 MB of TSVs costs ~3 MB in git, and because it is *text* git delta-compresses across versions — a refresh that
+  changes 26 rows stores almost nothing. Do NOT pre-gzip: a gzipped blob is opaque to git and forces a full new
+  object every version, throwing away the delta AND the diff.
+  **The bonus is the thing no blob store gives you:** `git diff` on `interpreted_eligibility.tsv` shows exactly what
+  a curation run changed. That is the long-deferred **run-comparison method** (spec §13 / group E) almost for free,
+  and it directly serves **C1** (compare vs the v1 output) and **C3**.
+  - Commit on **verified releases only** (gates PASS/WARN + report attached), NOT every run.
+  - Location: either a sibling `trial-curator-data` repo, or a `data-releases/` directory in this repo that is NOT
+    gitignored. (A sibling repo keeps the code history clean; same-repo keeps one clone. Either is defensible.)
+  - Commit the run report + `MD5SUMS.txt` alongside the TSVs — **both are already generated**, so provenance is free.
+- **F2 — TIER 2: the bulky point-in-time inputs → a versioned GCS bucket.** Hartwig is already a GCP shop (the ACTIN
+  image lives in `europe-west4-docker.pkg.dev`, and `gcloud auth application-default login` is in the README), so
+  auth/IAM already exist. A **versioned bucket + a lifecycle rule** replaces the hand-rolled keep-5 pruning;
+  `gsutil -m rsync` is a one-liner to add to `refresh`. **Push the input snapshot that PRODUCED a release, keyed by
+  the same release label** — that is what makes a curation run *reproducible* rather than merely *recorded*.
+- **F3 — TIER 3: never store** `transient/cache/` (an optimisation) or `derived/` (regenerates deterministically;
+  `make agentic-export SNAPSHOT=1` already mints an immutable bundle when a frozen deliverable is needed).
+- **F4 — the ACTUAL URGENT GAP: everything is on ONE laptop.** The masters, the only backup, AND the licence-gated
+  RxNorm resource all sit on the same disk — `data/backups/RECOVERY.md` documents restoring from a snapshot that
+  lives on the very disk it is protecting. **A single disk failure costs ~2,000 trials of curation.** F1 (pushed to
+  a remote) fixes the important half of this immediately, which is why it is first.
+- **Rejected alternatives (do not re-litigate):** **Git LFS** — built for large binaries; our precious data is small
+  text, so LFS surrenders diffs and adds quota cost for no benefit. **DVC** — would work and is the textbook
+  "git for data", but it is a whole tool + workflow for a dataset that fits in git at 3 MB. **A database** — already
+  ruled out for querying (`v2-joined-tables-sql-decision`) and it is the wrong shape for durability anyway.
+- **Compliance note (why a cloud bucket is fine here):** this is **public trial-registry text + drug annotations —
+  NO patient-level or clinical data**. Stating that explicitly removes the question that would otherwise stall the
+  decision under Hartwig's data-handling rules.
+
 ---
 ### Session 6 (2026-07-29) — PRODUCTION HARDENING + the arm-surgical repair. All UNCOMMITTED.
 
