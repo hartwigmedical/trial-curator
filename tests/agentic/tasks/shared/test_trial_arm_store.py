@@ -5,9 +5,9 @@ from __future__ import annotations
 import csv
 from datetime import date
 
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id, trial_id_of
-from aus_trial_universe.agentic.tasks.shared.schema import TrialArm
-from aus_trial_universe.agentic.tasks.shared.store import TrialArmStore
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id, trial_id_of
+from aus_trial_universe.tasks.shared.schema import TrialArm
+from aus_trial_universe.tasks.shared.store import TrialArmStore
 
 
 def test_trial_arm_id_is_deterministic_and_recoverable():

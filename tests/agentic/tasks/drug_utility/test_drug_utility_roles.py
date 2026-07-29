@@ -7,16 +7,16 @@ from __future__ import annotations
 
 import re
 
-from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.drug_utility.schema import (
+from aus_trial_universe.core.client import LlmResult
+from aus_trial_universe.tasks.drug_utility.schema import (
     ArmDrugRole,
     ArmRoleClassification,
     DrugAnnotationsCore,
     ReviewVerdict,
 )
-from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
-from aus_trial_universe.agentic.tasks.drug_utility.workflow import ArmContext, classify_arm_roles
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
+from aus_trial_universe.tasks.drug_utility.store import DrugRefStore
+from aus_trial_universe.tasks.drug_utility.workflow import ArmContext, classify_arm_roles
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
 
 # canonical_id renders as `canonical_id=<cid> | name=...`; capture the full id (may contain spaces, e.g. name:x y).
 _CID_RE = re.compile(r"canonical_id=(.+?) \| name=")
@@ -131,7 +131,7 @@ def test_completeness_gate_flags_missing_assignment_and_recovers():
 def test_role_prompt_decisions_present():
     """Guard the locked role rules in the prompts (prompt-only judgement): main = investigational under study,
     auxiliary = backbone/SoC/comparator/placebo, and a control arm is not given a spurious main."""
-    from aus_trial_universe.agentic.tasks.drug_utility.agents import (
+    from aus_trial_universe.tasks.drug_utility.agents import (
         ROLE_CLASSIFIER_INSTRUCTIONS as C, ROLE_REVIEWER_INSTRUCTIONS as R)
     assert "main" in C and "auxiliary" in C
     assert "investigational" in C.lower() and "backbone" in C.lower()

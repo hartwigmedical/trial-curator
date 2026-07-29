@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from aus_trial_universe.agentic.core.client import (
+from aus_trial_universe.core.client import (
     DiskCache,
     LlmClient,
     LlmParseError,

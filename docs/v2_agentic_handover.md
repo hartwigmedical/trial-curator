@@ -1,17 +1,41 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-07-28, end of session 4)
+## ▶ NEXT SESSION — START HERE (updated 2026-07-29, end of session 5)
 
-**CURRENT STATE — the full pipeline now runs end-to-end to a matching-engine deliverable, and BOTH sides of the
-drug↔trial match are now in the SAME vocab.** Eligibility curation is COMPLETE + user-reviewed (extract Stage I →
-map Step 1 per-value → map Step 2 reconciliation). The drug utility path is signed off, carries Phase-2 main/aux
-roles, AND now has the **symmetric-match vocab** (session 4 — the drug-approval `cancer_type`/`biomarker` mapped into
-OncoTree + finding-model, so an approved indication matches a trial's eligibility on the same axes). **The grand join
-→ the matching-engine EXPORT is built** (Set A `trial_eligibility.tsv` = **33 cols**). So the through-line trial →
-arm → eligibility(mapped) → drug(class/approval, now vocab-matchable) is fully materialized. There is also an
-**isolated `make agentic-demo`** live-demo of the whole pipeline over 2 trials (session 3, SIGNED OFF). **`make
-agentic-tests` = 171 green.** Sessions 1–3 are COMMITTED (through `bae9e7a`); the **session-4 symmetric-match work is
-UNCOMMITTED** in the working tree — the user does ALL git commits.
+**CURRENT STATE — the pipeline is now SELF-CONTAINED, periodically runnable end-to-end, and FLATTENED.** One command
+`make agentic-refresh` does the whole loop: **ingest (download → filter → POTTR → version, both registries) → expire
+trials that fell out of the kept universe (recoverable) → curate ONLY new trials (eligibility + drug) → reconcile →
+approval vocab → export**. Stage-I ingestion now lives IN the package (`tasks/ingestion/`), so the legacy
+`eligibility_path`/`drug_utility_path` trees were DELETED, and the `agentic/` sub-layer was flattened away —
+**everything now lives directly under `aus_trial_universe/`** (import prefix `aus_trial_universe.` — no `.agentic.`).
+Data stays under `data/agentic/` (grouped `inputs/ masters/ derived/ transient/`; DATA_ROOT not yet promoted). Prior
+state is unchanged underneath: eligibility curation COMPLETE, drug utility signed off with roles + symmetric-match
+vocab, the matching-engine EXPORT built. **`make agentic-tests` = 179 green.** **Everything session 5 is UNCOMMITTED**
+(sessions 1–3 committed through `bae9e7a`; the user does ALL git commits).
+
+**Latest full refresh (2026-07-29, acceptance run, CLEAN):** re-downloaded ctgov 1523 + anzctr 515; **expired 32**
+(recoverable in `masters/{eligibility,trial_arms}/expired/`; 0 restored); **curated 71 new** trials e2e (drug
+researched=34 / **reused_ref=73 = NO web search** / 0 failed; roles 123); export **2,020 trials · 17,786 rows**;
+**arm-consistency CONSISTENT**; additive-safe (0 drugs lost 1275→1309, 0 trials vanished). Backups:
+`data/backups/pre_stage1_*` + `pre_refresh_*`.
+
+**✅ DONE THIS SESSION (2026-07-29, session 5 — self-contained Stage-I ingestion + legacy retirement + flatten; UNCOMMITTED):**
+See memory `v2-stage1-ingestion` for the full phase-by-phase detail. Summary: `tasks/ingestion/{ctgov,anzctr,pottr_ids,
+expiry}.py` (CTGov API-v2 + ANZCTR curl_cffi downloads ported in; POTTR loaders; recoverable expiry with POTTR-never-
+expire + fraction guard); inputs now use `current_version/`+`archive/`; new `ingest.py`/`refresh.py` + `make
+agentic-ingest`/`agentic-refresh`; loaders/trial_info read `current_version/`; legacy trees + tests + scripts + make
+targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 import refs rewritten). RxNorm dep on
+`drug_utility_path` severed (ANZCTR `iii_extract_drugs` dropped — agentic re-derives ANZCTR drugs via the LLM cohort step).
+
+**⏭ RESUME AT — remaining backlog (dependency-ordered):**
+- **Optional cleanups:** (a) the **11 cancer_type per-value LOGIC residuals** (see the session-3/4 notes); (b) repoint
+  `make agentic-validate` from the retired `combined.tsv` to `derived/export/trial_eligibility.tsv`; (c) rename the
+  `tests/agentic/` folder → `tests/` for full consistency (kept as-is to avoid colliding with `tests/trialcurator`);
+  (d) optionally promote `data/agentic/` → top-level `data/` (one `DATA_ROOT` line). None are blocking.
+- The pipeline is feature-complete for periodic operation; next is whatever the user prioritizes.
+
+---
+### (prior START-HERE — session 4, symmetric-match vocab; superseded by the block above)
 
 **✅ DONE THIS SESSION (2026-07-28, session 4 — symmetric-match vocab; UNCOMMITTED):**
 - **Drug-approval symmetric-match vocab (the handover's TOP backlog item).** Two NEW additive 3NF tables in
@@ -518,7 +542,7 @@ Conda env `trial_curator` (auto-selected); `OPENAI_API_KEY` auto-loaded from `.e
 make agentic-run ID=NCT06881784                 # one trial, full per-trial pipeline (source auto-detected)
 make agentic-run IDS=NCT1,ACTRN2,NCT3           # a specific set
 make agentic-run EXTRACT_ONLY=1 RESUME=1 WORKERS=80 MAX_CONCURRENCY=500   # the full-universe extract (2026-07-25 settings)
-# MAPPING (over the frozen extract store; via python -m aus_trial_universe.agentic.run):
+# MAPPING (over the frozen extract store; via python -m aus_trial_universe.run):
 python -m ...run --map-only  --workers 500 --max-concurrency 500 --no-cache-prune   # STEP 1: per-value maps + joined/mapped_eligibility.tsv (500 = ~92% TPM; 2026-07-28)
 python -m ...run --reconcile --workers 30  --max-concurrency 60                     # STEP 2: reconcile -> finalised_*_map.tsv (store) + joined/finalised_mapped_eligibility.tsv
 make agentic-export                             # BUILD THE DELIVERABLE: Set A export/trial_eligibility.tsv + MANIFEST (Set B in place)

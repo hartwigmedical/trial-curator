@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import csv
 
-from aus_trial_universe.agentic import run
-import aus_trial_universe.agentic.tasks.eligibility.mapping.workflow as mw
-from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import FindingModelResult, OncotreeResult
-from aus_trial_universe.agentic.tasks.eligibility.schema import ArmEligibilityRaw, InterpretedEligibility
-from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
+from aus_trial_universe import run
+import aus_trial_universe.tasks.eligibility.mapping.workflow as mw
+from aus_trial_universe.tasks.eligibility.mapping.workflow import FindingModelResult, OncotreeResult
+from aus_trial_universe.tasks.eligibility.schema import ArmEligibilityRaw, InterpretedEligibility
+from aus_trial_universe.tasks.eligibility.store import EligStore
 
 
 def _seed(store_root):

@@ -9,16 +9,16 @@ Exercises the new map-approvals pass:
 """
 from __future__ import annotations
 
-import aus_trial_universe.agentic.export as export_mod
-from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.drug_utility import map_approvals as MA
-from aus_trial_universe.agentic.tasks.drug_utility.schema import (
+import aus_trial_universe.export as export_mod
+from aus_trial_universe.core.client import LlmResult
+from aus_trial_universe.tasks.drug_utility import map_approvals as MA
+from aus_trial_universe.tasks.drug_utility.schema import (
     BiomarkerSplit,
     DrugRegulatoryApproval,
     ReviewVerdict as DrugReviewVerdict,
 )
-from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
-from aus_trial_universe.agentic.tasks.eligibility.mapping.schema import (
+from aus_trial_universe.tasks.drug_utility.store import DrugRefStore
+from aus_trial_universe.tasks.eligibility.mapping.schema import (
     FindingModelMapping,
     GroupReconciliation,
     OncotreeMapping,
@@ -246,7 +246,7 @@ def test_round_trip_load(tmp_path):
 
 
 def test_splitter_prompt_decisions_present():
-    from aus_trial_universe.agentic.tasks.drug_utility.agents import (
+    from aus_trial_universe.tasks.drug_utility.agents import (
         BIOMARKER_SPLITTER_INSTRUCTIONS as S, BIOMARKER_SPLIT_REVIEWER_INSTRUCTIONS as R)
     assert "gene_alteration" in S and "molecular_signature" in S and "molecular_biomarker" in S
     assert "amplification" in S and "MSI-H" in S                    # the HER2 / MSI edge rules

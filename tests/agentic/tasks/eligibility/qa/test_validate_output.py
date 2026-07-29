@@ -1,7 +1,7 @@
 """Tests for the independent output validator (qa/validate_output) — the review of the reviewers."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.tasks.eligibility.qa.validate_output import positive_type_fragments, validate_rows
+from aus_trial_universe.tasks.eligibility.qa.validate_output import positive_type_fragments, validate_rows
 
 
 def _row(**kw):

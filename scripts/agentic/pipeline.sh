@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Driver for the v2 agentic pipeline (aus_trial_universe/agentic).
+# Driver for the v2 agentic pipeline (aus_trial_universe).
 # Sets PYTHONPATH, picks a Python that has the v2 deps, loads .env, dispatches.
 #
 # Subcommands:
@@ -82,7 +82,7 @@ load_env_file "${REPO_ROOT}/.env.local"
 
 cd "${REPO_ROOT}"
 
-PIPELINE_MODULE="aus_trial_universe.agentic.run"
+PIPELINE_MODULE="aus_trial_universe.run"
 CMD="${1:-}"
 shift || true
 
@@ -137,14 +137,14 @@ case "${CMD}" in
   arm-consistency)
     # Verify the (trialId, arm) split is identical between the eligibility (trial_arms) and drug
     # (trial_to_intervention) paths — the shared join key. No API calls.
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.eligibility.qa.arm_consistency
+    exec "${PYTHON_BIN}" -m aus_trial_universe.tasks.eligibility.qa.arm_consistency
     ;;
   export)
     # Build the matching-engine export: Set A (trial_eligibility.tsv) + MANIFEST; Set B (drug tables) referenced
     # in place. Deterministic join, no API. SNAPSHOT=1 also writes an immutable export/snapshot_<ts>/ bundle.
     eargs=()
     if [[ -n "${SNAPSHOT:-}" ]]; then eargs+=(--snapshot); fi
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.export "${eargs[@]}"
+    exec "${PYTHON_BIN}" -m aus_trial_universe.export "${eargs[@]}"
     ;;
   cache-prune)
     # Prune the shared LLM response cache of entries from OUTDATED prompts (both paths).
@@ -152,20 +152,20 @@ case "${CMD}" in
     cargs=()
     if [[ -n "${APPLY:-}" ]]; then cargs+=(--apply); fi
     if [[ -n "${PURGE_UNKNOWN:-}" ]]; then cargs+=(--purge-unknown); fi
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.core.cache_prune "${cargs[@]}"
+    exec "${PYTHON_BIN}" -m aus_trial_universe.core.cache_prune "${cargs[@]}"
     ;;
   drug-migrate-trial-arms)
     # Re-key the drug path's trial_to_intervention to trial_arm_id against the fresh trial_arms registry, and
     # report intervention-input additions/deletions. Dry-run by default; APPLY=1 rewrites ONLY that drug file.
     margs=()
     if [[ -n "${APPLY:-}" ]]; then margs+=(--apply); fi
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.migrate_trial_arms "${margs[@]}"
+    exec "${PYTHON_BIN}" -m aus_trial_universe.tasks.drug_utility.migrate_trial_arms "${margs[@]}"
     ;;
   validate)
     # Independent output validator (review of the reviewer agents). OUT=<tsv> or newest.
     vargs=()
     if [[ -n "${OUT:-}" ]]; then vargs=("${OUT}"); fi
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.eligibility.qa.validate_output "${vargs[@]}"
+    exec "${PYTHON_BIN}" -m aus_trial_universe.tasks.eligibility.qa.validate_output "${vargs[@]}"
     ;;
   drug-ref-build)
     # Standalone drug-reference builder (spec §6.1). Incremental: existing drugs are reused (lookup).
@@ -183,7 +183,29 @@ case "${CMD}" in
     mkdir -p "${LOG_DIR}"
     log_file="${LOG_DIR}/drug_ref_build_$(date +%Y%m%d_%H%M%S).log"
     printf '\n==> drug-ref-build (logging to %s)\n' "${log_file}" >&2
-    "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.build "${dargs[@]}" 2>&1 | tee "${log_file}"
+    "${PYTHON_BIN}" -m aus_trial_universe.tasks.drug_utility.build "${dargs[@]}" 2>&1 | tee "${log_file}"
+    ;;
+  ingest)
+    # Stage-I trial ingestion (download + filter + POTTR + version). No LLM. Vars: REGISTRY=ctgov|anzctr|all.
+    iargs=()
+    if [[ -n "${REGISTRY:-}" ]]; then iargs+=(--registry "${REGISTRY}"); fi
+    mkdir -p "${LOG_DIR}"
+    log_file="${LOG_DIR}/ingest_$(date +%Y%m%d_%H%M%S).log"
+    printf '\n==> ingest (logging to %s)\n' "${log_file}" >&2
+    "${PYTHON_BIN}" -m aus_trial_universe.ingest "${iargs[@]}" 2>&1 | tee "${log_file}"
+    ;;
+  refresh)
+    # End-to-end periodic refresh: ingest → expire/restore → curate new → drug → approval vocab → export.
+    rargs=()
+    if [[ -n "${WORKERS:-}" ]]; then rargs+=(--workers "${WORKERS}"); fi
+    if [[ -n "${MAX_CONCURRENCY:-}" ]]; then rargs+=(--max-concurrency "${MAX_CONCURRENCY}"); fi
+    if [[ -n "${NO_REVIEW:-}" ]]; then rargs+=(--no-review); fi
+    if [[ -n "${SKIP_INGEST:-}" ]]; then rargs+=(--skip-ingest); fi
+    if [[ -n "${DRY_RUN_EXPIRY:-}" ]]; then rargs+=(--dry-run-expiry); fi
+    mkdir -p "${LOG_DIR}"
+    log_file="${LOG_DIR}/refresh_$(date +%Y%m%d_%H%M%S).log"
+    printf '\n==> refresh (logging to %s)\n' "${log_file}" >&2
+    "${PYTHON_BIN}" -m aus_trial_universe.refresh "${rargs[@]}" 2>&1 | tee "${log_file}"
     ;;
   map-approvals)
     # Symmetric-match: map drug_regulatory_approvals cancer_type/biomarker into the eligibility vocab (additive —
@@ -198,14 +220,14 @@ case "${CMD}" in
     mkdir -p "${LOG_DIR}"
     log_file="${LOG_DIR}/map_approvals_$(date +%Y%m%d_%H%M%S).log"
     printf '\n==> map-approvals (logging to %s)\n' "${log_file}" >&2
-    "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.map_approvals "${margs[@]}" 2>&1 | tee "${log_file}"
+    "${PYTHON_BIN}" -m aus_trial_universe.tasks.drug_utility.map_approvals "${margs[@]}" 2>&1 | tee "${log_file}"
     ;;
   drug-ref-refresh-pottr)
     # Download the current POTTR files from GitHub -> resources/drug_utility/pottr/current_version/ (archives old).
-    exec "${PYTHON_BIN}" -m aus_trial_universe.agentic.tasks.drug_utility.pottr
+    exec "${PYTHON_BIN}" -m aus_trial_universe.tasks.drug_utility.pottr
     ;;
   *)
-    echo "Unknown command: '${CMD}'. Use: run | tests | cache-prune | validate | drug-ref-build | map-approvals | drug-ref-refresh-pottr" >&2
+    echo "Unknown command: '${CMD}'. Use: run | ingest | refresh | tests | cache-prune | validate | drug-ref-build | map-approvals | drug-ref-refresh-pottr" >&2
     exit 2
     ;;
 esac

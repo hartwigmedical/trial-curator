@@ -5,16 +5,16 @@ The arm spine (`trial_arms`) is the SHARED registry (see test_trial_arm_store); 
 its two content tables, keyed by `trial_arm_id` and grouped internally by trialId (derived from the slug)."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.core.paths import latest_snapshot_dir
-from aus_trial_universe.agentic.tasks.eligibility.schema import (
+from aus_trial_universe.core.paths import latest_snapshot_dir
+from aus_trial_universe.tasks.eligibility.schema import (
     ArmEligibilityRaw,
     CancerTypeMap,
     GeneAlterationMap,
     InterpretedEligibility,
     MolecularSignatureMap,
 )
-from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
+from aus_trial_universe.tasks.eligibility.store import EligStore
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
 
 
 def _raw(trial, arm, cancer):

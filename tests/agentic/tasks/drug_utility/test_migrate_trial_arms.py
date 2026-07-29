@@ -5,8 +5,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from aus_trial_universe.agentic.tasks.drug_utility.migrate_trial_arms import build_report
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
+from aus_trial_universe.tasks.drug_utility.migrate_trial_arms import build_report
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
 
 
 def _write_old_t2i(path: Path, rows):

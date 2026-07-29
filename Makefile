@@ -1,42 +1,6 @@
-.PHONY: drug-ontology-pipeline-tsvs drug-ontology-analysis-tsvs eligibility-path-ctgov eligibility-path-anzctr eligibility-path-run-all-trials-download-w-llm eligibility-path-run-all-trials-download eligibility-path-run-all eligibility-path-resource-audit eligibility-path-pottr-comparison eligibility-path-clean eligibility-path-clean-dry-run eligibility-path-tests agentic-run agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
+.PHONY: agentic-run agentic-ingest agentic-refresh agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
 
-drug-ontology-pipeline-tsvs:
-	scripts/drug_ontology/pipeline_tsvs.sh
-
-drug-ontology-analysis-tsvs:
-	scripts/drug_ontology/analysis_tsvs.sh
-
-eligibility-path-ctgov:
-	scripts/eligibility/pipeline.sh ctgov
-
-eligibility-path-anzctr:
-	scripts/eligibility/pipeline.sh anzctr
-
-eligibility-path-run-all-trials-download:
-	scripts/eligibility/pipeline.sh all-trials-download
-
-eligibility-path-run-all-trials-download-w-llm:
-	scripts/eligibility/pipeline.sh all-trials-download-w-llm
-
-eligibility-path-run-all:
-	scripts/eligibility/pipeline.sh all
-
-eligibility-path-resource-audit:
-	scripts/eligibility/pipeline.sh resource-audit
-
-eligibility-path-pottr-comparison:
-	scripts/eligibility/pipeline.sh pottr-comparison
-
-eligibility-path-clean:
-	scripts/eligibility/clean_outputs.sh --yes
-
-eligibility-path-clean-dry-run:
-	scripts/eligibility/clean_outputs.sh --dry-run
-
-eligibility-path-tests:
-	scripts/eligibility/pipeline.sh tests
-
-# --- v2 agentic pipeline (aus_trial_universe/agentic) ---
+# --- v2 agentic pipeline (aus_trial_universe) — the only pipeline; legacy eligibility_path/drug_utility_path retired ---
 # Full pipeline (extract -> map -> drug); the pure-3NF store in masters/eligibility/current_version/ + the joined
 # flat views in derived/joined/ (kept out of the store) + one log per run. Runs unit tests first.
 #   make agentic-run ID=NCT06881784          # one trial (source auto-detected)
@@ -48,6 +12,21 @@ eligibility-path-tests:
 #                       leave it running and it picks up on reconnect. RESUME_BACKOFF=<secs> between retries.)
 agentic-run:
 	ID="$(ID)" IDS="$(IDS)" MODEL="$(MODEL)" NO_JUDGE="$(NO_JUDGE)" NO_REVIEW="$(NO_REVIEW)" EXTRACT_ONLY="$(EXTRACT_ONLY)" WORKERS="$(WORKERS)" MAX_CONCURRENCY="$(MAX_CONCURRENCY)" RESUME="$(RESUME)" RESUME_BACKOFF="$(RESUME_BACKOFF)" scripts/agentic/pipeline.sh run
+
+# Stage-I trial INGESTION (self-contained download → filter → POTTR → version). Full download each run; writes the
+# merged input to inputs/trial_universe/<registry>/current_version/ (archiving the previous). No LLM. No curation —
+# run `make agentic-run` after to curate the new trials. Wrap long runs in caffeinate.
+#   make agentic-ingest REGISTRY=ctgov      # (anzctr/all land in Phase 3)
+agentic-ingest:
+	REGISTRY="$(REGISTRY)" scripts/agentic/pipeline.sh ingest
+
+# End-to-end PERIODIC REFRESH (the self-contained pipeline): ingest (full download, both registries) → expire/restore
+# → curate ONLY new trials (eligibility extract+map+reconcile) → drug utility (facts+roles for new/restored) →
+# approval vocab → export. Incremental: unchanged trials re-hit the cache, existing drugs skip web search. Wrap in
+# caffeinate. Optional: WORKERS=<n> MAX_CONCURRENCY=<n> NO_REVIEW=1 SKIP_INGEST=1 DRY_RUN_EXPIRY=1
+#   make agentic-refresh WORKERS=80 MAX_CONCURRENCY=500
+agentic-refresh:
+	WORKERS="$(WORKERS)" MAX_CONCURRENCY="$(MAX_CONCURRENCY)" NO_REVIEW="$(NO_REVIEW)" SKIP_INGEST="$(SKIP_INGEST)" DRY_RUN_EXPIRY="$(DRY_RUN_EXPIRY)" scripts/agentic/pipeline.sh refresh
 
 # Isolated LIVE DEMO — runs the FULL pipeline (extract -> map Step 1 -> map Step 2 -> drug + role -> export)
 # over 2 picked trials, one readable stage at a time, for walking an audience through the logs. All OUTPUTS go

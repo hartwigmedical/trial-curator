@@ -1,7 +1,7 @@
 """Cross-value consistency check: semantically-equivalent inputs must not map to different codes."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.tasks.eligibility.qa.mapping_consistency import canonical_key, find_inconsistencies
+from aus_trial_universe.tasks.eligibility.qa.mapping_consistency import canonical_key, find_inconsistencies
 
 
 def test_canonical_key_strips_qualifier_noise_but_keeps_meaning():

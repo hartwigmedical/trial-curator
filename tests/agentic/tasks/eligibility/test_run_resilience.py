@@ -10,11 +10,11 @@ import csv
 
 import pytest
 
-from aus_trial_universe.agentic import run
-from aus_trial_universe.agentic.core import paths as _paths
-from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import DnfRow
-from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import ArmRaw, Cohort, ExtractionResult
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_id_of
+from aus_trial_universe import run
+from aus_trial_universe.core import paths as _paths
+from aus_trial_universe.tasks.eligibility.extraction.schema import DnfRow
+from aus_trial_universe.tasks.eligibility.extraction.workflow import ArmRaw, Cohort, ExtractionResult
+from aus_trial_universe.tasks.shared.cohorts import trial_id_of
 
 
 @pytest.fixture(autouse=True)
@@ -41,9 +41,9 @@ def _fake_extract(client, *, trial_id, source_text, cohorts, max_attempts, use_j
 
 
 def test_batch_continues_past_a_failing_trial(tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.loaders.load_trials",
                         lambda **kw: _fake_trials())
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial", _fake_extract)
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.workflow.extract_trial", _fake_extract)
 
     rc = run.main(["--ids", "GOOD1,BADX,GOOD2", "--store-root", str(tmp_path), "--extract-only"])
 

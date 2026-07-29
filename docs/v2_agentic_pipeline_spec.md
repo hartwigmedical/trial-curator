@@ -1,6 +1,6 @@
 # Trial Curator v2 — Agentic Pipeline Spec
 
-Single source of truth for the v2 agentic pipeline (`aus_trial_universe/agentic/`): why it exists, how it's
+Single source of truth for the v2 agentic pipeline (`aus_trial_universe/`): why it exists, how it's
 built, the field sources, and the output schema. For **how to run it**, see `docs/agentic/combined_agentic_run.md`.
 
 - **Status:** built and verified end-to-end (ctgov + anzctr). Living document.
@@ -34,7 +34,7 @@ reproducible, cheap, and debuggable across thousands of trials.
    `refine()` (`core/workflow.py`) feeds the critique *back to the doer*, which re-generates (Reflexion-style,
    **not** an editor). The deterministic validators are feedback-only too. One writer ⇒ no unchecked edit ever
    reaches the output, and every accepted value was re-checked *after* it was (re)written. Trade-off: it pays
-   full re-generation and can stall convergence on the hardest trials (see §12).
+   full re-generation and can stall convergence on the hardest trials (see §13).
 6. **Determinism via cache.** The response cache is the deterministic layer (identical request → identical output).
    `temperature`/`seed` are omitted by default (current reasoning models reject `temperature`).
 7. **Model-agnostic.** One client; the model is configuration, swappable per agent.
@@ -45,7 +45,7 @@ Two layers. The orchestrator is **code, not an LLM**.
 
 |                | What it is | Decides what runs next? | Deterministic? |
 |----------------|------------|-------------------------|----------------|
-| **Orchestrator** (`agentic/run.py` + task workflows) | plain Python | **Yes** — fixed steps | Yes |
+| **Orchestrator** (`run.py` + task workflows) | plain Python | **Yes** — fixed steps | Yes |
 | **Agent** (a specialist) | one OpenAI call + pinned schema | No — does its one job | No (cache tightens) |
 
 **Guiding principle — one agent per *independent* task.** Split by independence, not by field count:
@@ -55,7 +55,7 @@ Two layers. The orchestrator is **code, not an LLM**.
   **review** is a parallel panel of focused reviewers.
 - **Deterministic work gets zero agents** (e.g. CTGov cohort/drug read straight from JSON).
 
-## 4. Runtime — `agentic/core/` + `agentic/tools/`
+## 4. Runtime — `core/` + `tools/`
 
 - **`client.py` (`LlmClient`)** — the single door to OpenAI.
   - `.parse(schema, …)` → validated pydantic via `chat.completions.parse` (retries, response cache, tracing).
@@ -129,7 +129,7 @@ The normalized relations (the flat TSV is their **materialized join**):
 | **drug_annotations_core** (global)* | canonical drug | class / POTTR / modality / mechanism / ATC / FDA / EMA + **researched_on** | web search once per unique drug, **datestamped** (`tasks/drug_utility/`, `make drug-ref-build`); trial curation is then a LOOKUP (re-research only on `--refresh-drugs`). |
 
 \* **Built standalone (2026-07-13; table 1 split into 3NF 2026-07-17; role table added 2026-07-28).** The drug
-dimension is **six** 3NF tables in `aus_trial_universe/agentic/tasks/drug_utility/`:
+dimension is **six** 3NF tables in `aus_trial_universe/tasks/drug_utility/`:
 - `intervention_to_canonical` (input intervention name → namespaced `canonical_id`(s): `rxcui:<n>` else `name:<x>`;
   a combination/regimen token splits into its component drugs, so **`1 input → N` canonicals** — a single engineered
   molecule like an ADC/bispecific stays one; carries `raw_name_to_map` = the input fragment each canonical came from),
@@ -373,7 +373,7 @@ Arm identity lives once in the **shared `trial_arms` registry** `data/agentic/tr
   Step-2 adds **`finalised_cancer_type_map.tsv`** (+ an `oncotree_code_FINAL` col). Analogous `finalised_*` for gene/signature.
 - **`gene_alteration_map.tsv`** / **`molecular_signature_map.tsv`** — value → `finding_model` (deduped).
 
-**The matching-engine EXPORT (2026-07-28)** is built SEPARATELY by `agentic/export.py` (`make agentic-export`), not by
+**The matching-engine EXPORT (2026-07-28)** is built SEPARATELY by `export.py` (`make agentic-export`), not by
 `run.py`. TWO sets: **Set A** = the denormalized flat **`data/agentic/export/trial_eligibility.tsv`** (38 cols, one
 row per `(trial_arm_id, conj_id)`) = a new deterministic **`trial_info`** master (raw CTGov/ANZCTR basic info) ⋈
 interpreted eligibility ⋈ **FINAL** vocab maps ⋈ per-arm intervention rollups (role-split main/aux from
@@ -386,31 +386,71 @@ trial-wide criteria are AND-combined into each arm by `_distribute` upstream. **
 `drug_regulatory_approvals` free-text cancer_type/biomarker mapped into the same vocab, so TGA/PBS
 (indication-specific) matches trial-eligibility ↔ drug-approval symmetrically.
 
-## 10. Repo layout & retirement
+## 10. Stage-I ingestion + periodic refresh (self-contained, 2026-07-29)
+
+The pipeline now **downloads and versions its own trial universe** — no legacy/external step. Ingestion lives
+in-package at `aus_trial_universe/tasks/ingestion/` and produces the versioned inputs the rest of the pipeline reads.
+
+**Ingestion** (`make agentic-ingest REGISTRY=ctgov|anzctr|all`, module `aus_trial_universe.ingest`, default `all`).
+Each run does a FULL download, archives the previous input set (`current_version/` → `archive/<date>/`), and writes
+the fresh one to `data/agentic/inputs/trial_universe/<registry>/current_version/` — input versioning now mirrors the
+masters (`current_version/` + `archive/`).
+- **`ctgov.py`** — paged CT.gov **API-v2** download with Essie filters: recruitment status
+  `RECRUITING / NOT_YET_RECRUITING / ACTIVE_NOT_RECRUITING / ENROLLING_BY_INVITATION`, country Australia / New
+  Zealand, a `DRUG` intervention + `Neoplasms` condition core, plus a POTTR broad-net query and an explicit
+  id-append so every POTTR trial is included.
+- **`anzctr.py`** — a **curl_cffi** Cloudflare bypass + DevExpress `all.xls` download, filtered LOCALLY to the same
+  cohort → a 24-column CSV; POTTR trials **bypass the filter** so they always survive.
+- **`pottr_ids.py`** — best-effort GitHub loaders for the POTTR trial-id + alias lists, plus a manual removal list.
+
+**Recoverable expiry** (`expiry.py`; standalone `python -m aus_trial_universe.tasks.ingestion.expiry [--apply]`).
+After a refresh, `kept = fresh-download ∪ POTTR` and `expired = stored − kept`. Expired trials are **MOVED** (not
+deleted) to a recoverable `masters/{eligibility,trial_arms}/expired/` area, and **RESTORED** if they reappear in a
+later download. **POTTR trials NEVER expire.** A `max_fraction=0.5` guard aborts if a run would expire more than
+half the universe, and a POTTR-fetch precondition must succeed first; `--dry-run` previews.
+
+**Periodic refresh** (`make agentic-refresh`, module `aus_trial_universe.refresh`) chains the whole loop: ingest all
+→ expire/restore → `run --resume --skip-drug` (eligibility extract+map) → `run --reconcile` (Step-2) →
+`drug-ref-build --from-trials <new/restored>` (drug facts + occurrences + main/aux roles; existing drugs are pure
+lookups, no web search) → `map_approvals` → `export`. **Incremental by construction:** unchanged trials re-hit the
+response cache (no API) and known drugs skip the web-search step. Latest acceptance run (2026-07-29): expired 32,
+curated 71 new trials, drug researched=34 / reused=73, export 2,020 trials, arm-consistency CONSISTENT, 0 failures;
+179 unit tests green.
+
+The package was also **flattened**: `aus_trial_universe/agentic/*` moved up to `aus_trial_universe/*` (no more
+`agentic/` layer — imports are now `aus_trial_universe.run` / `aus_trial_universe.tasks.…`; the DATA root stays
+`data/agentic/`), and the legacy `eligibility_path/` / `drug_utility_path/` / `trials_to_remove` were DELETED with
+the RxNorm coupling severed (§11).
+
+## 11. Repo layout & retirement
+
+The package was **flattened (2026-07-29)** — `agentic/*` moved up to `aus_trial_universe/*`, so there is no
+`agentic/` layer (imports are `aus_trial_universe.run`, `aus_trial_universe.tasks.…`; data root stays `data/agentic/`):
 
 ```
 aus_trial_universe/
-  eligibility_path/  drug_utility_path/   # legacy — reference (resource source) until superseded
-  agentic/
-    run.py                               # ELIGIBILITY orchestrator (extract → map → drug top-up); export is separate
-    export.py  trial_info.py             # matching-engine export (Set A trial_eligibility.tsv) + trial_info master
-    core/    client.py agent.py workflow.py pipeline_io.py paths.py cache_prune.py prompt_registry.py logfmt.py
-    tasks/
-      shared/        cohorts.py agents.py schema.py store.py  # PATH-NEUTRAL arm identification: Cohort,
-      #                trial_arm_id() slug, ANZCTR drug agents, anzctr_regimes, TrialArm + TrialArmStore
-      eligibility/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
-      #              tools/ (oncotree.py finding_model.py)  qa/ (validate_output.py, arm_consistency.py)
-      drug_utility/  schema.py store.py rxnorm.py pottr.py agents.py workflow.py build.py migrate_trial_arms.py
+  run.py                                 # ELIGIBILITY orchestrator (extract → map → drug top-up); export is separate
+  ingest.py  refresh.py                  # Stage-I ingestion CLI (§10) + end-to-end periodic refresh loop
+  export.py  trial_info.py               # matching-engine export (Set A trial_eligibility.tsv) + trial_info master
+  core/    client.py agent.py workflow.py pipeline_io.py paths.py cache_prune.py prompt_registry.py logfmt.py
+  tasks/
+    ingestion/     ctgov.py anzctr.py pottr_ids.py expiry.py   # self-contained download+filter+POTTR+expiry (§10)
+    shared/        cohorts.py agents.py schema.py store.py  # PATH-NEUTRAL arm identification: Cohort,
+    #                trial_arm_id() slug, ANZCTR drug agents, anzctr_regimes, TrialArm + TrialArmStore
+    eligibility/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
+    #              tools/ (oncotree.py finding_model.py)  qa/ (validate_output.py, arm_consistency.py)
+    drug_utility/  schema.py store.py rxnorm.py pottr.py agents.py workflow.py build.py migrate_trial_arms.py
 ```
-Arm identification is the ONE thing genuinely shared by both paths → it lives in `agentic/tasks/shared/` (both
-paths import it; do NOT reintroduce the old drug_utility→eligibility RxNorm coupling, nor a backwards
-drug→eligibility import). `ui/` deleted. `actin_curator/`, `pydantic_curator/`, `trialcurator/`, `qa/` retire as v2
-supersedes each (legacy still supplies resources + is imported by the old paths).
+Arm identification is the ONE thing genuinely shared by both paths → it lives in `tasks/shared/` (both paths import
+it; do NOT reintroduce a backwards drug→eligibility import). The legacy `eligibility_path/`, `drug_utility_path/`,
+and `trials_to_remove` were **DELETED** and the old drug_utility→eligibility RxNorm coupling severed (ANZCTR arm
+drugs are now re-derived by the shared LLM cohort step, §6.1). `ui/` deleted; `actin_curator/`, `pydantic_curator/`,
+`trialcurator/`, `qa/` retire as v2 supersedes each.
 
-## 11. Verification
+## 12. Verification
 - **Code (orchestration/consolidate/validators):** unit-tested with fake clients — no API (64 tests).
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
-- **Independent output validator (`make agentic-validate`, `agentic/qa/validate_output.py`):** a deterministic
+- **Independent output validator (`make agentic-validate`, `tasks/eligibility/qa/validate_output.py`):** a deterministic
   *review of the reviewer agents* — runs OUTSIDE the workflow on a finished output TSV to catch what the in-loop
   reviewers let through (mapping degrades gracefully, so flagged values can still reach the output). Re-runs the
   pipeline's own OncoTree + finding-model validators on the final cells, plus cross-row DNF/cohort/exclusion
@@ -419,15 +459,13 @@ supersedes each (legacy still supplies resources + is imported by the old paths)
   path;** always run it while iterating, and keep its checks in sync with the pipeline's validators.
 - **Mapping accuracy:** **manual** hold-out comparison against the legacy trial-resource + curated resources
   (review sets: `data/agentic/analysis/complex_trials_ids.txt` + `typical_trials_ids.txt`). An automated
-  run-comparison method is deferred (§12).
+  run-comparison method is deferred (§13).
 
-## 12. Open / deferred
+## 13. Open / deferred
 - **Run-comparison method** — replacement for `qa/final_resource_diff.py`; how it treats residual LLM variance is TBD.
 - **RxNorm cross-check** for ANZCTR drugs (currently LLM-only) — shelved; may return as a validation layer.
 - **OncoTree granularity** — occasional over-strict "unfaithful" on subtype-heavy trials; tune against the manual review.
-- **Stage-I ingestion** (download → drug-filter + POTTR-append → retire-missing) is not yet in agentic; the pipeline
-  currently reads the versioned inputs the legacy path produces.
 
-## 13. Non-goals
+## 14. Non-goals
 - No autonomous LLM orchestrator (pattern A). No `pydantic_curator`-style `.py` curation output.
 - No preservation of the old `qa/` run-to-run diff. No new cross-path coupling.

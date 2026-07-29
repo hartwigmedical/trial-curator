@@ -6,11 +6,11 @@ from datetime import date
 
 import pytest
 
-from aus_trial_universe.agentic.core.paths import archive_current_version, current_version_dir
-from aus_trial_universe.agentic.tasks.drug_utility.schema import (
+from aus_trial_universe.core.paths import archive_current_version, current_version_dir
+from aus_trial_universe.tasks.drug_utility.schema import (
     DrugRegulatoryApproval, DrugAnnotationsCore, DrugTargetAction, TrialArmDrugRole)
-from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
+from aus_trial_universe.tasks.drug_utility.store import DrugRefStore
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
 
 
 def test_current_version_and_archive_helpers(tmp_path):

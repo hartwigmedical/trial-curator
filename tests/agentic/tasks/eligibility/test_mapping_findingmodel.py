@@ -1,13 +1,13 @@
 """Tests for the finding-model conversion procedures (mapper -> validate + reviewer -> refine)."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.eligibility.mapping.schema import FindingModelMapping, ReviewVerdict
-from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import (
+from aus_trial_universe.core.client import LlmResult
+from aus_trial_universe.tasks.eligibility.mapping.schema import FindingModelMapping, ReviewVerdict
+from aus_trial_universe.tasks.eligibility.mapping.workflow import (
     map_gene_alterations,
     map_molecular_signatures,
 )
-from aus_trial_universe.agentic.tasks.eligibility.tools.finding_model import finding_model_problems
+from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
 
 
 # --- validator (tools/finding_model) --------------------------------------- #
@@ -69,8 +69,8 @@ def test_finding_model_validator_grammar_rejects():
 def test_locked_prompt_decisions_present():
     """Prompt-only decisions (2026-07-10) can't be caught by fake-client behaviour tests — guard the
     strings so a future grammar edit can't silently drop them. See memory v2-mapping-stage-decisions."""
-    from aus_trial_universe.agentic.tasks.eligibility.mapping.agents import GENE_REVIEWER_INSTRUCTIONS, _GENE_RULES
-    from aus_trial_universe.agentic.tasks.eligibility.tools.finding_model import GRAMMAR_REFERENCE
+    from aus_trial_universe.tasks.eligibility.mapping.agents import GENE_REVIEWER_INSTRUCTIONS, _GENE_RULES
+    from aus_trial_universe.tasks.eligibility.tools.finding_model import GRAMMAR_REFERENCE
 
     # H3K27-altered ≡ H3K27M: canonical 3-gene block, strict-HGVS p.K28M coordinate.
     for gene in ("H3F3A", "HIST1H3B", "HIST1H3C"):

@@ -1,7 +1,7 @@
 """ANZCTR id normalization / display-prefix helpers (run.py)."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.tasks.eligibility.extraction.loaders import (
+from aus_trial_universe.tasks.eligibility.extraction.loaders import (
     _display_actrn,
     _infer_source,
     _norm_actrn,

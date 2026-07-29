@@ -3,7 +3,7 @@ eligibility tables and the drug path's trial_to_intervention must exist in the s
 Fake the three id sources via monkeypatch (no stores/API)."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.tasks.eligibility.qa import arm_consistency as ac
+from aus_trial_universe.tasks.eligibility.qa import arm_consistency as ac
 
 
 def _patch(monkeypatch, registry, elig, drug, roles=None):

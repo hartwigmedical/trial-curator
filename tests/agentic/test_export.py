@@ -3,15 +3,15 @@ from __future__ import annotations
 
 import csv
 
-from aus_trial_universe.agentic import export as EX
-from aus_trial_universe.agentic import trial_info as TI
-from aus_trial_universe.agentic.tasks.drug_utility.schema import DrugAnnotationsCore, TrialArmDrugRole
-from aus_trial_universe.agentic.tasks.drug_utility.store import DrugRefStore
-from aus_trial_universe.agentic.tasks.eligibility.schema import InterpretedEligibility
-from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
-from aus_trial_universe.agentic.tasks.shared.schema import TrialArm
-from aus_trial_universe.agentic.tasks.shared.store import TrialArmStore
+from aus_trial_universe import export as EX
+from aus_trial_universe import trial_info as TI
+from aus_trial_universe.tasks.drug_utility.schema import DrugAnnotationsCore, TrialArmDrugRole
+from aus_trial_universe.tasks.drug_utility.store import DrugRefStore
+from aus_trial_universe.tasks.eligibility.schema import InterpretedEligibility
+from aus_trial_universe.tasks.eligibility.store import EligStore
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
+from aus_trial_universe.tasks.shared.schema import TrialArm
+from aus_trial_universe.tasks.shared.store import TrialArmStore
 
 _VOCAB = {"NSCLC": "Non-Small Cell Lung Cancer", "LUAD": "Lung Adenocarcinoma", "SCLC": "Small Cell Lung Cancer"}
 
@@ -63,7 +63,7 @@ def _stores():
 
 
 def test_build_export_rows(tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.tools.oncotree.oncotree_vocab", lambda: _VOCAB)
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.tools.oncotree.oncotree_vocab", lambda: _VOCAB)
     _write_finalised_maps(tmp_path)
     elig, arm, drug, info, taid = _stores()
     rows = EX.build_export_rows(elig, arm, drug, info, elig_dir=tmp_path)
@@ -88,7 +88,7 @@ def test_build_export_rows(tmp_path, monkeypatch):
 
 
 def test_run_export_writes_setA_and_snapshot(tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.tools.oncotree.oncotree_vocab", lambda: _VOCAB)
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.tools.oncotree.oncotree_vocab", lambda: _VOCAB)
     elig, arm, drug, info, _ = _stores()
     # hermetic: no loaders, no real stores
     monkeypatch.setattr(TI, "build_all_trial_info", lambda: info)

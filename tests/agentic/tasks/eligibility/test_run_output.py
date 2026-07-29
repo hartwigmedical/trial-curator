@@ -12,11 +12,11 @@ import csv
 
 import pytest
 
-from aus_trial_universe.agentic import run
-from aus_trial_universe.agentic.core import paths as _paths
-from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import DnfRow
-from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import ArmRaw, Cohort, ExtractionResult
-from aus_trial_universe.agentic.tasks.shared.cohorts import trial_arm_id
+from aus_trial_universe import run
+from aus_trial_universe.core import paths as _paths
+from aus_trial_universe.tasks.eligibility.extraction.schema import DnfRow
+from aus_trial_universe.tasks.eligibility.extraction.workflow import ArmRaw, Cohort, ExtractionResult
+from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
 
 
 @pytest.fixture(autouse=True)
@@ -46,9 +46,9 @@ def _fake_extract(client, *, trial_id, source_text, cohorts, max_attempts, use_j
 
 
 def test_run_writes_3nf_masters(tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.loaders.load_trials",
                         lambda **kw: [("ctgov", "NCT1", "text", None)])
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial", _fake_extract)
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.workflow.extract_trial", _fake_extract)
 
     rc = run.main(["--ids", "NCT1", "--store-root", str(tmp_path), "--extract-only"])
     assert rc == 0
@@ -86,9 +86,9 @@ def _fake_extract_by_id(client, *, trial_id, source_text, cohorts, max_attempts,
 def test_run_accumulates_trials_across_runs(tmp_path, monkeypatch):
     """The accumulating stores: a 2nd run LOADS the 1st run's snapshot (eligibility) and the shared trial_arms
     registry, carrying prior trials forward (regression — run_dir must be created AFTER load)."""
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.loaders.load_trials",
                         lambda **kw: [("ctgov", i, "text", None) for i in (kw.get("ids") or [])])
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.workflow.extract_trial",
                         _fake_extract_by_id)
 
     run.main(["--ids", "NCTA", "--store-root", str(tmp_path),
@@ -113,9 +113,9 @@ def test_anzctr_arms_derived_fresh_land_in_trial_arms(tmp_path, monkeypatch):
         arm_raw = [ArmRaw(arm=c.label, cancer_type_raw="X [C]") for c in resolved]
         return ExtractionResult(arm_raw=arm_raw, rows=rows, faithful=True, attempts=1, cohorts=resolved)
 
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.loaders.load_trials",
                         lambda **kw: [("anzctr", "ACTRN1", "text", None)])
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.workflow.extract_trial",
                         _capture_extract)
 
     rc = run.main(["--ids", "ACTRN1", "--store-root", str(tmp_path), "--extract-only"])
@@ -141,9 +141,9 @@ def _resumable_extract(calls):
 
 def test_resume_skips_completed_and_returns_0_when_all_present(tmp_path, monkeypatch):
     calls: list[str] = []
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.loaders.load_trials",
                         lambda **kw: [("ctgov", i, "text", None) for i in (kw.get("ids") or [])])
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.workflow.extract_trial",
                         _resumable_extract(calls))
     out = str(tmp_path / "current_version")
     run.main(["--ids", "NCTA", "--store-root", str(tmp_path), "--out-dir", out, "--extract-only"])
@@ -156,9 +156,9 @@ def test_resume_skips_completed_and_returns_0_when_all_present(tmp_path, monkeyp
 
 def test_resume_returns_3_when_a_trial_is_missing(tmp_path, monkeypatch):
     calls: list[str] = []
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.loaders.load_trials",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.loaders.load_trials",
                         lambda **kw: [("ctgov", i, "text", None) for i in (kw.get("ids") or [])])
-    monkeypatch.setattr("aus_trial_universe.agentic.tasks.eligibility.extraction.workflow.extract_trial",
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.extraction.workflow.extract_trial",
                         _resumable_extract(calls))
     rc = run.main(["--ids", "GOODA,FAILME", "--store-root", str(tmp_path),
                    "--out-dir", str(tmp_path / "current_version"), "--extract-only", "--resume"])

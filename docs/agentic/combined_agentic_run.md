@@ -1,6 +1,6 @@
 # Combined Agentic Run
 
-How to set up and run the **v2 agentic pipeline** (`aus_trial_universe/agentic/`) — one command
+How to set up and run the **v2 agentic pipeline** (`aus_trial_universe/`) — one command
 takes a trial from free text all the way to a fully-enriched DNF (disjunctive normal form) resource table.
 
 - **Pipeline:** extract → map (OncoTree + finding-model) → drug enrichment, in **one streamed pass**.
@@ -13,8 +13,8 @@ Everything lives under one relocatable `DATA_ROOT` (`core/paths.py`; = `data/age
 
 ```
 data/agentic/
-  inputs/       trial_universe/ (ctgov, anzctr) · resources/ (drug_utility, eligibility)   — ingested, read-only
-  masters/      trial_arms/ · trial_info/ · drug_annotations/ · eligibility/                — produced, VERSIONED (current_version/ + archive/)
+  inputs/       trial_universe/ (ctgov, anzctr — VERSIONED: current_version/ + archive/) · resources/ (drug_utility, eligibility)   — Stage-I ingestion output
+  masters/      trial_arms/ · trial_info/ · drug_annotations/ · eligibility/                — produced, VERSIONED (current_version/ + archive/; expired trials → eligibility|trial_arms/expired/)
   derived/      joined/{eligibility,drug_annotations}/ · export/                            — regenerable flat views + the deliverable
   transient/    cache/ · log/                                                               — wipeable (make agentic-clean)
   analysis/     ad-hoc analysis            demo/  isolated live-demo sandbox
@@ -30,8 +30,10 @@ agentic-clean` wipes ONLY `transient/`; the masters (incl. the curated eligibili
 | Command | What it does |
 |---|---|
 | `make agentic-run` | Full pipeline (extract → map → drug), streamed to one output + one log. Runs the unit tests first (aborts on failure). |
+| `make agentic-ingest` | **Stage-I ingestion** — full download + cohort filter of the trial universe into `inputs/trial_universe/<reg>/current_version/` (previous → `archive/`). `REGISTRY=ctgov\|anzctr\|all` (default all). See below. |
+| `make agentic-refresh` | **End-to-end periodic refresh loop** — ingest all → expire/restore → eligibility (`run --resume --skip-drug`) → Step-2 (`run --reconcile`) → drug facts for new/restored → map approvals → export. Incremental (cache-reuse; existing drugs skip web search). See below. |
 | `make agentic-validate` | **Independent output validator** — a *review of the reviewer agents*. Re-checks a finished output TSV OUTSIDE the workflow (see below). `OUT=<tsv>` or newest. No API calls. |
-| `make agentic-clean` | Wipe transient run artifacts under `data/agentic/{eligibility,log,cache}` — never touches the colocated inputs/resources/drug_annotations. |
+| `make agentic-clean` | Wipe ONLY the transient bucket `data/agentic/transient/{cache,log}` — never touches `inputs/`, `masters/` (incl. the curated eligibility store), `derived/`, or `analysis/`. |
 | `make agentic-cache-prune` | **Prune the response cache of OUTDATED-prompt entries** (both paths share one cache). Dry-run by default; `APPLY=1` deletes, `PURGE_UNKNOWN=1` also drops legacy entries. See below. No API calls. |
 | `make agentic-arm-consistency` | **Referential-integrity check** on the arm join key: every `trial_arm_id` referenced by the eligibility tables + drug `trial_to_intervention` + `trial_arm_drug_role` exists in the shared `trial_arms` registry. Exit 0 = consistent. No API. |
 | `make agentic-export` | **Build the matching-engine export.** Set A = the wide flat `export/trial_eligibility.tsv` (trial info + eligibility + intervention, one row per `(trial_arm_id, conjunction)`); Set B = the 6 drug 3NF tables, referenced in place (a `MANIFEST.md` points at them). Deterministic join; no API. `SNAPSHOT=1` also mints an immutable self-contained `export/snapshot_<ts>/` bundle (Set A + a frozen copy of Set B). |
@@ -79,7 +81,7 @@ rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 make agentic-validate                 # data/agentic/eligibility/combined/combined.tsv
 make agentic-validate OUT=<path.tsv>  # a specific run
 ```
-Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/agentic/tasks/eligibility/qa/validate_output.py`.
+Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/tasks/eligibility/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
 Builds the standalone drug reference (6 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,
@@ -126,7 +128,57 @@ make drug-ref-refresh-pottr
 ```
 
 `WORKERS` sets both concurrency and checkpoint-batch size (output identical regardless — see memory
-`feedback-max-allowable-concurrency`). Entry: `aus_trial_universe/agentic/tasks/drug_utility/build.py`.
+`feedback-max-allowable-concurrency`). Entry: `aus_trial_universe/tasks/drug_utility/build.py`.
+
+---
+
+## Stage-I ingestion and the periodic refresh
+
+The pipeline is now **self-contained**: it downloads and versions its own trial universe — there is no separate
+external/legacy ingestion step. Ingestion lives in-package at `aus_trial_universe/tasks/ingestion/`.
+
+### `make agentic-ingest REGISTRY=ctgov|anzctr|all` — Stage-I ingestion
+Full download + cohort filter of one (or both) registries straight into the versioned inputs (module
+`aus_trial_universe.ingest`, default `REGISTRY=all`). Each run does a FULL download, archives the previous input
+set (`current_version/` → `archive/<date>/`), and writes the fresh one to
+`data/agentic/inputs/trial_universe/<registry>/current_version/`.
+- **ctgov** (`tasks/ingestion/ctgov.py`): paged CT.gov **API-v2** download with Essie filters — recruitment status
+  `RECRUITING / NOT_YET_RECRUITING / ACTIVE_NOT_RECRUITING / ENROLLING_BY_INVITATION`, country Australia / New
+  Zealand, a `DRUG` intervention + `Neoplasms` condition core, plus a POTTR broad-net query and an explicit
+  id-append so every POTTR trial is present.
+- **anzctr** (`tasks/ingestion/anzctr.py`): a **curl_cffi** Cloudflare bypass + DevExpress `all.xls` download,
+  filtered locally to the same cohort → a 24-column CSV; POTTR trials bypass the filter so they always survive.
+- POTTR trial-ids + aliases are loaded best-effort from GitHub (`tasks/ingestion/pottr_ids.py`), with a manual
+  removal list.
+
+```bash
+make agentic-ingest                    # both registries (default REGISTRY=all)
+make agentic-ingest REGISTRY=ctgov     # one registry
+```
+
+### `make agentic-refresh` — the end-to-end periodic loop
+One command for a periodic universe refresh (module `aus_trial_universe.refresh`), chaining, in order:
+1. **ingest all** — fresh full download of both registries.
+2. **expire / restore** — trials no longer in the kept universe are MOVED to a recoverable
+   `masters/{eligibility,trial_arms}/expired/` area (and RESTORED if they reappear in a later download).
+   **POTTR trials never expire.** Guarded by `max_fraction=0.5` (aborts if >½ the universe would expire) and a
+   POTTR-fetch precondition; preview with `--dry-run`. Standalone CLI:
+   `python -m aus_trial_universe.tasks.ingestion.expiry [--apply]`.
+3. **eligibility** — `run --resume --skip-drug` (extract + map for new / changed trials).
+4. **Step-2** — `run --reconcile` (the OncoTree reconciliation pass).
+5. **drug facts** — `drug-ref-build --from-trials <new/restored>` (drug annotations + occurrences + main/aux
+   roles); existing drugs are pure lookups (no web search).
+6. **approvals** — `map_approvals` (symmetric-match vocab for the approvals).
+7. **export** — the matching-engine deliverable.
+
+**Incremental by construction:** unchanged trials re-hit the response cache (no API), and drugs already in the
+reference skip the web-search step. Latest acceptance run (2026-07-29): expired 32, curated 71 new trials, drug
+researched=34 / reused=73 (no web search), export 2,020 trials, arm-consistency CONSISTENT, 0 failures; 179 unit
+tests green.
+
+```bash
+make agentic-refresh
+```
 
 ---
 
@@ -178,7 +230,7 @@ deterministic slug `{trialId}::{arm}`). Both paths link to it by `trial_arm_id`:
 
 ## The matching-engine export (`make agentic-export`)
 
-The deliverable is TWO sets (built by `aus_trial_universe.agentic.export`, deterministic, no API):
+The deliverable is TWO sets (built by `aus_trial_universe.export`, deterministic, no API):
 
 **Set A — `data/agentic/derived/export/trial_eligibility.tsv`** — one wide flat file, **one row per
 `(trial_arm_id, conjunction_index)`** = one satisfiable eligibility path of one arm (DNF: rows sharing an arm are

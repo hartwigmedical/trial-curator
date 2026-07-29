@@ -5,15 +5,15 @@ the real resource file.
 """
 from __future__ import annotations
 
-from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.eligibility.mapping.schema import OncotreeMapping, ReviewVerdict
-from aus_trial_universe.agentic.tasks.eligibility.mapping.workflow import (
+from aus_trial_universe.core.client import LlmResult
+from aus_trial_universe.tasks.eligibility.mapping.schema import OncotreeMapping, ReviewVerdict
+from aus_trial_universe.tasks.eligibility.mapping.workflow import (
     _oncotree_logic_problems,
     map_cancer_types,
     map_oncotree,
     strip_provenance,
 )
-from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import invalid_codes, is_subcode, oncotree_vocab, valid_codes
+from aus_trial_universe.tasks.eligibility.tools.oncotree import invalid_codes, is_subcode, oncotree_vocab, valid_codes
 
 
 # --- tools/oncotree (real resource) ---------------------------------------- #

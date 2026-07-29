@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from aus_trial_universe.agentic.core.agent import Agent
-from aus_trial_universe.agentic.core.client import LlmResult
+from aus_trial_universe.core.agent import Agent
+from aus_trial_universe.core.client import LlmResult
 
 
 class _Out(BaseModel):

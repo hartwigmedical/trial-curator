@@ -4,7 +4,7 @@
 #
 # Runs the full pipeline over a tiny picked trial set, one readable stage at a time, with all OUTPUTS confined
 # to data/agentic/demo/ (the production stores are never touched) while REUSING the ingested trials + the shared
-# LLM cache. See aus_trial_universe/agentic/demo.py for the re-rooting mechanism. Invoked by `make agentic-demo`.
+# LLM cache. See aus_trial_universe/demo.py for the re-rooting mechanism. Invoked by `make agentic-demo`.
 #
 #   Vars:  IDS=NCT1,NCT2   trial ids to demo   (default: the two baked into demo.py)
 #          RESET=0         keep the previous data/agentic/demo/ contents (default: wipe for a clean run)
@@ -74,4 +74,4 @@ if [[ -n "${IDS:-}" ]]; then args+=(--ids "${IDS}"); fi
 
 log_file="${LOG_DIR}/demo_$(date +%Y%m%d_%H%M%S).log"
 printf '\n==> agentic live demo (logging to %s)\n' "${log_file}" >&2
-"${PYTHON_BIN}" -m aus_trial_universe.agentic.demo "${args[@]}" 2>&1 | tee "${log_file}"
+"${PYTHON_BIN}" -m aus_trial_universe.demo "${args[@]}" 2>&1 | tee "${log_file}"

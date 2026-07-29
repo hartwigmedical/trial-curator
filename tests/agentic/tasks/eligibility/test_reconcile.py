@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import csv
 
-from aus_trial_universe.agentic import run
-import aus_trial_universe.agentic.tasks.eligibility.mapping.reconcile as rec
-from aus_trial_universe.agentic.tasks.eligibility.mapping.reconcile import normalize_or_order, repair_oncotree_code
-from aus_trial_universe.agentic.tasks.eligibility.schema import (
+from aus_trial_universe import run
+import aus_trial_universe.tasks.eligibility.mapping.reconcile as rec
+from aus_trial_universe.tasks.eligibility.mapping.reconcile import normalize_or_order, repair_oncotree_code
+from aus_trial_universe.tasks.eligibility.schema import (
     ArmEligibilityRaw, CancerTypeMap, GeneAlterationMap, InterpretedEligibility, MolecularSignatureMap,
 )
-from aus_trial_universe.agentic.tasks.eligibility.store import EligStore
+from aus_trial_universe.tasks.eligibility.store import EligStore
 
 
 def _read(path):
@@ -20,7 +20,7 @@ def _read(path):
 
 # --- deterministic pre-pass ------------------------------------------------- #
 def test_name_to_code_repair_and_or_order():
-    from aus_trial_universe.agentic.tasks.eligibility.tools.oncotree import oncotree_vocab, invalid_codes
+    from aus_trial_universe.tasks.eligibility.tools.oncotree import oncotree_vocab, invalid_codes
     # a residual where a NAME leaked into the code field (the leaked name carries an all-caps token 'NOS' that
     # invalid_codes flags) is repaired to its CODE.
     name = oncotree_vocab()["DLBCLNOS"]          # 'Diffuse Large B-Cell Lymphoma, NOS'

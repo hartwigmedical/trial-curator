@@ -5,9 +5,9 @@ No API/network: the cache is a DiskCache in tmp_path and `live` is a hand-built
 """
 from __future__ import annotations
 
-from aus_trial_universe.agentic.core.cache_prune import LIVE, STALE, UNKNOWN, classify, prune_cache
-from aus_trial_universe.agentic.core.client import DiskCache
-from aus_trial_universe.agentic.core.prompt_registry import live_prompt_shas
+from aus_trial_universe.core.cache_prune import LIVE, STALE, UNKNOWN, classify, prune_cache
+from aus_trial_universe.core.client import DiskCache
+from aus_trial_universe.core.prompt_registry import live_prompt_shas
 
 
 def _seed(tmp_path):

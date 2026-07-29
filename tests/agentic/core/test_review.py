@@ -6,8 +6,8 @@ when escalate=True. (The refine loop's own convergence properties are covered by
 """
 from __future__ import annotations
 
-from aus_trial_universe.agentic.core.review import review_refine
-from aus_trial_universe.agentic.core.workflow import CheckResult
+from aus_trial_universe.core.review import review_refine
+from aus_trial_universe.core.workflow import CheckResult
 
 
 def test_review_refine_ok_first_try():

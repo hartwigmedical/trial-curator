@@ -128,7 +128,7 @@
 </style>
 
 <div class="wrap">
-  <p class="date">28 July 2026 &middot; v2 agentic pipeline</p>
+  <p class="date">29 July 2026 &middot; v2 agentic pipeline</p>
   <h1>Drug utility path &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop, and the trustworthy facts
@@ -159,7 +159,41 @@
     <div class="item"><span class="dot rev"></span> LLM &middot; reviewer</div>
   </div>
 
+  <div class="principle">
+    <div class="h">The pipeline is now self-contained &mdash; one periodic loop (<span class="inline-code">make agentic-refresh</span>)</div>
+    <p><b>Ingest &rarr; curate &rarr; export</b>, runnable end-to-end on a schedule: download both registries &rarr; expire /
+      restore against the fresh universe &rarr; curate ONLY new trials (eligibility) &rarr; <b>drug utility for the new /
+      restored trials</b> (existing drugs are a pure lookup, no web search) &rarr; approval vocab &rarr; export. The whole
+      pipeline now lives directly under <span class="inline-code">aus_trial_universe/</span>; the legacy
+      <span class="inline-code">eligibility_path</span> / <span class="inline-code">drug_utility_path</span> trees are retired.</p>
+  </div>
+
   <div class="spine">
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 0 &middot; ingestion</span><h3>Download the trial universe &rarr; <span class="inline-code">inputs/trial_universe/</span></h3><span class="badge code">code</span></div>
+      <p>Shared upstream with the eligibility path &mdash; <b>no LLM</b>. A full download each run for both registries,
+        filtered + POTTR force-included, written to <span class="inline-code">&lt;registry&gt;/current_version/</span> (previous
+        &rarr; <span class="inline-code">archive/</span>). This is where every drug string ultimately comes from.</p>
+      <div class="branch">
+        <div class="b ct"><span class="src">CTGov &middot; API v2 (paged)</span>
+          <p>Essie search: recruiting-ish status &cap; AU/NZ &cap; drug &cap; neoplasm, plus a POTTR broad-net &amp; id-append; deduped by nctId.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; all.xls</span>
+          <p>curl_cffi Cloudflare-bypass pulls the whole-registry <span class="inline-code">all.xls</span> &rarr; re-filtered locally to the cohort; POTTR-exempt.</p></div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 0 &middot; expire / restore</span><h3>Reconcile the stores against the fresh universe</h3><span class="badge code">code</span></div>
+      <p>A trial that fell out of the kept universe is moved to a recoverable <span class="inline-code">expired/</span> area; its drug
+        provenance (<span class="inline-code">trial_to_intervention</span> + <span class="inline-code">trial_arm_drug_role</span>) is
+        dropped and cheaply re-derived (lookup-first, no web search) if it returns. POTTR trials never expire; a partial-download
+        guard (&gt;50%) and a POTTR-unreachable skip protect the stores. Shared drug facts are trial-independent and never moved.</p>
+    </section>
+    <div class="conn"></div>
 
     <section class="stage mix">
       <span class="rail"></span>
@@ -284,6 +318,15 @@
         batched with a checkpoint save (resumable) and soft-failing per drug so one bad drug can't kill a long run.
         Reference data lives under <span class="inline-code">resources/drug_utility/{pottr,rxnorm}/current_version/</span>;
         <span class="inline-code">make drug-ref-refresh-pottr</span> pulls the latest POTTR from GitHub (archiving the previous).</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Export &middot; matching engine</span><h3>The six tables referenced in place (Set B)</h3><span class="badge code">code</span></div>
+      <p>The periodic loop ends at <span class="inline-code">make agentic-export</span>: <b>Set A</b> = the eligibility path's wide
+        flat <span class="inline-code">trial_eligibility.tsv</span>; <b>Set B</b> = these drug 3NF tables, referenced in place, with a
+        MANIFEST pointing at them. Deterministic join, no API &mdash; then the loop can run again from ingestion.</p>
     </section>
 
   </div>

@@ -8,24 +8,24 @@ Interpreted cells carry NO source tag (provenance lives in the raw table); only 
 """
 from __future__ import annotations
 
-from aus_trial_universe.agentic.core.client import LlmResult
-from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
+from aus_trial_universe.core.client import LlmResult
+from aus_trial_universe.tasks.eligibility.extraction.agents import (
     ENUMERATION_REVIEWER_INSTRUCTIONS,
     REVIEWERS,
 )
-from aus_trial_universe.agentic.tasks.eligibility.extraction.schema import (
+from aus_trial_universe.tasks.eligibility.extraction.schema import (
     EligibilityExtraction,
     ExtractedRow,
     JudgeVerdict,
     RawExtraction,
     RawFragment,
 )
-from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import (
+from aus_trial_universe.tasks.eligibility.extraction.workflow import (
     Cohort,
     extract_trial,
 )
 # ANZCTR arm identification (drug extractor + regime derivation) is a path-neutral shared module now.
-from aus_trial_universe.agentic.tasks.shared.agents import DrugExtraction, RegimeVerdict
+from aus_trial_universe.tasks.shared.agents import DrugExtraction, RegimeVerdict
 
 
 def _reviewer_key(instructions: str) -> str | None:
@@ -109,7 +109,7 @@ def test_arm_raw_assembly_replicates_trialwide_and_tags_source():
 
 def test_norm_ws_collapses_newlines_and_tabs():
     """Verbatim spans are whitespace-normalized in the raw table so it stays line-oriented TSV (content preserved)."""
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import _norm_ws
+    from aus_trial_universe.tasks.eligibility.extraction.workflow import _norm_ws
     assert _norm_ws("line one\nline two\t  tab") == "line one line two tab"
     assert _norm_ws("  padded \n\n multi ") == "padded multi"
 
@@ -195,7 +195,7 @@ def test_cohort_wins_preserves_trialwide_cancer_type_exclusion():
 
 
 def test_top_level_and_splitter_respects_paren_depth():
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.workflow import _top_level_and
+    from aus_trial_universe.tasks.eligibility.extraction.workflow import _top_level_and
     assert _top_level_and("DMG") == ["DMG"]
     assert _top_level_and("") == []
     assert _top_level_and("DMG AND NOT(thalamic DMG)") == ["DMG", "NOT(thalamic DMG)"]
@@ -207,7 +207,7 @@ def test_top_level_and_splitter_respects_paren_depth():
 def test_extraction_judgement_prompt_decisions_present():
     """Prompt-only judgement rules can't be caught by fake-client behaviour tests — guard the strings so a
     future prompt edit can't silently drop them. See memory v2-stage2-extraction-decisions."""
-    from aus_trial_universe.agentic.tasks.eligibility.extraction.agents import (
+    from aus_trial_universe.tasks.eligibility.extraction.agents import (
         INTERPRETER_INSTRUCTIONS, RAW_EXTRACTOR_INSTRUCTIONS, RAW_REVIEWER_INSTRUCTIONS, REVIEWERS)
     rv = {s.key: s.instructions for s in REVIEWERS}
     # raw stage: verbatim copying + capture exclusions + completeness
@@ -347,7 +347,7 @@ def test_anzctr_comparator_drug_becomes_its_own_control_regime():
 
 
 def test_extract_anzctr_drugs_doer_reviewer():
-    from aus_trial_universe.agentic.tasks.shared.cohorts import extract_anzctr_drugs
+    from aus_trial_universe.tasks.shared.cohorts import extract_anzctr_drugs
     client = _ScriptedClient(extractions=[], intervention_drugs=["capecitabine", "bevacizumab"],
                              comparator_drugs=["chemotherapy"])
     dr = extract_anzctr_drugs(client, "...trial text...", use_reviewer=True)   # fake reviewer -> faithful
@@ -399,7 +399,7 @@ def test_enumeration_reviewer_gates_then_refine_splits_fabricated_conjunction():
 
 # --- ANZCTR drug-extractor tightening (non-drug modality backstop + prompt exclusions) --------------- #
 def test_drop_non_drug_modalities_filters_only_exact_modalities():
-    from aus_trial_universe.agentic.tasks.shared.cohorts import _drop_non_drug_modalities
+    from aus_trial_universe.tasks.shared.cohorts import _drop_non_drug_modalities
     got = _drop_non_drug_modalities([
         "Total Body Irradiation (TBI)", "TBI", "Surgery", "observation", "Placebo", "best supportive care",
         "Fludarabine", "Melphalan", "Radium-223 dichloride", "radiosensitising agent XYZ",
@@ -408,7 +408,7 @@ def test_drop_non_drug_modalities_filters_only_exact_modalities():
 
 
 def test_extract_anzctr_drugs_strips_non_drug_modalities():
-    from aus_trial_universe.agentic.tasks.shared.cohorts import extract_anzctr_drugs
+    from aus_trial_universe.tasks.shared.cohorts import extract_anzctr_drugs
     client = _ScriptedClient(
         extractions=[],
         intervention_drugs=["Fludarabine", "Melphalan", "Total Body Irradiation", "Surgery"],
@@ -420,7 +420,7 @@ def test_extract_anzctr_drugs_strips_non_drug_modalities():
 
 
 def test_anzctr_drug_extractor_prompt_decisions_present():
-    from aus_trial_universe.agentic.tasks.shared.agents import (
+    from aus_trial_universe.tasks.shared.agents import (
         DRUG_EXTRACTOR_INSTRUCTIONS as D, DRUG_EXTRACTOR_REVIEWER_INSTRUCTIONS as R)
     for text in (D, R):
         low = text.lower()

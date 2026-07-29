@@ -1,7 +1,7 @@
 """Deterministic POTTR / RxNorm+ATC lookups (spec §6.1) — tested with tiny fixtures (no gitignored data)."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic.tasks.drug_utility import pottr, rxnorm
+from aus_trial_universe.tasks.drug_utility import pottr, rxnorm
 
 
 # --- RxNorm + ATC (parse of RXNCONSO.RRF) ----------------------------------- #

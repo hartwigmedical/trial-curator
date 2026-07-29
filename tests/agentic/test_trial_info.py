@@ -1,7 +1,7 @@
 """trial_info master — deterministic extraction from raw CTGov protocolSection / ANZCTR rows + round-trip."""
 from __future__ import annotations
 
-from aus_trial_universe.agentic import trial_info as TI
+from aus_trial_universe import trial_info as TI
 
 
 def _ctgov_rec():

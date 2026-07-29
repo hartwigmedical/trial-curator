@@ -165,7 +165,7 @@
 </style>
 
 <div class="wrap">
-  <p class="date">28 July 2026</p>
+  <p class="date">29 July 2026</p>
   <h1>Eligibility path &mdash; how the modules interact</h1>
   <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
     <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, writing the
@@ -193,7 +193,41 @@
     <div class="item"><span class="dot rev"></span> LLM &middot; reviewer</div>
   </div>
 
+  <div class="principle">
+    <div class="h">The pipeline is now self-contained &mdash; one periodic loop (<span class="inline-code">make agentic-refresh</span>)</div>
+    <p><b>Ingest &rarr; this curation path &rarr; export</b>, runnable end-to-end on a schedule: download both registries &rarr;
+      expire / restore against the fresh universe &rarr; curate <b>ONLY new trials</b> (extract + map + reconcile) &rarr; drug
+      utility + approval vocab &rarr; matching-engine export. <b>Incremental</b> &mdash; an unchanged trial re-hits the cache
+      (no LLM). The whole pipeline now lives directly under <span class="inline-code">aus_trial_universe/</span>; the legacy
+      <span class="inline-code">eligibility_path</span> / <span class="inline-code">drug_utility_path</span> trees are retired.</p>
+  </div>
+
   <div class="spine">
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 0 &middot; ingestion</span><h3>Download the recruiting oncology trial universe &rarr; <span class="inline-code">inputs/trial_universe/</span></h3><span class="badge code">code</span></div>
+      <p>The self-contained upstream download &mdash; <b>no LLM</b>. Each run pulls the FULL current universe for both
+        registries, filters it, force-includes POTTR-listed trials, and writes to <span class="inline-code">&lt;registry&gt;/current_version/</span>
+        (previous snapshot &rarr; <span class="inline-code">archive/</span>). The fresh set IS the kept universe, so downstream
+        curation only picks up genuinely-new trials.</p>
+      <div class="branch">
+        <div class="b ct"><span class="src">CTGov &middot; API v2 (paged)</span>
+          <p>Essie search: recruiting-ish status &cap; AU/NZ &cap; drug intervention &cap; neoplasm condition, plus a POTTR broad-net &amp; id-append; deduped by nctId.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; all.xls</span>
+          <p>curl_cffi Cloudflare-bypass replays the DevExpress search and pulls the whole-registry <span class="inline-code">all.xls</span> &rarr; re-filtered LOCALLY to the cohort; POTTR-exempt.</p></div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 0 &middot; expire / restore</span><h3>Reconcile the store against the fresh universe</h3><span class="badge code">code</span></div>
+      <p>After ingest, a curated trial no longer in the kept universe is <b>moved to a recoverable <span class="inline-code">expired/</span> area</b>
+        (its eligibility + arm rows), and <b>restored</b> if it re-appears. POTTR trials <b>never expire</b>; the step is skipped when
+        POTTR is unreachable or when more than 50% of the store would expire (a partial-download guard).</p>
+    </section>
+    <div class="conn"></div>
 
     <section class="stage">
       <span class="rail"></span>
@@ -316,6 +350,16 @@
       <span class="rail"></span>
       <div class="head"><span class="tag">Write</span><h3>Shared registry + 3NF content masters + combined view</h3><span class="badge code">code</span></div>
       <p>Each finished trial is checkpointed straightaway: the arm spine to the <b>shared registry</b> <span class="inline-code">trial_arms/current_version/trial_arms.tsv</span> (<span class="inline-code">trial_arm_id, trialId, registry, arm, arm_type</span>; both registries), and its <b>2 content masters</b> to <span class="inline-code">eligibility/current_output/</span> &mdash; <b>arm_eligibility_raw.tsv</b> (<span class="inline-code">trial_arm_id&rarr;5 verbatim cells</span>) and <b>interpreted_eligibility.tsv</b> (<span class="inline-code">(trial_arm_id,conj_id)&rarr;5 interpreted cells</span>) &mdash; plus the three <span class="inline-code">*_map.tsv</span> vocab lookups. The denormalized <b>combined.tsv</b> (the materialized join eligibility &#8904; trial_arms &#8904; maps &#8904; drug annotations on <span class="inline-code">trial_arm_id</span>; one row per satisfiable (trial, arm) conjunction; the flat rows the matcher reads) is written <b>outside the store</b>, at <span class="inline-code">eligibility/combined/combined.tsv</span>. A trial that errors is logged &amp; <b>skipped</b> (batch continues, summary reports <span class="inline-code">N ok, M failed</span>). <span class="inline-code">drug_annotations</span> joins in via <span class="inline-code">trial_arm_id</span>.</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Export &middot; matching engine</span><h3>The matcher-facing hand-off (Set A + MANIFEST)</h3><span class="badge code">code</span></div>
+      <p>The periodic loop ends at <span class="inline-code">make agentic-export</span>: <b>Set A</b> = the wide flat
+        <span class="inline-code">trial_eligibility.tsv</span> (trial info + eligibility + intervention, one row per
+        <span class="inline-code">(trial_arm_id, conjunction)</span>); <b>Set B</b> = the drug 3NF tables referenced in place; a
+        MANIFEST ties them together. Deterministic join, no API &mdash; then the loop can run again from ingestion.</p>
     </section>
 
   </div>

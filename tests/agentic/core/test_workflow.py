@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from aus_trial_universe.agentic.core.workflow import CheckResult, fan_out, refine, run_parallel
+from aus_trial_universe.core.workflow import CheckResult, fan_out, refine, run_parallel
 
 
 def test_fan_out_preserves_order():
