@@ -13,8 +13,11 @@
 > register (`qa/waivers.py`), and keep-5 retention for input archives + run reports. **212 tests green.**
 >
 > **The immediate to-do list is the "⏭ RESUME AT" block below** — it is the authoritative task list.
-> **Order the user set:** (1) inspect the e2e run's output + run report → (2) **A3** file restructure
-> (`pipeline/` + `outputs/` + `qa/`) → (3) **A4** legacy module removal → then the rest of the backlog.
+> **⚠ RE-PRIORITISED 2026-07-30 (session 7): `B1` — OncoTree code-expression defects — is now the TOP priority,**
+> ahead of the A-group. The user supplied 17 further wrong curations; they are measured, classified and planned in
+> the B1 entry (three layers: deterministic verification → reconciliation canonical form → prompts).
+> *Previous order (still valid for everything after B1):* (1) inspect the e2e run's output + run report →
+> (2) **A2** file restructure (`pipeline/` + `outputs/` + `qa/`) → (3) **A3** legacy module removal → the rest.
 > Safety: **`data/backups/known_good_20260729_post_e2e/`** = the verified end-state of session 6 (all masters +
 > export + report + `MD5SUMS.txt`) + **`data/backups/RECOVERY.md`** — read that FIRST if anything looks wrong; it
 > has the exact copy-back commands and the pruning rule (**always keep ≥1 `known_good_*`**: the masters are
@@ -95,33 +98,126 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
   layout, the QA/gates story, and how to recover (`data/backups/RECOVERY.md`). Do it AFTER A2/A3 so paths are final.
 
 ### B. Needs a DEDICATED SESSION — prompt/vocab work (sign-off → cache invalidation → full re-run)
-Do B1 + B2 + B3 together: one cache invalidation, one re-run.
-- **🔴 B1 — ONCOTREE CODE-FIELD DEFECTS REPORTED BY THE MATCHING ENGINE (user, 2026-07-29). "Find all such
-  instances & fix them."** The four reported values:
-  1. `Solid tumour AND NOT((NSCLC AND NOT(LUSC)) OR HGSOC OR STAD OR ESCA OR GEJ OR COADREAD OR PANCREAS)`
-  2. `Haematological malignancy AND NOT(APLPMLRARA) AND NOT(MDS) AND NOT(MS)`
-  3. `Diffuse Glioma AND NOT(DMG) AND NOT(HGGNOS)`
-  4. `Pancreatic Adenocarcinoma AND NOT(Pancreatic Neuroendocrine Tumor)`
-  **Deterministic scan over the 4,969 distinct FINAL codes (2026-07-29) → three classes:**
-  - **(a) NAMES leaked into the code field** (#3, #4) — **ROOT CAUSE FOUND: a hole in the deterministic validator.**
-    `tools/oncotree.py:invalid_codes` only checks tokens matching `_TOKEN_RE = [A-Z][A-Z0-9_]+`, i.e. ALL-CAPS
-    tokens — mixed-case is skipped ON PURPOSE so the sentinels (`Solid tumour`, `Pan-cancer`) pass. But OncoTree
-    NAMES are mixed-case too, so `invalid_codes("Pancreatic Adenocarcinoma")` returns `[]` and every leaked name
-    sails through the hard gate. In the export: **45 rows** carry `Pancreatic Adenocarcinoma AND NOT(...)`, **8**
-    carry `Diffuse Glioma AND NOT(...)`. **FIXABLE WITHOUT ANY PROMPT CHANGE:** make the validator operand-level
-    (split on AND/OR/NOT/parens; every operand must be a valid code or one of the 3 sentinels), then re-run the
-    EXISTING deterministic name→code repair (`reconcile.repair_oncotree_code` + `tools/oncotree.name_to_code`).
-    No LLM, no cache invalidation. **Do this part first and separately.**
-  - **(b) Multiple separate `NOT()` clauses instead of one factored `NOT(A OR B)` — 480 values.** Same family as
-    the De Morgan item (B2): `OCSC AND NOT(NPC) AND NOT(SNSC) AND NOT(HNSCUP)` should be
-    `OCSC AND NOT(NPC OR SNSC OR HNSCUP)`. Deterministic to normalise.
-  - **(c) Nested / double negation — 18 values.** `HGSOC AND NOT(UCEC AND NOT(UEC))` — a `NOT()` containing a
-    `NOT()`. Needs a decision on the canonical form (probably: resolve to the intended positive/negative set, or
-    forbid nesting and re-map), then a rule in the mapper + a deterministic checker.
-  - Also verify the sentinel-plus-exclusion pattern in #1 is intended (`Solid tumour AND NOT(<7 types>)`), and that
-    `GEJ` / `MS` / `PANCREAS` are the codes actually meant (all three ARE valid OncoTree codes — confirmed).
-- **🔴 B2 — ONCOTREE CODE-RENDERING CONSISTENCY (the De Morgan item).** See the detailed entry below; same family
-  as B1(b)/(c). Fold the 11 cancer_type per-value LOGIC residuals in here too.
+**⚠ ORDER CHANGED 2026-07-30 — the user moved B1 (OncoTree) to TOP PRIORITY, ahead of the A-group restructure.**
+B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cache invalidation and one re-run.
+- **🔴🔴 B1 — ONCOTREE CODE-EXPRESSION DEFECTS. THE USER'S TOP PRIORITY (2026-07-30).** "Find all such instances &
+  fix them", at the **LLM-prompt**, **reconciliation** and **deterministic-verification** levels. **B2 (De Morgan)
+  and the 11 cancer_type LOGIC residuals are FOLDED IN HERE** — the reported values prove they are one family.
+
+  **THE REPORTED VALUES (4 from 2026-07-29 + 17 added by the user 2026-07-30; 18 unique).** All were located in
+  `finalised_cancer_type_map.tsv` and traced to their source cell — see the per-value trace in the taxonomy below.
+  ```
+   1  (Solid tumour AND NOT(BRAIN)) OR GB
+   2  Pancreatic Adenocarcinoma AND NOT(Pancreatic Neuroendocrine Tumor)
+   3  HGSOC AND NOT(UCEC AND NOT(UEC))
+   4  Endometrial Carcinoma AND NOT(UCS OR USARC)
+   5  Diffuse Glioma AND NOT(DMG) AND NOT(HGGNOS)
+   6  Solid tumour AND NOT((NSCLC AND NOT(LUSC)) OR HGSOC OR STAD OR ESCA OR GEJ OR COADREAD OR PANCREAS)
+   7  Chronic Lymphocytic Leukemia/Small Lymphocytic Lymphoma AND NOT(B-Cell Prolymphocytic Leukemia)
+   8  NOT(MLYM) AND NOT(DLBCLNOS AND EMALT) AND NOT(HL AND NHL) AND NOT(DLBCLNOS AND CLLSLL) AND NOT(HGBCL OR HGBCLMYCBCL2) AND NOT(PMBL)
+   9  Mature B-Cell Neoplasms AND NOT(PCNSL)
+  10  Breast AND NOT(BRAIN)
+  11  B-Lymphoblastic Leukemia/Lymphoma AND NOT(BL) AND NOT(ALAL)
+  12  Pan-cancer AND NOT(SKIN AND NOT(MEL))
+  13  Neuroblastoma AND NOT(LGGNOS)
+  14  CCRCC AND NOT(CDRCC) AND NOT(MRC) AND sarcomatoid histology <=30% AND NOT(active brain metastases)
+  15  NOT(Pan-cancer AND NOT(SKIN AND NOT(MEL)))
+  16  SEM OR (NSGCT AND NOT(TT) AND NOT(GCTSTM)) OR (OGCT AND NOT(OIMT OR OMT)) OR (VGCT AND NOT(VIMT OR VMT)) OR (BGCT AND NOT(BIMT OR BMT OR BMGT)) OR EGCT
+  17  (EGCT OR (NSGCT AND NOT(TT) AND NOT(GCTSTM)) OR SEM OR (OGCT AND NOT(OIMT) AND NOT(OMT)) OR (BGCT AND NOT(BIMT) AND NOT(BMGT) AND NOT(BMT)) OR (VGCT AND NOT(VIMT) AND NOT(VMT)))
+  18  Haematological malignancy AND NOT(APLPMLRARA) AND NOT(MDS) AND NOT(MS)
+  ```
+  ⚠ **#14 is NOT a code value** — it is the *interpreted* `cancer_type` cell (free text). Its mapped code is
+  `CCRCC AND NOT(CDRCC) AND NOT(MRC)`, which is CORRECT (the mapper properly dropped `sarcomatoid histology <=30%`
+  and `NOT(active brain metastases)`). What #14 actually reports is that **the interpreted cell keeps inexpressible
+  clinical qualifiers and ships them to the engine in the export's `cancer_type_interpreted` column** — an
+  EXTRACTION-side item, not a mapping one. Kept in the list as the exemplar of that class.
+  ⚠ **#16 vs #17 are the SAME trial, same logic, two renderings** — the De Morgan/ordering item (ex-B2) at full size.
+
+  **MEASURED TAXONOMY (2026-07-30; a throwaway operand-level parser run over all 1,185 distinct FINAL expressions
+  / 4,971 map rows / 17,830 export rows — the parser itself is re-written for real as L1 below).**
+  Only **39.2 % of distinct expressions are clean**; **20.8 % of export rows** carry ≥1 defect, **9.6 %** a
+  non-vacuous one.
+
+  | # | class | distinct | map rows | export rows | fixable by |
+  |---|---|---:|---:|---:|---|
+  | C1 | `leaked_name` — an OncoTree NAME in the code field (#2 #4 #5 #7 #9 #10 #11 #13) | 9 | 9 | 29 | deterministic |
+  | C2 | `multi_not_clauses` — `NOT(A) AND NOT(B)` not factored (#5 #8 #11 #17 #18) | 343 | 465 | 1,620 | deterministic |
+  | C3 | `redundant_outer_parens` (#17) | 1 | 1 | 4 | deterministic |
+  | C4 | OR-branch ORDER variance (#16 vs #17) | — | — | — | deterministic |
+  | C5 | `vacuous_exclusion` — excluded code disjoint from every positive code, so a no-op (#2 #13) | 646 | 1,059 | 3,289 | **policy decision** |
+  | C6 | `nested_not` — a `NOT()` inside a `NOT()` (#3 #6 #12 #15) | 10 | 18 | 57 | prompt + policy |
+  | C7 | `negation_only` — no positive term at all (#8 #15) | 8 | 8 | 19 | prompt (+ extraction) |
+  | C8 | `negated_sentinel` — `NOT(Pan-cancer)` / `NOT(Solid tumour)` (#15) | 7 | 7 | 14 | prompt (+ extraction) |
+  | C9 | `and_inside_not` — `NOT(A AND B)` over two disjoint types (#8) | 1 | 1 | 4 | prompt |
+  | C10 | `or_branch_excluded_elsewhere` — a branch excluded by a sibling (#1) | 1 | 2 | 3 | prompt |
+  | C11 | non-tumour-type exclusion became a code `NOT()` (#10) | 30 | 37 | — | prompt (+ extraction) |
+  | C12 | `leaked_freetext` — unrepairable text in the code field | 0 | 0 | 0 | (none present) |
+
+  **Deterministic canonicalisation alone (C1–C4) collapses 1,185 → 1,151 distinct expressions (34 merges) and
+  repairs 1,653 export rows. It CANNOT fix C5–C11 — those are 665 distinct values, of which only 25 are
+  non-vacuous.** Those 25 are enumerable by the L1 checker and are hand-reviewable in one sitting.
+
+  **ROOT CAUSES (all confirmed, not inferred):**
+  - **C1 — a hole in the hard gate.** `tools/oncotree.py:invalid_codes` only inspects tokens matching
+    `_TOKEN_RE = [A-Z][A-Z0-9_]+`, i.e. ALL-CAPS. Mixed case is skipped ON PURPOSE so the sentinels pass — but
+    OncoTree NAMES are mixed-case too, so `invalid_codes("Pancreatic Adenocarcinoma")` returns `[]` and a leaked
+    name sails through. `reconcile.repair_oncotree_code` then never fires, because it is gated on
+    `if invalid_codes(...)`. Every one of the 9 leaked names resolves cleanly via `name_to_code()` — the existing
+    repair works, it is simply never invoked.
+  - **C2/C3/C4 — no structural canonical form.** `normalize_or_order` bails on anything containing
+    `AND` / `NOT(` / `(`, i.e. on every expression that could actually diverge.
+  - **C6–C11 — the mapper is faithfully transcribing exclusions that are NOT tumour-type statements.** Traced to
+    source: `NOT(history of breast cancer)` → `NOT(BREAST)`; `NOT(current or history of malignancy disease)` →
+    `NOT(Pan-cancer)`; `NOT(CNS only disease)` → `NOT(BRAIN)`; `NOT(any hematologic malignancies)` →
+    `BREAST AND NOT(Haematological malignancy)`; `NOT(synchronous NSCLC disease)` → `NSCLC AND NOT(LUSC)`.
+    These are **prior/second-malignancy history, CNS-involvement and metastasis-site exclusions** — none of them
+    constrains the arm's tumour TYPE, and several are trial-wide exclusions that leaked onto one cohort
+    (#13 `NOT(LGGNOS)` on a neuroblastoma cohort). The prompts have a rule for inexpressible *qualifiers* but
+    **no rule for an exclusion that is about the wrong THING**.
+  - **C6 specifically** is the "unless" construction: `NOT(UCEC AND NOT(UEC))` faithfully encodes "exclude
+    endometrial cancer *unless* endometrioid" — but the unless-condition is stage/grade/age, which OncoTree cannot
+    express, so the project's own inexpressible-exclusion doctrine says OMIT the whole thing.
+    NB `NOT(UCEC AND UEC)` is **NOT** the intent: `UEC ⊂ UCEC`, so it collapses to `NOT(UEC)` — the exact inverse.
+
+  **THE FIX — THREE LAYERS (do them in this order; layer 1 alone needs no LLM and no cache invalidation).**
+  - **L1 · DETERMINISTIC VERIFICATION (`tools/oncotree.py`, no prompt change, no re-run).** Replace the token-regex
+    check with an **operand-level parser**:
+    `expr := or; or := and (' OR ' and)*; and := unary (' AND ' unary)*; unary := 'NOT(' expr ')' | '(' expr ')' | ATOM`,
+    with OncoTree NAMES masked longest-first BEFORE parsing (names contain parens/commas —
+    `Primary Mediastinal (Thymic) Large B-Cell Lymphoma` — so a naive parser splits them). Every operand must then
+    be a valid code or one of the 3 sentinels. Add hard checks for C6–C10 (`nested_not`, `negation_only`,
+    `negated_sentinel`, `and_inside_not`) so they can never be emitted again, and keep C5 as a WARN. This function
+    is the shared gate for the mapper's `check()`, the reconciler's `check()`, and a new QA gate.
+  - **L2 · RECONCILIATION (`mapping/reconcile.py` pre-pass).** Extend the deterministic pre-pass from
+    "repair leaked names + sort a flat OR" to a full **canonical form**: names→codes (now that L1 detects them),
+    factor `NOT(A) AND NOT(B)` → `NOT(A OR B)`, sort OR branches, strip redundant outer parens. Assert the
+    canonical form with L1's checker. Then extend `find_inconsistencies` to group on the CANONICAL form as well as
+    the source-text key — that is what makes #16 and #17 land in the same group (today they never meet, because
+    the detector groups by INPUT-value similarity and the two inputs genuinely differ).
+  - **L3 · PROMPT (mapper + reviewer; needs user sign-off → cache invalidation → full re-run).** Three new rules:
+    (i) **an exclusion must be a tumour-TYPE carve-out from the positive scope** — prior/second-malignancy history,
+    CNS involvement, metastasis site, and synchronous second primaries are NOT tumour types: drop them (with
+    counter-examples from the traces above); (ii) **the positive scope is mandatory** — never emit a
+    negation-only expression, never negate a sentinel, never `NOT(A AND B)` over two disjoint types; (iii)
+    **no nested NOT()** — a set difference has ONE level (`NSCLC AND NOT(LUSC)` is fine, `NOT(UCEC AND NOT(UEC))`
+    is not); if the carve-out condition is inexpressible, OMIT the exclusion rather than broaden it (the doctrine
+    the gene-alteration mapper already uses). Add the canonical negation form to the rules so the doer emits it
+    directly instead of relying on L2 to repair it.
+  - **Verification:** re-run the scanner after each layer; L1+L2 must take the 1,653 C1–C4 export rows to zero
+    without touching any other value, and the 25 non-vacuous survivors must be hand-checked against their sources.
+
+  **TWO OPEN DECISIONS (needed before L2/L3):**
+  1. **C5 vacuous exclusions — drop or keep?** 646 distinct / 3,289 export rows. `SKCM AND NOT(UM)` is a no-op to a
+     matching engine (a patient has one tumour type, and UM is not under SKCM), and these no-ops are the main
+     reason two mappings of one concept diverge. But they do record a real protocol carve-out. Recommendation:
+     **drop them in the canonical form, keep the un-normalised Step-1 code in its existing column** (the store
+     already keeps `oncotree_code` alongside `oncotree_code_FINAL`, so nothing is lost).
+  2. **C6 nested NOT — canonical form?** Recommendation: **forbid nesting; a set difference is one level deep.**
+     Where the carve-out is inexpressible (the `UCEC/UEC` family, 6 values, all one trial family), OMIT the
+     exclusion → `HGSOC`. Where it is expressible (#6's `NSCLC AND NOT(LUSC)` = non-squamous NSCLC, and #12's
+     `SKIN AND NOT(MEL)` = non-melanoma skin cancer), the nesting is only there because the term sits INSIDE
+     another `NOT()`; those need a named decision — either allow depth-2 in that one position or pre-resolve the
+     inner difference to an explicit OR of sibling codes.
 - **🔴 B3 — EXTRACTION MISSES ON SPECIFIC ARMS — 5 WAIVED, NEED A PROMPT FIX (user-approved waiver 2026-07-29).**
   Five arms produce ZERO interpreted eligibility even though the source states cancer-patient eligibility. Found by
   the new `arm_scope` mechanism (see below), confirmed by a full cache-bypass re-extraction at the signed-off
@@ -143,18 +239,15 @@ Do B1 + B2 + B3 together: one cache invalidation, one re-run.
   rows (19 cancer_type + 12 prior_therapy cells → 0). The fix must merge in the repaired ARM only and restore the
   reviewed rows for every sibling — and the restore scope is EVERY re-extracted trial, not just the ones with a
   repaired arm.
-- **(B2 detail) 🔴 ONCOTREE CODE-RENDERING CONSISTENCY — NEEDS A DEDICATED SESSION (user, 2026-07-29).** The FINAL vocab can
-  express the SAME logic two ways, and Step-2 does not catch it. Found live on the 2026-07-29 refresh's one new
-  trial (`ACTRN12626000937314`, endometrial): its two arms produced
-  `UCEC AND NOT(UCS) AND NOT(ESS)` and `UCEC AND NOT(UCS OR ESS)` — **logically identical by De Morgan, same three
-  codes, two renderings**. Step-2 left both because `find_inconsistencies` groups by INPUT-value similarity and the
-  two inputs genuinely differ ("advanced (stage III or IV)" vs "recurrent"), so the pair never forms a group. The
-  deterministic pre-pass normalises OR-branch ORDER (`normalize_or_order`) but has no De Morgan / negation-form
-  normalisation. **Impact depends on the matching engine:** cosmetic if it parses the boolean expression, a REAL
-  miss if it string- or set-compares. Scope for the session: a canonical negation form (probably factor to
-  `NOT(A OR B)`), applied deterministically in `mapping/reconcile.py`'s pre-pass + asserted by a checker, then a
-  full-store sweep for how many existing FINAL values are affected. Related: the **11 cancer_type per-value LOGIC
-  residuals** below are the same family (valid codes, imperfect structure) — do both in that session.
+- **(ex-B2, now FOLDED INTO B1) OncoTree code-rendering consistency — the De Morgan item.** Original finding kept
+  for provenance: on the 2026-07-29 refresh's one new trial (`ACTRN12626000937314`, endometrial) the two arms
+  produced `UCEC AND NOT(UCS) AND NOT(ESS)` and `UCEC AND NOT(UCS OR ESS)` — **logically identical by De Morgan,
+  same three codes, two renderings**. Step-2 left both because `find_inconsistencies` groups by INPUT-value
+  similarity and the two inputs genuinely differ ("advanced (stage III or IV)" vs "recurrent"), so the pair never
+  forms a group. **Impact depends on the matching engine:** cosmetic if it parses the boolean expression, a REAL
+  miss if it string- or set-compares. Now measured store-wide as B1 classes **C2/C4** (343 distinct / 1,620 export
+  rows) with the fix specified as B1 layer **L2** (canonical form + group on it). The **11 cancer_type per-value
+  LOGIC residuals** are the same family and are covered by the C5–C11 hand-review.
 
 ### C. NEW capabilities the user asked for (2026-07-29) — not started
 - **C1 — CROSS-CHECK AGAINST THE OLD ELIGIBILITY-PATH OUTPUT.** Compare the v2 export against the **v1**
