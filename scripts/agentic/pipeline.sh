@@ -141,7 +141,7 @@ case "${CMD}" in
   arm-consistency)
     # Verify the (trialId, arm) split is identical between the eligibility (trial_arms) and drug
     # (trial_to_intervention) paths — the shared join key. No API calls.
-    exec "${PYTHON_BIN}" -m aus_trial_universe.tasks.eligibility.qa.arm_consistency
+    exec "${PYTHON_BIN}" -m aus_trial_universe.qa.arm_consistency
     ;;
   export)
     # Build the matching-engine export: Set A (trial_eligibility.tsv) + MANIFEST; Set B (drug tables) referenced
@@ -169,7 +169,7 @@ case "${CMD}" in
     # Independent output validator (review of the reviewer agents). OUT=<tsv> or newest.
     vargs=()
     if [[ -n "${OUT:-}" ]]; then vargs=("${OUT}"); fi
-    exec "${PYTHON_BIN}" -m aus_trial_universe.tasks.eligibility.qa.validate_output "${vargs[@]}"
+    exec "${PYTHON_BIN}" -m aus_trial_universe.qa.validate_output "${vargs[@]}"
     ;;
   drug-ref-build)
     # Standalone drug-reference builder (spec §6.1). Incremental: existing drugs are reused (lookup).

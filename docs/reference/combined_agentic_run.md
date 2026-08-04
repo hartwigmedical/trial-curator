@@ -89,7 +89,7 @@ make agentic-validate OUT=<path.tsv>  # a specific TSV
 **Repointed in session 6** from the retired `combined.tsv` to the export. The export renamed the five eligibility
 columns to `<stem>_interpreted`; that is aliased in the READER (`load_output_rows`) so the signed-off check logic is
 untouched.
-Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/tasks/eligibility/qa/validate_output.py`.
+Prints a per-trial problem list + a `N/M trials clean` summary. `aus_trial_universe/qa/validate_output.py`.
 
 ### `make drug-ref-build` — the drug-reference resource (spec §6.1)
 Builds the standalone drug reference (6 tables: `intervention_to_canonical`, `trial_to_intervention`, `drug_annotations_core`,

@@ -505,7 +505,8 @@ aus_trial_universe/
     #                trial_arm_id() slug, ANZCTR drug agents, anzctr_regimes, TrialArm + TrialArmStore
     eligibility/   extraction/ (loaders,agents,schema,workflow)
     #              mapping/ (schema,workflow,reconcile,finding_model + cancer_type/ gene_alteration/ molecular_signature/)
-    #              qa/ (validate_output.py, arm_consistency.py, mapping_consistency.py)   # tools/ REMOVED 2026-08-04
+    #              (eligibility/qa/ REMOVED 2026-08-05: validate_output.py + arm_consistency.py -> top-level qa/,
+    #               mapping_consistency.py -> mapping/consistency.py; tools/ REMOVED 2026-08-04)
     drug_utility/  schema.py store.py rxnorm.py pottr.py agents.py workflow.py build.py migrate_trial_arms.py
 ```
 Arm identification is the ONE thing genuinely shared by both paths → it lives in `tasks/shared/` (both paths import
@@ -551,7 +552,7 @@ rather than explaining it, and while it was a rule it auto-absolved 7 arms of wh
 - **Code (orchestration/consolidate/validators/gates):** unit-tested with fake clients — no API (**350 tests**).
   The gate tests assert the FAILURE directions specifically: a gate that cannot fail is decoration.
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
-- **Independent output validator (`make agentic-validate`, `tasks/eligibility/qa/validate_output.py`):** a deterministic
+- **Independent output validator (`make agentic-validate`, `qa/validate_output.py`):** a deterministic
   *review of the reviewer agents* — runs OUTSIDE the workflow on a finished output TSV to catch what the in-loop
   reviewers let through (mapping degrades gracefully, so flagged values can still reach the output). Re-runs the
   pipeline's own OncoTree + finding-model validators on the final cells, plus cross-row DNF/cohort/exclusion

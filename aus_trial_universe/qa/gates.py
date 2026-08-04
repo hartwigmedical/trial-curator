@@ -157,7 +157,7 @@ def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> No
     diff, which also generalises: it fires for any cause (prompt edit, reconciler change, model drift) and covers
     NARROWING too, which is how over-restriction (a general criterion collapsed onto one named example) shows up.
 
-    An approved ruling in `qa/adjudications.py` is the sanctioned way to change a mapping, so adjudicated values
+    An approved ruling in `qa/adjudications/` is the sanctioned way to change a mapping, so adjudicated values
     are exempt — otherwise the gate would fail on the very fix it is meant to protect.
     """
     from aus_trial_universe.core.paths import ARCHIVE, CURRENT_VERSION, ELIGIBILITY_OUTPUT, FINALISED_MAP_FILES
@@ -203,7 +203,7 @@ def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> No
     was = load(previous / ct_file, "cancer_type", "oncotree_code_FINAL")
     for value, new in now.items():
         old = was.get(value)
-        if old is None or old == new or value in adjudications.APPROVED:
+        if old is None or old == new or value in adjudications.for_column("cancer_type"):
             continue
         np, op = positives(new), positives(old)
         if np is None or op is None or not op:
@@ -289,7 +289,7 @@ def run_gates(
     `before`/`expiry` the deltas and churn gates are skipped rather than guessed."""
     from aus_trial_universe.core.paths import EXPORT_FILE, EXPORT_ROOT
     from aus_trial_universe.export import EXPORT_COLUMNS
-    from aus_trial_universe.tasks.eligibility.qa.arm_consistency import check as fk_check
+    from aus_trial_universe.qa.arm_consistency import check as fk_check
     from aus_trial_universe.tasks.eligibility.scope import unexplained_arms
     from aus_trial_universe.qa.waivers import WAIVED_EMPTY_ARMS
     from aus_trial_universe.tasks.eligibility.store import EligStore
@@ -404,7 +404,7 @@ def run_gates(
     #     be VISIBLE every run, which is what it never was while it pointed at a retired file nobody generated.
     if rows:
         try:
-            from aus_trial_universe.tasks.eligibility.qa.validate_output import load_output_rows, validate_rows
+            from aus_trial_universe.qa.validate_output import load_output_rows, validate_rows
             reports = validate_rows(load_output_rows(export_path))
             n_problems = sum(len(r.problems) for r in reports)
             flagged = [r.trial_id for r in reports if r.problems]

@@ -183,7 +183,7 @@ def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_att
         CANCER_TYPE, GENE_ALTERATION, MOLECULAR_SIGNATURE,
         reconcile_column, write_finalised_mapped_eligibility, write_finalised_maps,
     )
-    from aus_trial_universe.tasks.eligibility.qa.mapping_consistency import find_inconsistencies
+    from aus_trial_universe.tasks.eligibility.mapping.consistency import find_inconsistencies
     from aus_trial_universe.core.logfmt import stage
     log.info(stage(f"RECONCILE (Step 2) · cancer {len(elig_store.cancer_map)} · gene {len(elig_store.gene_map)} · "
                    f"signature {len(elig_store.signature_map)} distinct · {workers} workers"))

@@ -168,10 +168,12 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
   + `tasks/`; group them so every top-level folder answers one question:
   - `pipeline/` = the runnable entry points — `ingest.py` · `run.py` · `refresh.py` · `demo.py`
   - `outputs/` = what a run emits — `export.py` · `trial_info.py` · `run_report.py`
-  - `qa/` **IS IN SCOPE (user, 2026-07-29)** — it already holds `gates.py` + `waivers.py`; ALSO move in
-    `tasks/eligibility/qa/{arm_consistency,validate_output}.py` (`arm_consistency` checks BOTH paths' tables, so
-    living under `tasks/eligibility/` is simply wrong). Leave `mapping_consistency.py` in eligibility — it is a
-    library `reconcile` uses, not a QA entry point.
+  - `qa/` — **✅ DONE 2026-08-05.** `tasks/eligibility/qa/` collided with the top-level `qa/` and is now GONE:
+    `arm_consistency.py` + `validate_output.py` moved UP to `qa/` (both are QA entry points, and `arm_consistency`
+    checks BOTH paths' tables, so living under `tasks/eligibility/` was simply wrong), and `mapping_consistency.py`
+    became `mapping/consistency.py` (a Step-2 library, not an entry point — so it stays in eligibility, just not
+    under a `qa/` name). `make` commands unchanged; `qa/` also gained the `adjudications/` package (one register per
+    vocabulary column).
   - Blast radius measured: **17 files, ~32 references**, plus the two `-m` invocations in `scripts/agentic/
     {pipeline,demo}.sh`. `make` commands stay identical for the user. Verify with the suite + `make agentic-demo`
     (~35 s, exercises extract → map → reconcile → drug → export for real).
@@ -519,8 +521,10 @@ aus_trial_universe/agentic/
     tools/
       oncotree.py            # oncotree.YAML vocab + valid_codes + ancestors + vocab_reference() (indented Name (CODE) tree) + name_to_code() (reverse, for Step-2 repair); 3 sentinels
       finding_model.py       # FULL grammar validator (2026-07-28): finding_model_problems() = field/enum/scope/HGVS-aware DSL parser (CLASS_SPEC) — the hard SYNTAX gate; + GRAMMAR_REFERENCE
-    qa/                      # validate_output.py (make agentic-validate) + arm_consistency.py (make agentic-arm-consistency) + mapping_consistency.py (cross-value: canonical_key/find_inconsistencies — used by Step 2)
-tests/agentic/               # 162 tests (fake-client); mirrors tasks/ (core [+test_review], tasks/shared, tasks/eligibility [+ test_mapping_findingmodel, test_run_map_only, test_reconcile, qa/test_mapping_consistency], tasks/drug_utility [+ test_drug_utility_roles]) + top-level test_export.py + test_trial_info.py
+    # ⚠ eligibility/qa/ IS GONE (2026-08-05, user: it collided with the top-level qa/). validate_output.py and
+    #   arm_consistency.py moved to the top-level `qa/` (they are QA ENTRY POINTS, and arm_consistency checks BOTH
+    #   paths' tables); mapping_consistency.py -> `mapping/consistency.py` (a Step-2 library, not an entry point).
+tests/agentic/               # 162 tests (fake-client); mirrors tasks/ (core [+test_review], tasks/shared, tasks/eligibility [+ test_mapping_findingmodel, test_run_map_only, test_reconcile, mapping/test_consistency], tasks/drug_utility [+ test_drug_utility_roles]) + top-level test_export.py + test_trial_info.py
 scripts/agentic/pipeline.sh  # driver: python-pick, .env, tests-preflight, log tee; subcommands run|validate|export|clean|tests|cache-prune|arm-consistency|drug-migrate-trial-arms|drug-ref-build|drug-ref-refresh-pottr
 scripts/agentic/demo.sh      # STANDALONE demo driver (make agentic-demo; session 3): python-pick, .env, reset data/agentic/demo/, SEED demo drug ref from production (=> 0 web search), tee. Does not touch pipeline.sh.
 docs/reference/combined_agentic_run.md   # run/setup guide

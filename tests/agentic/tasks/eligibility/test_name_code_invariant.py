@@ -25,7 +25,7 @@ def test_name_derivation_round_trips_and_handles_sentinels_and_empty():
 def test_approved_adjudications_are_wellformed():
     """Each entry is an EXPECTATION first: the comparison reports whether the pipeline reached it unaided. An
     entry with no rationale or no approver is not reviewable, which defeats the point of keeping it in code."""
-    assert adjudications.APPROVED, "the register should not be silently empty"
-    for key, ruling in adjudications.APPROVED.items():
-        assert ruling.cancer_type == key
-        assert ruling.final_code.strip() and ruling.rationale.strip() and ruling.approved.strip()
+    assert adjudications.for_column("cancer_type"), "the register should not be silently empty"
+    for key, ruling in adjudications.for_column("cancer_type").items():
+        assert ruling.value == key
+        assert ruling.final.strip() and ruling.rationale.strip() and ruling.approved.strip()

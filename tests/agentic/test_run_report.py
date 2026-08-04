@@ -42,7 +42,7 @@ def test_write_report_records_churn_deltas_and_gap(tmp_path, monkeypatch):
     trials (an empty interpreted DNF yields no export row — silent without this)."""
     monkeypatch.setattr(RR, "_coverage", lambda: {"empty_arms": 2, "empty_trials": ["NCT9", "NCT_GONE"]})
     monkeypatch.setattr(RR, "_registry_dates", lambda ids: {})   # never read the real registry inputs in a unit test
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: {"registry": 10, "elig_refs": 10, "drug_refs": 9, "role_refs": 9,
                                  "elig_dangling": [], "drug_dangling": [], "role_dangling": [], "unused": ["NCT1::X"]})
     export = tmp_path / "trial_eligibility.tsv"
@@ -80,7 +80,7 @@ def test_dry_run_note_comes_from_the_caller_not_the_expiry_flag(tmp_path, monkey
     """ExpiryReport.applied is False both for a real dry-run AND when nothing needed moving, so the note must
     follow the caller's --dry-run-expiry intent."""
     monkeypatch.setattr(RR, "_coverage", lambda: {"empty_arms": 0, "empty_trials": []})
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: {"registry": 0, "elig_refs": 0, "drug_refs": 0, "role_refs": 0,
                                  "elig_dangling": [], "drug_dangling": [], "role_dangling": [], "unused": []})
     common = dict(before={}, after={}, kept=set(), curated_ids=[], export_path=tmp_path / "x.tsv",
@@ -139,7 +139,7 @@ def test_write_report_prunes_after_writing_status(tmp_path, monkeypatch):
     """Order matters: prune runs AFTER the current run's report and STATUS.json are on disk, so a prune failure
     can never cost the artefacts of the run that just completed."""
     monkeypatch.setattr(RR, "_coverage", lambda: {"empty_arms": 0, "empty_trials": []})
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: {"registry": 0, "elig_refs": 0, "drug_refs": 0, "role_refs": 0,
                                  "elig_dangling": [], "drug_dangling": [], "role_dangling": [], "unused": []})
     d = tmp_path / "rr"
@@ -157,7 +157,7 @@ def test_write_report_prunes_after_writing_status(tmp_path, monkeypatch):
 def test_write_report_survives_a_broken_integrity_check(tmp_path, monkeypatch):
     """A report must never turn a completed run into a failure."""
     monkeypatch.setattr(RR, "_coverage", lambda: {"empty_arms": 0, "empty_trials": []})
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: (_ for _ in ()).throw(RuntimeError("store missing")))
     path = RR.write_report(
         before={}, after={}, kept=set(), expiry=ExpiryReport(), curated_ids=[],

@@ -81,7 +81,7 @@ def test_an_approved_adjudication_is_exempt(tmp_path, monkeypatch):
     """A ruling is the sanctioned way to change a mapping, so the gate must not fail on our own fix."""
     from aus_trial_universe.qa import adjudications
 
-    monkeypatch.setitem(adjudications.APPROVED, "some gynaecological cohort", object())
+    monkeypatch.setitem(adjudications.for_column("cancer_type"), "some gynaecological cohort", object())
     root = _store(tmp_path, [("some gynaecological cohort", "CERVIX OR OVARY")],
                   [("some gynaecological cohort", "Solid tumour")])
     assert _verdict(root)[0] == PASS

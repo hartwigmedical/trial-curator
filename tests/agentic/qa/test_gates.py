@@ -41,7 +41,7 @@ def clean(monkeypatch):
     arms.arms = {"NCT1": [TrialArm(trial_arm_id="NCT1::A", trialId="NCT1", registry="ctgov", arm="A")]}
     monkeypatch.setattr(EligStore, "load", classmethod(lambda cls, *a, **k: elig))
     monkeypatch.setattr(TrialArmStore, "load", classmethod(lambda cls, *a, **k: arms))
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: {"registry": 1, "elig_refs": 1, "drug_refs": 1, "role_refs": 1,
                                  "elig_dangling": [], "drug_dangling": [], "role_dangling": [], "unused": []})
     monkeypatch.setattr("aus_trial_universe.trial_info.load_trial_info", lambda *a, **k: {"NCT1": object()})
@@ -63,7 +63,7 @@ def test_all_green_baseline(clean, tmp_path):
 
 
 def test_dangling_fk_fails(clean, tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: {"registry": 1, "elig_refs": 2, "drug_refs": 1, "role_refs": 1,
                                  "elig_dangling": ["NCT9::A"], "drug_dangling": [], "role_dangling": [],
                                  "unused": []})

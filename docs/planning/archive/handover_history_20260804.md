@@ -186,7 +186,7 @@ EXISTING Artifact URLs (never mint new ones) — see memory `workflow-diagram-ar
 CHANGED `refresh.py` (stages 7-9 + exit codes), `core/paths.py` (`RUN_REPORT_DIR`, `ARCHIVE_KEEP`, `prune_archive`,
 collision-safe `archive_current_version`), `tasks/eligibility/{schema,store}.py` (`ArmScope` + `arm_scope` table +
 `save_scope`/`empty_arms`), `tasks/eligibility/extraction/loaders.py` (`ctgov_healthy_volunteer_flags`),
-`tasks/eligibility/qa/validate_output.py` (repoint + `load_output_rows`), `tasks/ingestion/{ctgov,anzctr}.py`
+`qa/validate_output.py` (repoint + `load_output_rows`), `tasks/ingestion/{ctgov,anzctr}.py`
 (archive pruning), `Makefile` + `scripts/agentic/pipeline.sh` (`agentic-gates`). NEW tests
 `tests/agentic/{test_run_report,test_refresh_exit_codes}.py`, `tests/agentic/qa/test_gates.py`,
 `tests/agentic/tasks/eligibility/test_scope.py`. **212 green.**

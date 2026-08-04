@@ -83,20 +83,22 @@ def test_a_merely_unattested_symbol_still_only_warns():
 
 # --------------------------------------------------------------------------- the registers
 def test_both_registers_are_populated_and_wellformed():
-    assert len(adjudications.APPROVED) >= 28
-    assert len(adjudications.APPROVED_GENE) >= 2
-    for key, ruling in adjudications.APPROVED.items():
-        assert ruling.cancer_type == key
-        assert ruling.rationale.strip() and ruling.approved.strip()
-    for key, ruling in adjudications.APPROVED_GENE.items():
-        assert ruling.gene_alteration == key
-        assert ruling.rationale.strip() and ruling.approved.strip()
+    assert len(adjudications.for_column("cancer_type")) >= 28
+    assert len(adjudications.for_column("gene_alteration")) >= 2
+    # molecular_signature is deliberately empty, but the register must EXIST so for_column needs no special case
+    assert adjudications.for_column("molecular_signature") == {}
+    assert adjudications.for_column("nonsense") == {}
+    assert set(adjudications.all_rulings()) == {"cancer_type", "gene_alteration", "molecular_signature"}
+    for column, register in adjudications.all_rulings().items():
+        for key, ruling in register.items():
+            assert ruling.value == key, column
+            assert ruling.rationale.strip() and ruling.approved.strip(), column
 
 
 def test_an_empty_string_is_a_legitimate_gene_ruling():
     """`AGA negative` -> '' is the FIX, so callers must test `is not None`, never truthiness."""
-    ruling = adjudications.APPROVED_GENE["AGA negative"]
-    assert ruling.final_expression == ""
+    ruling = adjudications.for_column("gene_alteration")["AGA negative"]
+    assert ruling.final == ""
     assert ruling is not None
 
 
@@ -104,8 +106,8 @@ def test_every_approved_cancer_type_final_is_clean_and_canonical():
     """A ruling is applied AFTER the deterministic pass and is never re-canonicalised, so it must already be
     correct — a ruling that carries an error-severity defect would ship one."""
     from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import canonical_form
-    for key, ruling in adjudications.APPROVED.items():
-        final = ruling.final_code
+    for key, ruling in adjudications.for_column("cancer_type").items():
+        final = ruling.final
         if not final:
             continue
         errors = [f.defect for f in check_expression(final).findings if f.severity == "error"]
@@ -115,6 +117,6 @@ def test_every_approved_cancer_type_final_is_clean_and_canonical():
 
 def test_every_approved_gene_final_passes_the_grammar():
     from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
-    for key, ruling in adjudications.APPROVED_GENE.items():
-        if ruling.final_expression:
-            assert not finding_model_problems(ruling.final_expression), key
+    for key, ruling in adjudications.for_column("gene_alteration").items():
+        if ruling.final:
+            assert not finding_model_problems(ruling.final), key

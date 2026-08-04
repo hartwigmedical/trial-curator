@@ -7,7 +7,7 @@ Arm identity now lives in ONE place (the shared registry, populated via the shar
 so the two paths cannot disagree on labels — this check verifies neither path references an arm the registry does
 not contain, and reports registry arms referenced by neither path (informational).
 
-    python -m aus_trial_universe.tasks.eligibility.qa.arm_consistency   # exit 0 = consistent, 1 = dangling
+    python -m aus_trial_universe.qa.arm_consistency   # exit 0 = consistent, 1 = dangling
 """
 from __future__ import annotations
 

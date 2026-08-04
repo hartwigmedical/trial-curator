@@ -17,7 +17,7 @@ Two layers of checks:
    rows, in-cell `X AND NOT(X)`, and prior_therapy subsuming-twin over-enumeration.
 
 Usage:
-    python -m aus_trial_universe.tasks.eligibility.qa.validate_output [OUTPUT.tsv]
+    python -m aus_trial_universe.qa.validate_output [OUTPUT.tsv]
     (no arg -> the Set-A export, data/agentic/derived/export/trial_eligibility.tsv)
 """
 from __future__ import annotations

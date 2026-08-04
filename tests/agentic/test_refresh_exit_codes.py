@@ -80,7 +80,7 @@ def test_refresh_passes_the_eligibility_rc_to_the_gates(stub_stages, monkeypatch
 def test_status_json_marks_a_failed_cycle(tmp_path, monkeypatch):
     """STATUS.json is what an external monitor polls — it must say `fail` and name the failing gates."""
     monkeypatch.setattr(RR, "_coverage", lambda: {"empty_arms": 0, "empty_trials": []})
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.qa.arm_consistency.check",
+    monkeypatch.setattr("aus_trial_universe.qa.arm_consistency.check",
                         lambda: {"registry": 1, "elig_refs": 1, "drug_refs": 1, "role_refs": 1,
                                  "elig_dangling": [], "drug_dangling": [], "role_dangling": [], "unused": []})
     gates = G.GateReport()

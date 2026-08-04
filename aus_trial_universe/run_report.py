@@ -190,7 +190,7 @@ def write_report(
 
     integrity_lines = []
     try:
-        from aus_trial_universe.tasks.eligibility.qa.arm_consistency import check
+        from aus_trial_universe.qa.arm_consistency import check
         r = check()
         dangling = len(r["elig_dangling"]) + len(r["drug_dangling"]) + len(r["role_dangling"])
         verdict = "CONSISTENT" if dangling == 0 else f"**DANGLING ({dangling})**"

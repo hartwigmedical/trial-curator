@@ -234,7 +234,7 @@ def reconcile_column(
     `unresolved` lists values with an operand that could not be resolved to a real code — the residue for a
     human. It replaces the old name->code repair's failure list.
     """
-    from aus_trial_universe.tasks.eligibility.qa.mapping_consistency import find_inconsistencies
+    from aus_trial_universe.tasks.eligibility.mapping.consistency import find_inconsistencies
 
     # gene_alteration has its OWN stage 2 (finding-model canonical form + concept-level grouping), so it is
     # dispatched rather than squeezed through the OncoTree pipeline below. Until 2026-08-04 the gene column had no
@@ -282,16 +282,20 @@ def reconcile_column(
             if verdict:
                 refined.update(verdict)
 
-    # ---- R7: converge, then apply any approved hand-ruling ----------------------
-    if is_oncotree:
-        for value, code in list(refined.items()):
+    # ---- R7: converge (oncotree only), then apply any approved hand-ruling ------
+    # The ruling is applied for EVERY column this function handles, not just oncotree: the register is looked up by
+    # the `column` discriminator, so molecular_signature gets the hook for free the day it needs one.
+    rulings = adjudications.for_column(column)
+    for value, code in list(refined.items()):
+        if is_oncotree:
             for _ in range(MAX_CONVERGENCE_PASSES):
                 nxt = deterministic_pass(code)
                 if nxt == code:
                     break
                 code = nxt
-            ruling = adjudications.APPROVED.get(value)
-            refined[value] = ruling.final_code if ruling is not None else code
+        ruling = rulings.get(value)
+        # NB `""` is a legitimate ruling — test identity, not truthiness.
+        refined[value] = ruling.final if ruling is not None else code
     return refined, unresolved, len(members)
 
 
