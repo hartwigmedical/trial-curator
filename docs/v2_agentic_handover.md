@@ -1,6 +1,52 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-08-04, end of session 9)
+## ▶ NEXT SESSION — START HERE (updated 2026-08-05, end of session 10)
+
+> **WHERE THINGS STAND (2026-08-05, session 10).** Matching-engine feedback named **26 trials** it could not parse.
+> Investigated, then audited **ALL 4,971 cancer_type + 909 gene_alteration mappings**. Result: the engine's own
+> complaints were already fixed by B1 (leaked OncoTree NAMES, 8 of the 26), but the audit found **29 genuine
+> defects of ours**, now corrected via `qa/adjudications.py`. **378 tests green · gates WARN · 0 FAIL.
+> UNCOMMITTED — the user does ALL commits.**
+>
+> **The engine is NOT ground truth (user, standing).** It is mid-refactor and has its own bugs; we must never
+> degrade our output to satisfy it. Its biggest hole: `TrialReader.parseOncology` is single-code-per-line with NO
+> boolean support, so it reads `NSCLC AND NOT(LUSC)` as **positive LUSC** — silently inverting an exclusion into an
+> inclusion (221 trials) — and drops all but the last code of any `A OR B`. Not yet in the capability-gaps doc; see
+> to-do **D5**.
+>
+> **What shipped:**
+> - **`qa/adjudications.py` now has TWO registers** — `APPROVED` (cancer_type, applied at `reconcile.py` R7) and
+>   the new **`APPROVED_GENE`** (gene_alteration, applied at `gene_alteration/reconcile.py` **R5**). 28 + 2 rulings.
+>   `""` is a LEGITIMATE ruling, so callers must test `is not None`, never truthiness.
+> - **Three new checks**, each pinned to a real defect by `tests/agentic/qa/test_audit_20260805_checks.py`:
+>   `log_unjustified_sentinel` (cancer_type, error — needs the source, so it lives in the new source-aware
+>   `checks.check_against_source()`), `MT` added to `CATCHALL_NODES` (a paediatric brain tumour was mapped to
+>   OncoTree's "Malignant Tumor" catch-all and nothing fired), and `acronym_as_gene` (error — `AGA negative` in an
+>   NSCLC trial means *actionable genomic alteration*, but AGA is also a real HGNC symbol, so no vocabulary check
+>   could catch it).
+> - **New `mapping_drift` gate** (`qa/gates.py`) — diffs each finalised map against the newest ARCHIVED version and
+>   **FAILs on any value that broadened** without an approved ruling; WARNs on narrowing. This is the gate that
+>   closes the class: B1's review artifact reported defects FIXED and REMAINING but never quality **LOST**, so a
+>   value that changed while fixing nothing was invisible across 4,971 rows.
+> - Export re-built: **17,830 rows unchanged, 71 rows / 24 trials changed, 0 rows unexplained by a ruling.**
+>
+> **⚠ THE LESSON THAT COST THE MOST — `--reconcile` CHURNS.** Applying the rulings changed the grouping, which
+> re-rolled 7 unrelated values; two of them **reverted genuine B1 improvements** (graded glioma codes
+> `ASTR2 OR ASTR3 OR ODG2 OR ODG3` collapsed back to `ASTR OR ODG`). The new gate caught it. All 7 were reverted to
+> their pre-run reviewed state so the change set is EXACTLY the 29 approved rulings, and they are listed in **B4**
+> for a decision. **Never assume a store-wide re-run is inert: snapshot, then diff and require every changed row
+> to be explained.**
+>
+> **▶ YOUR NEXT TASK: unchanged — the A-group.** A2 remaining (`pipeline/` + `outputs/` + `qa/` regroup) → A3
+> legacy removal → A4/A4b/A5. Then B4/B5 (below), then the C/D/F backlog. **F1 (curated masters into git) remains
+> the highest-value quick win in this doc.**
+>
+> Backup: `data/backups/pre_adjudications_20260805_0132/` (store + export + joined + MD5SUMS).
+>
+> ---
+> *Historical context from earlier sessions follows.*
+
+## ▶ SESSION 9 (superseded, kept for provenance) — updated 2026-08-04
 
 > **WHERE THINGS STAND (2026-08-04, session 9).** **`B1b` (gene_alteration mapping) is DONE, reviewed, approved and
 > MIGRATED TO PRODUCTION**, together with the `mapping/` restructure the user asked for. **350 tests green.
@@ -221,6 +267,34 @@ B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cac
   `known_good_20260804_post_oncotree`.
   ➜ **The successor task is `B1b` (gene_alteration), above.**
 
+- **🔴 B4 — FIX AT THE ROOT THE DEFECTS THE ADJUDICATIONS ARE HOLDING (user, 2026-08-05).** `qa/adjudications.py`
+  now carries 30 rulings. **Every one is an `override`, i.e. an admission that a prompt or deterministic rule is
+  still too weak** — the register's own docstring says the override count is the quality metric for the
+  correction, and an entry that flips to `match` should be RETIRED. Work through them by class and decide what
+  changes in the doer/reviewer prompts:
+  - **the sentinel-broadening class (the majority)** — the mapper answers "gynaecological cancer" / "spine cancer"
+    / "adenoid cystic carcinoma" with `Solid tumour`. The prompt needs an explicit rule that a sentinel is only
+    permitted when the source states a pan-scope population, plus the organ-set idiom for regional wordings.
+  - **`acronym_as_gene`** — the gene mapper read `AGA` as a symbol. Needs a rule that an all-caps token must be
+    confirmed as a gene from context, not from shape.
+  - **over-narrowing** — `MET fusion, including PTPRZ1-MET fusion` was restricted to the named example. Needs a
+    rule that "including X" makes X an EXAMPLE, never the whole criterion.
+  - **catch-all nodes** — now gated deterministically (`MT`), so probably no prompt work needed.
+  ⚠ **Batch this with B3**, because each prompt change re-fingerprints the agent, prunes its cache and re-rolls
+  ALL 4,971 values — the exact mechanism that produced the nine B1 regressions. Do NOT do it piecemeal.
+  **Also decide the 7 churned values** listed in the session-10 START-HERE block: 2 of the 7 were arguably
+  IMPROVEMENTS the re-roll produced (`DIFG`→`DMG` for a source that says "diffuse midline glioma";
+  `+NOT(BREAST)` where the source excludes breast as well as prostate) and were reverted only to keep the change
+  set equal to what was approved. Either adopt them as rulings or accept that they will churn on every reconcile.
+- **🔴 B5 — BUILD THE PROMPT → RE-RUN → EVALUATION HARNESS (user, 2026-08-05). The prerequisite for B4.**
+  B1's review artifact had `issues_fixed` and `issues_remaining` but **no DEGRADED bucket**, which is the single
+  reason nine regressions shipped. The harness must classify every value in a before/after pair as
+  **fixed · unchanged · degraded**, and *the degraded bucket must be empty before sign-off* — that, not care, is
+  what makes prompt work safe. Most of the machinery already exists and should be reused rather than rebuilt:
+  `qa/gates.py:_mapping_drift_gate` (the broadening/narrowing classifier), the `APPROVED_*` registers' match /
+  override reporting, and `analysis/gene_alteration_comparison.tsv`'s column shape
+  (`before_production` / `after_stage1` / `after_stage2_FINAL` / `regression_risk`). This also finally delivers the
+  long-deferred **run-comparison method** (spec §12 / group E), so it retires that item too.
 - **🔴 B3 — EXTRACTION MISSES ON SPECIFIC ARMS — 5 WAIVED, NEED A PROMPT FIX (user-approved waiver 2026-07-29).**
   Five arms produce ZERO interpreted eligibility even though the source states cancer-patient eligibility. Found by
   the new `arm_scope` mechanism (see below), confirmed by a full cache-bypass re-extraction at the signed-off
@@ -284,6 +358,18 @@ B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cac
   crudeness (e.g. same-type histology+stage AND — satisfiable and faithful) vs (ii) real defects. Feeds C4.
 - **D4 — reconcile + approval vocab re-run in FULL every cycle** (~10 of 17 min) even with zero churn. A
   fingerprint over the distinct-value set would skip them. Optimisation, not a defect.
+- **D5 — REVIEW `qa/` AGAINST THE PORTED MATCHING-ENGINE LOGIC (user, 2026-08-05).** Revisit the whole `qa/`
+  package now that `engine_port.py` + `engine_conformance.py` encode the engine's parser: which of our checks
+  duplicate it, which contradict it, and which of its constraints we should NOT adopt. **Standing principle from
+  the user: the matching engine is NOT ground truth** — it is mid-refactor, it has its own bugs, and *we must
+  never degrade our output quality to satisfy it.* Concretely in scope: (i) the genetics port is pinned to
+  `oncoact@a97142938` (May 2026) while the engine has moved on — re-pin and re-run its 12-test fidelity check
+  first; (ii) there is **no oncology-side port**, though `TrialReader.parseOncology` is where a throw discards a
+  whole trial — a transcription exists in scratchpad form from the 2026-08-05 investigation and should be
+  promoted if we keep this line of QA; (iii) the engine-side oncology gaps found on 2026-08-05 are not yet in
+  `docs/planning/matching_engine_capability_gaps.md` — chiefly that `parseOncology` is single-code-per-line with
+  no boolean support, so it reads `NSCLC AND NOT(LUSC)` as **positive LUSC** (221 trials), silently inverting an
+  exclusion into an inclusion, and drops all but the last code of any `A OR B`.
 
 ### E. Long-standing / previously deferred with the user's agreement
 - **219 trials `faithful=False`** (hard multi-cohort extraction, best-of-6) · **weighted "best attempt"** in

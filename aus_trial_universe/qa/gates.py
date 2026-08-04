@@ -101,6 +101,7 @@ def _oncotree_expression_gate(rep: "GateReport", export_path: Path) -> None:
     negation-only cells, unsatisfiable conjunctions) the day it appeared. Catalogue: tools/oncotree_checks.py.
     """
     from collections import Counter
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.checks import check_against_source
     from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import expression_problems
 
     if not Path(export_path).exists():
@@ -110,10 +111,20 @@ def _oncotree_expression_gate(rep: "GateReport", export_path: Path) -> None:
     errors: Counter = Counter()
     warns: Counter = Counter()
     seen: set[str] = set()
+    seen_pairs: set[tuple[str, str]] = set()
     with open(export_path, newline="", encoding="utf-8") as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             code = (row.get("oncotree_code") or "").strip()
-            if not code or code in seen:
+            if not code:
+                continue
+            # The source-aware checks need the interpreted value too, so they are keyed on the PAIR — the same
+            # code can be right for one source and a broadening of another.
+            source = (row.get("cancer_type_interpreted") or "").strip()
+            if (source, code) not in seen_pairs:
+                seen_pairs.add((source, code))
+                for problem in check_against_source(source, code).findings:
+                    (errors if problem.severity == "error" else warns)[problem.defect] += 1
+            if code in seen:
                 continue
             seen.add(code)
             for problem in expression_problems(code):
@@ -128,6 +139,93 @@ def _oncotree_expression_gate(rep: "GateReport", export_path: Path) -> None:
                 + ", ".join(f"{k}×{v}" for k, v in warns.most_common(5)))
     else:
         rep.add("oncotree_expressions", PASS, f"{len(seen):,} distinct expressions · 0 defects")
+
+
+def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> None:
+    """Compare each finalised map against the newest ARCHIVED version and FAIL on a value that got BROADER.
+
+    Why this gate exists, and why it is a version DIFF rather than a static check
+    ---------------------------------------------------------------------------
+    The 2026-08-05 audit found that the B1 correction, while re-rolling all 4,971 cancer_type values, returned a
+    WORSE answer for nine of them — replacing specific codes with the pan-solid sentinel (`ACYC` -> `Solid tumour`,
+    `CERVIX OR OVARY OR UTERUS OR VULVA` -> `Solid tumour`). Six changed while fixing NO defect at all. They were
+    invisible because the review artifact reported defects FIXED and defects REMAINING, but never quality LOST:
+    a value that changed while fixing nothing looked clean.
+
+    No static check can catch the whole class — "gynaecological cancer" contains no OncoTree name, so nothing in
+    the expression or the source says the sentinel is wrong. What DOES say so is the previous version. Hence a
+    diff, which also generalises: it fires for any cause (prompt edit, reconciler change, model drift) and covers
+    NARROWING too, which is how over-restriction (a general criterion collapsed onto one named example) shows up.
+
+    An approved ruling in `qa/adjudications.py` is the sanctioned way to change a mapping, so adjudicated values
+    are exempt — otherwise the gate would fail on the very fix it is meant to protect.
+    """
+    from aus_trial_universe.core.paths import ARCHIVE, CURRENT_VERSION, ELIGIBILITY_OUTPUT, FINALISED_MAP_FILES
+    from aus_trial_universe.qa import adjudications
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import expr as ct_expr
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import SENTINELS, is_subcode
+
+    ct_file = FINALISED_MAP_FILES["cancer_type_map"]
+    root = Path(store_root or ELIGIBILITY_OUTPUT)
+    live, arch_root = root / CURRENT_VERSION, root / ARCHIVE
+    if not live.exists() or not arch_root.exists():
+        rep.add("mapping_drift", PASS, "no archived version to diff against (first build)")
+        return
+    # Only archives that actually CONTAIN the finalised map can be diffed, and "newest" must be by mtime, not by
+    # name: the archive holds both `<YYYYMMDD>` dirs and hand-named ones (`pre_v2_format`, `pre_3nf_rewrite_…`),
+    # and `pre_*` sorts AFTER every date. Sorting by name silently picked a pre-v2 dir that has no finalised map
+    # at all, which made this gate pass vacuously — the exact failure mode it exists to prevent.
+    candidates = [d for d in arch_root.iterdir() if d.is_dir() and (d / ct_file).exists()]
+    if not candidates:
+        rep.add("mapping_drift", PASS, f"no archived version contains {ct_file} (nothing comparable)")
+        return
+    previous = max(candidates, key=lambda d: (d / ct_file).stat().st_mtime)
+
+    def load(path: Path, key: str, col: str) -> dict[str, str]:
+        if not path.exists():
+            return {}
+        csv.field_size_limit(10 ** 9)
+        with open(path, newline="", encoding="utf-8") as fh:
+            return {r[key]: (r.get(col) or "").strip() for r in csv.DictReader(fh, delimiter="\t") if r.get(key)}
+
+    def positives(e: str) -> set[str] | None:
+        if not e.strip():
+            return set()
+        try:
+            node, table = ct_expr.parse(e)
+        except Exception:                      # noqa: BLE001 — unparseable is the expression gate's business
+            return None
+        return {ct_expr.classify(a.text, table)[1] or a.text for a, neg in ct_expr.atoms(node) if not neg}
+
+    broadened: list[str] = []
+    narrowed: list[str] = []
+    now = load(live / ct_file, "cancer_type", "oncotree_code_FINAL")
+    was = load(previous / ct_file, "cancer_type", "oncotree_code_FINAL")
+    for value, new in now.items():
+        old = was.get(value)
+        if old is None or old == new or value in adjudications.APPROVED:
+            continue
+        np, op = positives(new), positives(old)
+        if np is None or op is None or not op:
+            continue
+        if (np & set(SENTINELS)) and not (op & set(SENTINELS)):
+            broadened.append(f"{value[:48]!r}: {old[:40]} -> {new[:40]}")
+        elif any(o != n and is_subcode(o, n) for o in op for n in np if n not in SENTINELS):
+            broadened.append(f"{value[:48]!r}: {old[:40]} -> ancestor {new[:40]}")
+        elif op - np and not (np & set(SENTINELS)) and len(np) < len(op):
+            narrowed.append(f"{value[:48]!r}: {old[:40]} -> {new[:40]}")
+
+    detail_tail = f" (vs archive/{previous.name}; {len(now):,} values)"
+    if broadened:
+        rep.add("mapping_drift", FAIL,
+                f"{len(broadened)} value(s) BROADENED without an approved adjudication{detail_tail}: "
+                + " · ".join(broadened[:3]) + (" …" if len(broadened) > 3 else ""))
+    elif narrowed:
+        rep.add("mapping_drift", WARN,
+                f"{len(narrowed)} value(s) narrowed{detail_tail}: "
+                + " · ".join(narrowed[:3]) + (" …" if len(narrowed) > 3 else ""))
+    else:
+        rep.add("mapping_drift", PASS, f"no value broadened or narrowed{detail_tail}")
 
 
 def _gene_alteration_expression_gate(rep: "GateReport", export_path: Path) -> None:
@@ -212,6 +310,7 @@ def run_gates(
 
     _oncotree_expression_gate(rep, export_path)
     _gene_alteration_expression_gate(rep, export_path)
+    _mapping_drift_gate(rep)
     registry_arms = arms.ids()
     registry_trials = set(arms.arms)
 

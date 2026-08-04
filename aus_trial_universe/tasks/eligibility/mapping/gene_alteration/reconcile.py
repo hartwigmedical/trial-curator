@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from aus_trial_universe.core.client import LlmClient
 from aus_trial_universe.core.review import review_refine
 from aus_trial_universe.core.workflow import CheckResult, fan_out
+from aus_trial_universe.qa import adjudications
 from aus_trial_universe.tasks.eligibility.mapping.gene_alteration import expr as E
 from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.agents import (
     build_gene_reconcile_reviewer,
@@ -383,12 +384,17 @@ def run_stage2(client: LlmClient | None, stage1: dict[str, str], *, workers: int
                 out[m].group_id = gid
                 out[m].notes.append("group detected but not adjudicated (deterministic-only run)")
 
-    # R5 — final canonical form + the gates.
+    # R5 — final canonical form, then any approved hand-ruling has the last word.
     for s, o in out.items():
         o.final = canonicalise_or_keep(current[s], o.notes)
         again = canonicalise_or_keep(o.final, o.notes)
         if again != o.final:
             o.notes.append(f"NOT IDEMPOTENT: {o.final!r} -> {again!r}")
+        ruling = adjudications.APPROVED_GENE.get(s)
+        if ruling is not None:                       # NB `""` is a legitimate ruling — test identity, not truth
+            verdict = "match" if o.final == ruling.final_expression else "override"
+            o.notes.append(f"adjudication {verdict} ({ruling.approved})")
+            o.final = ruling.final_expression
         o.defects_out = [str(f) for f in semantic_problems(s, o.final)]
     logger.info("R5 finalise · %d value(s) still carry an error-severity defect",
                 sum(1 for o in out.values() if any(d.startswith("[error]") for d in o.defects_out)))

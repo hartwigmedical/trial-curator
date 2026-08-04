@@ -38,7 +38,12 @@ from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import (
     unmask,
     walk,
 )
-from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import SENTINELS, is_subcode
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
+    SENTINELS,
+    is_subcode,
+    name_to_code,
+    oncotree_vocab,
+)
 
 # --------------------------------------------------------------------------- #
 # Catalogue
@@ -70,6 +75,9 @@ CATALOGUE: dict[str, tuple[str, str, str]] = {
     "log_exclude_ancestor":          ("logic",   "error",  "an ancestor of a positive code is excluded (GB AND NOT(BRAIN)) — unsatisfiable"),
     "log_negation_only":             ("logic",   "error",  "no positive term at all — the cell states only what it is not"),
     "log_negated_sentinel":          ("logic",   "error",  "a sentinel is negated (NOT(Pan-cancer))"),
+    "log_unjustified_sentinel":      ("logic",   "error",  "the positive term is a bare sentinel although the "
+                                                           "source NAMES a specific OncoTree entity and does not "
+                                                           "present it as one example of a broader basket"),
     "log_or_redundant_ancestor":     ("logic",   "warn",   "an OR branch is subsumed by another branch (BRAIN OR GB)"),
     # REMOVED 2026-08-03. `(Solid tumour AND NOT(BRAIN)) OR GB` is not a defect at all — it is the DERIVED engine
     # form of `Solid tumour AND NOT(BRAIN AND NOT(GB))` (De Morgan -> distribute -> absorb, see
@@ -97,12 +105,15 @@ CATALOGUE: dict[str, tuple[str, str, str]] = {
 # for a decision, not ship into an engine that has no carve-out for it. Extend only alongside the engine.
 ALLOWED_NESTED_DIFFERENCES: frozenset[tuple[str, str]] = frozenset({("SKIN", "MEL"), ("NSCLC", "LUSC")})
 
-# The only two nodes in the 897-code vocabulary that are CATCH-ALL BUCKETS rather than tumour types. Their names
-# read as generic scope ("Mixed Cancer Types", "Other"), which is exactly the BRCA trap: a real code whose name
-# superficially fits. An unspecified scope is a SENTINEL. Checked here rather than left to the prompt because a
-# closed two-item ban is mechanical and a validator cannot forget it.
+# The only nodes in the 897-code vocabulary that are CATCH-ALL BUCKETS rather than tumour types. Their names
+# read as generic scope ("Mixed Cancer Types", "Other", "Malignant Tumor"), which is exactly the BRCA trap: a real
+# code whose name superficially fits. An unspecified scope is a SENTINEL. Checked here rather than left to the
+# prompt because a closed ban is mechanical and a validator cannot forget it.
 # NB every OTHER generic-sounding node was verified legitimate and specific — MPAL*, MGCT, MFH, CUP, MXOV, MNET.
-CATCHALL_NODES: frozenset[str] = frozenset({"MIXED", "OTHER"})
+# `MT` ("Malignant Tumor") was ADDED 2026-08-05: the corpus audit found a paediatric BRAIN tumour mapped to it,
+# and because MT was absent from this set the error-severity gate never fired. Any text generic enough to suggest
+# MT ("malignant tumour", "malignant neoplasm") is a sentinel by definition.
+CATCHALL_NODES: frozenset[str] = frozenset({"MIXED", "OTHER", "MT"})
 
 # WHO entities DEFINED by the co-occurrence of two neoplasms, where OncoTree already has a node for the composite.
 # "A patient has one tumour type" holds for these too — the one type IS the composite — so ANDing the parts is
@@ -457,3 +468,73 @@ def _conjuncts_of(text: str) -> list[str]:
         i += 1
     parts.append(text[start:])
     return [p for p in parts if p.strip()]
+
+
+# --------------------------------------------------------------------------- #
+# Source-aware check (needs the interpreted value, not just the expression)
+# --------------------------------------------------------------------------- #
+# Enumeration markers. When the source presents a named type as ONE EXAMPLE of a wider population
+# ("solid tumours including NSCLC", "such as ... etc."), the sentinel is the correct mapping and naming a
+# specific entity proves nothing. Calibrated 2026-08-05 over the whole corpus: without this exclusion the
+# check fires on 11 values of which only 4 are defects; with it, exactly the 4 defects fire and nothing else.
+_BASKET_MARKERS = (" including", "including,", "such as", "e.g.", "eg.", " etc", "other than", "not limited to",
+                   " including)", "for example", " incl.", " or other", " and other")
+
+# Names too generic to prove specificity — they ARE scope words, so matching them means nothing.
+_GENERIC_NAMES = frozenset({"malignant tumor", "cancer of unknown primary", "mixed cancer types", "other"})
+_MIN_NAME_LEN = 12          # shorter names collide with ordinary prose ("Bone", "Other", "Eye")
+
+
+def _positive_part(source: str) -> str:
+    """The source with every NOT(...) clause removed — what the criterion INCLUDES.
+
+    Essential: a type named only in an exclusion ("solid tumour AND NOT(hepatocellular carcinoma)") must not be
+    read as a positive type, or every legitimate sentinel looks like a defect."""
+    out, i = [], 0
+    while i < len(source):
+        if source.startswith("NOT(", i):
+            depth, i = 1, i + 4
+            while i < len(source) and depth:
+                depth += 1 if source[i] == "(" else (-1 if source[i] == ")" else 0)
+                i += 1
+            continue
+        out.append(source[i])
+        i += 1
+    return "".join(out).lower()
+
+
+def check_against_source(source: str, expr: str) -> ValueReport:
+    """Checks that can only be made by comparing the mapping with the interpreted SOURCE value.
+
+    Separate from `check_expression` because that one is deliberately expression-only (it is reused wherever no
+    source is at hand). This mirrors `gene_alteration.checks.semantic_problems(source, expression)`.
+    """
+    rep = ValueReport(value=expr)
+    raw = (expr or "").strip()
+    src = (source or "").strip()
+    if not raw or not src:
+        return rep
+    try:
+        node, table = parse(raw)
+    except ParseError:
+        return rep                       # syn_unparseable is check_expression's business
+
+    positives = {classify(a.text, table)[1] or a.text for a, neg in atoms(node) if not neg}
+    if not positives or not positives <= set(SENTINELS):
+        return rep
+
+    pos_src = _positive_part(src)
+    if any(m in pos_src for m in _BASKET_MARKERS):
+        return rep
+
+    vocab = oncotree_vocab()
+    named = sorted(
+        code for code, name in ((c, n) for n, c in name_to_code().items())
+        if code not in SENTINELS and len(name) >= _MIN_NAME_LEN
+        and name.lower() not in _GENERIC_NAMES and name.lower() in pos_src
+    )
+    if named:
+        shown = ", ".join(f"{c} ({vocab.get(c, c)})" for c in named[:3])
+        rep.add("log_unjustified_sentinel",
+                f"source names {shown}{' …' if len(named) > 3 else ''} but the mapping is {raw!r}")
+    return rep

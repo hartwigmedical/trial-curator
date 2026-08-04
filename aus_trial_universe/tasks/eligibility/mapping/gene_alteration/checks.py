@@ -51,6 +51,9 @@ CATALOGUE: dict[str, tuple[str, str, str]] = {
                                                 "positive OR; state the alteration directly"),
     "family_root_as_gene":       ("llm", "error", "a gene-family ROOT token used as if it were a gene symbol "
                                                  "(e.g. PRKC, YAP) — it will never match; expand to its members"),
+    "acronym_as_gene":           ("det", "error", "the 'gene' is a clinical abbreviation that merely LOOKS like a "
+                                                 "symbol (AGA = actionable genomic alteration), so the mapping "
+                                                 "asserts a criterion the source never states"),
     "unknown_gene_symbol":       ("llm", "warn", "gene symbol not seen in the curated resource or prior output — "
                                                 "verify it is a real HGNC symbol"),
     "negation_only":             ("up", "info", "no positive term — an exclusion-only gene criterion"),
@@ -68,6 +71,17 @@ _KNOWN_GENES: frozenset[str] = frozenset(
     (__import__("pathlib").Path(__file__).with_name("known_genes.txt").read_text().splitlines())
     if line.strip()
 )
+
+# Clinical abbreviations that are shaped exactly like a gene symbol, so an unattested-symbol WARN is not enough:
+# the mapper reads them as genes and invents a criterion. Added 2026-08-05 after the corpus audit found
+# "AGA negative" (an NSCLC trial's ACTIONABLE GENOMIC ALTERATION status) mapped to `Wildtype[gene=AGA]` — AGA is
+# a real HGNC symbol (aspartylglucosaminidase, a lysosomal enzyme with no role in cancer), so no vocabulary check
+# could catch it. The tell was that the sibling cohort's "AGA positive" mapped to "": the same token read as a
+# gene in one value and not the other. ERROR severity, because the result is a false criterion, not a vague one.
+# Keep this list SHORT and evidence-driven — only add a symbol once it has actually been mis-mapped.
+_NON_GENE_ACRONYMS: dict[str, str] = {
+    "AGA": "actionable genomic alteration",
+}
 
 # Genes whose ACTIONABLE alteration is the fusion (plus any named mutation), so an unspecified "alteration" must
 # NOT be expanded to include type=GAIN. Gene-specific by necessity, not derivable by family: FGFR3 belongs here
@@ -192,6 +206,11 @@ def semantic_problems(source: str, expression: str) -> list[Finding]:
                 add("fusion_driver_with_gain", f"{g} amplification — expected the fusion (and named mutations) only")
 
     for gene in sorted(E.genes_of(e)):
+        if gene in _NON_GENE_ACRONYMS:
+            add("acronym_as_gene",
+                f"'{gene}' is the clinical abbreviation {_NON_GENE_ACRONYMS[gene]!r}, not a gene — the mapping "
+                f"invents a criterion the source never states")
+            continue
         if gene in _KNOWN_GENES or gene.upper().startswith("HLA"):
             continue
         members = sorted(g for g in _KNOWN_GENES if g.startswith(gene) and g != gene)
