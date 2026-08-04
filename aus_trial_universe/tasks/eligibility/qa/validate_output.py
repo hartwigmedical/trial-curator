@@ -30,9 +30,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from aus_trial_universe.core.paths import EXPORT_FILE, EXPORT_ROOT
-from aus_trial_universe.tasks.eligibility.mapping.workflow import _oncotree_logic_problems, strip_provenance
+from aus_trial_universe.tasks.eligibility.mapping.workflow import strip_provenance
 from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
-from aus_trial_universe.tasks.eligibility.tools.oncotree import invalid_codes
+from aus_trial_universe.tasks.eligibility.tools.oncotree import expression_problems
 
 ELIGIBILITY_COLUMNS = ("cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy")
 
@@ -84,11 +84,13 @@ def validate_rows(rows: list[dict]) -> list[TrialReport]:
         for code in {r.get("oncotree_code", "") for r in trows}:
             if not code.strip():
                 continue
-            bad = invalid_codes(code)
+            defects = expression_problems(code)          # NB not `problems` — that is the accumulator
+            bad = [d.detail for d in defects if d.defect in ("lex_unknown_operand", "lex_catchall_node")]
             if bad:
                 problems.append(f"[oncotree] invalid code(s) {bad}: {code!r}")
-            for lp in _oncotree_logic_problems(code):
-                problems.append(f"[oncotree-logic] {lp}  (code={code!r})")
+            for d in defects:
+                if d.severity == "error" and d.defect not in ("lex_unknown_operand", "lex_catchall_node"):
+                    problems.append(f"[oncotree-logic] {d}  (code={code!r})")
         for col in ("gene_alteration_findingmodel", "molecular_signature_findingmodel"):
             for fm in {r.get(col, "") for r in trows}:
                 if not fm.strip():

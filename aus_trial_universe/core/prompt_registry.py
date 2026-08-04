@@ -32,6 +32,15 @@ def live_agents(client: LlmClient | None = None):
         # eligibility · mapping
         mp.build_oncotree_mapper(client),
         mp.build_oncotree_reviewer(client),
+        # ...and the refinement's own agents. Registering these is not cosmetic: `cache_prune` classifies any
+        # (agent, prompt) it cannot find here as STALE and deletes it, so an unregistered agent has its cached
+        # responses GC'd on the next prune and silently re-billed on the next run.
+        mp.build_oncotree_repairer(client),
+        mp.build_oncotree_repair_reviewer(client),
+        mp.build_oncotree_reconciler(client),
+        mp.build_oncotree_reconcile_reviewer(client),
+        mp.build_findingmodel_reconciler(client),
+        mp.build_findingmodel_reconcile_reviewer(client),
         mp.build_gene_alteration_mapper(client),
         mp.build_gene_alteration_reviewer(client),
         mp.build_molecular_signature_mapper(client),
@@ -41,6 +50,12 @@ def live_agents(client: LlmClient | None = None):
         dr.build_canonicalizer_reviewer(client),
         dr.build_annotator(client),
         dr.build_annotator_reviewer(client),
+        # the symmetric-match splitter pair — live agents that were never registered, so a prune
+        # classified their 497 cached responses as stale and would have re-billed them
+        dr.build_biomarker_splitter(client),
+        dr.build_biomarker_split_reviewer(client),
+        dr.build_role_classifier(client),
+        dr.build_role_reviewer(client),
         dr.build_approval_agent(client),
         dr.build_approval_reviewer(client),
     ]

@@ -14,14 +14,31 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+# ⚠ The class docstring and every Field description below are hashed into the response-cache key (pydantic folds
+# them into the JSON schema, and `client._fingerprint` hashes that). Editing this prose silently orphans every
+# cached decision behind it — including the values signed off on 2026-08-04. Change it only with a re-run.
+#
+# Why `oncotree_name` is gone: the old schema asked the LLM for two independent renderings of the same expression
+# and stored both with nothing cross-checking them, which is how 46 rows ended up with a name that did not match
+# their code. The name is now derived by `tools.oncotree.render_name_expression`.
 class OncotreeMapping(BaseModel):
-    """Mapper output for one cancer-type expression."""
+    """Mapper output for one cancer-type expression — the CODE expression only.
 
-    oncotree_name: str = Field(
-        description="The cancer-type expression re-expressed with OncoTree NAMES, AND/NOT preserved."
-    )
+    The matching `oncotree_name` is rendered from this deterministically; never author it here.
+    """
+
     oncotree_code: str = Field(
-        description="The same expression re-expressed with OncoTree CODES, AND/NOT preserved."
+        description="The cancer-type expression re-expressed with OncoTree CODES, its AND / OR / NOT(...) "
+                    'structure preserved. "" if the value is not an oncological condition.'
+    )
+
+
+class OncotreeRepair(BaseModel):
+    """Refinement R4 output — one value's corrected code expression, given its own defect list."""
+
+    oncotree_code: str = Field(description="The corrected OncoTree CODE expression for this value.")
+    rationale: str = Field(
+        default="", description="One line: which defect was fixed and why this is what the source supports."
     )
 
 

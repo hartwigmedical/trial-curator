@@ -1,4 +1,4 @@
-"""Shared doer→reviewer refine harness (spec §5; docs/v2_mapping_and_shared_loop_plan.md Part 1).
+"""Shared doer→reviewer refine harness (spec §5; docs/planning/archive/v2_mapping_and_shared_loop_plan.md Part 1).
 
 Every v2 agentic stage that runs a doer → reviewer → bounded-refine loop uses this ONE driver, so the loop
 MECHANISM is shared and cannot drift per stage (it had already drifted — the mapping loop lacked the escalation

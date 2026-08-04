@@ -1,7 +1,7 @@
 # Trial Curator v2 — Agentic Pipeline Spec
 
 Single source of truth for the v2 agentic pipeline (`aus_trial_universe/`): why it exists, how it's
-built, the field sources, and the output schema. For **how to run it**, see `docs/agentic/combined_agentic_run.md`.
+built, the field sources, and the output schema. For **how to run it**, see `docs/reference/combined_agentic_run.md`.
 
 - **Status:** built and verified end-to-end (ctgov + anzctr). Living document.
 - **Branch:** `AUS-328-Aus-trial-universe-v2`. **Fallback tag:** `aus-trial-eligibility-path-resource-generation-v1` (code only).
@@ -150,7 +150,7 @@ Built via `make drug-ref-build DRUGS=.. | IDS=.. | ALL_TRIALS=1`; incremental + 
 `<DATA_ROOT>/drug_annotations/current_version/` (6 TSVs; superseded builds under `archive/`). All data paths derive
 from one relocatable `DATA_ROOT` (`core/paths.py`; = `data/agentic/` now → `data/` later). Reference data lives under
 `resources/drug_utility/{pottr,rxnorm}/current_version/`; refresh POTTR with `make drug-ref-refresh-pottr`. Full
-layout: `docs/agentic/drug_ref_schema.md`.
+layout: `docs/reference/drug_ref_schema.md`.
 *Deferred (user):* mapping each indication's free-text cancer/biomarker into the eligibility vocabulary
 (OncoTree + finding-model) and joining `drug_annotations_core` back into `combined` — done *after* the standalone tables.
 | **eligibility** (assigned to a regime) | (trialId, regime_id, conj_id) | 5 eligibility columns (+prov, inline NOT()) | LLM extract; trial-wide by default |

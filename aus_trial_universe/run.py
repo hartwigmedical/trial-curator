@@ -119,7 +119,7 @@ def _compute_new_maps(client, elig_store, elig_rows, strip_provenance, kw):
         vals = list(dict.fromkeys(strip_provenance(c) for c in cells if strip_provenance(c)))
         return [v for v in vals if lookup(v) is None]
 
-    ct = [CancerTypeMap(cancer_type=v, oncotree_name=r.oncotree_name, oncotree_code=r.oncotree_code)
+    ct = [CancerTypeMap(cancer_type=v, oncotree_name=r.oncotree_name, oncotree_code=r.oncotree_code)  # name derived in map_oncotree
           for v, r in map_cancer_types(client, _new([r.cancer_type for r in elig_rows],
                                                     elig_store.lookup_cancer_type), **kw).items()]
     ga = [GeneAlterationMap(gene_alteration=v, finding_model=r.finding_model)

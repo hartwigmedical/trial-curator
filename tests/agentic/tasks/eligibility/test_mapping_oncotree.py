@@ -8,12 +8,16 @@ from __future__ import annotations
 from aus_trial_universe.core.client import LlmResult
 from aus_trial_universe.tasks.eligibility.mapping.schema import OncotreeMapping, ReviewVerdict
 from aus_trial_universe.tasks.eligibility.mapping.workflow import (
-    _oncotree_logic_problems,
     map_cancer_types,
     map_oncotree,
     strip_provenance,
 )
-from aus_trial_universe.tasks.eligibility.tools.oncotree import invalid_codes, is_subcode, oncotree_vocab, valid_codes
+from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+    expression_problems,
+    is_subcode,
+    oncotree_vocab,
+    valid_codes,
+)
 
 
 # --- tools/oncotree (real resource) ---------------------------------------- #
@@ -23,15 +27,16 @@ def test_vocab_loads_real_codes():
     assert vocab.get("NSCLC") and vocab.get("BREAST") and vocab.get("MEL")
 
 
-def test_invalid_codes_flags_only_hallucinations():
-    assert invalid_codes("NSCLC AND NOT(MEL)") == []
-    assert invalid_codes("Solid tumour AND NOT(MEL)") == []   # sentinel + real code
-    assert invalid_codes("Pan-cancer") == []
-    assert invalid_codes("NSCLC | FOOBAR") == ["FOOBAR"]
-    assert "MEL" in valid_codes() and "Pan-cancer" in valid_codes()
-    assert "Haematological malignancy" in valid_codes()   # the third permitted sentinel
-    assert "[None]" not in valid_codes()                   # [None] removed
-
+def test_expression_problems_flags_only_real_defects():
+    """Replaces the old `invalid_codes` token regex. That check only inspected ALL-CAPS runs, so a mixed-case
+    OncoTree NAME in the code field returned no problems — see docs/planning/archive/v2_oncotree_correction_spec.md."""
+    def errors(expr):
+        return [p for p in expression_problems(expr) if p.severity == "error"]
+    assert errors("NSCLC AND NOT(MEL)") == []      # MEL is disjoint from NSCLC -> a WARN, not an error
+    assert errors("Pan-cancer") == []
+    assert any(p.defect == "lex_unknown_operand" for p in errors("NSCLC OR FOOBAR"))
+    # the defect the old regex was structurally blind to:
+    assert any(p.defect == "lex_leaked_name" for p in errors("Pancreatic Adenocarcinoma"))
 
 def test_is_subcode_hierarchy():
     assert is_subcode("LUAD", "NSCLC")        # lung adenocarcinoma is under NSCLC
@@ -71,7 +76,7 @@ class _SeqClient:
 
 def test_map_oncotree_happy():
     client = _SeqClient(
-        mappings=[OncotreeMapping(oncotree_name="Non-Small Cell Lung Cancer", oncotree_code="NSCLC")],
+        mappings=[OncotreeMapping(oncotree_code="NSCLC")],
         verdicts=[ReviewVerdict(faithful=True)],
     )
     r = map_oncotree(client, "metastatic NSCLC")
@@ -81,8 +86,8 @@ def test_map_oncotree_happy():
 
 def test_map_oncotree_invalid_code_refines_before_reviewer():
     client = _SeqClient(
-        mappings=[OncotreeMapping(oncotree_name="?", oncotree_code="FOOBAR"),
-                  OncotreeMapping(oncotree_name="Melanoma", oncotree_code="MEL")],
+        mappings=[OncotreeMapping(oncotree_code="FOOBAR"),
+                  OncotreeMapping(oncotree_code="MEL")],
         verdicts=[ReviewVerdict(faithful=True)],
     )
     r = map_oncotree(client, "melanoma", max_attempts=3)
@@ -91,28 +96,21 @@ def test_map_oncotree_invalid_code_refines_before_reviewer():
     assert client.reviewer_calls == 1  # reviewer only consulted once codes were valid
 
 
-def test_oncotree_logic_problems_catches_logic_errors():
-    assert _oncotree_logic_problems("NSCLC") == []
-    assert _oncotree_logic_problems("Solid tumour AND NOT(MEL)") == []   # valid same-column carve-out
-    assert _oncotree_logic_problems("Solid tumour OR MEL") == []          # OR of broad+subtype is fine
-    assert any("[None]" in p for p in _oncotree_logic_problems("GCT AND NOT([None])"))
-    assert any("included and excluded" in p for p in _oncotree_logic_problems("SCLC AND NOT(SCLC)"))
-    assert any("duplicate" in p for p in _oncotree_logic_problems("NBL AND NBL"))            # X AND X
-    assert any("broad" in p for p in _oncotree_logic_problems("Solid tumour AND MEL"))       # sentinel AND specific
-    assert any("parent" in p for p in _oncotree_logic_problems("NSCLC AND LUAD"))            # subtype AND parent
-    # an OR INSIDE a NOT() carve-out must not be split mid-NOT() and misread as a positive broad-ANDed-subtype
-    assert _oncotree_logic_problems("Solid tumour AND NOT(NSCLC OR THYROID)") == []
-    assert _oncotree_logic_problems("Pan-cancer AND NOT(MEL OR SCLC OR GCT)") == []
-    # ambiguous top-level OR/AND precedence — the OR-group must be parenthesised before an AND/NOT
-    assert any("precedence" in p for p in _oncotree_logic_problems("OCSC OR OPHSC OR LXSC AND NOT(NPC)"))
-    assert _oncotree_logic_problems("(OCSC OR OPHSC OR LXSC) AND NOT(NPC)") == []   # parenthesised is fine
-    assert _oncotree_logic_problems("NSCLC OR MEL") == []                            # only OR, no ambiguity
-
+def test_expression_problems_catches_logic_errors():
+    """Replaces `_oncotree_logic_problems`, now folded into the catalogue in tools/oncotree_checks.py."""
+    def defects(expr):
+        return {p.defect for p in expression_problems(expr)}
+    assert defects("NSCLC") == set()
+    assert "log_include_exclude_same" in defects("NSCLC AND NOT(NSCLC)")
+    assert "log_sentinel_and_specific" in defects("Solid tumour AND NSCLC")
+    assert "log_subtype_and_parent" in defects("LUAD AND NSCLC")
+    assert "log_negated_sentinel" in defects("NOT(Pan-cancer)")
+    assert "log_disjoint_and" in defects("DLBCLNOS AND CLLSLL")
 
 def test_map_oncotree_refines_on_contradiction():
     client = _SeqClient(
-        mappings=[OncotreeMapping(oncotree_name="SCLC AND NOT(SCLC)", oncotree_code="SCLC AND NOT(SCLC)"),
-                  OncotreeMapping(oncotree_name="Small Cell Lung Cancer", oncotree_code="SCLC")],
+        mappings=[OncotreeMapping(oncotree_code="SCLC AND NOT(SCLC)"),
+                  OncotreeMapping(oncotree_code="SCLC")],
         verdicts=[ReviewVerdict(faithful=True)],
     )
     r = map_oncotree(client, "relapsed ES-SCLC excluding complex SCLC", max_attempts=3)
@@ -121,8 +119,8 @@ def test_map_oncotree_refines_on_contradiction():
 
 def test_map_oncotree_reviewer_unfaithful_refines():
     client = _SeqClient(
-        mappings=[OncotreeMapping(oncotree_name="Lung", oncotree_code="LUNG"),
-                  OncotreeMapping(oncotree_name="Non-Small Cell Lung Cancer", oncotree_code="NSCLC")],
+        mappings=[OncotreeMapping(oncotree_code="LUNG"),
+                  OncotreeMapping(oncotree_code="NSCLC")],
         verdicts=[ReviewVerdict(faithful=False, problems=["too broad — use NSCLC"]), ReviewVerdict(faithful=True)],
     )
     r = map_oncotree(client, "NSCLC", max_attempts=3)
@@ -142,7 +140,7 @@ class _SrcClient:
             for key, m in self._by_source.items():
                 if key in user_input:
                     return LlmResult(m, "fake", "{}", False, 1)
-            return LlmResult(OncotreeMapping(oncotree_name="", oncotree_code=""), "fake", "{}", False, 1)
+            return LlmResult(OncotreeMapping(oncotree_code=""), "fake", "{}", False, 1)
         if output_schema is ReviewVerdict:
             return LlmResult(ReviewVerdict(faithful=True), "fake", "{}", False, 1)
         raise AssertionError(f"unexpected schema {output_schema}")
@@ -150,8 +148,8 @@ class _SrcClient:
 
 def test_map_cancer_types_dedups_and_maps():
     client = _SrcClient({
-        "NSCLC": OncotreeMapping(oncotree_name="Non-Small Cell Lung Cancer", oncotree_code="NSCLC"),
-        "melanoma": OncotreeMapping(oncotree_name="Melanoma", oncotree_code="MEL"),
+        "NSCLC": OncotreeMapping(oncotree_code="NSCLC"),
+        "melanoma": OncotreeMapping(oncotree_code="MEL"),
     })
     out = map_cancer_types(client, ["NSCLC [TITLE]", "NSCLC [CONDITIONS]", "melanoma [ELIGIBILITY CRITERIA]"])
     assert set(out) == {"NSCLC", "melanoma"}  # deduped on stripped value

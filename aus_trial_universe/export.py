@@ -72,16 +72,14 @@ _CODE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]+")
 _ONCOTREE_OPS = {"AND", "OR", "NOT"}
 
 
-def _render_oncotree_name(code_expr: str, vocab: dict[str, str]) -> str:
-    """Human-readable rendering of a FINAL oncotree_code expression: each code token -> its OncoTree name, keeping
-    the AND/OR/NOT structure and passing through operators + sentinels (not in the code vocab) unchanged."""
-    code_expr = (code_expr or "").strip()
-    if not code_expr:
-        return ""
-    if code_expr in vocab:                       # single-code fast path (the common case)
-        return vocab[code_expr]
-    return _CODE_RE.sub(lambda m: m.group(0) if m.group(0) in _ONCOTREE_OPS else vocab.get(m.group(0), m.group(0)),
-                        code_expr)
+def _render_oncotree_name(code_expr: str, vocab: dict[str, str]) -> str:   # noqa: ARG001 — vocab kept for callers
+    """Human-readable rendering of a FINAL oncotree_code expression.
+
+    Delegates to `tools.oncotree.render_name_expression`, the SINGLE source of names across the store, the joined
+    views, this export and the drug-approval maps — so `oncotree_name` can never disagree with `oncotree_code`.
+    """
+    from aus_trial_universe.tasks.eligibility.tools.oncotree import render_name_expression
+    return render_name_expression(code_expr)
 
 
 def _read_map(path: Path, key_col: str, val_col: str) -> dict[str, str]:

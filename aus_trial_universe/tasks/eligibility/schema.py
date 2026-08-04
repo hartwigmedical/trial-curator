@@ -1,4 +1,4 @@
-"""Eligibility output schema — 3NF relational tables (spec §6.1; docs/agentic/drug_ref_schema.md pattern).
+"""Eligibility output schema — 3NF relational tables (spec §6.1; docs/reference/drug_ref_schema.md pattern).
 
 The eligibility path emits normalized relational tables (like the drug path's 5 tables); the column order of
 each persisted TSV derives from its dataclass field order, so the schema is the single source of truth.
@@ -71,8 +71,15 @@ class CancerTypeMap:
     value across the whole universe (map once, reuse)."""
 
     cancer_type: str = ""       # the key (the value as it appears in interpreted_eligibility)
-    oncotree_name: str = ""
+    oncotree_name: str = ""     # DERIVED from oncotree_code — never set this yourself
     oncotree_code: str = ""
+
+    def __post_init__(self) -> None:
+        """Derive the name from the code, always. The two used to be independent LLM outputs that nothing
+        cross-checked, which is how 46 rows ended up with a name that did not match their code. Making it
+        structural means the disagreement cannot recur (user requirement, 2026-08-03)."""
+        from aus_trial_universe.tasks.eligibility.tools.oncotree import render_name_expression
+        self.oncotree_name = render_name_expression(self.oncotree_code)
 
 
 @dataclass

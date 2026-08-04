@@ -90,6 +90,46 @@ def _export_trial_ids(path: Path) -> tuple[set[str], int, int]:
     return ids, rows, cols
 
 
+def _oncotree_expression_gate(rep: "GateReport", export_path: Path) -> None:
+    """Parse every OncoTree code expression IN THE EXPORT and fail on any error-severity defect.
+
+    Graded on the export rather than the map table because the export is what actually ships — and because it is
+    the artifact every other gate here is already scoped to, so the gate cannot end up silently grading the live
+    store while the rest of the report grades a fixture.
+
+    This is the backstop that would have caught the whole 2026-08-03 defect set (leaked names, nested negation,
+    negation-only cells, unsatisfiable conjunctions) the day it appeared. Catalogue: tools/oncotree_checks.py.
+    """
+    from collections import Counter
+    from aus_trial_universe.tasks.eligibility.tools.oncotree import expression_problems
+
+    if not Path(export_path).exists():
+        rep.add("oncotree_expressions", PASS, "no export on disk (nothing to grade)")
+        return
+    csv.field_size_limit(10 ** 9)
+    errors: Counter = Counter()
+    warns: Counter = Counter()
+    seen: set[str] = set()
+    with open(export_path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            code = (row.get("oncotree_code") or "").strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            for problem in expression_problems(code):
+                (errors if problem.severity == "error" else warns)[problem.defect] += 1
+    if errors:
+        rep.add("oncotree_expressions", FAIL,
+                f"{sum(errors.values())} error-severity defect(s) across {len(seen):,} distinct expressions: "
+                + ", ".join(f"{k}×{v}" for k, v in errors.most_common(5)))
+    elif warns:
+        rep.add("oncotree_expressions", WARN,
+                f"{len(seen):,} distinct expressions · 0 errors · "
+                + ", ".join(f"{k}×{v}" for k, v in warns.most_common(5)))
+    else:
+        rep.add("oncotree_expressions", PASS, f"{len(seen):,} distinct expressions · 0 defects")
+
+
 def run_gates(
     *,
     before: dict[str, int] | None = None,
@@ -123,6 +163,8 @@ def run_gates(
 
     elig = EligStore.load()
     arms = TrialArmStore.load()
+
+    _oncotree_expression_gate(rep, export_path)
     registry_arms = arms.ids()
     registry_trials = set(arms.arms)
 

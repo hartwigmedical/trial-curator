@@ -168,3 +168,30 @@ def test_universe_swing_warns_without_failing(clean, tmp_path):
     rep = _run(tmp_path, previous_kept=100)          # 1 vs 100 kept = a huge swing
     g = next(g for g in rep.gates if g.name == "universe_swing")
     assert g.status == G.WARN and rep.ok and rep.verdict == G.WARN
+
+
+# --- oncotree_expressions: the backstop for the 2026-08-04 correction ------------- #
+def test_oncotree_expression_gate_fails_on_a_defective_export(clean, tmp_path):
+    """A gate that cannot fail is decoration. This one grades the EXPORT — the artifact that actually ships —
+    so a regression in the mapping stage cannot reach a consumer unnoticed."""
+    export = tmp_path / "bad.tsv"
+    export.write_text("trialId\toncotree_code\nNCT1\tNOT(Pan-cancer)\n", encoding="utf-8")
+    rep = G.GateReport()
+    G._oncotree_expression_gate(rep, export)
+    (gate,) = rep.gates
+    assert gate.name == "oncotree_expressions" and gate.status == G.FAIL
+    assert "log_negation_only" in gate.detail or "log_negated_sentinel" in gate.detail
+
+
+def test_oncotree_expression_gate_passes_clean_and_warns_without_failing(clean, tmp_path):
+    good = tmp_path / "good.tsv"
+    good.write_text("trialId\toncotree_code\nNCT1\tNSCLC\nNCT2\tBREAST\n", encoding="utf-8")
+    rep = G.GateReport()
+    G._oncotree_expression_gate(rep, good)
+    assert rep.gates[0].status == G.PASS
+
+    warny = tmp_path / "warn.tsv"                      # a no-op exclusion is noise, never fatal
+    warny.write_text("trialId\toncotree_code\nNCT1\tPAAD AND NOT(PANET)\n", encoding="utf-8")
+    rep = G.GateReport()
+    G._oncotree_expression_gate(rep, warny)
+    assert rep.gates[0].status == G.WARN and not rep.failed

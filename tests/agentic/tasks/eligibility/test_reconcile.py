@@ -7,7 +7,7 @@ import csv
 
 from aus_trial_universe import run
 import aus_trial_universe.tasks.eligibility.mapping.reconcile as rec
-from aus_trial_universe.tasks.eligibility.mapping.reconcile import normalize_or_order, repair_oncotree_code
+from aus_trial_universe.tasks.eligibility.mapping.reconcile import deterministic_pass
 from aus_trial_universe.tasks.eligibility.schema import (
     ArmEligibilityRaw, CancerTypeMap, GeneAlterationMap, InterpretedEligibility, MolecularSignatureMap,
 )
@@ -19,23 +19,19 @@ def _read(path):
 
 
 # --- deterministic pre-pass ------------------------------------------------- #
-def test_name_to_code_repair_and_or_order():
-    from aus_trial_universe.tasks.eligibility.tools.oncotree import oncotree_vocab, invalid_codes
-    # a residual where a NAME leaked into the code field (the leaked name carries an all-caps token 'NOS' that
-    # invalid_codes flags) is repaired to its CODE.
-    name = oncotree_vocab()["DLBCLNOS"]          # 'Diffuse Large B-Cell Lymphoma, NOS'
-    expr = f"AML AND NOT({name})"
-    assert invalid_codes(expr)                   # the leaked name triggers repair
-    repaired, changed, unresolved = repair_oncotree_code(expr)
-    assert changed and unresolved == [] and repaired == "AML AND NOT(DLBCLNOS)"
-    # already-valid code is untouched
-    assert repair_oncotree_code("NSCLC") == ("NSCLC", False, [])
-    # OR-order normalisation makes a flat OR canonical
-    assert normalize_or_order("UTUC OR BLCA OR UCU") == normalize_or_order("BLCA OR UTUC OR UCU")
-    assert normalize_or_order("Solid tumour AND NOT(MEL)") == "Solid tumour AND NOT(MEL)"   # AND/NOT untouched
+def test_deterministic_pass_repairs_names_and_canonicalises():
+    """Replaces the old `repair_oncotree_code` / `normalize_or_order` pair. Those never fired in practice: the
+    repair was gated on `invalid_codes()` (blind to mixed case) and the OR-sort bailed on anything containing
+    AND / NOT( / (, i.e. on every expression that could actually diverge."""
+    # a leaked NAME now resolves to its code
+    assert deterministic_pass("Pancreatic Adenocarcinoma AND NOT(PANET)") == "PAAD"
+    # OR branches are ordered, and this one no longer bails just because a NOT() is present
+    assert deterministic_pass("MDS OR AML") == "AML OR MDS"
+    assert deterministic_pass("DIFG AND NOT(DMG) AND NOT(HGGNOS)") == "DIFG AND NOT(DMG OR HGGNOS)"
+    # idempotent
+    once = deterministic_pass("Diffuse Glioma AND NOT(DMG) AND NOT(HGGNOS)")
+    assert deterministic_pass(once) == once
 
-
-# --- orchestration ---------------------------------------------------------- #
 def _seed(store_root):
     # "breast cancer" and "metastatic breast cancer" share a canonical key (metastatic is stripped) but got
     # different Step-1 codes -> a genuine inconsistent group for Step 2 to reconcile.
@@ -60,9 +56,9 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
                    ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map.tsv")}
 
     # patch the adjudicator: unify each flagged oncotree group to BREAST
-    def fake_adjudicate(client, members, bd, br, *, is_oncotree, max_attempts, use_reviewer):
+    def fake_adjudicate(client, members, problems, *, is_oncotree, max_attempts, use_reviewer):
         return {v: ("BREAST" if is_oncotree else c) for v, c in members}
-    monkeypatch.setattr(rec, "adjudicate_group", fake_adjudicate)
+    monkeypatch.setattr(rec, "reconcile_group", fake_adjudicate)
 
     rc = run.main(["--reconcile", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])
     assert rc == 0

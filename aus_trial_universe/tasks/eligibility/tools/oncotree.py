@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from aus_trial_universe.core.paths import ONCOTREE_ROOT, current_version_dir
@@ -99,22 +100,155 @@ def vocab_reference() -> str:
     return "\n".join(f"{'  ' * d}{name} ({code})" for code, name, d, _a in _iter_nodes())
 
 
-_TOKEN_RE = re.compile(r"[A-Z][A-Z0-9_]+")
-_KEYWORDS = {"AND", "OR", "NOT"}
+# --------------------------------------------------------------------------- #
+# EXPRESSION LAYER (2026-08-04)
+# --------------------------------------------------------------------------- #
+# `invalid_codes()` used to live here: a regex over ALL-CAPS runs. It was blind by construction — mixed case is
+# skipped so the sentinels pass, but OncoTree NAMES are mixed-case too, so a leaked name like
+# `Pancreatic Adenocarcinoma` returned no problems, and the Step-2 name->code repair (gated on it) never fired.
+# It is replaced by a real parser. See `oncotree_expr` (grammar + canonical form) and `oncotree_checks`
+# (the defect catalogue). Spec: docs/planning/archive/v2_oncotree_correction_spec.md.
 
 
-def invalid_codes(code_expr: str) -> list[str]:
-    """Uppercase code-like tokens in ``code_expr`` that are NOT real OncoTree codes.
+@dataclass(frozen=True)
+class Problem:
+    """One catalogued defect in a code expression."""
 
-    Catches hallucinated codes. Sentinels ('Pan-cancer', 'Solid tumour') are mixed-case
-    so they never match the token regex; boolean keywords are excluded explicitly.
+    defect: str
+    severity: str      # error | warn | review
+    detail: str = ""
+
+    def __str__(self) -> str:
+        return f"{self.defect}: {self.detail}" if self.detail else self.defect
+
+
+def _checks():
+    from aus_trial_universe.tasks.eligibility.tools import oncotree_checks
+    return oncotree_checks
+
+
+def _expr():
+    from aus_trial_universe.tasks.eligibility.tools import oncotree_expr
+    return oncotree_expr
+
+
+def catalogue() -> dict[str, tuple[str, str, str]]:
+    """{defect id -> (layer, severity, description)} — the closed set of things that can be wrong."""
+    return _checks().CATALOGUE
+
+
+def normalise_code_expression(expression: str) -> str:
+    """Resolve every operand to an OncoTree CODE, structure untouched.
+
+    Accepts a code, an OncoTree NAME, or a case-variant of either. This is the "if a name is chosen the code is
+    selected too" half of the name/code invariant. An unresolvable operand is left verbatim so
+    `expression_problems` reports it rather than it vanishing silently.
     """
-    allowed = valid_codes()
-    seen: set[str] = set()
-    bad: list[str] = []
-    for tok in _TOKEN_RE.findall(code_expr or ""):
-        if tok in _KEYWORDS or tok in allowed or tok in seen:
-            continue
-        seen.add(tok)
-        bad.append(tok)
-    return bad
+    text = (expression or "").strip()
+    if not text:
+        return ""
+    ex = _expr()
+    try:
+        node, table = ex.parse(text)
+    except ex.ParseError:
+        return text
+    return ex.render(_to_codes(node, table))
+
+
+def _to_codes(node, table):
+    ex = _expr()
+    if isinstance(node, ex.Atom):
+        _kind, code = ex.classify(node.text, table)
+        return ex.Atom(code or ex.unmask(node.text, table))
+    if isinstance(node, ex.Not):
+        return ex.Not(_to_codes(node.child, table))
+    return ex.Op(node.op, [_to_codes(k, table) for k in node.kids])
+
+
+def render_name_expression(code_expression: str) -> str:
+    """Render a CODE expression as the matching NAME expression, structure preserved.
+
+    The ONLY way an `oncotree_name` is produced anywhere in the pipeline — a name is never authored by the LLM,
+    so the two cannot disagree (user requirement, 2026-08-03).
+    """
+    text = (code_expression or "").strip()
+    if not text:
+        return ""
+    vocab = oncotree_vocab()
+    if text in vocab:                        # single-code fast path (the common case)
+        return vocab[text]
+    ex = _expr()
+    try:
+        node, table = ex.parse(text)
+    except ex.ParseError:
+        return text
+    return ex.render(_to_names(node, table, vocab))
+
+
+def _to_names(node, table, vocab):
+    ex = _expr()
+    if isinstance(node, ex.Atom):
+        _kind, code = ex.classify(node.text, table)
+        shown = ex.unmask(node.text, table)
+        return ex.Atom(vocab.get(code, shown) if code else shown)
+    if isinstance(node, ex.Not):
+        return ex.Not(_to_names(node.child, table, vocab))
+    return ex.Op(node.op, [_to_names(k, table, vocab) for k in node.kids])
+
+
+_MAX_REWRITE_PASSES = 5
+
+
+def canonical_form(expression: str, *, drop_vacuous: bool = True) -> str:
+    """The canonical rendering: operands as codes, `NOT(A) AND NOT(B)` factored to `NOT(A OR B)`, OR branches
+    sorted, duplicates removed, nesting flattened, redundant parens stripped, non-whitelisted nested negation
+    rewritten to the engine form, and (default) vacuous exclusions dropped.
+
+    Iterates to a FIXED POINT: the rewrites expose work for each other (pruning a vacuous exclusion can reveal a
+    flattenable nested NOT), and a fixed point is what makes the pass idempotent.
+    """
+    text = (expression or "").strip()
+    if not text:
+        return ""
+    ex = _expr()
+    try:
+        node, table = ex.parse(text)
+    except ex.ParseError:
+        return text
+    for _ in range(_MAX_REWRITE_PASSES):
+        node = _resolve_double_negation(node)
+        node = ex.flatten_nested_nots(node, table)
+        node = ex.canonicalise(node, table, drop_vacuous=drop_vacuous)
+        rendered = ex.render(node)
+        if rendered == text:
+            break
+        text = rendered
+        try:
+            node, table = ex.parse(text)
+        except ex.ParseError:
+            break
+    return text
+
+
+def _resolve_double_negation(node):
+    """`NOT(NOT(X))` -> `X`. Only the DIRECT case; `NOT(A AND NOT(B))` is a set difference, handled by
+    `flatten_nested_nots`."""
+    ex = _expr()
+    if isinstance(node, ex.Not):
+        inner = _resolve_double_negation(node.child)
+        return inner.child if isinstance(inner, ex.Not) else ex.Not(inner)
+    if isinstance(node, ex.Op):
+        return ex.Op(node.op, [_resolve_double_negation(k) for k in node.kids])
+    return node
+
+
+def expression_problems(expression: str) -> list[Problem]:
+    """Every defect in one code expression. THE shared gate — used by the mapper's check, the refinement's
+    check, `qa/validate_output.py` and the `oncotree_expressions` production gate."""
+    report = _checks().check_expression(expression or "")
+    return [Problem(f.defect, f.severity, f.detail) for f in report.findings]
+
+
+def has_error(problems: list[Problem]) -> bool:
+    """True if any problem is severity `error` — the class that must never ship."""
+    return any(p.severity == "error" for p in problems)

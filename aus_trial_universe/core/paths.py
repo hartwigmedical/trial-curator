@@ -4,7 +4,7 @@
 retire the legacy `data/drug_utility_path/` and `data/eligibility_path/` trees. Every data path derives from the
 single `DATA_ROOT` constant here, so promotion to the top-level `data/` later is a one-line change.
 
-Layout (grouped by ROLE; see docs/agentic/drug_ref_schema.md):
+Layout (grouped by ROLE; see docs/reference/drug_ref_schema.md):
     <DATA_ROOT>/
       inputs/                                        INPUT — external data we ingest (read-only to the pipeline)
         trial_universe/{ctgov,anzctr}/               trials

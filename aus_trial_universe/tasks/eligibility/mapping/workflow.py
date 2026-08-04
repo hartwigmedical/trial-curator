@@ -34,7 +34,11 @@ from aus_trial_universe.tasks.eligibility.mapping.schema import (
     ReviewVerdict,
 )
 from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
-from aus_trial_universe.tasks.eligibility.tools.oncotree import invalid_codes, is_subcode
+from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+    expression_problems,
+    is_subcode,
+    render_name_expression,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,17 +70,19 @@ def map_oncotree(
     def produce(feedback: str = "", prior: OncotreeMapping | None = None) -> OncotreeMapping:
         if not feedback:
             return mapper(source_expr)
-        prior_txt = (f"\n\n[Your previous mapping]:\noncotree_name: {prior.oncotree_name}\n"
-                     f"oncotree_code: {prior.oncotree_code}") if prior is not None else ""
+        # Byte-identical to the form the approved 2026-08-04 run used — this string is hashed into the
+        # response-cache key, so any drift orphans every cached refine step behind that output.
+        prior_txt = f"\n\n[Your previous mapping]:\noncotree_code: {prior.oncotree_code}" if prior else ""
         return mapper(f"{source_expr}{prior_txt}\n\n[Reviewer feedback — fix ONLY these]:\n{feedback}")
 
     def check(m: OncotreeMapping, escalate: bool = False) -> CheckResult:
-        bad = invalid_codes(m.oncotree_code)
-        if bad:
-            return CheckResult(ok=False, problems=[f"invalid OncoTree code(s): {', '.join(bad)}"])
-        logic = _oncotree_logic_problems(m.oncotree_code)
-        if logic:
-            return CheckResult(ok=False, problems=logic)
+        # `syn_nested_not` is NOT blocking here: "X other than Y" is faithfully written as a nested NOT and the
+        # refinement flattens it deterministically (mapper translates, refinement reduces — the same split as
+        # vacuous exclusions). It stays an error on the FINAL value, which is what ships.
+        errors = [str(p) for p in expression_problems(m.oncotree_code)
+                  if p.severity == "error" and p.defect != "syn_nested_not"]
+        if errors:
+            return CheckResult(ok=False, problems=errors)
         if reviewer is not None:
             v: ReviewVerdict = reviewer(_review_input(source_expr, m) + (_ESCALATION if escalate else ""))
             if not v.faithful:
@@ -90,7 +96,7 @@ def map_oncotree(
     m = result.value
     return OncotreeResult(
         source=source_expr,
-        oncotree_name=m.oncotree_name.strip(),
+        oncotree_name=render_name_expression(m.oncotree_code.strip()),   # DERIVED — the name/code invariant
         oncotree_code=m.oncotree_code.strip(),
         faithful=result.ok,
         attempts=result.attempts,
@@ -101,7 +107,6 @@ def map_oncotree(
 def _review_input(source_expr: str, m: OncotreeMapping) -> str:
     return (
         f"SOURCE cancer-type expression:\n{source_expr}\n\n"
-        f"PROPOSED oncotree_name: {m.oncotree_name}\n"
         f"PROPOSED oncotree_code: {m.oncotree_code}"
     )
 
@@ -149,7 +154,7 @@ _KW = {"AND", "OR", "NOT"}
 _SENTINEL_NAMES = ("Pan-cancer", "Solid tumour", "Haematological malignancy")
 
 
-def _top_level_or(expr: str) -> list[str]:
+def _top_level_or(expr: str) -> list[str]:   # still used by qa/validate_output.py
     """Split on ' OR ' at paren-depth 0 only, so an OR inside a NOT(...) carve-out (e.g. NOT(A OR B)) stays intact
     — otherwise a valid exclusion like 'Solid tumour AND NOT(NSCLC OR THYROID)' is split mid-NOT() and misread as a
     positive broad-ANDed-subtype."""
@@ -185,44 +190,6 @@ def _top_level_has(expr: str, op: str) -> bool:
             return True
         i += 1
     return False
-
-
-def _oncotree_logic_problems(code_expr: str) -> list[str]:
-    """Catch OncoTree logic errors so a mapping is never self-contradictory, redundant, or ambiguous.
-
-    Flags: any [None]; ambiguous top-level OR/AND precedence (an unparenthesised OR-group ANDed with something —
-    e.g. "A OR B AND NOT(C)" — which mis-scopes the exclusion); and, within each OR-alternative — a code both
-    included and excluded (X AND NOT(X)), a duplicated code (X AND X), a broad sentinel ANDed with a specific code,
-    and a subtype ANDed with its OncoTree parent. (A cancer_type conjunction is one OR-group; OR-alts checked apart.)
-    """
-    problems: list[str] = []
-    expr = code_expr or ""
-    if "[None]" in expr:
-        problems.append("remove [None] — a non-cancer term is not allowed in cancer_type; leave the mapping empty instead")
-    # Mixing OR and AND at the top level without parentheses is ambiguous (the exclusion binds to only one branch).
-    if _top_level_has(expr, "OR") and _top_level_has(expr, "AND"):
-        problems.append("ambiguous OR/AND precedence at top level — parenthesise the OR-group: write "
-                        "'(A OR B) AND NOT(C)', not 'A OR B AND NOT(C)'")
-    for group in _top_level_or(expr):
-        neg = {t for body in _NOT_BODY_RE.findall(group) for t in _CODE_TOKEN_RE.findall(body)} - _KW
-        positive_text = _NOT_BODY_RE.sub("", group)
-        pos = [t for t in _CODE_TOKEN_RE.findall(positive_text) if t not in _KW]
-        pos_set = set(pos)
-        both = sorted(neg & pos_set)
-        if both:
-            problems.append(f"code(s) both included and excluded: {', '.join(both)} — a mapping cannot be self-contradictory (X AND NOT(X))")
-        dups = sorted({t for t in pos if pos.count(t) > 1})
-        if dups:
-            problems.append(f"duplicate code(s) in a conjunction: {', '.join(dups)} — X AND X = X, list each once")
-        pos_sentinels = [s for s in _SENTINEL_NAMES if s in positive_text]
-        if pos_sentinels and pos_set:
-            problems.append(
-                f"broad term(s) [{', '.join(pos_sentinels)}] ANDed with specific code(s) [{', '.join(sorted(pos_set))}] "
-                "— a broad type and its subtype are OR-alternatives, not AND; drop the broad term or use OR")
-        subset = sorted({f"{a}⊂{b}" for a in pos_set for b in pos_set if a != b and is_subcode(a, b)})
-        if subset:
-            problems.append(f"subtype ANDed with its parent ({', '.join(subset)}) — use OR or keep only the intended type, not AND")
-    return list(dict.fromkeys(problems))
 
 
 # --------------------------------------------------------------------------- #

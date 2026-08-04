@@ -1,0 +1,398 @@
+<title>Eligibility path &mdash; Workflow</title>
+<style>
+  :root {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7;
+    --ink: #16212e; --ink-soft: #4d5e70; --ink-faint: #7b8a9a;
+    --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2;
+    --gen: #b0741d; --gen-bg: #f6ecd9;
+    --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 20px rgba(20,35,55,.05);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825;
+      --ink: #dde7f1; --ink-soft: #9fb0c1; --ink-faint: #6d7f91;
+      --border: #26333f; --border-strong: #364857;
+      --code: #4fc2cf; --code-bg: #10312f; --gen: #e0a53f; --gen-bg: #3a2e17;
+      --rev: #e08079; --rev-bg: #3a201d;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8fa; --panel: #ffffff; --panel-2: #eef3f7; --ink: #16212e; --ink-soft: #4d5e70;
+    --ink-faint: #7b8a9a; --border: #d3dde6; --border-strong: #b7c5d1;
+    --code: #0f7d8b; --code-bg: #e2f1f2; --gen: #b0741d; --gen-bg: #f6ecd9; --rev: #b0453f; --rev-bg: #f6e2df;
+    --shadow: 0 1px 2px rgba(20,35,55,.06), 0 6px 20px rgba(20,35,55,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c131d; --panel: #131d2a; --panel-2: #0f1825; --ink: #dde7f1; --ink-soft: #9fb0c1;
+    --ink-faint: #6d7f91; --border: #26333f; --border-strong: #364857;
+    --code: #4fc2cf; --code-bg: #10312f; --gen: #e0a53f; --gen-bg: #3a2e17; --rev: #e08079; --rev-bg: #3a201d;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 44px 24px 64px; }
+  .date { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px; }
+  h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; letter-spacing: -.01em; text-wrap: balance; }
+  .thesis { font-size: 17px; color: var(--ink-soft); max-width: 64ch; margin: 0; }
+  .thesis b { color: var(--ink); font-weight: 600; }
+
+  /* guiding principle callout */
+  .principle { margin: 22px 0 8px; border: 1px solid color-mix(in srgb, var(--code) 40%, var(--border)); border-left: 4px solid var(--code);
+    border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); padding: 14px 16px; }
+  .principle .h { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--code); font-weight: 700; margin-bottom: 5px; }
+  .principle p { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .principle b { color: var(--ink); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 18px 0 30px; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .legend .item { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-soft); }
+  .dot { width: 12px; height: 12px; border-radius: 4px; flex: none; }
+  .dot.code { background: var(--code); } .dot.gen { background: var(--gen); } .dot.rev { background: var(--rev); }
+
+  .spine { display: flex; flex-direction: column; gap: 0; }
+  .stage { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 15px 18px 15px 20px; box-shadow: var(--shadow); }
+  .stage .rail { position: absolute; left: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 4px; background: var(--code); }
+  .stage .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .tag { font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--code); font-weight: 600; }
+  .stage h3 { font-size: 16px; margin: 0; font-weight: 650; }
+  .badge { margin-left: auto; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+  .badge.code { color: var(--code); background: var(--code-bg); }
+  .badge.mix { color: var(--gen); background: var(--gen-bg); }
+  .stage p { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+  .inline-code { font-family: var(--mono); font-size: .86em; background: var(--panel-2); padding: 1px 5px; border-radius: 5px; color: var(--ink); }
+
+  .conn { height: 20px; width: 2px; background: var(--border-strong); margin: 0 auto; position: relative; }
+  .conn::after { content: ""; position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--border-strong); }
+
+  .branch { display: flex; gap: 10px; margin-top: 11px; flex-wrap: wrap; }
+  .branch .b { flex: 1 1 260px; border: 1px dashed var(--border-strong); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+  .branch .b .src { font-family: var(--mono); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; }
+  .branch .b.ct .src { color: var(--code); } .branch .b.an .src { color: var(--gen); }
+  .branch .b p { margin: 5px 0 0; font-size: 12.5px; }
+  .branch .b b { color: var(--gen); font-weight: 700; }
+
+  /* the loop -- VERTICAL: extract on top, review below, refine loops back */
+  .loop { border: 2px solid color-mix(in srgb, var(--gen) 40%, var(--border)); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); padding: 18px; }
+  .loop-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .loop-title .t { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--gen); font-weight: 700; }
+  .loop-title .s { font-size: 13px; color: var(--ink-faint); }
+  .loop-sub { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 14px; max-width: 80ch; }
+  .loop-sub b { color: var(--ink); }
+
+  .box { border: 1.5px solid var(--border); border-radius: 12px; padding: 14px; background: var(--panel-2); }
+  .box.extract { border-color: color-mix(in srgb, var(--gen) 55%, var(--border)); }
+  .box.review { border-color: color-mix(in srgb, var(--rev) 55%, var(--border)); }
+  .box .b-head { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; }
+  .box.extract .b-head { color: var(--gen); } .box.review .b-head { color: var(--rev); }
+  .box .b-lead { font-size: 12.5px; color: var(--ink-soft); margin: 3px 0 0; }
+  .tasks-label { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); margin: 11px 0 6px; }
+  .box ul { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+  .box li { font-size: 12.5px; color: var(--ink); padding-left: 15px; position: relative; }
+  .box.extract li::before { content: ">"; position: absolute; left: 0; color: var(--gen); font-weight: 700; }
+  .examples { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .examples code { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; overflow-x: auto; white-space: nowrap; }
+  .examples code b { color: var(--gen); font-weight: 700; }
+
+  .reviewers { gap: 8px !important; }
+  .rv { display: flex; gap: 9px; align-items: baseline; }
+  .rv .k { font-family: var(--mono); font-size: 11px; font-weight: 700; flex: none; min-width: 104px; }
+  .rv.gate .k { color: var(--rev); } .rv.adv .k { color: var(--ink-faint); }
+  .rv .d { font-size: 12px; color: var(--ink-soft); }
+  .pill { display: inline-block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .05em; padding: 1px 6px; border-radius: 999px; }
+  .pill.gate { color: var(--rev); background: var(--rev-bg); } .pill.adv { color: var(--ink-faint); background: var(--panel); border: 1px dashed var(--border-strong); }
+
+  .flowlbl { text-align: center; font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); padding: 7px 0 3px; }
+  .flowlbl .a { color: var(--gen); font-size: 15px; }
+  .refine-bar { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; font-size: 12.5px; color: var(--rev);
+    background: var(--rev-bg); border: 1px dashed var(--rev); border-radius: 10px; padding: 9px 13px; }
+  .refine-bar .loop-ico { font-family: var(--mono); font-weight: 700; font-size: 15px; }
+  .refine-bar b { color: var(--ink); }
+  /* Stage I "code check" role — same teal deterministic-code identity as Stage II */
+  .codecheck { display: flex; align-items: baseline; gap: 10px; margin: 11px 0 4px; font-size: 12.5px; color: var(--ink-soft);
+    background: var(--code-bg); border: 1px dashed color-mix(in srgb, var(--code) 45%, var(--border)); border-radius: 10px; padding: 8px 12px; }
+  .codecheck .cc-lab { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--code); flex: none; }
+  .loop-exits { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 14px; }
+  .exit { border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; background: var(--panel-2); font-size: 12px; color: var(--ink-soft); }
+  .exit .n { font-family: var(--mono); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 3px; }
+  .exit.pass .n { color: var(--code); } .exit.loop .n { color: var(--rev); } .exit.stop .n { color: var(--ink-faint); }
+  .exit b { color: var(--ink); }
+
+  /* stage II mapping -- one card per procedure, mapper + reviewer separated */
+  .stage2-band { border: 2px solid color-mix(in srgb, var(--code) 35%, var(--border)); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); padding: 18px; }
+  .stage2-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .stage2-title .t { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--code); font-weight: 700; }
+  .stage2-title .s { font-size: 13px; color: var(--ink-faint); }
+  .procs { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+  .proc { border: 1.5px solid var(--border); border-radius: 12px; padding: 13px 15px; background: var(--panel-2); }
+  .proc .ph { display: flex; align-items: center; gap: 8px; }
+  .proc h4 { margin: 0; font-size: 14px; }
+  .proc .role { font-size: 12px; margin: 8px 0 0; color: var(--ink-soft); display: flex; gap: 8px; }
+  .proc .role .rlab { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .04em; flex: none; min-width: 92px; padding-top: 1px; }
+  .proc .role.map .rlab { color: var(--gen); } .proc .role.rev .rlab { color: var(--rev); } .proc .role.chk .rlab { color: var(--code); }
+  .proc .ground { font-size: 10.5px; color: var(--ink-faint); margin-top: 9px; font-style: italic; }
+
+  .layers { margin-top: 40px; }
+  .layers h2 { font-size: 13px; font-family: var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 14px; }
+  .layer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .layer { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; box-shadow: var(--shadow); }
+  .layer .name { font-family: var(--mono); font-size: 13px; color: var(--code); font-weight: 600; }
+  .layer p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* cross-cutting -- response cache & pruning (deterministic infra: teal identity) */
+  .cache-band { margin-top: 20px; border: 2px solid color-mix(in srgb, var(--code) 35%, var(--border)); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); padding: 18px; }
+  .cache-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .cache-title .t { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--code); font-weight: 700; }
+  .cache-title .s { font-size: 13px; color: var(--ink-faint); }
+  .cache-sub { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 6px; max-width: 80ch; }
+  .cache-sub b { color: var(--ink); }
+  .cache-io { text-align: center; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); padding: 2px 0; }
+  .cache-io b { color: var(--gen); }
+  .cache-core { border: 1.5px solid color-mix(in srgb, var(--code) 55%, var(--border)); border-radius: 12px; background: var(--code-bg); padding: 14px 16px; }
+  .cache-core .b-head { font-family: var(--mono); font-size: 12px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700; color: var(--code); }
+  .cache-core .b-lead { font-size: 12.5px; color: var(--ink-soft); margin: 4px 0 0; }
+  .cache-core .b-lead b { color: var(--ink); }
+  .cache-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin-top: 11px; }
+  .cache-fact { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; font-size: 12px; color: var(--ink-soft); }
+  .cache-fact .fl { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--code); font-weight: 700; display: block; margin-bottom: 3px; }
+  .cache-prune { border: 1px dashed color-mix(in srgb, var(--code) 45%, var(--border)); border-radius: 10px; background: var(--panel-2); padding: 10px 13px; font-size: 12.5px; color: var(--ink-soft); }
+  .cache-prune .pl { font-family: var(--mono); font-weight: 700; color: var(--code); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+  .cache-prune b { color: var(--ink); }
+</style>
+
+<div class="wrap">
+  <p class="date">29 July 2026</p>
+  <h1>Eligibility path &mdash; how the modules interact</h1>
+  <p class="thesis">Deterministic code owns the control flow; the LLM fills two kinds of slot &mdash; a
+    <b>doer</b> and a <b>reviewer</b> &mdash; on a bounded refine loop. Everything runs once per trial, writing the
+    arm spine to the <b>shared <span class="inline-code">trial_arms</span> registry</b> (keyed by <span class="inline-code">trial_arm_id</span>) and the eligibility content to normalized 3NF masters (the combined flat view is materialized separately &mdash; see Write).</p>
+
+  <div class="principle">
+    <div class="h">Guiding principle &mdash; one agent per independent task</div>
+    <p>Split work into a separate agent only when the sub-tasks are <b>genuinely independent</b>. Outputs that must be
+      decided <b>together</b> stay in one agent (a DNF &mdash; disjunctive normal form &mdash; row is a conjunction across columns &rarr; <b>one extractor emits whole rows</b>).
+      Independent checks <b>fan out</b> (&rarr; a <b>panel of focused reviewers</b>). Deterministic work gets <b>zero</b> agents.</p>
+  </div>
+
+  <div class="principle">
+    <div class="h">Guiding principle &mdash; the reviewer only advises; the doer is the sole writer</div>
+    <p>Every check &mdash; the deterministic validators <b>and</b> the LLM reviewer &mdash; returns only a <b>verdict + problems</b>,
+      <b>never a rewritten value</b> (<span class="inline-code">ReviewVerdict</span> has no output field). On a failure the critique is fed back to the
+      <b>doer</b>, which re-generates (evaluator&ndash;optimizer / Reflexion &mdash; <b>not an editor</b>). One writer &rArr; no unchecked edit can
+      reach the output, and every accepted value was re-checked <i>after</i> it was written. Trade-off: it pays full re-generation and
+      can stall convergence on the hardest trials.</p>
+  </div>
+
+  <div class="legend">
+    <div class="item"><span class="dot code"></span> Deterministic code</div>
+    <div class="item"><span class="dot gen"></span> LLM &middot; doer (extract / map / research)</div>
+    <div class="item"><span class="dot rev"></span> LLM &middot; reviewer</div>
+  </div>
+
+  <div class="principle">
+    <div class="h">The pipeline is now self-contained &mdash; one periodic loop (<span class="inline-code">make agentic-refresh</span>)</div>
+    <p><b>Ingest &rarr; this curation path &rarr; export</b>, runnable end-to-end on a schedule: download both registries &rarr;
+      expire / restore against the fresh universe &rarr; curate <b>ONLY new trials</b> (extract + map + reconcile) &rarr; drug
+      utility + approval vocab &rarr; matching-engine export. <b>Incremental</b> &mdash; an unchanged trial re-hits the cache
+      (no LLM). The whole pipeline now lives directly under <span class="inline-code">aus_trial_universe/</span>; the legacy
+      <span class="inline-code">eligibility_path</span> / <span class="inline-code">drug_utility_path</span> trees are retired.</p>
+  </div>
+
+  <div class="spine">
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 0 &middot; ingestion</span><h3>Download the recruiting oncology trial universe &rarr; <span class="inline-code">inputs/trial_universe/</span></h3><span class="badge code">code</span></div>
+      <p>The self-contained upstream download &mdash; <b>no LLM</b>. Each run pulls the FULL current universe for both
+        registries, filters it, force-includes POTTR-listed trials, and writes to <span class="inline-code">&lt;registry&gt;/current_version/</span>
+        (previous snapshot &rarr; <span class="inline-code">archive/</span>). The fresh set IS the kept universe, so downstream
+        curation only picks up genuinely-new trials.</p>
+      <div class="branch">
+        <div class="b ct"><span class="src">CTGov &middot; API v2 (paged)</span>
+          <p>Essie search: recruiting-ish status &cap; AU/NZ &cap; drug intervention &cap; neoplasm condition, plus a POTTR broad-net &amp; id-append; deduped by nctId.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; all.xls</span>
+          <p>curl_cffi Cloudflare-bypass replays the DevExpress search and pulls the whole-registry <span class="inline-code">all.xls</span> &rarr; re-filtered LOCALLY to the cohort; POTTR-exempt.</p></div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Stage 0 &middot; expire / restore</span><h3>Reconcile the store against the fresh universe</h3><span class="badge code">code</span></div>
+      <p>After ingest, a curated trial no longer in the kept universe is <b>moved to a recoverable <span class="inline-code">expired/</span> area</b>
+        (its eligibility + arm rows), and <b>restored</b> if it re-appears. POTTR trials <b>never expire</b>; the step is skipped when
+        POTTR is unreachable or when more than 50% of the store would expire (a partial-download guard).</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Select &amp; assemble</span><h3>Load trial(s); build one labelled document</h3><span class="badge code">code</span></div>
+      <p><span class="inline-code">ID=</span> (source auto-detected), <span class="inline-code">IDS=</span> (a set), or none = all. Sections become <span class="inline-code">## LABEL</span> headers &mdash; each becomes a cell's <span class="inline-code">[source]</span> tag.</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Regimes (the axis)</span><h3>Arm identification &rarr; the shared <span class="inline-code">trial_arms</span> registry</h3><span class="badge mix">code + llm</span></div>
+      <p>A <b>path-neutral shared module</b> (<span class="inline-code">tasks/shared</span>) identifies a trial's arms &mdash; the SAME code the drug path uses &mdash; so the <span class="inline-code">(trialId, arm)</span> split, and the deterministic <span class="inline-code">trial_arm_id = {trialId}::{arm}</span> id derived from it, is <b>identical across both paths</b> (the join key). Each arm is written to the central <span class="inline-code">trial_arms</span> registry (<span class="inline-code">trial_arm_id, trialId, registry, arm, arm_type</span>); the eligibility + drug tables link to it by <span class="inline-code">trial_arm_id</span>.</p>
+      <div class="branch">
+        <div class="b ct"><span class="src">CTGov &middot; deterministic code</span>
+          <p>one regime per <b>drug-bearing</b> <span class="inline-code">armGroups</span> entry (filtered to <span class="inline-code">{Drug, Biological}</span>; placebo / RT-only / procedure arms dropped): label, <span class="inline-code">arm_type</span> (flags control), drug, + <span class="inline-code">description</span> (the assignment signal). No LLM.</p></div>
+        <div class="b an"><span class="src">ANZCTR &middot; shared LLM doer&rarr;reviewer</span>
+          <p><b>single eligibility cohort</b>; regimes come from a <b>drug</b> doer&rarr;reviewer (in <span class="inline-code">tasks/shared</span>) naming <span class="inline-code">INTERVENTIONS</span> (experimental) + <span class="inline-code">COMPARATOR</span> (control, gated by <span class="inline-code">CONTROL</span>). Derived <b>fresh</b> per run &mdash; flag-independent, pinned to the shared cache so both paths agree.</p></div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <!-- ===== THE LOOP (vertical) ===== -->
+    <section class="loop">
+      <div class="loop-title"><span class="t">Stage I &mdash; extraction</span><span class="s">extract &rarr; check &rarr; refine &middot; the bounded evaluator&ndash;optimizer loop at its heart (the shared <span class="inline-code">core/review.py</span> harness &mdash; the same loop Stage II uses)</span></div>
+      <p class="loop-sub">One agent <b>generates</b> the candidate table; a panel of agents <b>verifies</b> it. Verification is an easier
+        task than generation and runs on a fresh pass with the finished table in view &mdash; so it catches omissions the
+        generator missed. On a gating failure the loop does <b>incremental repair</b>: the extractor gets its OWN previous
+        table + only the flagged issues and <b>keeps unflagged rows verbatim</b> (preserves correct work, aids convergence), up to 6 attempts.</p>
+
+      <!-- DOER -->
+      <div class="box extract">
+        <div class="b-head">doer &middot; extract</div>
+        <p class="b-lead">Reads the assembled document + cohort list &rarr; the candidate DNF table (whole rows, so cross-column co-occurrence is preserved).</p>
+        <div class="tasks-label">Essential tasks</div>
+        <ul>
+          <li>one row = one ANDed conjunction; OR-alternatives &rarr; separate rows</li>
+          <li>fill 5 columns (cancer_type, gene_alteration, molecular_signature, molecular_biomarker, prior_therapy); "" when not required</li>
+          <li>exclusions inline as <span class="inline-code">NOT(...)</span>; same-column carve-outs stay in one cell</li>
+          <li>never write a self-contradiction <span class="inline-code">X AND NOT(X)</span> in one cell &mdash; if the same thing is required for one cohort and excluded for another, <b>split into rows</b></li>
+          <li>cancer_type: CONDITIONS is authoritative; <b>never AND two different tumour types</b>; drop a broad umbrella when the trial is clearly one specific type</li>
+          <li><b>capture tumour-type exclusions</b> (&ldquo;except / excluding / other than&rdquo;) as a same-cell <span class="inline-code">NOT(...)</span> &mdash; never drop a stated carve-out</li>
+          <li><b>judgement, no over-enumeration:</b> don't emit near-duplicate OR rows that differ only by a subsuming clause (e.g. one adds <span class="inline-code">AND refractory to standard therapy</span>) &mdash; keep the single version applying to most patients</li>
+          <li>tag every value with its source section(s) <span class="inline-code">[a; b]</span></li>
+          <li><b>assign scope</b> from the FIXED cohort list: each criterion to <b>exactly one</b> scope &mdash; a cohort id, or <span class="inline-code">trial-wide</span> only if shared by ALL cohorts; never restate a criterion (esp. a single-valued axis like cancer_type) across scopes</li>
+        </ul>
+        <div class="tasks-label">Examples</div>
+        <div class="examples">
+          <code>[<b>trial-wide</b>] cancer_type = "ES-SCLC AND NOT(complex SCLC) [TITLE; ELIGIBILITY CRITERIA]"</code>
+          <code>[<b>C1</b>] molecular_biomarker = "HR+ AND HER2- [ELIGIBILITY CRITERIA]"</code>
+          <code>[<b>trial-wide</b>] prior_therapy = "NOT(prior anti-PD-1) [EXCLUSION CRITERIA]"</code>
+        </div>
+      </div>
+
+      <div class="flowlbl"><span class="a">&#9660;</span> &nbsp;candidate table</div>
+
+      <!-- CODE CHECK -->
+      <div class="codecheck"><span class="cc-lab">code check</span><span>deterministic rule-check &mdash; at least one row, and no row with all five eligibility columns empty; a failure goes straight back to the doer (no reviewer call).</span></div>
+
+      <!-- REVIEWER -->
+      <div class="box review">
+        <div class="b-head">reviewer &middot; 5-agent panel (parallel)</div>
+        <p class="b-lead">Each reviewer sees the whole candidate table + source and judges ONE dimension &rarr; faithful? + problems.
+          Independent checks &rarr; separate agents (the guiding principle).</p>
+        <div class="tasks-label">One reviewer per dimension</div>
+        <ul class="reviewers">
+          <li class="rv gate"><span class="k">cancer_type</span><span class="d">tumour <b style="color:var(--ink)">under study</b>? reject one seen only in a prior-therapy / history / exclusion line (e.g. drop "melanoma" from a lung trial); flag ANDing two different types, an un-dropped umbrella, or a <b>dropped tumour-type exclusion</b>. <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">molecular</span><span class="d">faithful + <b style="color:var(--ink)">right column</b> (HER2 IHC &rarr; biomarker, ERBB2 amp &rarr; gene, MSI-H &rarr; signature); flag a cell's <span class="inline-code">X AND NOT(X)</span> (conflated cohorts &rarr; split rows). <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">prior_therapy</span><span class="d">required / excluded only (omit merely-permitted); exclusions wrapped in <span class="inline-code">NOT()</span>; flag <b>over-enumeration</b> (near-duplicate rows differing only by a subsuming clause). <span class="pill gate">gates</span></span></li>
+          <li class="rv gate"><span class="k">structural</span><span class="d">DNF integrity: conjunctions / OR-rows correct; each row's cohort scope right; a criterion in <b>exactly one scope</b> (no cross-scope duplication); no <span class="inline-code">X AND NOT(X)</span> or redundant subsuming rows. <span class="pill gate">gates</span></span></li>
+          <li class="rv adv"><span class="k">drug</span><span class="d">each cohort's drug reflects its arm's intervention. <span class="pill adv">advisory (non-gating)</span></span></li>
+        </ul>
+      </div>
+
+      <div class="refine-bar">
+        <span class="loop-ico">&#8634;</span>
+        <div><b>Refine (incremental)</b> &mdash; any of the 4 gating reviewers fails &rarr; <b>Extract</b> re-runs with its OWN prior
+          table + only the flagged issues, keeping unflagged rows as-is (the drug reviewer is advisory, so it never blocks). Bounded at 6 attempts, returning the best attempt (stops early on convergence or an exact-repeat cycle); as a last resort it re-reviews in <span class="inline-code">escalation-mode</span> &mdash; the reviewer supplies a concrete fix the doer applies once.</div>
+      </div>
+
+      <div class="loop-exits">
+        <div class="exit pass"><span class="n">&#10003; pass</span>rules pass <b>and</b> all 4 gating reviewers faithful &rarr; leave the loop.</div>
+        <div class="exit loop"><span class="n">&#8634; redo</span>a gating reviewer fails &rarr; re-extract with its feedback, re-check.</div>
+        <div class="exit stop"><span class="n">&#9632; stop</span>after 6 attempts &rarr; exit as <b>faithful=False</b>, best effort, written &amp; logged.</div>
+      </div>
+    </section>
+    <div class="conn"></div>
+
+    <!-- ===== STAGE II MAPPING ===== -->
+    <section class="stage2-band">
+      <div class="stage2-title"><span class="t">Stage II &mdash; mapping</span><span class="s">on the extracted rows &middot; each procedure = doer &rarr; code check &rarr; reviewer, on the SAME shared refine loop as Stage I</span></div>
+      <p class="loop-sub">Each normalized cell is mapped to a controlled representation, then reviewed &mdash; running on the <b>same bounded refine loop as extraction</b> (the shared <span class="inline-code">core/review.py</span> harness: on a gating fail the mapper re-generates from the critique, bounded attempts). Curated resources ground
+        the prompts + tests but are held out as verification data (not ingested) &mdash; so it stays a mapping, not a vlookup. <b>All three mappers are built &amp; live-validated</b> (cancer_type signed off; gene_alteration &amp; molecular_signature validated on disjoint samples).</p>
+      <div class="procs">
+        <div class="proc">
+          <div class="ph"><h4>cancer_type &rarr; OncoTree</h4></div>
+          <p class="role map"><span class="rlab">doer</span><span>expression &rarr; OncoTree name + code (e.g. "metastatic NSCLC" &rarr; NSCLC). Only 3 non-OncoTree terms allowed: <span class="inline-code">Pan-cancer</span> / <span class="inline-code">solid tumour</span> / <span class="inline-code">Haematological malignancy</span> (no <span class="inline-code">[None]</span>).</span></p>
+          <p class="role chk"><span class="rlab">code check</span><span>reject invalid codes and logic errors: <span class="inline-code">X AND X</span>, <span class="inline-code">X AND NOT(X)</span>, a broad term ANDed with its subtype, a subtype ANDed with its parent (hierarchy via <span class="inline-code">is_subcode</span>).</span></p>
+          <p class="role rev"><span class="rlab">reviewer</span><span>right node + granularity; structure preserved; NOT(cancer type) kept minimal.</span></p>
+          <p class="ground">grounds: OncoTree ontology as a single-source nested YAML resource &mdash; an indented <span class="inline-code">Name (CODE)</span> hierarchy that aids granularity (tools/oncotree.py) + a few held-out ConditionsCurationResource examples</p>
+        </div>
+        <div class="proc">
+          <div class="ph"><h4>gene_alteration / molecular_signature &rarr; finding-model</h4></div>
+          <p class="role map"><span class="rlab">doer</span><span>&rarr; finding-model syntax: <span class="inline-code">SmallVariant[gene=BRAF &amp; &hellip;=p.V600E]</span>, <span class="inline-code">Fusion[geneEnd=ALK]</span>, <span class="inline-code">MicrosatelliteStability[&hellip;=MSI]</span>.</span></p>
+          <p class="role chk"><span class="rlab">code check</span><span>full finding-model grammar validation &mdash; fields / enums / scope + HGVS shape per class (<span class="inline-code">CLASS_SPEC</span>), not just brackets; no duplicate terms, no <span class="inline-code">X &amp; NOT(X)</span>. The hard <b>syntax gate</b>, so the reviewer judges only semantics.</span></p>
+          <p class="role rev"><span class="rlab">reviewer</span><span>faithful + valid grammar (strict); a NOT() qualified by something inexpressible (e.g. a location) is <b>omitted</b>, not negated.</span></p>
+          <p class="ground">grounds: finding-model grammar (tools/finding_model.py) + GeneAlteration/MolecularSignature examples</p>
+        </div>
+        <div class="proc">
+          <div class="ph"><h4>drug &rarr; main/aux + class + TGA/PBS</h4></div>
+          <p class="role map"><span class="rlab">doer (web)</span><span>main = the <b>investigational agent(s) by judgement</b> (not the whole regimen; backbone/SoC/comparator/placebo &rarr; auxiliary); POTTR + general class; <b>per main drug</b> TGA &amp; PBS status (Approved/Not approved) + a detail column (year + evidence + official link), via <b>web search</b>.</span></p>
+          <p class="role rev"><span class="rlab">reviewer</span><span>main = investigational only; class sensible; per-drug status + detail present.</span></p>
+          <p class="ground">grounds: POTTR dataset + live web research (Responses API web_search)</p>
+        </div>
+      </div>
+      <div class="codecheck" style="margin-top:14px"><span class="cc-lab">consistency</span><span>a deterministic cross-value check (<span class="inline-code">qa/mapping_consistency.py</span>) &mdash; semantically-equivalent inputs must never map to different codes; the full guarantee is a <b>Step-2 reconciliation</b> pass over the built map tables.</span></div>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Write</span><h3>Shared registry + 3NF content masters + combined view</h3><span class="badge code">code</span></div>
+      <p>Each finished trial is checkpointed straightaway: the arm spine to the <b>shared registry</b> <span class="inline-code">trial_arms/current_version/trial_arms.tsv</span> (<span class="inline-code">trial_arm_id, trialId, registry, arm, arm_type</span>; both registries), and its <b>2 content masters</b> to <span class="inline-code">eligibility/current_output/</span> &mdash; <b>arm_eligibility_raw.tsv</b> (<span class="inline-code">trial_arm_id&rarr;5 verbatim cells</span>) and <b>interpreted_eligibility.tsv</b> (<span class="inline-code">(trial_arm_id,conj_id)&rarr;5 interpreted cells</span>) &mdash; plus the three <span class="inline-code">*_map.tsv</span> vocab lookups. The denormalized <b>combined.tsv</b> (the materialized join eligibility &#8904; trial_arms &#8904; maps &#8904; drug annotations on <span class="inline-code">trial_arm_id</span>; one row per satisfiable (trial, arm) conjunction; the flat rows the matcher reads) is written <b>outside the store</b>, at <span class="inline-code">eligibility/combined/combined.tsv</span>. A trial that errors is logged &amp; <b>skipped</b> (batch continues, summary reports <span class="inline-code">N ok, M failed</span>). <span class="inline-code">drug_annotations</span> joins in via <span class="inline-code">trial_arm_id</span>.</p>
+    </section>
+    <div class="conn"></div>
+
+    <section class="stage">
+      <span class="rail"></span>
+      <div class="head"><span class="tag">Export &middot; matching engine</span><h3>The matcher-facing hand-off (Set A + MANIFEST)</h3><span class="badge code">code</span></div>
+      <p>The periodic loop ends at <span class="inline-code">make agentic-export</span>: <b>Set A</b> = the wide flat
+        <span class="inline-code">trial_eligibility.tsv</span> (trial info + eligibility + intervention, one row per
+        <span class="inline-code">(trial_arm_id, conjunction)</span>); <b>Set B</b> = the drug 3NF tables referenced in place; a
+        MANIFEST ties them together. Deterministic join, no API &mdash; then the loop can run again from ingestion.</p>
+    </section>
+
+  </div>
+
+  <!-- ===== CROSS-CUTTING: RESPONSE CACHE & PRUNING ===== -->
+  <section class="cache-band">
+    <div class="cache-title"><span class="t">Cross-cutting &mdash; response cache &amp; pruning</span><span class="s">wraps every LLM call &middot; deterministic infra &middot; shared with the drug path</span></div>
+    <p class="cache-sub">Every agent call is served through one content-addressed cache (<span class="inline-code">data/agentic/cache/</span>) &mdash; the <b>determinism layer</b> (identical request &rarr; identical output) and the fast-re-run mechanism.</p>
+
+    <div class="cache-io">every agent&rsquo;s <b>.parse()</b> / <b>.research()</b> call</div>
+    <div class="conn"></div>
+    <div class="cache-core">
+      <div class="b-head">response cache &middot; content-addressed</div>
+      <p class="b-lead"><b>hit</b> &rarr; return the stored response, <b>no API call</b> (determinism + near-instant re-runs); <b>miss</b> &rarr; call the model, then store. Only grows &mdash; no eviction.</p>
+      <div class="cache-facts">
+        <div class="cache-fact"><span class="fl">key</span>sha256 of <span class="inline-code">{model, instructions, input, schema}</span> &mdash; a changed <b>prompt</b> &rArr; a new key</div>
+        <div class="cache-fact"><span class="fl">entry = envelope</span>the <span class="inline-code">response</span> + <b>provenance</b>: agent <span class="inline-code">name</span> + <span class="inline-code">prompt_sha</span> <span style="color:var(--ink-faint)">(legacy bare entries still read)</span></div>
+      </div>
+    </div>
+    <div class="conn"></div>
+    <div class="cache-prune"><span class="pl">prune &middot; auto at each run / build start</span><br><span class="inline-code">prompt_registry</span> lists the <b>live</b> agents (offline &mdash; construction never calls the LLM); <span class="inline-code">cache_prune</span> drops every entry whose prompt is <b>outdated</b> &mdash; its <span class="inline-code">prompt_sha</span> changed, or the agent was removed &mdash; keeping live + legacy. Manual: <span class="inline-code">make agentic-cache-prune</span> (dry-run &middot; <span class="inline-code">APPLY=1</span> &middot; <span class="inline-code">PURGE_UNKNOWN=1</span>); skip auto with <span class="inline-code">--no-cache-prune</span>.</div>
+  </section>
+
+  <div class="layers">
+    <h2>Supporting layers &middot; core/ + tools/</h2>
+    <div class="layer-grid">
+      <div class="layer"><span class="name">client.py</span><p>One door to OpenAI: <span class="inline-code">.parse()</span> (structured) + <span class="inline-code">.research()</span> (web_search); response cache (see below), retries, tracing.</p></div>
+      <div class="layer"><span class="name">agent.py</span><p>Agent = prompt + schema + model (+ web_search flag), bound to the client.</p></div>
+      <div class="layer"><span class="name">workflow.py</span><p><span class="inline-code">fan_out</span> (parallel) + <span class="inline-code">refine</span> (bounded check&rarr;incremental-repair loop) + <span class="inline-code">run_parallel</span>.</p></div>
+      <div class="layer"><span class="name">review.py</span><p>The <b>shared</b> <span class="inline-code">review_refine</span> doer&rarr;reviewer loop &mdash; ONE mechanism across extraction, mapping &amp; drug (verdict-agnostic; each reviewer schema stays stage-local).</p></div>
+      <div class="layer"><span class="name">cache_prune.py + prompt_registry.py</span><p>Cache pruning &mdash; see the <b>Response cache &amp; pruning</b> panel below.</p></div>
+      <div class="layer"><span class="name">logfmt.py</span><p>Shared run-log formatting: stage banners + doer/reviewer blocks (one field per line, spelled-out PASS/FAIL).</p></div>
+      <div class="layer"><span class="name">tools/</span><p>oncotree.py (YAML vocab + validator + hierarchy/is_subcode, 3 sentinels) &middot; finding_model.py (full field/enum/scope/HGVS grammar validator &mdash; the hard syntax gate).</p></div>
+    </div>
+  </div>
+</div>
