@@ -180,6 +180,7 @@ def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_att
     current_output/), and the DENORMALIZED flat finalised_mapped_eligibility.tsv into ``joined_dir``. The Step-1
     content + map tables are NOT modified (only new finalised_* files are added)."""
     from aus_trial_universe.tasks.eligibility.mapping.reconcile import (
+        CANCER_TYPE, GENE_ALTERATION, MOLECULAR_SIGNATURE,
         reconcile_column, write_finalised_mapped_eligibility, write_finalised_maps,
     )
     from aus_trial_universe.tasks.eligibility.qa.mapping_consistency import find_inconsistencies
@@ -192,11 +193,11 @@ def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_att
     sig_before = len(find_inconsistencies({v: m.finding_model for v, m in elig_store.signature_map.items()}))
 
     ct_final, ct_unres, ct_groups = reconcile_column(
-        client, {v: m.oncotree_code for v, m in elig_store.cancer_map.items()}, is_oncotree=True, **kw)
+        client, {v: m.oncotree_code for v, m in elig_store.cancer_map.items()}, column=CANCER_TYPE, **kw)
     ga_final, _gu, ga_groups = reconcile_column(
-        client, {v: m.finding_model for v, m in elig_store.gene_map.items()}, is_oncotree=False, **kw)
+        client, {v: m.finding_model for v, m in elig_store.gene_map.items()}, column=GENE_ALTERATION, **kw)
     sig_final, _su, sig_groups = reconcile_column(
-        client, {v: m.finding_model for v, m in elig_store.signature_map.items()}, is_oncotree=False, **kw)
+        client, {v: m.finding_model for v, m in elig_store.signature_map.items()}, column=MOLECULAR_SIGNATURE, **kw)
 
     write_finalised_maps(elig_store, maps_dir, ct_final, ga_final, sig_final)   # 3NF lookups -> the store
     write_finalised_mapped_eligibility(elig_store, joined_dir, ct_final, ga_final, sig_final)   # flat view -> joined/

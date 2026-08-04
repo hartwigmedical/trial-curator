@@ -55,7 +55,7 @@ Two layers. The orchestrator is **code, not an LLM**.
   **review** is a parallel panel of focused reviewers.
 - **Deterministic work gets zero agents** (e.g. CTGov cohort/drug read straight from JSON).
 
-## 4. Runtime — `core/` + `tools/`
+## 4. Runtime — `core/`
 
 - **`client.py` (`LlmClient`)** — the single door to OpenAI.
   - `.parse(schema, …)` → validated pydantic via `chat.completions.parse` (retries, response cache, tracing).
@@ -63,8 +63,10 @@ Two layers. The orchestrator is **code, not an LLM**.
 - **`agent.py` (`Agent`)** — `prompt + output schema + model (+ web_search flag)` bound to the client; `__call__`
   returns the validated object. `web_search=True` routes to `.research()`.
 - **`workflow.py`** — generic `fan_out()` (parallel) + `refine()` (bounded check→repair loop; `max_attempts≈3`).
-- **`tools/`** — reference data + validators agents lean on: `oncotree.py` (code vocab + validator),
-  `finding_model.py` (grammar + syntax validator).
+- **Reference data + validators** live with the **column that owns them** (restructured 2026-08-04, §8):
+  `mapping/cancer_type/{vocab,expr,checks}.py` (OncoTree code vocab, canonical form, defect catalogue) and
+  `mapping/gene_alteration/{expr,checks}.py`, over the shared `mapping/finding_model.py` grammar. There is no
+  longer a `tasks/eligibility/tools/` package.
 
 ### 4.1 Response cache — determinism, provenance & pruning
 One content-addressed `DiskCache` (`data/agentic/cache/`) is shared by **both** paths. The key is a SHA-256 of
@@ -188,7 +190,24 @@ table (global drug facts, built once per unique drug, looked up by name — the 
 
 ### 6.2 The DNF within a regime
 The output table is in **disjunctive normal form**: a set of rows ORed together, each row a conjunction of ANDed cells.
-- **One row = one satisfiable conjunction** (cells ANDed). Rows sharing a `(trialId, cohort)` are **ORed**.
+- **One row = one conjunction of SOURCE CRITERIA** (cells ANDed). Rows sharing a `(trialId, cohort)` are **ORed**.
+  ⚠ **Stated precisely (2026-08-04) — the earlier wording "one satisfiable conjunction" was ambiguous and, read the
+  wrong way, argues for exploding a gene-family OR into one row per gene, which would be a serious mistake:**
+  > **One row = one conjunction of SOURCE CRITERIA. Within a cell, a disjunction is permitted ONLY where it
+  > enumerates the vocabulary tokens of a SINGLE criterion.**
+  The DNF-ness lives in the **source language**. Row grain is fixed by EXTRACTION (`interpreted_eligibility` is
+  keyed `(trial_arm_id, conjunction_index)`); the mapping stage is a **value→value lookup** and structurally cannot
+  add or remove rows — measured: export rows were 17,830 before and after the 2026-08-04 gene correction.
+  An OR inside a **mapped** cell is an artifact of the TARGET VOCABULARY being less expressive than English:
+  "TP53 alteration" is one atom needing three terms, "RAS mutation" one atom needing three genes, "an alteration in
+  the SWI/SNF complex" one atom needing 93. Measured over the corpus, only **3 of 900** interpreted cells hold a
+  genuine positive OR (those 3 ARE violations — §13); the other **132** OR-bearing expressions were introduced by
+  mapping. Because a cell holds the mapping of exactly ONE free-text value, every disjunct in it came from one
+  source concept **by construction**, so the second clause needs no policing. Splitting them into rows would present
+  one criterion as N alternative cohorts, destroy the per-arm conjunction count, expand 132 values into 639
+  disjuncts, and hand the matching engine a shape it models LESS naturally than the flat OR it already has.
+  Full statement + measurements: `docs/planning/archive/v2_gene_alteration_correction_spec.md` §3b; the short form lives in
+  `mapping/gene_alteration/expr.py`, the module that would otherwise be tempted to "fix" it.
 - **Conditionals become co-occurrence:** "if cancer A then mutation X; if cancer B then mutation Y" → two rows.
 - **Exclusions are inline `NOT(...)`.** A cell holds the full requirement for its criterion in that row (several
   ANDed terms allowed, e.g. `solid tumour AND NOT(melanoma)`); only genuine OR-alternatives split into rows, so
@@ -309,18 +328,35 @@ guard:
 Enriches the DNF rows. Every procedure is an LLM **mapper/curator → reviewer** (§2.5), grounded in the legacy
 resources per the hold-out rule (§8.4).
 
+**Layout (restructured 2026-08-04):** `mapping/` is split **per vocabulary column** — `cancer_type/`,
+`gene_alteration/`, `molecular_signature/`, each owning its agents/prompts and (where it has them) its expression
+parser, canonical form and defect catalogue. `finding_model.py` sits at the `mapping/` level because BOTH
+finding-model columns share that grammar; `schema.py` / `workflow.py` / `reconcile.py` are the shared driver.
+`tasks/eligibility/tools/` is GONE — its four modules moved into the owning column. `reconcile_column` takes a
+`column:` discriminator, not an `is_oncotree` boolean (gene_alteration and molecular_signature are no longer
+interchangeable — see §8.2).
+
 ### 8.1 cancer_type → OncoTree
 Mapper → `oncotree_name` + `oncotree_code`, mapping tumour terms; grounded in the OncoTree ontology
-(`tools/oncotree.py`). Only **three permitted non-OncoTree terms**: `Pan-cancer`, `solid tumour`,
+(`mapping/cancer_type/vocab.py`). Only **three permitted non-OncoTree terms**: `Pan-cancer`, `solid tumour`,
 `Haematological malignancy` (no `[None]` — a non-cancer value maps to empty). A deterministic validator
 (`_oncotree_logic_problems`) rejects any `[None]`, and — per OR-alternative — `X AND X`, `X AND NOT(X)`, a broad
 term ANDed with a specific code under it, and a subtype ANDed with its OncoTree parent (hierarchy from the CSV
 levels via `is_subcode`). `NOT(cancer type)` is kept minimal. The reviewer audits the same.
 
 ### 8.2 gene_alteration / molecular_signature → finding-model syntax
-Mapper → Hartwig finding-model syntax (`tools/finding_model.py` grammar): `SmallVariant[gene=… & …]`,
-`GainDeletion[… & type=GAIN|HOM_DEL|HET_DEL]`, `Fusion[geneStart/geneEnd]`, `Disruption`, `Arm[…]`, `Wildtype`,
-`MicrosatelliteStability[…]`, `homologousRecombination[…]`, `tumorMutationBurden/Load[…]`. A validator
+Mapper → Hartwig finding-model syntax (`mapping/finding_model.py` grammar): `SmallVariant[gene=… & …]`,
+`GainDeletion[… & type=GAIN|HOM_DEL|HET_DEL|CN_NEUTRAL_LOH]`, `Fusion[geneStart/geneEnd]`, `Disruption`, `Arm[…]`,
+`Wildtype`, `HlaAllele[…]`, `MicrosatelliteStability[…]`, `homologousRecombination[…]`,
+`tumorMutationBurden/Load[…]`.
+
+**⚠ The grammar is grounded on the JAVA DATAMODEL, not the curated spreadsheet (corrected 2026-08-04).**
+`hmftools/finding-datamodel/…/SmallVariant.java` is the authority. The spreadsheet-derived version had blessed an
+impossible value: `transcriptImpact.effects=SPLICE` — `SPLICE` is a member of `CodingEffect`, NOT of
+`VariantEffect`. Also added from the records: `transcriptImpact.affectedCodon`, the full `VariantEffect` /
+`CodingEffect` enums, `GainDeletion.Type.CN_NEUTRAL_LOH`, the compound `Arm[(…) & (…)]` form, and `HlaAllele` (HLA
+is never a `PharmocoGenotype`). Lesson: **a validator is only as right as its vocabulary** — its enums were
+transcribed from the prompt rather than from the source of truth, so it certified its own invention. A validator
 (balanced brackets, known classes, gene-scoped `SmallVariant`, **no duplicate terms, no `X & NOT(X)`
 self-contradiction**) runs before the reviewer. A `NOT()` qualified by something finding-model can't express
 (e.g. an anatomic location) is **omitted** — never emitted as `NOT(same-variant)`.
@@ -337,6 +373,30 @@ for — a copy-number **count/threshold** (`amplification with ≥5 copies` → 
 level, a VAF threshold, an anatomic location, a tumour context — the mapper maps to the closest expressible term
 and **drops** the qualifier. This loss of specificity is **correct, not a fault**: neither mapper nor reviewer
 may flag a dropped unrepresentable qualifier.
+
+**gene_alteration STAGE 2 (new 2026-08-04).** Until then the gene column had **no** Step-2 reconciliation — it
+short-circuited (`refined[value] = code`), so stage-1 output shipped unreconciled. It now runs its own pipeline in
+`mapping/gene_alteration/reconcile.py`, deterministic-first:
+
+| | | |
+|---|---|---|
+| R0a | deterministic | MECHANICAL substitutions — a defect whose fix is a pure rewrite must never reach an LLM |
+| R0b | deterministic | canonical **negation-factored DNF** — De Morgan, absorption, dedup, term/field/OR ordering; idempotent |
+| R1 | deterministic | the semantic defect catalogue (`gene_alteration/checks.py`) |
+| R2 | LLM | per-value repair, given ONLY that value's own defects, with a **scope guard** (may remove literals, may never introduce a gene the expression lacks) |
+| R3 | deterministic | group values whose SOURCE CONCEPTS agree but whose expressions differ |
+| R4 | LLM | adjudicate a group |
+| R5 | deterministic | canonicalise again + the syntax gate; idempotence asserted corpus-wide |
+
+Grouping is by **source concept** (the wording with inexpressible qualifiers stripped), NOT by shared gene: a
+gene-overlap rule was measured, produced 14 groups spanning 173 values that were mostly unrelated criteria, and was
+**rejected** — the rejection is documented in `find_groups` so it is not reinvented.
+
+**Exclusions are judged by REFERENT, not by qualifier.** Inside `NOT(...)`: a named SPECIFIC alteration is kept and
+excluded exactly; a named CLASS WITH ESTABLISHED MEMBERSHIP is kept and expanded; only an availability/actionability
+judgement over an UNSPECIFIED set is omitted. Dropping a qualifier broadens an INCLUSION (safe) but narrows an
+EXCLUSION — and an over-exclusion invisibly denies a patient a trial, whereas an omitted exclusion is recoverable by
+the reviewing clinician.
 
 ### 8.3 Drug enrichment (trial-level, one web-search curator → reviewer)
 Sources: CTGov `interventions[].name/otherNames/description`; ANZCTR `INTERVENTIONS` (RxNorm cross-check
@@ -443,8 +503,9 @@ aus_trial_universe/
     ingestion/     ctgov.py anzctr.py pottr_ids.py expiry.py   # self-contained download+filter+POTTR+expiry (§10)
     shared/        cohorts.py agents.py schema.py store.py  # PATH-NEUTRAL arm identification: Cohort,
     #                trial_arm_id() slug, ANZCTR drug agents, anzctr_regimes, TrialArm + TrialArmStore
-    eligibility/   extraction/ (loaders,agents,schema,workflow)  mapping/ (agents,schema,workflow)
-    #              tools/ (oncotree.py finding_model.py)  qa/ (validate_output.py, arm_consistency.py)
+    eligibility/   extraction/ (loaders,agents,schema,workflow)
+    #              mapping/ (schema,workflow,reconcile,finding_model + cancer_type/ gene_alteration/ molecular_signature/)
+    #              qa/ (validate_output.py, arm_consistency.py, mapping_consistency.py)   # tools/ REMOVED 2026-08-04
     drug_utility/  schema.py store.py rxnorm.py pottr.py agents.py workflow.py build.py migrate_trial_arms.py
 ```
 Arm identification is the ONE thing genuinely shared by both paths → it lives in `tasks/shared/` (both paths import
@@ -487,7 +548,7 @@ residue. **Deliberately NOT a deterministic excuse: "the arm's raw row is empty"
 rather than explaining it, and while it was a rule it auto-absolved 7 arms of which 2 were real misses.
 
 ### 12.2 Test + validator layers
-- **Code (orchestration/consolidate/validators/gates):** unit-tested with fake clients — no API (**212 tests**).
+- **Code (orchestration/consolidate/validators/gates):** unit-tested with fake clients — no API (**350 tests**).
   The gate tests assert the FAILURE directions specifically: a gate that cannot fail is decoration.
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
 - **Independent output validator (`make agentic-validate`, `tasks/eligibility/qa/validate_output.py`):** a deterministic
@@ -497,16 +558,28 @@ rather than explaining it, and while it was a rule it auto-absolved 7 arms of wh
   checks nothing else does (unsatisfiable `A AND B` cancer_type, all-empty rows, exact-dup rows, in-cell
   `X AND NOT(X)`, prior_therapy subsuming-twin over-enumeration). **Testing-period QA step, not the production
   path;** always run it while iterating, and keep its checks in sync with the pipeline's validators.
+- **Downstream conformance (`python -m aus_trial_universe.qa.engine_conformance`, new 2026-08-04):** a faithful
+  transcription of the MATCHING ENGINE's own expression parser (`qa/engine_port.py`, pinned to
+  `oncoact@a97142938`, its fidelity asserted against all 12 of the engine's own parser tests). It grades the
+  shipped export and splits every failure into **OURS** (a mapping defect we fix) vs **ENGINE** (well-formed
+  finding-model the engine cannot yet consume → `docs/planning/matching_engine_capability_gaps.md`). Currently
+  **OURS = 0**. ⚠ It is a MECHANICAL check and **does not replace reading the output**: the worst defect found in
+  the 2026-08-04 correction — the reconciler collapsing a named class to its bare gene, producing an
+  over-exclusion — was invisible to every gate, to the regression detector *and* to this dry run (both spellings
+  parse), and was legible only in an agent's own rationale in the run log.
 - **Mapping accuracy:** **manual** hold-out comparison against the legacy trial-resource + curated resources
   (review sets: `data/agentic/analysis/complex_trials_ids.txt` + `typical_trials_ids.txt`). An automated
   run-comparison method is deferred (§13).
 
 ## 13. Open / deferred
 > The authoritative, prioritised to-do list lives in `docs/v2_agentic_handover.md` ("⏭ RESUME AT"). Highlights:
-> OncoTree code-field defects reported by the matching engine (leaked NAMES — root-caused to a hole in
-> `invalid_codes`, which only checks ALL-CAPS tokens; multiple un-factored `NOT()` clauses; nested negation) ·
+> ✅ **DONE:** the OncoTree code-field defects (B1, shipped 2026-08-04) and the gene_alteration correction +
+> `mapping/` per-column restructure (B1b, shipped 2026-08-04/05 — 0 error defects, new gate, OURS = 0 downstream).
+> **OPEN:** the remaining A2 top-level regroup (`pipeline/` + `outputs/` + `qa/`) · A3 legacy-code removal ·
 > 5 waived extraction misses · cross-checks against the v1 output and POTTR/registry ground truth · a
-> mapped-value-deduplicated joined table · a deterministic DNF-violation detector + LLM repair.
+> mapped-value-deduplicated joined table · a deterministic DNF-violation detector + LLM repair · **3 interpreted
+> cells still holding a genuine positive OR** (a real §6.2 violation, upstream in extraction) · F1 (curated masters
+> into git — still the highest-value quick win).
 - **Run-comparison method** — replacement for `qa/final_resource_diff.py`; how it treats residual LLM variance is TBD.
 - **RxNorm cross-check** for ANZCTR drugs (currently LLM-only) — shelved; may return as a validation layer.
 - **OncoTree granularity** — occasional over-strict "unfaithful" on subtype-heavy trials; tune against the manual review.

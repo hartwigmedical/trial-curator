@@ -21,7 +21,7 @@ from __future__ import annotations
 import functools
 import re
 
-from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     SENTINELS,
     is_subcode,
     name_to_code,
@@ -313,7 +313,7 @@ def flatten_nested_nots(node: Node, table: dict[str, str]) -> Node:
     The two whitelisted idioms (`SKIN AND NOT(MEL)`, `NSCLC AND NOT(LUSC)`) are left nested — the engine
     special-cases them.
     """
-    from aus_trial_universe.tasks.eligibility.tools.oncotree_checks import _is_whitelisted_difference
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.checks import _is_whitelisted_difference
 
     if isinstance(node, Atom):
         return node
@@ -358,7 +358,7 @@ def _conj(parts: list[Node]) -> Node:
 def _conj_absorbing(rest: list[Node], c_part: Node, table: dict[str, str]) -> Node | None:
     """`rest AND c_part`, dropping any positive conjunct that c_part is already inside, and returning None if the
     conjunction cannot be satisfied (two disjoint tumour types)."""
-    from aus_trial_universe.tasks.eligibility.tools.oncotree_checks import _codes_of
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.checks import _codes_of
 
     c_codes = _codes_of(c_part, table, negated=False)
     kept: list[Node] = []
@@ -382,7 +382,7 @@ def _reduce_composite_entities(parts: list[Node], table: dict[str, str]) -> list
     neoplasm's identity is not separately expressible — so ANDing the component is both unsatisfiable under
     "one tumour type per patient" and redundant. Mechanical, so it is done here rather than asked of the LLM.
     """
-    from aus_trial_universe.tasks.eligibility.tools.oncotree_checks import _COMPOSITE_ENTITIES
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.checks import _COMPOSITE_ENTITIES
 
     composites = {c for key in _COMPOSITE_ENTITIES for c in key}
     present = {c for p in parts for a, neg in atoms(p) if not neg

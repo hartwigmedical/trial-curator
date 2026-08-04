@@ -32,7 +32,7 @@ from pathlib import Path
 from aus_trial_universe.core.workflow import fan_out
 from aus_trial_universe.qa import adjudications
 from aus_trial_universe.tasks.eligibility.schema import MAPPED_ELIGIBILITY_COLUMNS
-from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     Problem,
     canonical_form,
     expression_problems,
@@ -41,7 +41,15 @@ from aus_trial_universe.tasks.eligibility.tools.oncotree import (
     render_name_expression,
 )
 from aus_trial_universe.tasks.eligibility.mapping.workflow import strip_provenance
-from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
+from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
+
+#: The three vocabulary columns stage 2 can reconcile. A discriminator rather than an `is_oncotree` boolean:
+#: gene_alteration and molecular_signature are NOT interchangeable once gene_alteration has its own stage 2, so a
+#: two-valued flag cannot express the dispatch.
+CANCER_TYPE = "cancer_type"
+GENE_ALTERATION = "gene_alteration"
+MOLECULAR_SIGNATURE = "molecular_signature"
+COLUMNS = (CANCER_TYPE, GENE_ALTERATION, MOLECULAR_SIGNATURE)
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +76,7 @@ def repair_value(client, cancer_type: str, code_expression: str, problems: list[
     """
     from aus_trial_universe.core.review import review_refine
     from aus_trial_universe.core.workflow import CheckResult
-    from aus_trial_universe.tasks.eligibility.mapping.agents import (
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.agents import (
         build_oncotree_repair_reviewer,
         build_oncotree_repairer,
     )
@@ -125,7 +133,7 @@ _ESCALATION = ("\n\n[ESCALATION-MODE] Earlier attempts did not resolve the probl
 
 
 def reconcile_group(client, members: list[tuple[str, str]], problems_by_value: dict[str, list[Problem]], *,
-                    is_oncotree: bool = True, max_attempts: int = 4, use_reviewer: bool = True,
+                    column: str = CANCER_TYPE, max_attempts: int = 4, use_reviewer: bool = True,
                     trace=None) -> dict[str, str]:
     """R6 — adjudicate one divergent group, now also given each member's defect list.
 
@@ -134,14 +142,17 @@ def reconcile_group(client, members: list[tuple[str, str]], problems_by_value: d
     """
     from aus_trial_universe.core.review import review_refine
     from aus_trial_universe.core.workflow import CheckResult
-    from aus_trial_universe.tasks.eligibility.mapping.agents import (
-        build_findingmodel_reconcile_reviewer,
-        build_findingmodel_reconciler,
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.agents import (
         build_oncotree_reconcile_reviewer,
         build_oncotree_reconciler,
     )
+    from aus_trial_universe.tasks.eligibility.mapping.molecular_signature.agents import (
+        build_findingmodel_reconcile_reviewer,
+        build_findingmodel_reconciler,
+    )
     from aus_trial_universe.tasks.eligibility.mapping.schema import GroupReconciliation, ReviewVerdict
 
+    is_oncotree = column == CANCER_TYPE
     build_doer = build_oncotree_reconciler if is_oncotree else build_findingmodel_reconciler
     build_rev = build_oncotree_reconcile_reviewer if is_oncotree else build_findingmodel_reconcile_reviewer
     doer = build_doer(client)
@@ -216,7 +227,7 @@ def reconcile_group(client, members: list[tuple[str, str]], problems_by_value: d
 # Per-column driver — the entry point run.py calls
 # --------------------------------------------------------------------------- #
 def reconcile_column(
-    client, mapping: dict[str, str], *, is_oncotree: bool, workers: int, max_attempts: int, use_reviewer: bool,
+    client, mapping: dict[str, str], *, column: str, workers: int, max_attempts: int, use_reviewer: bool,
 ) -> tuple[dict[str, str], list[tuple[str, str, list[str]]], int]:
     """Refine one column's {value -> Step-1 code}. Returns (final {value -> FINAL}, unresolved, n_groups).
 
@@ -225,10 +236,20 @@ def reconcile_column(
     """
     from aus_trial_universe.tasks.eligibility.qa.mapping_consistency import find_inconsistencies
 
+    # gene_alteration has its OWN stage 2 (finding-model canonical form + concept-level grouping), so it is
+    # dispatched rather than squeezed through the OncoTree pipeline below. Until 2026-08-04 the gene column had no
+    # stage 2 at all — it short-circuited to `refined[value] = code`, which is why stage-1 output shipped
+    # unreconciled. See `mapping/gene_alteration/reconcile.py`.
+    if column == GENE_ALTERATION:
+        from aus_trial_universe.tasks.eligibility.mapping.gene_alteration import reconcile as ga_reconcile
+        return ga_reconcile.reconcile_column(
+            client, mapping, workers=workers, max_attempts=max_attempts, use_reviewer=use_reviewer)
+
     # ---- R0-R3 -----------------------------------------------------------------
     refined: dict[str, str] = {}
     problems: dict[str, list[Problem]] = {}
     unresolved: list[tuple[str, str, list[str]]] = []
+    is_oncotree = column == CANCER_TYPE
     for value, code in mapping.items():
         refined[value] = deterministic_pass(code) if is_oncotree else (code or "")
         problems[value] = expression_problems(refined[value]) if is_oncotree else []
@@ -253,7 +274,7 @@ def reconcile_column(
     groups = find_inconsistencies(refined)
     members = [[(v, refined[v]) for _c, vs in codes.items() for v in vs] for codes in groups.values()]
     if members:
-        verdicts = fan_out([_soft(lambda m=m: reconcile_group(client, m, problems, is_oncotree=is_oncotree,
+        verdicts = fan_out([_soft(lambda m=m: reconcile_group(client, m, problems, column=column,
                                                               max_attempts=max_attempts,
                                                               use_reviewer=use_reviewer), {})
                             for m in members], max_workers=workers)

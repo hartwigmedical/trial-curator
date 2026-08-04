@@ -63,7 +63,7 @@ def _stores():
 
 
 def test_build_export_rows(tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.tools.oncotree.oncotree_vocab", lambda: _VOCAB)
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab.oncotree_vocab", lambda: _VOCAB)
     _write_finalised_maps(tmp_path)
     elig, arm, drug, info, taid = _stores()
     rows = EX.build_export_rows(elig, arm, drug, info, elig_dir=tmp_path)
@@ -88,7 +88,7 @@ def test_build_export_rows(tmp_path, monkeypatch):
 
 
 def test_run_export_writes_setA_and_snapshot(tmp_path, monkeypatch):
-    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.tools.oncotree.oncotree_vocab", lambda: _VOCAB)
+    monkeypatch.setattr("aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab.oncotree_vocab", lambda: _VOCAB)
     elig, arm, drug, info, _ = _stores()
     # hermetic: no loaders, no real stores
     monkeypatch.setattr(TI, "build_all_trial_info", lambda: info)

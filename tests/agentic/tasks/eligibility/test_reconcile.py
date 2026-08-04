@@ -56,8 +56,8 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
                    ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map.tsv")}
 
     # patch the adjudicator: unify each flagged oncotree group to BREAST
-    def fake_adjudicate(client, members, problems, *, is_oncotree, max_attempts, use_reviewer):
-        return {v: ("BREAST" if is_oncotree else c) for v, c in members}
+    def fake_adjudicate(client, members, problems, *, column, max_attempts, use_reviewer):
+        return {v: ("BREAST" if column == rec.CANCER_TYPE else c) for v, c in members}
     monkeypatch.setattr(rec, "reconcile_group", fake_adjudicate)
 
     rc = run.main(["--reconcile", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])

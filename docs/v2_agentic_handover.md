@@ -1,6 +1,39 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-08-04, end of session 8)
+## ▶ NEXT SESSION — START HERE (updated 2026-08-04, end of session 9)
+
+> **WHERE THINGS STAND (2026-08-04, session 9).** **`B1b` (gene_alteration mapping) is DONE, reviewed, approved and
+> MIGRATED TO PRODUCTION**, together with the `mapping/` restructure the user asked for. **350 tests green.
+> Gates WARN · 0 FAIL. Everything is UNCOMMITTED — the user does ALL commits.**
+>
+> **What shipped:**
+> - `tasks/eligibility/mapping/` is now split **per vocabulary column** — `cancer_type/`, `gene_alteration/`,
+>   `molecular_signature/`, with the shared `finding_model.py` grammar at the `mapping/` level and `schema.py` /
+>   `workflow.py` / `reconcile.py` as the shared driver. **`tasks/eligibility/tools/` is GONE** (its four modules
+>   moved into the owning column). `reconcile_column`'s `is_oncotree: bool` became a `column:` discriminator.
+> - **gene_alteration now HAS a stage 2** (`mapping/gene_alteration/reconcile.py`) — it previously short-circuited.
+> - The finding-model grammar was **re-grounded on the Java datamodel** (`hmftools/finding-datamodel`), which fixed
+>   `transcriptImpact.effects=SPLICE` (not a `VariantEffect` member — it is a `CodingEffect`), added
+>   `affectedCodon` / `CN_NEUTRAL_LOH` / the full effect enums, and moved HLA to `HlaAllele`.
+> - New **`gene_alteration_expressions` gate** (0 errors across 862 distinct expressions; it FAILed with 32 before).
+> - New permanent QA: **`qa/engine_port.py` + `qa/engine_conformance.py`** — a transcription of the matching
+>   engine's parser, pinned to `oncoact@a97142938` and validated against all 12 of its own tests. Run
+>   `python -m aus_trial_universe.qa.engine_conformance` to grade the shipped export and split failures into
+>   **OURS vs ENGINE**. Currently **OURS = 0**, ENGINE = 311.
+> - **`docs/planning/matching_engine_capability_gaps.md`** — 7 engine-side gaps (G1-G8) with file:line references,
+>   ready to send to the matching-engine team. **Not yet sent.**
+>
+> **▶ YOUR NEXT TASK: the A-group, now unblocked** — **A2** is partially done (the `mapping/` split); the remaining
+> `pipeline/` + `outputs/` + `qa/` regroup is still open → **A3** legacy removal → **A4/A4b/A5**. Then the C/D/F
+> backlog. **F1 (curated masters into git) remains the highest-value quick win in this doc.**
+>
+> Record: `docs/planning/archive/v2_gene_alteration_correction_spec.md`. Backups:
+> `data/backups/pre_gene_alteration_20260804_2327/` + `known_good_20260804_post_gene_alteration/`.
+>
+> ---
+> *Historical context from earlier sessions follows.*
+
+## ▶ SESSION 8 (superseded, kept for provenance)
 
 > **WHERE THINGS STAND (2026-08-04).** The pipeline is self-contained and periodically runnable end-to-end
 > (`make agentic-refresh`), it verifies itself and fails loud, and the **OncoTree mapping correction has shipped**:
@@ -82,7 +115,10 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
 
 ### A. Do next, in this order (structure + cleanup; nothing here needs an LLM run)
 - **A1 ✅ e2e run done** (session 6) — the user inspects its output + `run_report/` first.
-- **A2 — RESTRUCTURE `aus_trial_universe/` (layout APPROVED by the user).** Six loose modules sit next to `core/`
+- **A2 — RESTRUCTURE `aus_trial_universe/`. ⚠ PARTIALLY DONE 2026-08-04:** the `mapping/` split by vocabulary
+  column shipped with B1b (`cancer_type/`, `gene_alteration/`, `molecular_signature/`; `tools/` deleted;
+  `is_oncotree` → `column`). The `pipeline/` + `outputs/` + `qa/` regroup below is STILL OPEN.
+- **A2 (remaining) — the top-level regroup (layout APPROVED by the user).** Six loose modules sit next to `core/`
   + `tasks/`; group them so every top-level folder answers one question:
   - `pipeline/` = the runnable entry points — `ingest.py` · `run.py` · `refresh.py` · `demo.py`
   - `outputs/` = what a run emits — `export.py` · `trial_info.py` · `run_report.py`
@@ -116,7 +152,15 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
   Should cover: what the pipeline is and produces (Set A + Set B), the 9-stage refresh, how to run it, the data
   layout, the QA/gates story, and how to recover (`data/backups/RECOVERY.md`). Do it AFTER A2/A3 so paths are final.
 
-### B1b ▶ NEXT — REFINE THE **GENE_ALTERATION** MAPPINGS, THE WAY B1 DID ONCOTREE (user, 2026-08-04)
+### ✅ B1b — GENE_ALTERATION MAPPINGS — **DONE 2026-08-04, MIGRATED TO PRODUCTION.**
+
+Reviewed, approved and shipped. Export carries **0 error-severity defects** across 862 distinct gene
+expressions, guarded by the new `gene_alteration_expressions` gate; the engine dry run reports **OURS = 0**.
+Full record incl. the six iterations, the endorsed biology and the five resolved content calls:
+**`docs/planning/archive/v2_gene_alteration_correction_spec.md`**. The measured baseline that scoped it follows for
+provenance.
+
+#### (original scoping entry)
 
 **Measured baseline (2026-08-04, over `finalised_gene_alteration_map.tsv`):**
 
@@ -383,6 +427,8 @@ aus_trial_universe/agentic/
       agents.py, schema.py   # oncotree / gene / signature mappers + reviewers (all validated) + the Step-2 reconcile adjudicators (_ONCOTREE_RECONCILE_RULES + reviewer + finding-model analogs); schema has OncotreeMapping/FindingModelMapping/ReviewVerdict(+suggested_fix)/GroupReconciliation
       workflow.py            # map_cancer_types/gene_alterations/molecular_signatures + map_all_columns (ONE pool across all 3); _oncotree_logic_problems (parens/precedence via _top_level_has)
       reconcile.py           # STEP 2 (NEW 2026-07-28): detect(find_inconsistencies) -> deterministic pre-pass (repair_oncotree_code name->code + normalize_or_order) -> adjudicate_group (LLM) -> write_finalised_maps (3NF, to store) + write_finalised_mapped_eligibility (flat, to joined/)
+    # ⚠ TREE BELOW IS PRE-2026-08-04. mapping/ is now split per column (cancer_type/ gene_alteration/
+    #   molecular_signature/ + shared finding_model.py, schema.py, workflow.py, reconcile.py) and tools/ is GONE.
     schema.py, store.py      # ArmEligibilityRaw + InterpretedEligibility + 5 map dataclasses + MAPPED_ELIGIBILITY_COLUMNS; EligStore.save_maps() / save_mapped_eligibility() (write ONLY new files, never re-persist content tables)
     tools/
       oncotree.py            # oncotree.YAML vocab + valid_codes + ancestors + vocab_reference() (indented Name (CODE) tree) + name_to_code() (reverse, for Step-2 repair); 3 sentinels
@@ -449,6 +495,40 @@ rows); + the additive `approval_cancer_type_map` (385) / `approval_biomarker_map
 See `combined_agentic_run.md` §"The matching-engine export" for the full column list + per-column notes.
 
 ## Locked decisions (don't re-litigate)
+- **THE DNF INVARIANT — precise statement (2026-08-04).** The loose phrasing "one row = one satisfiable
+  conjunction" is only true of the FREE-TEXT layer, and read the wrong way it argues for exploding a gene-family OR
+  into one row per gene, which would be a serious mistake. The invariant we actually maintain:
+  > **One row = one conjunction of SOURCE CRITERIA. Within a cell, a disjunction is permitted ONLY where it
+  > enumerates the vocabulary tokens of a SINGLE criterion.**
+  Row grain belongs to EXTRACTION (`interpreted_eligibility` is keyed `(trial_arm_id, conjunction_index)`);
+  mapping is a value→value lookup and structurally cannot add or remove rows (export rows 17,830 before and after
+  the gene correction). An OR inside a MAPPED cell is an artifact of the target vocabulary being less expressive
+  than English — "TP53 alteration" is one atom needing three terms, "RAS mutation" one atom needing three genes,
+  "SWI/SNF complex alteration" one atom needing 93. Measured: only **3 of 900** interpreted cells hold a genuine
+  positive OR (those 3 ARE violations → backlog C4); the other **132** OR-bearing expressions were introduced by
+  mapping. Because a cell holds the mapping of exactly ONE free-text value, every disjunct in it came from one
+  source concept **by construction**. Splitting them into rows would present one criterion as N cohorts, destroy
+  the per-arm conjunction count, expand 132 values into 639 disjuncts, and hand the consumer a shape it models
+  LESS naturally than the flat OR it already has. Full statement + measurements:
+  `docs/planning/archive/v2_gene_alteration_correction_spec.md` §3b; short form in `mapping/gene_alteration/expr.py`.
+- **gene_alteration vocabulary (2026-08-04, user-endorsed).** The finding-model grammar is grounded on the **Java
+  datamodel**, not the curated spreadsheet: `transcriptImpact.effects` is a `VariantEffect` (SPLICE is NOT a member —
+  it is a `CodingEffect`); `GainDeletion.type` includes `CN_NEUTRAL_LOH`; `affectedCodon` exists; HLA is
+  `HlaAllele`, never `PharmocoGenotype`. The **EGFR sensitising class** = exon 19 deletion · L858R · G719X · L861Q ·
+  S768I (T790M and exon 20 *insertions* are excluded as resistance/insensitive; note S768I is a point mutation in
+  the same exon). **"Activating" ≡ "sensitising"** for EGFR, in every context, and neither is a droppable qualifier.
+  Genes where an unspecified "alteration" must NOT include `type=GAIN`: **ALK, ROS1, RET, NTRK1/2/3, NRG1, FGFR3** —
+  and explicitly NOT FGFR2 (amplification is actionable in gastric), FGFR1, MET, EGFR, ERBB2. ALK amplification IS a
+  driver in neuroblastoma; the no-GAIN rule is NSCLC-facing.
+- **Exclusions are judged by REFERENT, not by qualifier (2026-08-04).** Inside `NOT(...)`: a named SPECIFIC
+  alteration is kept and excluded exactly; a named CLASS WITH ESTABLISHED MEMBERSHIP is kept and expanded; only an
+  availability/actionability judgement over an UNSPECIFIED set is omitted. Dropping a qualifier broadens an
+  INCLUSION (safe) but narrows an EXCLUSION — and an over-exclusion invisibly denies a patient a trial they
+  qualify for, whereas an omitted exclusion is recoverable by the reviewing clinician.
+- **`_GENE_ESCALATION` is pinned (2026-08-04).** `mapping/workflow.py` gives the gene column its own escalation
+  suffix. Not style: the 909 approved mappings were produced with that exact wording, the reviewer input is hashed
+  into the cache key, and changing it would re-roll reviewed answers. Same class of trap as pinning
+  `--max-attempts` (which defaults to 6 in `run.py` but was **3** for the approved gene run).
 - **Extraction (memory `v2-stage2-extraction-decisions`):** 5 eligibility columns + drug; taxonomy from
   `pydantic_curator/criterion_schema.py`; multi-source `[a; b]` provenance; inline `NOT()`; cohort Option A
   (one per arm, cohort-aware, trial-wide ∧ cohort-specific distribution); 5-reviewer panel (drug advisory).

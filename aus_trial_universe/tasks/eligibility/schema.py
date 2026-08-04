@@ -78,7 +78,7 @@ class CancerTypeMap:
         """Derive the name from the code, always. The two used to be independent LLM outputs that nothing
         cross-checked, which is how 46 rows ended up with a name that did not match their code. Making it
         structural means the disagreement cannot recur (user requirement, 2026-08-03)."""
-        from aus_trial_universe.tasks.eligibility.tools.oncotree import render_name_expression
+        from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import render_name_expression
         self.oncotree_name = render_name_expression(self.oncotree_code)
 
 

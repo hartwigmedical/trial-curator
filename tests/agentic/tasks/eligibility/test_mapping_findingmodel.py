@@ -7,7 +7,7 @@ from aus_trial_universe.tasks.eligibility.mapping.workflow import (
     map_gene_alterations,
     map_molecular_signatures,
 )
-from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
+from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
 
 
 # --- validator (tools/finding_model) --------------------------------------- #
@@ -29,7 +29,14 @@ def test_finding_model_validator_grammar_valid():
     ok = [
         "SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C]",
         "SmallVariant[gene=EGFR & transcriptImpact.affectedExon=19 & transcriptImpact.effects=INFRAME_DELETION]",
-        "SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.effects=SPLICE]",
+        # SPLICE is a CodingEffect, NOT a VariantEffect — corrected 2026-08-04 against SmallVariant.java.
+        "SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.codingEffect=SPLICE]",
+        "SmallVariant[gene=EGFR & transcriptImpact.effects=FRAMESHIFT]",   # a real VariantEffect member
+        "SmallVariant[gene=RB1 & transcriptImpact.effects=SPLICE_ACCEPTOR]",
+        "SmallVariant[gene=KRAS & transcriptImpact.affectedCodon=12]",     # field added 2026-08-04
+        "GainDeletion[gene=TP53 & type=CN_NEUTRAL_LOH]",                   # enum member added 2026-08-04
+        "HlaAllele[gene=HLA-A & allele=*02:01]",                           # HLA is NOT a PharmocoGenotype
+        "Arm[(chromosome=1 & arm=p & type=ARM_LOSS) & (chromosome=19 & arm=q & type=ARM_LOSS)]",  # compound
         "SmallVariant[gene=IDH1 & transcriptImpact.hgvsProteinImpact=p.R132X]",  # X-wildcard HGVS
         "GainDeletion[gene=ERBB2 & type=GAIN]",
         "GainDeletion[gene=MTAP & type=HOM_DEL] | Disruption[gene=MTAP]",
@@ -55,7 +62,11 @@ def test_finding_model_validator_grammar_rejects():
     assert flagged("GainDeletion[gene=X & type=AMP]", "invalid value")                 # bad enum
     assert flagged("GainDeletion[gene=X]", "missing required type")                    # missing enum scope
     assert flagged("SmallVariant[protein=p.V600E]", "unknown field")                   # unknown field
-    assert flagged("SmallVariant[gene=EGFR & transcriptImpact.effects=FRAMESHIFT]", "invalid value")
+    # `effects=SPLICE` is the defect the 2026-08-04 correction removed: SPLICE belongs to CodingEffect, and the
+    # validator now says so rather than blessing an impossible enum member.
+    assert flagged("SmallVariant[gene=MET & transcriptImpact.effects=SPLICE]", "codingEffect")
+    assert flagged("SmallVariant[gene=EGFR & transcriptImpact.effects=NOT_AN_EFFECT]", "invalid value")
+    assert flagged("PharmocoGenotype[gene=HLA-A & allele=*02:01]", "HlaAllele")   # HLA has its own record
     assert flagged("Fusion[gene=ALK]", "unknown field")                                # Fusion has geneStart/geneEnd
     assert flagged("Fusion[]", "at least one")                                         # no orientation
     assert flagged("SmallVariant[gene=BRAF & transcriptImpact.hgvsProteinImpact=V600E]", "invalid HGVS")  # missing p.
@@ -69,8 +80,11 @@ def test_finding_model_validator_grammar_rejects():
 def test_locked_prompt_decisions_present():
     """Prompt-only decisions (2026-07-10) can't be caught by fake-client behaviour tests — guard the
     strings so a future grammar edit can't silently drop them. See memory v2-mapping-stage-decisions."""
-    from aus_trial_universe.tasks.eligibility.mapping.agents import GENE_REVIEWER_INSTRUCTIONS, _GENE_RULES
-    from aus_trial_universe.tasks.eligibility.tools.finding_model import GRAMMAR_REFERENCE
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.agents import (
+        GENE_REVIEWER_INSTRUCTIONS,
+        _GENE_RULES,
+    )
+    from aus_trial_universe.tasks.eligibility.mapping.finding_model import GRAMMAR_REFERENCE
 
     # H3K27-altered ≡ H3K27M: canonical 3-gene block, strict-HGVS p.K28M coordinate.
     for gene in ("H3F3A", "HIST1H3B", "HIST1H3C"):

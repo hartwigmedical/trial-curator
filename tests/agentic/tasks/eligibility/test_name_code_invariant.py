@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from aus_trial_universe.qa import adjudications
 from aus_trial_universe.tasks.eligibility.schema import CancerTypeMap
-from aus_trial_universe.tasks.eligibility.tools.oncotree import render_name_expression
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import render_name_expression
 
 
 def test_cancer_type_map_derives_the_name_and_ignores_what_it_is_given():

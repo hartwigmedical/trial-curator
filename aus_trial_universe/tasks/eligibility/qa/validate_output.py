@@ -31,8 +31,8 @@ from pathlib import Path
 
 from aus_trial_universe.core.paths import EXPORT_FILE, EXPORT_ROOT
 from aus_trial_universe.tasks.eligibility.mapping.workflow import strip_provenance
-from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
-from aus_trial_universe.tasks.eligibility.tools.oncotree import expression_problems
+from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import expression_problems
 
 ELIGIBILITY_COLUMNS = ("cancer_type", "gene_alteration", "molecular_signature", "molecular_biomarker", "prior_therapy")
 

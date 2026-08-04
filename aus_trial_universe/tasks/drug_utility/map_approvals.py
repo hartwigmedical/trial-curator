@@ -117,9 +117,9 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
     new map tables into `store` (mutated in place). Seeds from the trial FINAL maps unless `seed=False`."""
     from aus_trial_universe.export import _read_map, _render_oncotree_name
     from aus_trial_universe.core.paths import CURRENT_VERSION, ELIGIBILITY_OUTPUT
-    from aus_trial_universe.tasks.eligibility.mapping.reconcile import reconcile_column
+    from aus_trial_universe.tasks.eligibility.mapping.reconcile import CANCER_TYPE, reconcile_column
     from aus_trial_universe.tasks.eligibility.mapping.workflow import map_all_columns
-    from aus_trial_universe.tasks.eligibility.tools.oncotree import oncotree_vocab
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import oncotree_vocab
 
     summary = ApprovalMapSummary()
     indications = [ind for rows in store.indications.values() for ind in rows]
@@ -166,7 +166,7 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
     # 4) Step-2 cancer_type reconciliation — REUSE the eligibility shared logic (no rewrite): unify
     #    semantically-equivalent drug cancer_type values to ONE code, keeping genuine grade/subtype distinctions apart.
     ct_final, _unresolved, summary.ct_reconciled_groups = reconcile_column(
-        client, ct_step1, is_oncotree=True, workers=workers, max_attempts=max_attempts, use_reviewer=use_reviewer)
+        client, ct_step1, column=CANCER_TYPE, workers=workers, max_attempts=max_attempts, use_reviewer=use_reviewer)
     logger.info(line(f"cancer_type reconciliation · {summary.ct_reconciled_groups} group(s) adjudicated"))
 
     vocab = oncotree_vocab()

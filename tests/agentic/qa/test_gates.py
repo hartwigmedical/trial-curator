@@ -195,3 +195,59 @@ def test_oncotree_expression_gate_passes_clean_and_warns_without_failing(clean, 
     rep = G.GateReport()
     G._oncotree_expression_gate(rep, warny)
     assert rep.gates[0].status == G.WARN and not rep.failed
+
+
+# --- gene_alteration_expressions: the backstop for the 2026-08-04 gene correction --- #
+def test_gene_alteration_expression_gate_fails_on_a_defective_export(clean, tmp_path):
+    """A gate that cannot fail is decoration. `effects=SPLICE` is the exact defect that shipped for months:
+    SPLICE is a member of CodingEffect, not VariantEffect, and the pre-correction validator blessed it because its
+    enums came from the prompt rather than from SmallVariant.java."""
+    export = tmp_path / "bad.tsv"
+    export.write_text(
+        "trialId\tgene_alteration_interpreted\tgene_alteration_findingmodel\n"
+        "NCT1\tMET exon 14 skipping\t"
+        "SmallVariant[gene=MET & transcriptImpact.effects=SPLICE]\n",
+        encoding="utf-8")
+    rep = G.GateReport()
+    G._gene_alteration_expression_gate(rep, export)
+    (gate,) = rep.gates
+    assert gate.name == "gene_alteration_expressions" and gate.status == G.FAIL
+    assert "splice_as_effect" in gate.detail or "invalid_syntax" in gate.detail
+
+
+def test_gene_alteration_expression_gate_fails_on_hla_as_pharmacogenotype(clean, tmp_path):
+    export = tmp_path / "hla.tsv"
+    export.write_text(
+        "trialId\tgene_alteration_interpreted\tgene_alteration_findingmodel\n"
+        "NCT1\tHLA-A*02:01-positive\tPharmocoGenotype[gene=HLA-A & allele=*02:01]\n", encoding="utf-8")
+    rep = G.GateReport()
+    G._gene_alteration_expression_gate(rep, export)
+    assert rep.gates[0].status == G.FAIL and "hla_as_pharmacogenotype" in rep.gates[0].detail
+
+
+def test_gene_alteration_expression_gate_passes_clean_and_warns_without_failing(clean, tmp_path):
+    good = tmp_path / "good.tsv"
+    good.write_text(
+        "trialId\tgene_alteration_interpreted\tgene_alteration_findingmodel\n"
+        "NCT1\tKRAS G12C mutation\tSmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12C]\n"
+        "NCT2\tMET exon 14 skipping\t"
+        "SmallVariant[gene=MET & transcriptImpact.affectedExon=14 & transcriptImpact.codingEffect=SPLICE]\n",
+        encoding="utf-8")
+    rep = G.GateReport()
+    G._gene_alteration_expression_gate(rep, good)
+    assert rep.gates[0].status == G.PASS
+
+    # a canonical fusion driver expanded with type=GAIN is over-broad, but never fatal
+    warny = tmp_path / "warn.tsv"
+    warny.write_text(
+        "trialId\tgene_alteration_interpreted\tgene_alteration_findingmodel\n"
+        "NCT1\tALK gene alteration\tSmallVariant[gene=ALK] | GainDeletion[gene=ALK & type=GAIN]\n", encoding="utf-8")
+    rep = G.GateReport()
+    G._gene_alteration_expression_gate(rep, warny)
+    assert rep.gates[0].status == G.WARN and not rep.failed
+
+
+def test_gene_alteration_expression_gate_is_registered_in_the_run(clean, tmp_path):
+    """The gate must actually run — a gate defined but never called is worse than no gate."""
+    rep = _run(tmp_path)
+    assert any(g.name == "gene_alteration_expressions" for g in rep.gates)

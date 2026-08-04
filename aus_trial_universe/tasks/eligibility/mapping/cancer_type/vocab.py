@@ -123,12 +123,12 @@ class Problem:
 
 
 def _checks():
-    from aus_trial_universe.tasks.eligibility.tools import oncotree_checks
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import checks as oncotree_checks
     return oncotree_checks
 
 
 def _expr():
-    from aus_trial_universe.tasks.eligibility.tools import oncotree_expr
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import expr as oncotree_expr
     return oncotree_expr
 
 

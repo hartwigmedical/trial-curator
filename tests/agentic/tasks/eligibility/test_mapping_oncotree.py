@@ -12,7 +12,7 @@ from aus_trial_universe.tasks.eligibility.mapping.workflow import (
     map_oncotree,
     strip_provenance,
 )
-from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     expression_problems,
     is_subcode,
     oncotree_vocab,
@@ -97,7 +97,7 @@ def test_map_oncotree_invalid_code_refines_before_reviewer():
 
 
 def test_expression_problems_catches_logic_errors():
-    """Replaces `_oncotree_logic_problems`, now folded into the catalogue in tools/oncotree_checks.py."""
+    """Replaces `_oncotree_logic_problems`, now folded into the catalogue in mapping/cancer_type/checks.py."""
     def defects(expr):
         return {p.defect for p in expression_problems(expr)}
     assert defects("NSCLC") == set()

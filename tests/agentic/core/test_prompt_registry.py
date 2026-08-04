@@ -19,7 +19,9 @@ from aus_trial_universe.core.client import LlmClient
 from aus_trial_universe.core.prompt_registry import live_prompt_shas
 
 BUILDER_MODULES = [
-    "aus_trial_universe.tasks.eligibility.mapping.agents",
+    "aus_trial_universe.tasks.eligibility.mapping.cancer_type.agents",
+    "aus_trial_universe.tasks.eligibility.mapping.gene_alteration.agents",
+    "aus_trial_universe.tasks.eligibility.mapping.molecular_signature.agents",
     "aus_trial_universe.tasks.eligibility.extraction.agents",
     "aus_trial_universe.tasks.drug_utility.agents",
     "aus_trial_universe.tasks.shared.agents",

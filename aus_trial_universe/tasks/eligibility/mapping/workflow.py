@@ -20,21 +20,25 @@ from aus_trial_universe.core.workflow import CheckResult, fan_out
 # the reviewer PROMPTS that act on it are finalised separately.
 _ESCALATION = ("\n\n[ESCALATION-MODE] Earlier attempts did not resolve the problems. In ADDITION to `problems`, "
                "fill `suggested_fix` with the concrete corrected mapping you would expect (the exact value).")
-from aus_trial_universe.tasks.eligibility.mapping.agents import (
-    build_gene_alteration_mapper,
-    build_gene_alteration_reviewer,
-    build_molecular_signature_mapper,
-    build_molecular_signature_reviewer,
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.agents import (
     build_oncotree_mapper,
     build_oncotree_reviewer,
+)
+from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.agents import (
+    build_gene_alteration_mapper,
+    build_gene_alteration_reviewer,
+)
+from aus_trial_universe.tasks.eligibility.mapping.molecular_signature.agents import (
+    build_molecular_signature_mapper,
+    build_molecular_signature_reviewer,
 )
 from aus_trial_universe.tasks.eligibility.mapping.schema import (
     FindingModelMapping,
     OncotreeMapping,
     ReviewVerdict,
 )
-from aus_trial_universe.tasks.eligibility.tools.finding_model import finding_model_problems
-from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     expression_problems,
     is_subcode,
     render_name_expression,
@@ -204,8 +208,17 @@ class FindingModelResult:
     problems: list[str]
 
 
+#: The gene_alteration column keeps its OWN escalation suffix. It is not a style choice: the 909 approved
+#: gene mappings (signed off 2026-08-04) were produced with this exact wording, and the reviewer input is hashed
+#: into the response-cache key — so changing it to `_ESCALATION` would miss the cache on every escalated value and
+#: silently re-roll answers that have already been reviewed. Same class of trap as pinning `--max-attempts`.
+_GENE_ESCALATION = ("\n\n[ESCALATION-MODE] The writer is stuck. Also return `suggested_fix`: the exact expression you "
+                    "would expect.")
+
+
 def _map_finding_model(
-    client: LlmClient, source_expr: str, build_mapper, build_reviewer, *, max_attempts: int, use_reviewer: bool
+    client: LlmClient, source_expr: str, build_mapper, build_reviewer, *, max_attempts: int, use_reviewer: bool,
+    escalation: str = _ESCALATION,
 ) -> FindingModelResult:
     """Generic mapper -> validate(syntax) + reviewer -> refine for one gene/signature expression."""
     mapper = build_mapper(client)
@@ -223,7 +236,7 @@ def _map_finding_model(
             return CheckResult(ok=False, problems=[f"invalid syntax: {p}" for p in probs])
         if reviewer is not None:
             v: ReviewVerdict = reviewer(f"SOURCE: {source_expr}\n\nPROPOSED finding_model: {m.finding_model}"
-                                        + (_ESCALATION if escalate else ""))
+                                        + (escalation if escalate else ""))
             if not v.faithful:
                 gate = v.problems or ["reviewer flagged the conversion"]
                 if escalate and (v.suggested_fix or "").strip():
@@ -241,7 +254,8 @@ def _map_finding_model(
     )
 
 
-def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attempts, use_reviewer, workers=8):
+def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attempts, use_reviewer, workers=8,
+                escalation=_ESCALATION):
     distinct = list(dict.fromkeys(strip_provenance(c) for c in cells if strip_provenance(c)))
     if not distinct:
         return {}
@@ -249,7 +263,8 @@ def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attem
     logger.info("%s · %d value(s)", label, len(distinct))
     results = fan_out([
         (lambda v=v: _map_finding_model(client, v, build_mapper, build_reviewer,
-                                        max_attempts=max_attempts, use_reviewer=use_reviewer))
+                                        max_attempts=max_attempts, use_reviewer=use_reviewer,
+                                        escalation=escalation))
         for v in distinct
     ], max_workers=workers)
     out = {v: r for v, r in zip(distinct, results)}
@@ -260,7 +275,8 @@ def _map_column(client, cells, build_mapper, build_reviewer, label, *, max_attem
 def map_gene_alterations(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True,
                          workers: int = 8) -> dict[str, FindingModelResult]:
     return _map_column(client, cells, build_gene_alteration_mapper, build_gene_alteration_reviewer,
-                       "gene→fm", max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers)
+                       "gene→fm", max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers,
+                       escalation=_GENE_ESCALATION)
 
 
 def map_molecular_signatures(client: LlmClient, cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True,
@@ -288,14 +304,16 @@ def map_all_columns(
     def _ct(v):
         return lambda: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)
 
-    def _fm(v, build_mapper, build_reviewer):
+    def _fm(v, build_mapper, build_reviewer, escalation=_ESCALATION):
         return lambda: _map_finding_model(client, v, build_mapper, build_reviewer,
-                                          max_attempts=max_attempts, use_reviewer=use_reviewer)
+                                          max_attempts=max_attempts, use_reviewer=use_reviewer,
+                                          escalation=escalation)
 
     tagged: list[tuple[str, str]] = [("ct", v) for v in d_ct] + [("ga", v) for v in d_ga] + [("sig", v) for v in d_sig]
     thunks = (
         [_ct(v) for v in d_ct]
-        + [_fm(v, build_gene_alteration_mapper, build_gene_alteration_reviewer) for v in d_ga]
+        + [_fm(v, build_gene_alteration_mapper, build_gene_alteration_reviewer, _GENE_ESCALATION)
+           for v in d_ga]
         + [_fm(v, build_molecular_signature_mapper, build_molecular_signature_reviewer) for v in d_sig]
     )
     results = fan_out(thunks, max_workers=workers) if thunks else []

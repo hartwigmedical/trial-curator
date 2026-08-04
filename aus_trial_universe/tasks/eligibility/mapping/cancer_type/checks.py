@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from aus_trial_universe.tasks.eligibility.tools.oncotree_expr import (
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import (
     Atom,
     Not,
     Op,
@@ -38,7 +38,7 @@ from aus_trial_universe.tasks.eligibility.tools.oncotree_expr import (
     unmask,
     walk,
 )
-from aus_trial_universe.tasks.eligibility.tools.oncotree import SENTINELS, is_subcode
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import SENTINELS, is_subcode
 
 # --------------------------------------------------------------------------- #
 # Catalogue
@@ -231,12 +231,12 @@ def check_expression(expr: str) -> ValueReport:
 
 
 def _masked(raw: str) -> str:
-    from aus_trial_universe.tasks.eligibility.tools.oncotree_expr import mask_names
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import mask_names
     return mask_names(raw)[0]
 
 
 def _canon(node, table, drop_vacuous: bool):
-    from aus_trial_universe.tasks.eligibility.tools.oncotree_expr import canonicalise
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import canonicalise
     return canonicalise(node, table, drop_vacuous=drop_vacuous)
 
 

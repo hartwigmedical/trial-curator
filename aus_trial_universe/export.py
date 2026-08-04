@@ -78,7 +78,7 @@ def _render_oncotree_name(code_expr: str, vocab: dict[str, str]) -> str:   # noq
     Delegates to `tools.oncotree.render_name_expression`, the SINGLE source of names across the store, the joined
     views, this export and the drug-approval maps — so `oncotree_name` can never disagree with `oncotree_code`.
     """
-    from aus_trial_universe.tasks.eligibility.tools.oncotree import render_name_expression
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import render_name_expression
     return render_name_expression(code_expr)
 
 
@@ -101,7 +101,7 @@ def _arm_drug_facts(drug_store, trial_arm_id: str) -> dict[str, str]:
 def build_export_rows(elig_store, arm_store, drug_store, trial_info, *, elig_dir: Path) -> list[dict]:
     """Assemble Set A: interpreted eligibility ⋈ trial_arms ⋈ trial_info ⋈ FINAL vocab maps ⋈ per-arm drug rollups.
     One row per (trial_arm_id, conjunction_index)."""
-    from aus_trial_universe.tasks.eligibility.tools.oncotree import oncotree_vocab
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import oncotree_vocab
 
     vocab = oncotree_vocab()
     ct_final = _read_map(elig_dir / "finalised_cancer_type_map.tsv", "cancer_type", "oncotree_code_FINAL")

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from aus_trial_universe.tasks.eligibility.tools.oncotree_checks import ALLOWED_NESTED_DIFFERENCES
-from aus_trial_universe.tasks.eligibility.tools.oncotree import (
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.checks import ALLOWED_NESTED_DIFFERENCES
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     canonical_form,
     expression_problems,
     has_error,

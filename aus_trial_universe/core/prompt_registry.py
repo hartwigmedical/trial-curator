@@ -17,7 +17,9 @@ def live_agents(client: LlmClient | None = None):
     client = client or LlmClient()  # bare: no openai client, no cache — construction is offline
     from aus_trial_universe.tasks.drug_utility import agents as dr
     from aus_trial_universe.tasks.eligibility.extraction import agents as ex
-    from aus_trial_universe.tasks.eligibility.mapping import agents as mp
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import agents as mp_ct
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration import agents as mp_ga
+    from aus_trial_universe.tasks.eligibility.mapping.molecular_signature import agents as mp_sig
     from aus_trial_universe.tasks.shared import agents as sh
 
     agents = [
@@ -29,22 +31,28 @@ def live_agents(client: LlmClient | None = None):
         ex.build_raw_reviewer_agent(client),
         ex.build_interpreter_agent(client),
         ex.build_enumeration_reviewer(client),
-        # eligibility · mapping
-        mp.build_oncotree_mapper(client),
-        mp.build_oncotree_reviewer(client),
+        # eligibility · mapping — one module per vocabulary column
+        mp_ct.build_oncotree_mapper(client),
+        mp_ct.build_oncotree_reviewer(client),
         # ...and the refinement's own agents. Registering these is not cosmetic: `cache_prune` classifies any
         # (agent, prompt) it cannot find here as STALE and deletes it, so an unregistered agent has its cached
         # responses GC'd on the next prune and silently re-billed on the next run.
-        mp.build_oncotree_repairer(client),
-        mp.build_oncotree_repair_reviewer(client),
-        mp.build_oncotree_reconciler(client),
-        mp.build_oncotree_reconcile_reviewer(client),
-        mp.build_findingmodel_reconciler(client),
-        mp.build_findingmodel_reconcile_reviewer(client),
-        mp.build_gene_alteration_mapper(client),
-        mp.build_gene_alteration_reviewer(client),
-        mp.build_molecular_signature_mapper(client),
-        mp.build_molecular_signature_reviewer(client),
+        mp_ct.build_oncotree_repairer(client),
+        mp_ct.build_oncotree_repair_reviewer(client),
+        mp_ct.build_oncotree_reconciler(client),
+        mp_ct.build_oncotree_reconcile_reviewer(client),
+        mp_sig.build_findingmodel_reconciler(client),
+        mp_sig.build_findingmodel_reconcile_reviewer(client),
+        mp_ga.build_gene_alteration_mapper(client),
+        mp_ga.build_gene_alteration_reviewer(client),
+        # gene_alteration stage 2 (new 2026-08-04): a per-value repairer and a group reconciler, each with its
+        # reviewer. Unregistered agents have their cached responses GC'd as stale and silently re-billed.
+        mp_ga.build_gene_repairer(client),
+        mp_ga.build_gene_repair_reviewer(client),
+        mp_ga.build_gene_reconciler(client),
+        mp_ga.build_gene_reconcile_reviewer(client),
+        mp_sig.build_molecular_signature_mapper(client),
+        mp_sig.build_molecular_signature_reviewer(client),
         # drug utility
         dr.build_canonicalizer(client),
         dr.build_canonicalizer_reviewer(client),

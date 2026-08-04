@@ -101,7 +101,7 @@ def _oncotree_expression_gate(rep: "GateReport", export_path: Path) -> None:
     negation-only cells, unsatisfiable conjunctions) the day it appeared. Catalogue: tools/oncotree_checks.py.
     """
     from collections import Counter
-    from aus_trial_universe.tasks.eligibility.tools.oncotree import expression_problems
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import expression_problems
 
     if not Path(export_path).exists():
         rep.add("oncotree_expressions", PASS, "no export on disk (nothing to grade)")
@@ -128,6 +128,52 @@ def _oncotree_expression_gate(rep: "GateReport", export_path: Path) -> None:
                 + ", ".join(f"{k}×{v}" for k, v in warns.most_common(5)))
     else:
         rep.add("oncotree_expressions", PASS, f"{len(seen):,} distinct expressions · 0 defects")
+
+
+def _gene_alteration_expression_gate(rep: "GateReport", export_path: Path) -> None:
+    """Parse every gene-alteration finding-model expression IN THE EXPORT and fail on any error-severity defect.
+
+    The gene-alteration counterpart of `_oncotree_expression_gate`, added with the 2026-08-04 correction. Graded on
+    the export for the same reason: it is what actually ships.
+
+    This is the backstop for the defect classes that correction removed — `transcriptImpact.effects=SPLICE` (not a
+    `VariantEffect` member), HLA typed as `PharmocoGenotype`, tautological conjuncts, a family ROOT token used as a
+    gene symbol. Catalogue: `mapping/gene_alteration/checks.py`; syntax: `mapping/finding_model.py`.
+    """
+    from collections import Counter
+
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+
+    if not Path(export_path).exists():
+        rep.add("gene_alteration_expressions", PASS, "no export on disk (nothing to grade)")
+        return
+    csv.field_size_limit(10 ** 9)
+    errors: Counter = Counter()
+    warns: Counter = Counter()
+    seen: set[tuple[str, str]] = set()
+    with open(export_path, newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            expression = (row.get("gene_alteration_findingmodel") or "").strip()
+            source = (row.get("gene_alteration_interpreted") or "").strip()
+            key = (source, expression)
+            if not expression or key in seen:
+                continue
+            seen.add(key)
+            for finding in semantic_problems(source, expression):
+                if finding.severity == "error":
+                    errors[finding.check] += 1
+                elif finding.severity == "warn":
+                    warns[finding.check] += 1
+    if errors:
+        rep.add("gene_alteration_expressions", FAIL,
+                f"{sum(errors.values())} error-severity defect(s) across {len(seen):,} distinct expressions: "
+                + ", ".join(f"{k}×{v}" for k, v in errors.most_common(5)))
+    elif warns:
+        rep.add("gene_alteration_expressions", WARN,
+                f"{len(seen):,} distinct expressions · 0 errors · "
+                + ", ".join(f"{k}×{v}" for k, v in warns.most_common(5)))
+    else:
+        rep.add("gene_alteration_expressions", PASS, f"{len(seen):,} distinct expressions · 0 defects")
 
 
 def run_gates(
@@ -165,6 +211,7 @@ def run_gates(
     arms = TrialArmStore.load()
 
     _oncotree_expression_gate(rep, export_path)
+    _gene_alteration_expression_gate(rep, export_path)
     registry_arms = arms.ids()
     registry_trials = set(arms.arms)
 
