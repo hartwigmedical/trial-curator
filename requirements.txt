@@ -4,8 +4,14 @@ curl_cffi>=0.7   # ANZCTR download: impersonates a browser TLS fingerprint to cl
 openpyxl         # read/write the ANZCTR .xlsx export
 pandas
 requests         # ClinicalTrials.gov API download
+urllib3          # imported directly for the retry policy on that download (not just via requests)
 
 # v2 agentic pipeline (LLM workflows) — see docs/v2_agentic_pipeline_spec.md
 openai>=2.0            # structured outputs via chat.completions.parse(response_format=<pydantic>)
 pydantic>=2.7          # schema-first output models
 python-dotenv>=1.0     # load OPENAI_API_KEY from .env
+PyYAML>=6.0            # tools/oncotree.py reads the OncoTree vocabulary from oncotree.yaml
+
+# presentation build (scripts/build_external_deck.py) — HTML -> PNG -> official Hartwig .pptx.
+# Only needed to rebuild a deck; the pipeline itself does not import it.
+python-pptx>=1.0       # assemble the rendered slides into the template

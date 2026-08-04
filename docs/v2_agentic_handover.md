@@ -103,9 +103,9 @@ targets DELETED; `aus_trial_universe/agentic/*` → `aus_trial_universe/*` (331 
   **⚠ `data/` trees stay for now — the user chose "code only" (2026-07-29).** (`data/{drug_utility_path 28 GB,
   eligibility_path 95 MB, matched_trials 41 MB, trial_inputs 65 MB}` are detached: nothing reads them, no symlinks,
   and the agentic RxNorm resource is a real 621 MB copy.)
-- **A4 — tail cleanup, with A3:** **`PyYAML` is MISSING from `requirements.txt`** (a latent fresh-install failure —
-  `tools/oncotree.py` reads `oncotree.yaml` and it only works because the conda env happens to have it); prune the
-  rest of `requirements.txt`; rename `tests/agentic/` → `tests/` (free once `tests/trialcurator/` is gone);
+- **A4 — tail cleanup, with A3:** ~~`PyYAML` missing from `requirements.txt`~~ **FIXED 2026-08-04** (added, along with `python-pptx` which
+  `scripts/build_external_deck.py` needs — same latent fresh-install failure); still prune the rest of
+  `requirements.txt`; rename `tests/agentic/` → `tests/` (free once `tests/trialcurator/` is gone);
   optionally promote `data/agentic/` → `data/` (one `DATA_ROOT` line).
 - **A4b — REPUBLISH THE TWO WORKFLOW DIAGRAMS.** `docs/v2_{eligibility,drug}_workflow_diagram.html` predate
   `arm_scope`, the gates and the run report; the eligibility one still shows a 7-stage refresh. **Overwrite the
