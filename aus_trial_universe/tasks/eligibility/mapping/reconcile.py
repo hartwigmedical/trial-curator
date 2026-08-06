@@ -400,10 +400,14 @@ def write_finalised_maps(store, maps_dir: Path, ct_final, ga_final, sig_final) -
         Path(maps_dir), initial=ga_initial, reconciled=ga_reconciled,
         finalised={v: ga_final.get(v, ga_reconciled[v]) for v in ga_initial})
 
+    # molecular_signature's stage 2 is a PASS-THROUGH today — the slot exists so a deterministic stage can be
+    # dropped in later without a schema change (user, 2026-08-06). Written explicitly rather than defaulted, so
+    # the day it stops being the identity there is one obvious line to change.
     sig_initial = {v: m.finding_model for v, m in store.signature_map.items()}
+    sig_reconciled = dict(sig_initial)
     ST.MOLECULAR_SIGNATURE.write_all(
-        Path(maps_dir), initial=sig_initial,
-        finalised={v: sig_final.get(v, e) for v, e in sig_initial.items()})
+        Path(maps_dir), initial=sig_initial, reconciled=sig_reconciled,
+        finalised={v: sig_final.get(v, sig_reconciled[v]) for v in sig_initial})
 
 
 def write_finalised_mapped_eligibility(store, joined_dir: Path, ct_final, ga_final, sig_final) -> None:

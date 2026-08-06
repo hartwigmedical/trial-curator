@@ -151,10 +151,14 @@ GENE_ALTERATION = StageTables(
             "finalised": ("finalised_gene_alteration_map.tsv", "finding_model_FINAL")},
 )
 
-#: molecular_signature — TWO stages. It has no stage 2 and provably needs none: over the live corpus the
-#: canonical form changes nothing, there are no divergent groups, and stage 1 == FINAL for all 171 values.
+#: molecular_signature — THREE stages, like the others, even though its stage 2 is currently a PASS-THROUGH.
+#: There is no deterministic work for it to do today (over the live corpus the canonical form changes nothing and
+#: there are no divergent groups), but the user kept the slot on purpose (2026-08-06): *"a deterministic stage may
+#: come later, so we still have to have a _reconciled tsv (right now it's just identical to _initial)"*. Uniform
+#: plumbing across all three columns is worth more than eliding one file, and adding the stage later then costs a
+#: function rather than a schema change plus a migration.
 MOLECULAR_SIGNATURE = StageTables(
-    column="molecular_signature", value_stem="finding_model", stages=("initial", "finalised"),
+    column="molecular_signature", value_stem="finding_model",
     legacy={"initial": ("molecular_signature_map.tsv", "finding_model"),
             "finalised": ("finalised_molecular_signature_map.tsv", "finding_model_FINAL")},
 )

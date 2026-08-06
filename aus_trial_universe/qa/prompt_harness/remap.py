@@ -47,14 +47,12 @@ def _frozen_values(sp) -> list[str]:
 def _install_candidate(column: str) -> list[str]:
     """Monkeypatch a candidate prompt in memory, if one is staged for this column.
 
-    NOTHING IS STAGED TODAY, and that is the steady state. The 2026-08-06 gene_alteration candidate was reviewed,
-    approved and FOLDED INTO `mapping/gene_alteration/agents.py`, so running this module now re-maps with the
-    PRODUCTION prompt — which is what you want for a fresh measurement.
+    A column with no staged candidate re-maps with its PRODUCTION prompt, which is what you want for a fresh
+    measurement. The gene_alteration candidate was folded into production on 2026-08-06 and its module retired to
+    `data/agentic/analysis/gene_alteration_stage1_review/candidate_prompts_as_folded.py`.
 
-    To stage the next candidate: add a module exposing the replacement prompt strings (the retired one is kept at
-    `data/agentic/analysis/gene_alteration_stage1_review/candidate_prompts_as_folded.py` as a worked example of
-    the anchored-edit form), import it here and assign onto the agents module. Never edit `agents.py` to test a
-    candidate — that changes the production fingerprint and orphans every cached answer behind it.
+    Never edit `agents.py` to test a candidate — that changes the production fingerprint and orphans every cached
+    answer behind it.
     """
     return []
 
@@ -84,12 +82,16 @@ def main(argv: list[str] | None = None) -> int:
     client = LlmClient(cache=DiskCache(CACHE_DIR), max_concurrency=args.max_concurrency)
 
     from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.reconcile import run_stage2
-    from aus_trial_universe.tasks.eligibility.mapping.workflow import map_gene_alterations
+    from aus_trial_universe.tasks.eligibility.mapping.workflow import (map_gene_alterations,
+                                                                       map_molecular_signatures)
 
-    results = map_gene_alterations(client, values, max_attempts=args.max_attempts,
-                                   use_reviewer=True, workers=args.workers)
+    mapper = {"gene_alteration": map_gene_alterations,
+              "molecular_signature": map_molecular_signatures}[sp.name]
+    results = mapper(client, values, max_attempts=args.max_attempts, use_reviewer=True, workers=args.workers)
     stage1 = {v: (results[v].finding_model if v in results else "") for v in values}
-    outcomes = run_stage2(stage1)
+    # molecular_signature's stage 2 is a PASS-THROUGH (the slot exists but does no work yet), so its `new_stage2`
+    # is its stage 1. gene_alteration runs the real canonical-form pass.
+    outcomes = run_stage2(stage1) if sp.name == "gene_alteration" else None
 
     dest = Path(args.out) if args.out else sp.out_dir / "remap_raw_output.tsv"
     cols = [sp.key, "new_stage1", "new_stage2", "faithful", "attempts", "problems"]
@@ -104,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
                 # stage 2 with the REGISTER DISABLED — the review needs to see how far the PROMPT gets on its own,
                 # because that is what decides whether a ruling can retire. `run_stage2` applies rulings at R5, so
                 # take `after_canon`, which is the canonical form before any override.
-                "new_stage2": outcomes[v].after_canon,
+                "new_stage2": outcomes[v].after_canon if outcomes else stage1[v],
                 "faithful": "yes" if (r and r.faithful) else "no",
                 "attempts": r.attempts if r else 0,
                 "problems": "; ".join(r.problems)[:400] if r else "",

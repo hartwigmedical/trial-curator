@@ -38,7 +38,11 @@ BACKUPS = DATA_ROOT.parent / "backups"
 class ColumnSpec:
     name: str
     key: str                                  # the TSV's key column
-    final_col: str                            # the TSV's shipped-value column
+    final_col: str                            # the CURRENT store's shipped-value column
+    #: The same column in an OLD backup, which predates the stage-table rename and still says `*_FINAL`.
+    #: Kept explicit rather than guessed: a baseline read with the wrong column name returns blanks, and a
+    #: blank baseline makes every value look FIXED.
+    final_col_baseline: str
     table: str                                # the finalised map filename
     baselines: dict[str, Path]                # label -> path; the FIRST is the HARD gate
     out_dir: Path
@@ -169,8 +173,27 @@ def _ga_direction(before: str, after: str) -> str:
     return "CHANGED_LATERAL"
 
 
+def _sig_errs(src: str, expr: str) -> list[str]:
+    """molecular_signature has no semantic defect catalogue — the gene one misfires on it wholesale (51 of its
+    171 values trip `empty_for_named_gene`, because naming a gene is NORMAL for a value that correctly maps to
+    empty here). So the only honest deterministic signal is the finding-model syntax PARSER. Everything else
+    about this column is a judgement, and judgements are the LLM judge's job."""
+    from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
+    return [str(p) for p in finding_model_problems(expr)]
+
+
+def _sig_direction(before: str, after: str) -> str:
+    """The six-term vocabulary admits only three interesting moves: a signature gained, lost, or swapped."""
+    b, a = (before or "").strip(), (after or "").strip()
+    if b and not a:
+        return "CHANGED_TO_EMPTY"
+    if a and not b:
+        return "CHANGED_FROM_EMPTY"
+    return "CHANGED_LATERAL"
+
+
 CANCER_TYPE = ColumnSpec(
-    name="cancer_type", key="cancer_type", final_col=_ST.CANCER_TYPE.value_col("finalised"),
+    name="cancer_type", key="cancer_type", final_col=_ST.CANCER_TYPE.value_col("finalised"), final_col_baseline="oncotree_code_FINAL",
     table=_ST.CANCER_TYPE.file("finalised"),
     baselines={
         "28Jul": BACKUPS / "pre_stage1_20260729_013636/masters/eligibility/current_version/finalised_cancer_type_map.tsv",
@@ -187,7 +210,7 @@ CANCER_TYPE = ColumnSpec(
 #: state, and the hard gate — the only baseline that can see a regression B1b itself introduced) and LIVE.
 GENE_ALTERATION = ColumnSpec(
     name="gene_alteration", key="gene_alteration",
-    final_col=_ST.GENE_ALTERATION.value_col("finalised"),
+    final_col=_ST.GENE_ALTERATION.value_col("finalised"), final_col_baseline="finding_model_FINAL",
     table=_ST.GENE_ALTERATION.file("finalised"),
     baselines={
         "preB1b": BACKUPS / "pre_gene_alteration_20260804_2327/masters/eligibility/current_version/finalised_gene_alteration_map.tsv",
@@ -197,7 +220,22 @@ GENE_ALTERATION = ColumnSpec(
     errs=_ga_errs, direction=_ga_direction, register="gene_alteration",
 )
 
-SPECS = {s.name: s for s in (CANCER_TYPE, GENE_ALTERATION)}
+#: molecular_signature — its FIRST refinement. Unlike the other two columns it has only ONE reviewed state:
+#: measured 2026-08-06, the 28 July mapping and the live mapping agree on all 167 shared values, so nothing has
+#: ever changed here. That makes 28 July both the hard gate and the current state.
+MOLECULAR_SIGNATURE = ColumnSpec(
+    name="molecular_signature", key="molecular_signature",
+    final_col=_ST.MOLECULAR_SIGNATURE.value_col("finalised"), final_col_baseline="finding_model_FINAL",
+    table=_ST.MOLECULAR_SIGNATURE.file("finalised"),
+    baselines={
+        "28Jul": BACKUPS / "pre_stage1_20260729_013636/masters/eligibility/current_version/finalised_molecular_signature_map.tsv",
+        "live": current_version_dir(ELIGIBILITY_OUTPUT) / _ST.MOLECULAR_SIGNATURE.file("finalised"),
+    },
+    out_dir=ANALYSIS_DIR / "molecular_signature_stage1_review",
+    errs=_sig_errs, direction=_sig_direction, register="molecular_signature",
+)
+
+SPECS = {s.name: s for s in (CANCER_TYPE, GENE_ALTERATION, MOLECULAR_SIGNATURE)}
 
 
 def spec(name: str) -> ColumnSpec:

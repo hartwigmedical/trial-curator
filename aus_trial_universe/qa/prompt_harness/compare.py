@@ -103,7 +103,9 @@ def main(argv: list[str] | None = None) -> int:
     faithful = _load(src, sp.key, "faithful")
     rulings = _rulings(sp.register)
     new_plus = {v: rulings.get(v, e) for v, e in new.items()}
-    bases = {label: _load(p, sp.key, sp.final_col) for label, p in sp.baselines.items()}
+    # The live store uses the stage-table column name; older backups predate the rename.
+    bases = {label: _load(p, sp.key, sp.final_col if label == 'live' else sp.final_col_baseline)
+             for label, p in sp.baselines.items()}
     hard = next(iter(sp.baselines))
 
     shared = sorted(set(new) & set.intersection(*(set(b) for b in bases.values())))

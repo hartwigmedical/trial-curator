@@ -1,6 +1,6 @@
-"""THE REVIEW DELIVERABLE for gene_alteration — one row per value, the runs side by side.
+"""THE REVIEW DELIVERABLE — one row per value, the runs side by side. Any vocabulary column.
 
-    python -m aus_trial_universe.qa.prompt_harness.export_gene_review
+    python -m aus_trial_universe.qa.prompt_harness.export_review --column molecular_signature
 
 Column set specified by the user (2026-08-06): *"the input text, 28 july mapping, current mapping, your verdict —
 treat any difference due to the programmatic manipulation in stage 2 as identical still, if it is an improvement,
@@ -35,31 +35,36 @@ from aus_trial_universe.core.client import DiskCache, LlmClient
 from aus_trial_universe.core.paths import CACHE_DIR
 from aus_trial_universe.core.workflow import fan_out
 from aus_trial_universe.qa import adjudications
-from aus_trial_universe.qa.prompt_harness import gene_judgements as J
-from aus_trial_universe.qa.prompt_harness.columns import GENE_ALTERATION as SP
+from aus_trial_universe.qa.prompt_harness import review_judge as J
+from aus_trial_universe.qa.prompt_harness.columns import spec
 
 logger = logging.getLogger("prompt_harness.export")
 
-COLUMNS = ["gene_alteration", "mapping_28Jul", "mapping_current", "mapping_new", "my_verdict",
+BASE_COLUMNS = ["mapping_28Jul", "mapping_current", "mapping_new", "my_verdict",
            "improvement_reason", "regression_reason", "changed_by", "ruling_status"]
 
 
-def _load(path, col: str) -> dict[str, str]:
+def _load(path, key: str, col: str) -> dict[str, str]:
     with open(path, newline="", encoding="utf-8") as fh:
-        return {r["gene_alteration"]: r[col] for r in csv.DictReader(fh, delimiter="\t")}
+        return {r[key]: r[col] for r in csv.DictReader(fh, delimiter="\t")}
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--column", default="gene_alteration")
     ap.add_argument("--workers", type=int, default=40)
     ap.add_argument("--max-concurrency", type=int, default=200)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
+    SP = spec(args.column)
+    KEY = SP.key
+    COLUMNS = [KEY] + BASE_COLUMNS
 
-    jul = _load(SP.baselines["preB1b"], "finding_model_FINAL")
-    cur = _load(SP.baselines["live"], "finding_model_FINAL")
-    raw = _load(SP.out_dir / "remap_raw_output.tsv", "new_stage2")
-    rulings = {v: r.final for v, r in adjudications.for_column("gene_alteration").items()}
+    first = list(SP.baselines)[0]
+    jul = _load(SP.baselines[first], KEY, SP.final_col_baseline)
+    cur = _load(SP.baselines["live"], KEY, SP.final_col)
+    raw = _load(SP.out_dir / "remap_raw_output.tsv", KEY, "new_stage2")
+    rulings = {v: r.final for v, r in adjudications.for_column(SP.register).items()}
     new = {v: rulings.get(v, e) for v, e in raw.items()}
 
     # THE UNIVERSE IS THE CURRENT CORPUS, not the intersection of the three versions. Intersecting silently
@@ -74,8 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     for v in values:
         # A value absent from July counts as 'same as July' for population purposes: there is no older
         # mapping for it to differ from, so only the comparison against CURRENT can classify it.
-        same_jul = J.equivalent(jul[v], new[v]) if v in jul else True
-        same_cur = J.equivalent(cur[v], new[v])
+        same_jul = J.equivalent(jul[v], new[v], SP.name) if v in jul else True
+        same_cur = J.equivalent(cur[v], new[v], SP.name)
         population[v] = "" if (same_jul and same_cur) else ("prior_approved" if same_cur else "this_run")
     todo = [v for v in values if population[v]]
     logger.info("review · %d value(s) total · %d need a verdict (%d this run, %d previously approved)",
@@ -85,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # ---- LLM: the quality verdict, one call per changed value -----------------------------------------------
     client = LlmClient(cache=DiskCache(CACHE_DIR), max_concurrency=args.max_concurrency)   # never prunes
-    judge = J.build_mapping_judge(client)
+    judge = J.build_mapping_judge(client, SP.name)
 
     def _one(v: str):
         try:
@@ -110,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
                 verdict = r.verdict.strip().upper()
                 imp, reg = (r.improvement_reason or "").strip(), (r.regression_reason or "").strip()
         tally[verdict] = tally.get(verdict, 0) + 1
-        rows.append({"gene_alteration": v, "mapping_28Jul": jul.get(v, NOT_IN_JUL),
+        rows.append({KEY: v, "mapping_28Jul": jul.get(v, NOT_IN_JUL),
                      "mapping_current": cur[v],
                      "mapping_new": new[v], "my_verdict": verdict, "improvement_reason": imp,
                      "regression_reason": reg, "changed_by": pop,
@@ -120,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     # This run's own changes first — they are what is being approved — then B1b's, then the unchanged remainder.
     order = {"this_run": 0, "prior_approved": 1, "": 2}
     rank = {k: i for i, k in enumerate(("REGRESSION", "UNCERTAIN", "NEUTRAL", "IMPROVEMENT", "IDENTICAL"))}
-    rows.sort(key=lambda r: (order[r["changed_by"]], rank.get(r["my_verdict"], 9), r["gene_alteration"]))
+    rows.sort(key=lambda r: (order[r["changed_by"]], rank.get(r["my_verdict"], 9), r[KEY]))
 
     dest = SP.out_dir / "three_way_review.tsv"
     with open(dest, "w", newline="", encoding="utf-8") as fh:

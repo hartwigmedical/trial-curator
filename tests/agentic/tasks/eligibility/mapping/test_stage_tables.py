@@ -48,13 +48,11 @@ def test_write_then_load_round_trips_every_stage(tmp_path, spec):
         assert spec.load(tmp_path, stage) == {"a value": f"EXPR_{stage}"}
 
 
-def test_gene_alteration_has_three_stages_and_signature_has_two():
-    """molecular_signature provably needs no stage 2 (0 canonicalisation changes over the live corpus), and
-    gene_alteration provably does (187 of 913 values are rewritten by it)."""
-    assert ST.GENE_ALTERATION.stages == ("initial", "reconciled", "finalised")
-    assert ST.MOLECULAR_SIGNATURE.stages == ("initial", "finalised")
-    with pytest.raises(KeyError):
-        ST.MOLECULAR_SIGNATURE.file("reconciled")
+def test_all_three_columns_have_all_three_stages():
+    """Uniform plumbing. molecular_signature's stage 2 is a pass-through today, but the slot exists so a
+    deterministic stage can land later without a schema change or a data migration (user, 2026-08-06)."""
+    for spec in ST.SPECS.values():
+        assert spec.stages == ST.ALL_STAGES, f"{spec.column} must carry all three stages"
 
 
 def test_only_cancer_type_derives_a_name_and_it_is_never_authored(tmp_path):

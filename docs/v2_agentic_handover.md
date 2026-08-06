@@ -1,6 +1,44 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-08-06, session 12 — GENE_ALTERATION **SHIPPED**)
+## ▶ NEXT SESSION — START HERE (updated 2026-08-06, session 12 — ALL THREE VOCABULARY COLUMNS **SHIPPED**)
+
+> **✅ cancer_type, gene_alteration AND molecular_signature have all had the three-stage treatment, been reviewed,
+> approved and migrated.** 430 tests · 0 invariant violations · gates WARN / 0 FAIL · engine dry run OURS=0 ·
+> export 17,778 rows · **UNCOMMITTED** (the user does ALL commits).
+>
+> ### The store is now uniform
+> `{cancer_type,gene_alteration,molecular_signature}_map_{initial,reconciled,finalised}.tsv`, all produced by the
+> ONE shared spec in `tasks/eligibility/mapping/stage_tables.py`. Retired flat files are in
+> `data/backups/retired_legacy_gene_signature_maps_20260806/` and the specs still READ those names so older
+> archives load. `tests/.../mapping/test_stage_tables.py` is the plumbing test: it asserts no module hard-codes a
+> stage-table filename, because **a renamed table FAILS OPEN** — a reader on an old name finds nothing, returns
+> `{}` and ships blanks with every gate green.
+>
+> ### molecular_signature (this session's last piece)
+> 171 values, hand-audited **100%**. Two defects, both prompt bugs: **MSI-LOW is not MSI-high** (the status is
+> binary; a caller reports MSI-low as MSS — and the corpus contradicted itself, mapping bare "MSI-low" to MSI but
+> "MSS/MSI-low" to MSS), and **COSMIC signature 3 (SBS3) IS the HRD signature** (it was dropped to `""`). A third
+> edit removed `HRRm` from the HRD synonyms — an HRR GENE-PANEL mutation is not the functional signature, which
+> the same bullet's own NB already said. Result: **169 IDENTICAL · 2 IMPROVEMENT · 0 REGRESSION**, so its stage-3
+> register is **EMPTY** — the target state, not an omission. Its stage 2 is a PASS-THROUGH slot, so all three of
+> its tables are identical; that is what a healthy column looks like.
+> Record: `data/agentic/analysis/molecular_signature_stage1_review/` (start at its `README.md`).
+>
+> ### ▶ WHAT'S NEXT — the mapping work is done, so pick up the A-group backlog
+> **A2 (remaining)**: the `pipeline/` + `outputs/` top-level regroup → **A3** legacy code removal (74 files,
+> ~6,200 lines) → **A4/A4b/A5**. Then **F1** (curated masters into git — still the highest-value quick win in this
+> doc), then the C/D backlog. **B6** (the cancer_type qualifier-variant root fix, 17 register entries) and **B4**
+> (fix at the root what the remaining rulings hold) are the open mapping items.
+>
+> ### The harness is now standing, column-generic tooling
+> `qa/prompt_harness/`: `columns.py` (per-column spec incl. a polarity-aware direction classifier) ·
+> `remap.py` (isolated candidate re-map) · `compare.py` (the gate) · `export_review.py` (the deliverable) ·
+> `review_judge.py` (the LLM judge) · `apply_reviewed.py` (the guarded migration). Driven by `--column`.
+>
+> ---
+> *The gene_alteration START-HERE follows.*
+
+## ▶ SESSION 12 · GENE_ALTERATION (shipped) — updated 2026-08-06
 
 > **✅ gene_alteration stage-1 refinement is REVIEWED, APPROVED and MIGRATED TO PRODUCTION.**
 > **418 tests green · 0 invariant violations · gates WARN / 0 FAIL · engine dry run OURS=0 · UNCOMMITTED.**

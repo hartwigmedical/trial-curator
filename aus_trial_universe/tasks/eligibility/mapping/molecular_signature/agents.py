@@ -23,10 +23,20 @@ You convert a clinical trial's MOLECULAR-SIGNATURE expression into Hartwig findi
 There are EXACTLY SIX signature terms — the ONLY output vocabulary. Map a genuine signature to its term,
 recognising the common synonyms:
 - MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]  <- MSI-high / MSI-H / MSI / dMMR / MMRd / mismatch-repair
-    deficient / MMR-deficient / MSI-L / microsatellite instability-low / HNPCC / Lynch syndrome / constitutional MMR deficiency.
-- MicrosatelliteStability[PurpleMicrosatelliteStatus=MSS]  <- MSS / microsatellite stable / pMMR / MMR-proficient / normal MMR.
+    deficient / MMR-deficient / HNPCC / Lynch syndrome / constitutional MMR deficiency.
+- MicrosatelliteStability[PurpleMicrosatelliteStatus=MSS]  <- MSS / microsatellite stable / pMMR / MMR-proficient /
+    normal MMR / MSI-L / MSI-low / microsatellite instability-low.
+  ⚠ MSI-LOW IS NOT MSI-HIGH — it maps to MSS. The status is BINARY, so a caller reports an MSI-low tumour as MSS,
+    and the clinic groups MSI-L with MSS rather than with the MSI-H population a trial is selecting for. Treating
+    "MSI-low" as MSI would enrol exactly the patients an MSI-H cohort is designed to exclude.
 - homologousRecombination[ChordStatus=HR_DEFICIENT]        <- HRD / HRD-positive / homologous-recombination deficient /
-    HRR deficiency / HRRm / BRCAness / FH-deficient / SDH-deficient.
+    HRR deficiency / BRCAness / FH-deficient / SDH-deficient / COSMIC mutational signature 3 (SBS3).
+  ⚠ A MUTATIONAL SIGNATURE with an established meaning IS a signature: "mutational signature 3", "SBS3" and
+    "BRCAness" all name the homologous-recombination-deficiency pattern, so they map to HR_DEFICIENT rather than
+    to "". A signature identified only by number with no established meaning still maps to "".
+  ⚠ An HRR GENE mutation is NOT this signature — "HRRm", "HRR gene-mutated", "deleterious HRR gene mutation" name
+    a GENE PANEL and belong to gene_alteration, so they map to "" here. Only the functional DEFICIENCY is the
+    signature. (Same distinction the NB below draws; the two must not be conflated.)
 - homologousRecombination[ChordStatus=HR_PROFICIENT]       <- HR proficient / HRR proficient / HR-repair non-mutated.
 - tumorMutationBurden[Status=HIGH]                         <- TMB-high / TMB-H / high tumour mutational BURDEN.
 - tumorMutationLoad[Status=HIGH]                           <- high mutational LOAD / TML-high / high tumour mutational load.
@@ -82,6 +92,14 @@ Set faithful=true only if ALL hold; otherwise faithful=false with concrete, acti
    signature (a non-signature value mapped to one of the six terms).
 3. NOT LAZY — a GENUINE signature must NOT be dropped to "" (dMMR -> MSI, not empty).
 4. NEGATION — an excluded signature is wrapped in NOT(); structure matches the source.
+
+5. MSI-LOW IS MSS, NOT MSI. The status is binary and an MSI-low tumour is called MSS, so "MSI-L" /
+   "microsatellite instability-low" mapping to MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI] is a FAULT.
+6. A NAMED MUTATIONAL SIGNATURE counts. "Mutational signature 3" / "SBS3" / "BRCAness" name the
+   homologous-recombination-deficiency pattern -> HR_DEFICIENT; mapping them to "" is a lazy empty.
+7. AN HRR GENE-PANEL MUTATION IS NOT THE HRD SIGNATURE. "HRRm" / "HRR gene-mutated" / "deleterious HRR gene
+   mutation" name genes and belong to gene_alteration, so "" is CORRECT for them — flag a mapping that forces
+   them into HR_DEFICIENT. Only the functional deficiency ("HRD", "HRR deficiency") is the signature.
 
 Do NOT fail a mapping for dropping an inexpressible qualifier (threshold/level, assay, timing, "high TILs"). "" is
 the expected answer for the many non-signature values — do NOT demand a mapping for them.
