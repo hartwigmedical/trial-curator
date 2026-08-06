@@ -52,7 +52,7 @@ def _load(path: Path, key: str, col: str) -> dict[str, str]:
 
 
 def _rulings(module: str) -> dict[str, str]:
-    from aus_trial_universe.qa import adjudications
+    from aus_trial_universe.tasks.eligibility.mapping import adjudications
     return {v: r.final for v, r in adjudications.for_column(module).items()}
 
 

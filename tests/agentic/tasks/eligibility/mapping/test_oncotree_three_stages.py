@@ -53,7 +53,7 @@ def test_stage2_does_the_two_jobs_and_nothing_else():
 
 def test_stage3_applies_rulings_last_and_reports_overrides():
     """A ruling must be the last word — that is what makes it immune to anything upstream."""
-    from aus_trial_universe.qa import adjudications
+    from aus_trial_universe.tasks.eligibility.mapping import adjudications
     ruled = adjudications.for_column("cancer_type")
     assert ruled, "the register should not be empty — this test would pass vacuously"
     value, ruling = next(iter(ruled.items()))

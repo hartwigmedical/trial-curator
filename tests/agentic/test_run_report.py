@@ -61,7 +61,7 @@ def test_write_report_records_churn_deltas_and_gap(tmp_path, monkeypatch):
         notes=["eligibility run returned rc=1 (incomplete) — curation may be partial"],
         report_dir=tmp_path / "run_report")
 
-    assert path.name == "refresh_20260729_140000.md"
+    assert path.name == "run_report_20260729_140000.md"
     body = path.read_text()
     assert "duration **41 min**" in body and "refresh --workers 80" in body
     assert "| ctgov | 2 |" in body and "| anzctr | 1 |" in body               # split by id prefix
@@ -124,13 +124,13 @@ def test_reports_accumulate_and_retain_the_newest_five(tmp_path):
     d.mkdir()
     (d / RR.STATUS_FILE).write_text("{}")
     for i in range(8):
-        p = d / f"refresh_2026072{i}_120000.md"
+        p = d / f"run_report_2026072{i}_120000.md"
         p.write_text(f"report {i}")
         os.utime(p, (1_800_000_000 + i * 60, 1_800_000_000 + i * 60))
     removed = RR.prune_reports(d)
     assert len(removed) == 3
-    kept = sorted(p.name for p in d.glob("refresh_*.md"))
-    assert kept == [f"refresh_2026072{i}_120000.md" for i in range(3, 8)]      # the 5 newest survive
+    kept = sorted(p.name for p in d.glob("run_report_*.md"))
+    assert kept == [f"run_report_2026072{i}_120000.md" for i in range(3, 8)]      # the 5 newest survive
     assert (d / RR.STATUS_FILE).exists()                                       # status file untouched
     assert RR.prune_reports(d) == []                                           # idempotent at the limit
 
@@ -145,13 +145,13 @@ def test_write_report_prunes_after_writing_status(tmp_path, monkeypatch):
     d = tmp_path / "rr"
     d.mkdir()
     for i in range(6):
-        (d / f"refresh_2026070{i}_090000.md").write_text("old")
+        (d / f"run_report_2026070{i}_090000.md").write_text("old")
     path = RR.write_report(
         before={}, after={}, kept=set(), expiry=ExpiryReport(), curated_ids=[],
         export_path=tmp_path / "x.tsv", settings="refresh", started=datetime(2026, 7, 30, 10, 0, 0),
         finished=datetime(2026, 7, 30, 10, 5, 0), report_dir=d)
     assert path.exists() and (d / RR.STATUS_FILE).exists()
-    assert len(list(d.glob("refresh_*.md"))) == 5 and path.name in {p.name for p in d.glob("refresh_*.md")}
+    assert len(list(d.glob("run_report_*.md"))) == 5 and path.name in {p.name for p in d.glob("run_report_*.md")}
 
 
 def test_write_report_survives_a_broken_integrity_check(tmp_path, monkeypatch):

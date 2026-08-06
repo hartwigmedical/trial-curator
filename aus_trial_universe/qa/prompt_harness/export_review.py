@@ -34,7 +34,7 @@ import sys
 from aus_trial_universe.core.client import DiskCache, LlmClient
 from aus_trial_universe.core.paths import CACHE_DIR
 from aus_trial_universe.core.workflow import fan_out
-from aus_trial_universe.qa import adjudications
+from aus_trial_universe.tasks.eligibility.mapping import adjudications
 from aus_trial_universe.qa.prompt_harness import review_judge as J
 from aus_trial_universe.qa.prompt_harness.columns import spec
 

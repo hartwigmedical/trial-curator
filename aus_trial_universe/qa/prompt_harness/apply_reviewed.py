@@ -26,7 +26,7 @@ import csv
 from pathlib import Path
 
 from aus_trial_universe.core.paths import ELIGIBILITY_OUTPUT, current_version_dir
-from aus_trial_universe.qa import adjudications
+from aus_trial_universe.tasks.eligibility.mapping import adjudications
 from aus_trial_universe.qa.prompt_harness.columns import spec
 from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
 

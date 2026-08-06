@@ -6,7 +6,7 @@ relies on.
 """
 from __future__ import annotations
 
-from aus_trial_universe.qa.adjudications import Adjudication
+from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication
 
 APPROVED: dict[str, Adjudication] = {}
 

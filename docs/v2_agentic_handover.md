@@ -22,13 +22,24 @@
 > the same bullet's own NB already said. Result: **169 IDENTICAL · 2 IMPROVEMENT · 0 REGRESSION**, so its stage-3
 > register is **EMPTY** — the target state, not an omission. Its stage 2 is a PASS-THROUGH slot, so all three of
 > its tables are identical; that is what a healthy column looks like.
-> Record: `data/agentic/analysis/molecular_signature_stage1_review/` (start at its `README.md`).
+> Record: the summary above + `mapping/molecular_signature/agents.py` (the folded prompt). The review
+> artifacts were transient and have been cleared — see the note at the end of the tidy-up block.
 >
 > ### Tidy-up done in the same session (after the user's commit)
-> - **Harness pruned**: `compare_runs.py` + `export_comparison.py` DELETED (superseded by `compare.py` /
->   `export_review.py`); `judgements.py` (1,015 lines of cancer_type per-value hand verdicts) retired to
->   `analysis/cancer_type_stage1_review/judgements_as_reviewed.py` — column-specific DATA for a finished review,
->   not machinery. Harness is now 966 lines, all column-generic.
+> - **Harness pruned**: `compare_runs.py`, `export_comparison.py` and `judgements.py` (1,015 lines of
+>   cancer_type per-value hand verdicts) DELETED — superseded by the column-generic `compare.py` /
+>   `export_review.py` / `review_judge.py`. Harness is now 966 lines.
+> - **`qa/mapping_review/` REMOVED** — the retired staging package, invisible to `find -empty` because a stale
+>   `__pycache__` was sitting in it.
+> - **`qa/adjudications/` MOVED to `mapping/adjudications/`** (user, 2026-08-06: it *is* stage 3 for the three
+>   criteria, not a QA concern). 17 files rewritten. `qa/` is now genuinely QA-only.
+> - **`data/agentic/analysis/` EMPTIED** (the folder stays — it is the output dir for the harness and the engine
+>   dry run, and now carries a README saying so). The three review folders had no remaining consumer once the
+>   prompts were folded, the registers populated and the mappings migrated. **⚠ Their content is NOT recoverable**
+>   (`data/` is gitignored) — the decisions they justified live on in this handover, the folded prompts and the
+>   registers' rationales.
+> - **Run reports renamed** `refresh_<ts>.md` → `run_report_<ts>.md`: the report is the artifact, not the cycle.
+> - **Backups restructured** — see the retention policy now written into `data/backups/RECOVERY.md`.
 > - **A dead LLM path found and cut**: molecular_signature was still falling through to the LEGACY R0-R8 branch,
 >   which could hand groups to an LLM adjudicator. It never fired (0 groups over 171 values) — which is exactly
 >   why it survived: *an unfired hazard looks identical to no hazard*. Now dispatched to an explicit pass-through
@@ -46,13 +57,6 @@
 > - Docs: spec §8 gained **§8.0 the three-stage model** (with the single-value property and why the cross-value
 >   pass was deleted from all three columns), §8.2 rewritten for the deterministic gene stage 2, §9 rewritten for
 >   the stage tables, §11 layout + test counts refreshed.
->
-> ### ⚠ ONE JUDGEMENT CALL LEFT FOR THE USER
-> `analysis/cancer_type_stage1_review/archive_iterations/` is **6.1 MB of superseded prompt iterations** (v2/v3/v4)
-> from the completed OncoTree review. A previous session kept them deliberately ("each cost ~13 min of live API and
-> cannot be reproduced"). The review has since SHIPPED and its final artifact, folded prompt and run log are all
-> retained, so they are arguably no longer needed — but `data/` is gitignored, so deleting is irreversible. LEFT IN
-> PLACE pending a decision.
 >
 > ### ▶ WHAT'S NEXT — the mapping work is done, so pick up the A-group backlog
 > **A2 (remaining)**: the `pipeline/` + `outputs/` top-level regroup → **A3** legacy code removal (74 files,
@@ -91,7 +95,7 @@
 >   Detection survives — divergent groups are logged as residue. ⚠ `concept_key` still backs `qa/invariants.py`
 >   C1/C2/C6; do not delete it.
 > - **Stage 1 prompts refined and folded into production** (`mapping/gene_alteration/agents.py`). Provenance copy
->   of the anchored-edit candidate: `analysis/gene_alteration_stage1_review/candidate_prompts_as_folded.py`.
+>   The candidate was expressed as ANCHORED EDITS to the production prompt — the form to reuse next time.
 > - **Stage 3 register: 2 → 9 rulings** (`qa/adjudications/gene_alteration.py`). Its docstring records THREE
 >   values the review judge called regressions where the judge was WRONG and the new prompt is right (FGFR3,
 >   NTRK3, KIT/PDGFRA-wild-type-in-GIST) — deliberately absent, so nobody "fixes" them later.
@@ -230,7 +234,7 @@
 > Modified: `core/prompt_registry.py` · `mapping/gene_alteration/{agents,checks,reconcile}.py` ·
 > `mapping/gene_alteration/known_genes.txt` · `tests/…/gene_alteration/test_expr_and_checks.py`
 > New: `qa/prompt_harness/{candidate_gene_prompts,columns,compare,remap}.py` ·
-> `data/agentic/analysis/gene_alteration_stage1_review/*`
+> (review artifacts since cleared)
 >
 > ---
 > *Session 11's START-HERE (OncoTree, complete) follows.*

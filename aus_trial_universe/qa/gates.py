@@ -162,7 +162,7 @@ def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> No
     """
     from aus_trial_universe.core.paths import (ARCHIVE, CURRENT_VERSION,
                                               ELIGIBILITY_OUTPUT)
-    from aus_trial_universe.qa import adjudications
+    from aus_trial_universe.tasks.eligibility.mapping import adjudications
     from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import BROADEN_SENTINEL, broadening, narrows
 
     from aus_trial_universe.tasks.eligibility.mapping import stage_tables as _ST

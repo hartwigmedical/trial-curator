@@ -32,7 +32,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
-from aus_trial_universe.qa.adjudications import gene_alteration as gene_rulings
+from aus_trial_universe.tasks.eligibility.mapping.adjudications import gene_alteration as gene_rulings
 from aus_trial_universe.tasks.eligibility.mapping.gene_alteration import expr as E
 from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
 

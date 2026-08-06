@@ -135,7 +135,7 @@ def test_signature_stage_two_is_a_pass_through_and_needs_no_client():
 def test_signature_stage_three_still_applies_an_approved_ruling(monkeypatch):
     """A pass-through stage 2 must not disable stage 3 — the register is the column's only correction channel."""
     from aus_trial_universe.tasks.eligibility.mapping import reconcile as rec
-    from aus_trial_universe.qa.adjudications import Adjudication
+    from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication
     monkeypatch.setattr(rec.adjudications, "for_column",
                         lambda _c: {"adverse biology": Adjudication(
                             value="adverse biology", final="tumorMutationBurden[Status=HIGH]",
@@ -149,7 +149,7 @@ def test_an_empty_string_is_a_legitimate_signature_ruling(monkeypatch):
     """`''` is the CORRECT answer for most values in this column, so a ruling to `''` must be applied rather than
     treated as absent. Callers must test membership, never truthiness."""
     from aus_trial_universe.tasks.eligibility.mapping import reconcile as rec
-    from aus_trial_universe.qa.adjudications import Adjudication
+    from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication
     monkeypatch.setattr(rec.adjudications, "for_column",
                         lambda _c: {"MSI-H": Adjudication(value="MSI-H", final="", rationale="t", approved="t")})
     final, _u, _g = rec.reconcile_column(None, {"MSI-H": "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]"},

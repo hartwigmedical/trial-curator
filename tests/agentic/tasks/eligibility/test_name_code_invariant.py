@@ -6,7 +6,7 @@ name is now DERIVED, and the derivation happens at the persistence boundary so i
 """
 from __future__ import annotations
 
-from aus_trial_universe.qa import adjudications
+from aus_trial_universe.tasks.eligibility.mapping import adjudications
 from aus_trial_universe.tasks.eligibility.schema import CancerTypeMap
 from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import render_name_expression
 

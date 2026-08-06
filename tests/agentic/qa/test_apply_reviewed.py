@@ -108,7 +108,7 @@ def test_a_register_ruling_explains_a_changed_row_on_its_own(sandbox, monkeypatc
     _write_artifact(out, initial)
     _write_review(out, {})
 
-    from aus_trial_universe.qa.adjudications import Adjudication
+    from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication
     monkeypatch.setattr(AR.adjudications, "for_column",
                         lambda _c: {"adverse biology": Adjudication(
                             value="adverse biology", final="tumorMutationBurden[Status=HIGH]",

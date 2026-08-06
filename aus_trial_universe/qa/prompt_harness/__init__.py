@@ -32,7 +32,8 @@ TWO KNOWN TRAPS, both learned the hard way:
   · **Never build the review set by INTERSECTING version key-sets.** It silently drops values that postdate the
     oldest baseline. The universe is the CURRENT corpus.
 
-The cancer_type review's 1,015 lines of recorded per-value hand judgements were retired to
-`data/agentic/analysis/cancer_type_stage1_review/judgements_as_reviewed.py` — column-specific DATA for a
-completed review, not machinery. `compare_runs.py` / `export_comparison.py` were deleted with them.
+HISTORY. An earlier, cancer_type-specific trio (`compare_runs.py`, `export_comparison.py` and 1,015 lines of
+recorded per-value hand judgements) was deleted once this generalised set replaced it. Review ARTIFACTS are
+likewise transient: they live under `data/agentic/analysis/`, which is emptied once a refinement has shipped —
+the decisions they justified survive in the folded prompts, the adjudication registers and the handover.
 """

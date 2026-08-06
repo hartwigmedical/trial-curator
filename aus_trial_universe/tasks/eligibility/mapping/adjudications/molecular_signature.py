@@ -9,6 +9,6 @@ Add entries here exactly as the other two columns do; `mapping/reconcile.py` R7 
 """
 from __future__ import annotations
 
-from aus_trial_universe.qa.adjudications import Adjudication  # noqa: F401  (re-exported for symmetry)
+from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication  # noqa: F401  (re-exported for symmetry)
 
 APPROVED: dict[str, "Adjudication"] = {}

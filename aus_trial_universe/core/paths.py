@@ -99,7 +99,9 @@ MAPPED_APPROVALS_FILE = "mapped_drug_regulatory_approval.tsv"  # drug approvals 
 # --- TRANSIENT + operational ------------------------------------------------ #
 LOG_DIR = TRANSIENT / "log"
 CACHE_DIR = TRANSIENT / "cache"   # LLM response DiskCache (run-to-run reuse); safe to wipe (make agentic-clean)
-ANALYSIS_DIR = DATA_ROOT / "analysis"   # ad-hoc analysis workspace (top-level, not a role bucket)
+ANALYSIS_DIR = DATA_ROOT / "analysis"   # WORKING dir for review/QA artifacts; emptied once they have landed
+BASELINES_DIR = DATA_ROOT / "baselines"      # immutable reviewed "before" states the prompt harness grades against
+STABLE_RUNS_DIR = DATA_ROOT / "stable_runs"  # curation states a HUMAN chose to preserve (not backups, not pruned)
 RUN_REPORT_DIR = DATA_ROOT / "run_report"   # one durable Markdown record per e2e refresh (top-level; never wiped)
 
 CURRENT_VERSION = "current_version"   # the live version folder for EVERY versioned store (masters/ + input resources)

@@ -30,7 +30,7 @@ import logging
 from pathlib import Path
 
 from aus_trial_universe.core.workflow import fan_out
-from aus_trial_universe.qa import adjudications
+from aus_trial_universe.tasks.eligibility.mapping import adjudications
 from aus_trial_universe.tasks.eligibility.schema import MAPPED_ELIGIBILITY_COLUMNS
 from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     Problem,

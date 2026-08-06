@@ -5,7 +5,7 @@ docstring for the doctrine (expectation first, override second) and the two rule
 """
 from __future__ import annotations
 
-from aus_trial_universe.qa.adjudications import Adjudication
+from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication
 
 APPROVED: dict[str, Adjudication] = {}
 
@@ -552,7 +552,7 @@ _add(Adjudication(
 # 11 below are where prompt work stopped paying. Every one is a one-off protocol wording, not a class: the
 # coexistence idiom, a single grade bound, four dropped exclusions the rule already states twice. Adding a rule
 # for any of them would be fitting the prompt to this corpus.
-# Record: data/agentic/analysis/cancer_type_stage1_review/three_way_review.tsv (filter fix_stage_* == stage1).
+# Record: docs/v2_agentic_handover.md (the review artifacts themselves were transient) — three_way_review.tsv (filter fix_stage_* == stage1).
 # =========================================================================== #
 # was: 'DLBCLNOS'   (candidate prompt, v6)
 _add(Adjudication(

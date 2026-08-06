@@ -31,7 +31,10 @@ from typing import Callable
 from aus_trial_universe.core.paths import ANALYSIS_DIR, DATA_ROOT, ELIGIBILITY_OUTPUT, current_version_dir
 from aus_trial_universe.tasks.eligibility.mapping import stage_tables as _ST
 
-BACKUPS = DATA_ROOT.parent / "backups"
+#: Reviewed "before" states the harness grades against. These are INPUTS to a QA tool with no
+#: lifecycle, deliberately separated from `data/backups/` (rollback points, which get pruned) — see
+#: `data/agentic/baselines/README.md`. Pruning a backup must never be able to break a hard gate.
+BASELINES = DATA_ROOT / "baselines"
 
 
 @dataclass(frozen=True)
@@ -196,9 +199,9 @@ CANCER_TYPE = ColumnSpec(
     name="cancer_type", key="cancer_type", final_col=_ST.CANCER_TYPE.value_col("finalised"), final_col_baseline="oncotree_code_FINAL",
     table=_ST.CANCER_TYPE.file("finalised"),
     baselines={
-        "28Jul": BACKUPS / "pre_stage1_20260729_013636/masters/eligibility/current_version/finalised_cancer_type_map.tsv",
+        "28Jul": BASELINES / "20260728_pre_stage1/finalised_cancer_type_map.tsv",
         "04Aug": ELIGIBILITY_OUTPUT / "archive/20260804/finalised_cancer_type_map.tsv",
-        "live": current_version_dir(ELIGIBILITY_OUTPUT) / "finalised_cancer_type_map.tsv",
+        "live": current_version_dir(ELIGIBILITY_OUTPUT) / _ST.CANCER_TYPE.file("finalised"),
     },
     out_dir=ANALYSIS_DIR / "cancer_type_stage1_review",
     errs=_ct_errs, direction=_ct_direction, register="cancer_type",
@@ -213,7 +216,7 @@ GENE_ALTERATION = ColumnSpec(
     final_col=_ST.GENE_ALTERATION.value_col("finalised"), final_col_baseline="finding_model_FINAL",
     table=_ST.GENE_ALTERATION.file("finalised"),
     baselines={
-        "preB1b": BACKUPS / "pre_gene_alteration_20260804_2327/masters/eligibility/current_version/finalised_gene_alteration_map.tsv",
+        "preB1b": BASELINES / "20260804_pre_b1b/finalised_gene_alteration_map.tsv",
         "live": current_version_dir(ELIGIBILITY_OUTPUT) / _ST.GENE_ALTERATION.file("finalised"),
     },
     out_dir=ANALYSIS_DIR / "gene_alteration_stage1_review",
@@ -228,7 +231,7 @@ MOLECULAR_SIGNATURE = ColumnSpec(
     final_col=_ST.MOLECULAR_SIGNATURE.value_col("finalised"), final_col_baseline="finding_model_FINAL",
     table=_ST.MOLECULAR_SIGNATURE.file("finalised"),
     baselines={
-        "28Jul": BACKUPS / "pre_stage1_20260729_013636/masters/eligibility/current_version/finalised_molecular_signature_map.tsv",
+        "28Jul": BASELINES / "20260728_pre_stage1/finalised_molecular_signature_map.tsv",
         "live": current_version_dir(ELIGIBILITY_OUTPUT) / _ST.MOLECULAR_SIGNATURE.file("finalised"),
     },
     out_dir=ANALYSIS_DIR / "molecular_signature_stage1_review",

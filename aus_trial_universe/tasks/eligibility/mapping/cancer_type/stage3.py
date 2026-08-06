@@ -37,7 +37,7 @@ from __future__ import annotations
 
 def rulings() -> dict[str, str]:
     """`{value -> approved final code}` for the cancer_type column. Read fresh so a register edit needs no reload."""
-    from aus_trial_universe.qa import adjudications
+    from aus_trial_universe.tasks.eligibility.mapping import adjudications
     return {value: ruling.final for value, ruling in adjudications.for_column("cancer_type").items()}
 
 

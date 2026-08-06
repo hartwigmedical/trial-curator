@@ -51,7 +51,7 @@ class Adjudication:
     approved: str       # date + who
 
 
-from aus_trial_universe.qa.adjudications import (  # noqa: E402  (needs Adjudication defined first)
+from aus_trial_universe.tasks.eligibility.mapping.adjudications import (  # noqa: E402  (needs Adjudication defined first)
     cancer_type,
     gene_alteration,
     molecular_signature,

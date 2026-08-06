@@ -48,8 +48,12 @@ def _install_candidate(column: str) -> list[str]:
     """Monkeypatch a candidate prompt in memory, if one is staged for this column.
 
     A column with no staged candidate re-maps with its PRODUCTION prompt, which is what you want for a fresh
-    measurement. The gene_alteration candidate was folded into production on 2026-08-06 and its module retired to
-    `data/agentic/analysis/gene_alteration_stage1_review/candidate_prompts_as_folded.py`.
+    measurement. All three columns' candidates were folded into production on 2026-08-06, so nothing is staged.
+
+    To stage the next one: write a module that expresses the change as ANCHORED EDITS to the production prompt —
+    `(anchor, replacement, why)` tuples, asserting each anchor appears EXACTLY ONCE — then import it here and
+    assign onto the agents module. The anchored form is what makes the diff reviewable and makes a candidate fail
+    loud instead of silently no-opping when production moves underneath it.
 
     Never edit `agents.py` to test a candidate — that changes the production fingerprint and orphans every cached
     answer behind it.

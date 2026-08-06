@@ -8,7 +8,7 @@ the export shape, and the integrity + export-coverage verdicts.
 Counts are read back from the stores and the export file on disk — NOT collected from the sub-CLIs — so the
 report describes the state a run actually left behind.
 
-    data/agentic/run_report/refresh_<YYYYmmdd_HHMMSS>.md
+    data/agentic/run_report/run_report_<YYYYmmdd_HHMMSS>.md
 """
 from __future__ import annotations
 
@@ -260,7 +260,7 @@ def write_report(
         out += ["", "## Notes", "", *[f"- {n}" for n in notes]]
 
     report_dir.mkdir(parents=True, exist_ok=True)
-    path = report_dir / f"refresh_{started:%Y%m%d_%H%M%S}.md"
+    path = report_dir / f"run_report_{started:%Y%m%d_%H%M%S}.md"
     path.write_text("\n".join(out) + "\n", encoding="utf-8")
     logger.info("run report → %s", path)
 
@@ -298,7 +298,7 @@ def prune_reports(report_dir: Path = RUN_REPORT_DIR, *, keep: int = ARCHIVE_KEEP
     d = Path(report_dir)
     if keep < 1 or not d.exists():
         return []
-    reports = sorted((p for p in d.glob("refresh_*.md") if p.is_file()),
+    reports = sorted((p for p in d.glob("run_report_*.md") if p.is_file()),
                      key=lambda p: p.stat().st_mtime, reverse=True)
     removed = []
     for p in reports[keep:]:

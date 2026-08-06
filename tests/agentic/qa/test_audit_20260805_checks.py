@@ -5,7 +5,7 @@ check, the test names say exactly which real-world defect would ship again.
 """
 from __future__ import annotations
 
-from aus_trial_universe.qa import adjudications
+from aus_trial_universe.tasks.eligibility.mapping import adjudications
 from aus_trial_universe.tasks.eligibility.mapping.cancer_type.checks import (
     CATCHALL_NODES,
     check_against_source,

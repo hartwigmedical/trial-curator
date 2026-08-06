@@ -100,7 +100,7 @@ def test_status_json_marks_a_failed_cycle(tmp_path, monkeypatch):
     assert status["status"] == "fail" and status["gates_verdict"] == G.FAIL
     assert [g["name"] for g in status["gates"] if g["status"] == G.FAIL] == ["empty_output_reasons"]
     assert status["universe"]["kept"] == 1 and status["duration_min"] == 30.0
-    assert "GATES: FAIL" in (tmp_path / "rr" / "refresh_20260729_220000.md").read_text()
+    assert "GATES: FAIL" in (tmp_path / "rr" / "run_report_20260729_220000.md").read_text()
 
     # a clean cycle overwrites it with ok, and previous_kept_count reads the kept size back for the swing gate
     gates_ok = G.GateReport()
