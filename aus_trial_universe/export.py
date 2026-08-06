@@ -193,7 +193,11 @@ def _write_tsv(path: Path, rows: list[dict]) -> None:
 #: The source columns are NOT subset: an approved indication carries clinical qualifiers (stage, line of therapy,
 #: prior therapy, combination, setting) that a matcher needs alongside the codes, and the existing
 #: `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` view drops them.
-APPROVAL_MAPPED_COLUMNS = ["oncotree_name", "oncotree_code", "gene_alteration", "gene_alteration_findingmodel",
+#: `cancer_type_input` is a deliberate COPY of the source `cancer_type` column (col D), repeated here so the
+#: mapped block is self-contained: a reader checking whether an OncoTree code is right can see the text it came
+#: from in the adjacent cell instead of scrolling back fifteen columns (user, 2026-08-06).
+APPROVAL_MAPPED_COLUMNS = ["cancer_type_input", "oncotree_name", "oncotree_code",
+                           "gene_alteration", "gene_alteration_findingmodel",
                            "molecular_signature", "molecular_signature_findingmodel", "molecular_biomarker"]
 
 
@@ -215,6 +219,7 @@ def build_approvals_export_rows(drug_store) -> tuple[list[str], list[dict]]:
             bm = drug_store.approval_biomarker_map.get(ind.biomarker)
             row = {c: getattr(ind, c, "") for c in src}
             row.update({
+                "cancer_type_input": ind.cancer_type,
                 "oncotree_name": ct.oncotree_name if ct else "",
                 "oncotree_code": ct.oncotree_code if ct else "",
                 "gene_alteration": bm.gene_alteration if bm else "",
@@ -238,7 +243,8 @@ def _write_approvals_export(path: Path, columns: list[str], rows: list[dict]) ->
         w.writerows(rows)
 
 
-def _manifest(rows: list[dict], *, stamp: str, drug_dir: Path, bundled: bool) -> str:
+def _manifest(rows: list[dict], *, stamp: str, drug_dir: Path, bundled: bool,
+              approvals: tuple[list[str], list[dict]] | None = None) -> str:
     from aus_trial_universe.core.paths import REPO_ROOT
     n_arms = len({r["trial_arm_id"] for r in rows})
     n_trials = len({r["trialId"] for r in rows})
@@ -248,6 +254,8 @@ def _manifest(rows: list[dict], *, stamp: str, drug_dir: Path, bundled: bool) ->
         drug_ref = drug_dir
     setb = "the frozen drug tables in THIS folder (immutable snapshot copy)" if bundled else \
         f"`{drug_ref}/` (canonical, single source of truth — referenced in place, NOT copied)"
+    from aus_trial_universe.core.paths import APPROVALS_EXPORT_FILE
+    ap_cols, ap_rows = approvals if approvals else ([], [])
     return f"""# Matching-engine export — MANIFEST
 
 Built {stamp} (deterministic assembly; no LLM).
@@ -263,6 +271,19 @@ trial arm. {len(rows):,} rows · {n_arms:,} arms · {n_trials:,} trials. Columns
 - `arm_intervention_names_raw` + `trial_arm_id` are the join keys into Set B. The canonical ids, the
   main/auxiliary role split, drug classes and per-indication TGA/PBS live in the Set-B tables (see the join
   chain below) — they are NOT duplicated into Set A.
+
+## Set C — `{APPROVALS_EXPORT_FILE}`
+Every `drug_regulatory_approvals` row with its vocabulary mapping appended — **one row per (canonical_id,
+indication_id)**. {len(ap_rows):,} rows · {len(ap_cols)} columns.
+
+- The source columns are carried IN FULL, not subset: an approved indication's clinical qualifiers (stage, line of
+  therapy, prior therapy, combination, setting) are needed alongside the codes.
+- `cancer_type_input` is a deliberate COPY of the source `cancer_type`, repeated beside the mapped block so a
+  reader can check a code against the text it came from without scrolling back.
+- ⚠ The mapped columns are **FINALISED** values from the SAME three-stage pipeline as Set A — the `_finalised`
+  suffix is implicit. That is what makes `oncotree_code` here directly comparable to `oncotree_code` in Set A:
+  before 2026-08-06 the two sides ran different reconcilers and could spell one criterion two ways, silently
+  failing the match.
 
 ## Set B — the drug 3NF tables ({len(DRUG_TABLES)})
 {setb}
@@ -324,12 +345,13 @@ def run_export(*, snapshot: bool = False,
 
     export_root.mkdir(parents=True, exist_ok=True)
     _write_tsv(export_root / EXPORT_FILE, rows)
-    (export_root / "MANIFEST.md").write_text(_manifest(rows, stamp=stamp, drug_dir=drug_dir, bundled=False),
-                                             encoding="utf-8")
+    approvals = build_approvals_export_rows(drug_store)
+    (export_root / "MANIFEST.md").write_text(
+        _manifest(rows, stamp=stamp, drug_dir=drug_dir, bundled=False, approvals=approvals), encoding="utf-8")
     logger.info("export · Set A → %s (%d rows) · Set B referenced at %s", export_root / EXPORT_FILE, len(rows), drug_dir)
 
     from aus_trial_universe.core.paths import APPROVALS_EXPORT_FILE
-    ap_cols, ap_rows = build_approvals_export_rows(drug_store)
+    ap_cols, ap_rows = approvals
     _write_approvals_export(export_root / APPROVALS_EXPORT_FILE, ap_cols, ap_rows)
     logger.info("export · Set C → %s (%d rows · %d cols)",
                 export_root / APPROVALS_EXPORT_FILE, len(ap_rows), len(ap_cols))
@@ -345,7 +367,7 @@ def run_export(*, snapshot: bool = False,
             if src.exists():
                 shutil.copy2(src, snap / name)
                 copied += 1
-        (snap / "MANIFEST.md").write_text(_manifest(rows, stamp=stamp, drug_dir=drug_dir, bundled=True), encoding="utf-8")
+        (snap / "MANIFEST.md").write_text(_manifest(rows, stamp=stamp, drug_dir=drug_dir, bundled=True, approvals=approvals), encoding="utf-8")
         logger.info("export · snapshot → %s (Set A + %d frozen drug tables)", snap, copied)
     return export_root / EXPORT_FILE
 

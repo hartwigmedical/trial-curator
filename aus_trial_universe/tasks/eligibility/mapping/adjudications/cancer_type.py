@@ -974,3 +974,44 @@ _add(Adjudication(
     ),
     approved='2026-08-06, user',
 ))
+
+# --------------------------------------------------------------------------- #
+# 2026-08-06 — the ovarian / fallopian tube / primary peritoneal trio (user).
+#
+# Surfaced when the DRUG approvals moved onto the shared three-stage pipeline. Dropping cross-value LLM
+# adjudication is what makes churn structurally impossible, but it also means near-identical phrasings can drift
+# apart — and the register is the designed remedy. Eight variants of this indication exist; five already agree on
+# `OVARY OR PERITONEUM` and two correctly keep serous-specific codes because the source SAYS "serous". These two
+# were the outliers.
+#
+# THE CODING, and why it is two nodes and not three: OncoTree has NO standalone fallopian-tube node — `OVARY` is
+# literally "Ovary/Fallopian Tube" — so the trio collapses to the two tissue nodes it actually spans. `OVT`
+# (Ovarian Epithelial Tumor) is a DESCENDANT of OVARY, so naming both would be redundant and stage 2 would drop
+# it. A superset is acceptable for an inclusion; a lost cohort is not.
+# --------------------------------------------------------------------------- #
+
+# was: 'HGSFT OR OVT OR PSEC'
+_add(Adjudication(
+    value='high-grade epithelial ovarian, fallopian tube or primary peritoneal cancer',
+    final='OVARY OR PERITONEUM',
+    rationale=(
+        'Over-specification: HGSFT and PSEC are SEROUS entities, but the source says "high-grade EPITHELIAL", '
+        'not "high-grade serous". Grade has no OncoTree representation outside the serous nodes, so encoding it '
+        'that way asserts a histology the regulator never stated and would exclude high-grade non-serous '
+        'epithelial disease. The two tissue nodes cover all three named sites; the sibling variants that DO say '
+        '"serous" keep HGSFT OR HGSOC OR PSEC, which is correct for them.'
+    ),
+    approved='2026-08-06, user',
+))
+
+# was: 'OVT OR PSEC'
+_add(Adjudication(
+    value='epithelial ovarian, fallopian tube, or primary peritoneal cancer',
+    final='OVARY OR PERITONEUM',
+    rationale=(
+        'Under-coverage: OVT is ovarian epithelial and PSEC is peritoneal, so FALLOPIAN TUBE — one of the three '
+        'sites the indication names — was not represented at all. Differs from its comma-free twin by a single '
+        'character and must map identically.'
+    ),
+    approved='2026-08-06, user',
+))

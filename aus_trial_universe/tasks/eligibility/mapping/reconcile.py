@@ -54,7 +54,11 @@ COLUMNS = (CANCER_TYPE, GENE_ALTERATION, MOLECULAR_SIGNATURE)
 
 logger = logging.getLogger(__name__)
 
-MAX_CONVERGENCE_PASSES = 3
+#: Below this many values, a caller is not the eligibility corpus the register was written against, so its
+#: "orphaned ruling" count is meaningless. The live eligibility corpus is ~5,000 values; the drug approvals are
+#: ~385. A threshold rather than a caller flag: the property that matters is "is this the corpus the register
+#: describes", and passing a boolean would let a future caller assert that wrongly.
+_ORPHAN_REPORT_MIN_VALUES = 1000
 
 # --------------------------------------------------------------------------- #
 # R0-R2 — the deterministic rewrite
@@ -106,9 +110,17 @@ def reconcile_column(
             logger.error("stage 2 produced %d defective value(s) — this is a bug in the rewrite, not the data",
                          len(failures))
         finalised, overridden = stage3.run(reconciled)
-        orphans = stage3.orphaned_rulings(reconciled)
-        if orphans:
-            logger.info("stage 3 · %d ruling(s) no longer match any value (prune candidates)", len(orphans))
+        # ORPHAN REPORTING IS ELIGIBILITY-ONLY. The register is keyed by VALUE and shared with the drug approvals
+        # (deliberately — a ruling is about a value, not about which side of the join it came from). But the two
+        # sides see different value SETS, so from the drug side almost the whole register looks orphaned: it
+        # logged "58 ruling(s) no longer match any value" against a 385-value corpus, which reads as a data
+        # problem and is nothing of the sort. A prune candidate is only meaningful against the corpus the register
+        # was written for.
+        if len(reconciled) >= _ORPHAN_REPORT_MIN_VALUES:
+            orphans = stage3.orphaned_rulings(reconciled)
+            if orphans:
+                logger.info("stage 3 · %d ruling(s) match no value in the eligibility corpus (prune candidates)",
+                            len(orphans))
         logger.info("cancer_type · stage 2 changed %d · stage 3 overrode %d",
                     sum(1 for v in mapping if mapping[v] != reconciled[v]), len(overridden))
         return finalised, [], 0
