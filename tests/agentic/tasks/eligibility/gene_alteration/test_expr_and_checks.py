@@ -412,3 +412,58 @@ def test_mechanical_fixes_run_without_an_llm():
     assert "codingEffect=SPLICE" in final["MET exon 14 skipping"]
     assert "effects=SPLICE" not in final["MET exon 14 skipping"]
     assert unresolved == [], "the mechanical fix should leave no error-severity residue"
+
+
+# --------------------------------------------------------------------------- #
+# Check narrowings from the 2026-08-06 corpus audit. Each is pinned to the REAL live value that exposed it, so a
+# future widening of the check re-breaks a case we know is correct rather than passing an abstract example.
+# --------------------------------------------------------------------------- #
+def test_fusion_driver_gain_ignores_a_negated_amplification():
+    """`NOT(NTRK gene amplification)` is the source's own exclusion. Excluding a gain cannot over-expand."""
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+    src = "NTRK gene fusion AND NOT(NTRK gene amplification) AND NOT(NTRK point mutation)"
+    expr = ("(Fusion[geneEnd=NTRK1] | Fusion[geneEnd=NTRK2] | Fusion[geneEnd=NTRK3]) "
+            "& NOT(GainDeletion[gene=NTRK1 & type=GAIN]) & NOT(GainDeletion[gene=NTRK2 & type=GAIN])")
+    assert not [f for f in semantic_problems(src, expr) if f.check == "fusion_driver_with_gain"]
+
+
+def test_fusion_driver_gain_ignores_an_explicitly_stated_amplification():
+    """`ROS1 amplification` MUST map to type=GAIN. The rule is about expanding an UNSPECIFIED alteration."""
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+    found = semantic_problems("ROS1 amplification", "GainDeletion[gene=ROS1 & type=GAIN]")
+    assert not [f for f in found if f.check == "fusion_driver_with_gain"]
+
+
+def test_fusion_driver_gain_still_fires_on_an_unspecified_alteration():
+    """The narrowing must not disarm the check: an unspecified ALK alteration must not gain type=GAIN."""
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+    found = semantic_problems("ALK gene alteration",
+                              "SmallVariant[gene=ALK] | GainDeletion[gene=ALK & type=GAIN]")
+    assert [f for f in found if f.check == "fusion_driver_with_gain"]
+
+
+def test_arm_terms_not_compound_ignores_an_exclusion_of_distinct_events():
+    """del17p and monosomy 17 are DIFFERENT events, so three Arm terms in a NOT() is correct, not a defect."""
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+    src = "NOT(TP53 mutation, del17p or monosomy 17 at diagnosis)"
+    expr = ("NOT(SmallVariant[gene=TP53]) "
+            "& NOT(Arm[(chromosome=17 & arm=p & type=ARM_LOSS) & (chromosome=17 & arm=q & type=ARM_LOSS)]) "
+            "& NOT(Arm[chromosome=17 & arm=p & type=ARM_LOSS])")
+    assert not [f for f in semantic_problems(src, expr) if f.check == "arm_terms_not_compound"]
+
+
+def test_mapk3_is_an_attested_gene_symbol():
+    """MAPK3 (ERK1) is a genuine HGNC symbol; its absence warned on a correct RAS-MEK-ERK pathway expansion."""
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+    found = semantic_problems("documented genetic alteration in the RAS-MEK-ERK signalling pathway",
+                              "SmallVariant[gene=MAPK3]")
+    assert not [f for f in found if f.check in ("unknown_gene_symbol", "family_root_as_gene")]
+
+
+def test_pi3k_catalytic_subunits_are_attested():
+    """PIK3CB/CD/CG (p110 beta/delta/gamma) are genuine HGNC symbols. The 2026-08-06 prompt correctly expands
+    'phosphoinositide 3-kinase' to the family, which warned only because the resource did not list them."""
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.checks import semantic_problems
+    expr = " | ".join(f"SmallVariant[gene={g}]" for g in ("PIK3CA", "PIK3CB", "PIK3CD", "PIK3CG"))
+    found = semantic_problems("mutated phosphoinositide 3-kinase", expr)
+    assert not [f for f in found if f.check in ("unknown_gene_symbol", "family_root_as_gene")]

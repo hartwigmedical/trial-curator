@@ -9,7 +9,7 @@ The arm spine (`trial_arms`) is the SHARED central registry at `data/agentic/tri
 (written by whichever path processes a trial; both paths link to it by `trial_arm_id`). The eligibility store at
 `data/agentic/eligibility/current_output/` holds ONLY its content masters, keyed by trial_arm_id:
     arm_eligibility_raw.tsv · interpreted_eligibility.tsv · cancer_type_map.tsv ·
-    gene_alteration_map.tsv · molecular_signature_map.tsv
+    <column>_map_{initial,reconciled,finalised}.tsv  (see mapping/stage_tables.py)
 Re-running a trial replaces its rows in place. The drug store persists to `drug_annotations/current_version/`.
 The grand flat matching-engine view (`trial_eligibility.tsv`, the masters joined for consumers) is built by the
 SEPARATE `aus_trial_universe.export` module (`make agentic-export`), not here.
@@ -217,22 +217,22 @@ def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_att
     ga_step1 = {v: m.finding_model for v, m in elig_store.gene_map.items()}
     sig_step1 = {v: m.finding_model for v, m in elig_store.signature_map.items()}
 
+    from aus_trial_universe.tasks.eligibility.mapping import stage_tables as _ST
     if want("cancer_type"):
         ct_final, ct_unres, ct_groups = reconcile_column(client, ct_step1, column=CANCER_TYPE, **kw)
     else:
-        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import tables as _ct_tables
-        ct_final, ct_unres, ct_groups = _keep(_ct_tables.FINALISED_FILE, "cancer_type",
+        ct_final, ct_unres, ct_groups = _keep(_ST.CANCER_TYPE.file("finalised"), "cancer_type",
                                               "oncotree_code_finalised", ct_step1), [], 0
     if want("gene_alteration"):
         ga_final, _gu, ga_groups = reconcile_column(client, ga_step1, column=GENE_ALTERATION, **kw)
     else:
-        ga_final, ga_groups = _keep("finalised_gene_alteration_map.tsv", "gene_alteration",
-                                    "finding_model_FINAL", ga_step1), 0
+        ga_final, ga_groups = _keep(_ST.GENE_ALTERATION.file("finalised"), "gene_alteration",
+                                    "finding_model_finalised", ga_step1), 0
     if want("molecular_signature"):
         sig_final, _su, sig_groups = reconcile_column(client, sig_step1, column=MOLECULAR_SIGNATURE, **kw)
     else:
-        sig_final, sig_groups = _keep("finalised_molecular_signature_map.tsv", "molecular_signature",
-                                      "finding_model_FINAL", sig_step1), 0
+        sig_final, sig_groups = _keep(_ST.MOLECULAR_SIGNATURE.file("finalised"), "molecular_signature",
+                                      "finding_model_finalised", sig_step1), 0
 
     write_finalised_maps(elig_store, maps_dir, ct_final, ga_final, sig_final)   # 3NF lookups -> the store
     write_finalised_mapped_eligibility(elig_store, joined_dir, ct_final, ga_final, sig_final)   # flat view -> joined/

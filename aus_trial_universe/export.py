@@ -107,12 +107,13 @@ def build_export_rows(elig_store, arm_store, drug_store, trial_info, *, elig_dir
     # The export's `oncotree_code`/`oncotree_name` are the SHIPPING mapping, i.e. stage 3's output (user,
     # 2026-08-06). Column names here stay as they are: the matching engine consumes this file, so renaming
     # them would be a breaking change for a downstream consumer.
-    from aus_trial_universe.core.paths import CANCER_TYPE_STAGE_FILES
+    from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
     from aus_trial_universe.tasks.eligibility.mapping.workflow import strip_provenance
-    ct_final = _read_map(elig_dir / CANCER_TYPE_STAGE_FILES["finalised"],
-                         "cancer_type", "oncotree_code_finalised")
-    ga_final = _read_map(elig_dir / "finalised_gene_alteration_map.tsv", "gene_alteration", "finding_model_FINAL")
-    sig_final = _read_map(elig_dir / "finalised_molecular_signature_map.tsv", "molecular_signature", "finding_model_FINAL")
+    # Every column's SHIPPING mapping is its `finalised` stage table, read through the one shared spec (which
+    # also carries the retired filename as a fallback, so an older archive still exports).
+    ct_final = ST.CANCER_TYPE.load(elig_dir, "finalised")
+    ga_final = ST.GENE_ALTERATION.load(elig_dir, "finalised")
+    sig_final = ST.MOLECULAR_SIGNATURE.load(elig_dir, "finalised")
     arm_by_id = {a.trial_arm_id: a for arms in arm_store.arms.values() for a in arms}
 
     drug_cache: dict[str, dict] = {}

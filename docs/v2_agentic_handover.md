@@ -1,6 +1,173 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-08-06, end of session 11)
+## ▶ NEXT SESSION — START HERE (updated 2026-08-06, session 12 — GENE_ALTERATION **SHIPPED**)
+
+> **✅ gene_alteration stage-1 refinement is REVIEWED, APPROVED and MIGRATED TO PRODUCTION.**
+> **418 tests green · 0 invariant violations · gates WARN / 0 FAIL · engine dry run OURS=0 · UNCOMMITTED.**
+>
+> ### ▶ YOUR NEXT TASK: repeat this for **molecular_signature** (the user, 2026-08-06: *"After this we will move
+> to molecular signature"*). Measured baseline, already taken: **171 values · only 48 non-empty · 8 distinct
+> expressions · a CLOSED 6-term vocabulary · stage 2 completely inert (0 canonicalisation changes, 0 groups,
+> 0 rulings) · stage1 == FINAL for all 171.** So it needs **NO stage 2** — it currently rides the LEGACY R0-R8
+> branch in the shared reconciler, which still holds a cross-value grouping detector and an LLM adjudicator that
+> could fire on the next new value. That is a DELETION, not a build: give it `stage1` + `stage3` only, and retire
+> `build_findingmodel_reconciler` + its reviewer (molecular_signature is their last consumer). The column is small
+> enough to hand-review 100%, and its two failure modes are exactly: a genuine signature dropped to `""`, and a
+> non-signature forced into one of the six terms. NB its 51 `empty_for_named_gene` warns are the GENE catalogue
+> misapplied — signature has no catalogue of its own. One real finding to fix: both compound values are
+> `MSS & NOT(MSI)`, where `NOT(MSI)` is vacuous (mutually exclusive values of one field).
+>
+> ### What shipped for gene_alteration
+> - **Stage 2 is deterministic-only.** R2 (per-value LLM repair) + R4 (LLM group adjudication) and their four
+>   agents DELETED, −306 net lines. Measured contribution before removal: ZERO. Verified byte-identical.
+>   Detection survives — divergent groups are logged as residue. ⚠ `concept_key` still backs `qa/invariants.py`
+>   C1/C2/C6; do not delete it.
+> - **Stage 1 prompts refined and folded into production** (`mapping/gene_alteration/agents.py`). Provenance copy
+>   of the anchored-edit candidate: `analysis/gene_alteration_stage1_review/candidate_prompts_as_folded.py`.
+> - **Stage 3 register: 2 → 9 rulings** (`qa/adjudications/gene_alteration.py`). Its docstring records THREE
+>   values the review judge called regressions where the judge was WRONG and the new prompt is right (FGFR3,
+>   NTRK3, KIT/PDGFRA-wild-type-in-GIST) — deliberately absent, so nobody "fixes" them later.
+> - **7 bugs in our OWN checks/resources**, each pinned by a test: `fusion_driver_with_gain` misfiring on a stated
+>   and on a negated amplification; `arm_terms_not_compound` on del17p + monosomy 17; and MAPK3, PIK3CB, PIK3CD,
+>   PIK3CG missing from `known_genes.txt`.
+> - **The harness is column-generic and LLM-judged**: `qa/prompt_harness/{columns,remap,compare,export_gene_review,
+>   gene_judgements}.py`.
+>
+> ### Stage tables unified across ALL THREE columns (user, 2026-08-06: *"the idea is not to have duplicate code"*)
+> `tasks/eligibility/mapping/stage_tables.py` is now the SINGLE definition of every column's stage tables — names,
+> accreting columns, writers, readers and legacy fallbacks. `cancer_type/tables.py` and `gene_alteration/tables.py`
+> are DELETED, and `paths.CANCER_TYPE_STAGE_FILES` / `paths.FINALISED_MAP_FILES` / the three
+> `schema.TABLE_FILES` map entries are GONE — they were second copies of the same names, which is how a reader
+> gets left behind. Only four things differ per column and they are DATA, not code: key column, value stem, stage
+> count, and whether there is a derived column.
+>
+> The store now holds a consistent set:
+> `{cancer_type,gene_alteration}_map_{initial,reconciled,finalised}.tsv` + `molecular_signature_map_{initial,
+> finalised}.tsv` (two stages — it provably needs no stage 2). Retired flat files →
+> `data/backups/retired_legacy_gene_signature_maps_20260806/`; the specs still READ those names so pre-restructure
+> archives load.
+> Verified: the shared module reproduces cancer_type's three shipped tables **byte-identically**, and the
+> shipping values are unchanged by the rename. **`tests/.../mapping/test_stage_tables.py` is the PLUMBING test** —
+> it asserts no module hard-codes a stage-table filename, because a renamed table FAILS OPEN (a reader on an old
+> name finds nothing, returns `{}` and ships blanks with every gate still green).
+>
+> ### Migration result
+> stage-1 rows changed **84** · FINAL rows changed **35** · **0 unexplained** · export rebuilt
+> (17,778 rows · 2,021 trials) · `gene_alteration_expressions` gate 847 distinct expressions / **0 defects**.
+> Backup: `data/backups/pre_gene_stage1_fold_20260806/`.
+>
+> ### 🔴 THREE LESSONS THAT COST REAL TIME — do not rediscover
+> 1. **"Named vs specific", not "specific vs general."** My first G1 candidate omitted an actionability-qualified
+>    exclusion whenever it named only a bare GENE. Wrong, by 12 values — the user caught it: *"I don't think this
+>    should disappear actually. This should be a series of exclusions."* An enumerated gene list IS a named
+>    referent; dropping it matches the trial to the driver-positive patients it explicitly refuses, and nothing
+>    downstream recovers that. ~1,900 API calls sunk re-running.
+> 2. **Do not answer semantic questions with string surgery** (user, standing): *"avoid regex in all these
+>    processing and comparisons. just llm judgement instead."* Substring keys for per-value verdicts collided
+>    three times running. Verdicts now come from an LLM judge; only *which* values differ stays deterministic, via
+>    canonicalisation over parsed ASTs.
+> 3. **Never build a review set by intersecting version key-sets.** It silently dropped the 4 values that postdate
+>    the 28 July baseline — one of them changed by the run — so the review covered 909 of 913. Only the migration
+>    guard ("every changed row must be explained") caught it. The universe is the CURRENT corpus.
+>
+> ---
+> *The mid-flight block from earlier in session 12 follows.*
+
+## ▶ SESSION 12 (mid-flight snapshot, superseded) — updated 2026-08-06
+
+> **STATE: the gene_alteration stage-1 refinement is DONE AND AWAITING THE USER'S REVIEW. Nothing is migrated.
+> Production prompts, the eligibility store and the export are UNTOUCHED. All work is UNCOMMITTED.**
+>
+> The user asked for the OncoTree treatment to be repeated on **gene_alteration first, then molecular_signature**
+> (scoped to gene_alteration only for now). Their plan, in their words: *"refine stage 1 … first look through the
+> current mappings, identify mistakes & then apply PRINCIPLE-based corrections to the prompts. Rerun - review -
+> iterate … when you get to a point when you believe this is as good as the prompts can be made, then assign the
+> rest of the issues to stage 3 … stage 2: I believe nothing changes here right? … during the testing part, make
+> sure the current code & data are isolated. Once the testing is done & I have reviewed the 3 way output, then
+> proceed with a safe migration. After this we will move to molecular signature."*
+>
+> ### ▶ THE IMMEDIATE NEXT STEP
+> The user was about to review `data/agentic/analysis/gene_alteration_stage1_review/three_way_review.tsv`
+> (start at that directory's `README.md`). **The open question put to them, unanswered:** should the 19
+> `CHANGED_LATERAL` rows be hand-annotated with a per-value verdict first (as the OncoTree review's `my_reason`
+> column did), or is the file readable as-is? Then: stage 3 register → safe migration → molecular_signature.
+>
+> ### What shipped this session (all verified, all uncommitted)
+> - **Stage 2 is DETERMINISTIC-ONLY.** Deleted R2 (per-value LLM repair), R4 (LLM group adjudication) and their
+>   four agents — **−306 net lines**. Measured contribution before removal: **ZERO** (R2 fired once, on a value the
+>   register overrode anyway; R4 found 0 groups). Re-running the stripped stage over the frozen stage-1 store
+>   reproduces the shipped corpus **BYTE-IDENTICALLY**. Detection survives: divergent groups are logged as residue.
+>   ⚠ `concept_key` is load-bearing for `qa/invariants.py` C1/C2/C6 — do not delete it.
+> - **Four bugs in OUR OWN checks**, each pinned by a test to the live value that exposed it: `fusion_driver_with_gain`
+>   misfired on a stated amplification (`ROS1 amplification`) and on a NEGATED gain; `arm_terms_not_compound`
+>   misfired on `del17p` + `monosomy 17` (two distinct events); `MAPK3` (ERK1) missing from `known_genes.txt`.
+>   Corpus warns **21 → 15**, all 15 remaining genuine. **415 tests green.**
+> - **The prompt harness is now column-generic**: `qa/prompt_harness/columns.py` (per-column spec + a
+>   POLARITY-AWARE direction classifier), `remap.py` (isolated candidate re-map), `compare.py` (gate + review file),
+>   `candidate_gene_prompts.py` (the candidate, as ANCHORED EDITS to production — the diff IS the change, and it
+>   raises if an anchor moves). The old `compare_runs.py`/`export_comparison.py` stay for the OncoTree review's
+>   1,015 lines of recorded hand judgements.
+>
+> ### The defect classes found, and the one that mattered
+> A full audit of all 913 live mappings (the deterministic catalogue was already nearly clean — 1 error — so the
+> signal came from comparing each mapping against its OWN SOURCE):
+>
+> | id | defect | population | principle |
+> |---|---|---:|---|
+> | **G1** | actionability-qualified exclusions: of 23 values naming a CLOSED gene list, 12 kept it and **11 dropped it** | 23 (+18 resistance) | **keep what is named or has established membership; omit only what is genuinely unnamed** |
+> | G2 | `NOT(KIT and PDGFRA wild-type)` left double-negated | 1 | Wildtype never inside `NOT()` |
+> | G3 | `eligible without documented PIK3CA mutation…` → `""` | 1 | administrative framing is packaging; map the criterion inside |
+> | G4 | `Wildtype[X] & NOT(SmallVariant[X])` | 1 | Wildtype already implies it; canonicalisation cannot see this |
+>
+> G1's root cause was a **contradiction inside the prompt**: rule 3 said "omit only when no member is named" while a
+> note under the gene-family section said "inside NOT(), naming example genes does NOT make it expressible". Both
+> fired on the same population; the mapper arbitrated arbitrarily. The fix **repeals the note**.
+>
+> ### 🔴 A WRONG TURN — DO NOT REDISCOVER IT
+> My first G1 candidate keyed on the **specificity** of what was named (keep an EVENT, omit a bare GENE). **It was
+> wrong and would have made 12 values worse.** The user caught it on
+> `NOT(documented actionable mutations or genomic alterations in EGFR, ALK, ROS1, HER2, MET, BRAF, RET, or NTRK)`:
+> *"I don't think this should disappear actually. This should be a series of exclusions."* A bare gene under an
+> actionability judgement is **still a named referent** — dropping it matches the trial to the driver-positive
+> patients it explicitly refuses, and no downstream review recovers that. **THE TEST IS WHETHER ANYTHING IS NAMED,
+> NOT HOW SPECIFIC THE NAME IS.** Recorded in `candidate_gene_prompts.py`'s docstring. ~1,900 API calls were sunk
+> re-running after the correction. The same mistake in miniature was in the harness (`LOST_EXCLUSION` auto-failed);
+> it is now review-required, not gated.
+>
+> Family **b (resistance mechanisms, 18 values)** needs no rule of its own — it falls out of the existing
+> established-membership test, and the mapper splits it correctly unprompted: `RB1 … conferring resistance to
+> CDK4/6i` KEPT (RB1 loss is the known mechanism), `known MET kinase inhibitor resistance mutation` OMITTED. The
+> MET case has a hard proof: those trials REQUIRE a MET alteration, so a whole-gene MET exclusion is unsatisfiable
+> and canonicalisation collapses it to empty.
+>
+> ### Results of the full re-map (913 values, 1,880 API calls, isolated)
+> **0 error-severity defects** in what would ship (baseline had 18) · **18 FIXED** · **40 of 909 values changed vs
+> live** · **201 `PRIOR_APPROVED`** (B1b's approved work, faithfully reproduced).
+> **Hard gate: 1 regression**, which I judge an IMPROVEMENT — `EGFR activating mutation AND NOT(eligible for Stage 2
+> Cohort 4 EGFR uncommon mutations…)` narrows to the two common classical variants *because the source excludes the
+> uncommon cohort*. The gate cannot see the source.
+> **One value genuinely uncertain, for the user:** `BRAF V600E … NOT(known activating AR-V7 or ESR1 alterations …
+> in prostate, breast, or gynecologic cancers)` dropped the AR/ESR1 exclusions — G1 says keep (named), the
+> tumour-context rule says omit. Two rules collide. Recommend a register entry, not another prompt edit.
+> `AGA negative` is `still_needed` in the register (the prompt alone does not reach it).
+>
+> ### ⚠ Traps that still apply
+> 1. **The refine loop is NOT reproducible from cache** — APPLY `remap_raw_output.tsv` to the store at migration;
+>    never re-derive it by re-running.
+> 2. **Scope every store command with `--columns gene_alteration`.**
+> 3. **The harness must never prune the cache** (a candidate fingerprint would GC production's answers).
+> 4. Wrap live runs in `caffeinate -i`. Python: `/opt/anaconda3/envs/trial_curator/bin/python`, `PYTHONPATH=.`.
+>
+> ### Uncommitted files (the user does ALL commits)
+> Modified: `core/prompt_registry.py` · `mapping/gene_alteration/{agents,checks,reconcile}.py` ·
+> `mapping/gene_alteration/known_genes.txt` · `tests/…/gene_alteration/test_expr_and_checks.py`
+> New: `qa/prompt_harness/{candidate_gene_prompts,columns,compare,remap}.py` ·
+> `data/agentic/analysis/gene_alteration_stage1_review/*`
+>
+> ---
+> *Session 11's START-HERE (OncoTree, complete) follows.*
+
+## ▶ SESSION 11 (OncoTree — COMPLETE) — updated 2026-08-06
 
 > **✅ ONCOTREE (cancer_type) MAPPING IS COMPLETE — ALL THREE STAGES, restructured and shipped.** The stage that
 > made the user distrust the mapping ("*the deterministic parts are particularly brittle… the reconciliation stage

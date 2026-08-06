@@ -160,12 +160,13 @@ def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> No
     An approved ruling in `qa/adjudications/` is the sanctioned way to change a mapping, so adjudicated values
     are exempt — otherwise the gate would fail on the very fix it is meant to protect.
     """
-    from aus_trial_universe.core.paths import (ARCHIVE, CANCER_TYPE_STAGE_FILES, CURRENT_VERSION,
+    from aus_trial_universe.core.paths import (ARCHIVE, CURRENT_VERSION,
                                               ELIGIBILITY_OUTPUT)
     from aus_trial_universe.qa import adjudications
     from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import BROADEN_SENTINEL, broadening, narrows
 
-    ct_file = CANCER_TYPE_STAGE_FILES["finalised"]
+    from aus_trial_universe.tasks.eligibility.mapping import stage_tables as _ST
+    ct_file = _ST.CANCER_TYPE.file("finalised")
     root = Path(store_root or ELIGIBILITY_OUTPUT)
     live, arch_root = root / CURRENT_VERSION, root / ARCHIVE
     if not live.exists() or not arch_root.exists():

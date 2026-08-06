@@ -23,26 +23,11 @@ DELIBERATELY UNCHANGED, having been verified against the Java datamodel and the 
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
-
 from aus_trial_universe.core.agent import Agent
 from aus_trial_universe.core.client import LlmClient
 from aus_trial_universe.tasks.eligibility.mapping.finding_model import GRAMMAR_REFERENCE
 # Reused unchanged from production so approval does not have to touch schema.py.
-from aus_trial_universe.tasks.eligibility.mapping.schema import (
-    FindingModelMapping,
-    GroupReconciliation,
-    ReviewVerdict,
-)
-
-
-class GeneAlterationRepair(BaseModel):
-    """Stage-2 repair output — one value's corrected expression, given its own defect list."""
-
-    finding_model: str = Field(description="The corrected finding-model expression for this value.")
-    rationale: str = Field(
-        default="", description="One line: which defect was fixed and why this is what the source supports."
-    )
+from aus_trial_universe.tasks.eligibility.mapping.schema import FindingModelMapping, ReviewVerdict
 
 
 # --------------------------------------------------------------------------- #
@@ -156,8 +141,13 @@ WILD-TYPE — one spelling per shape, so equivalent criteria look equivalent:
 - A SPECIFIC codon/variant stated wild-type ("KRAS G12/G13 wild-type", "BRAF V600 wild-type") -> the negation of
   that SPECIFIC change: NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G12X]) &
   NOT(SmallVariant[gene=KRAS & transcriptImpact.hgvsProteinImpact=p.G13X]).
-- "NOT(gene A and gene B wild-type)" means at least one IS altered. State that positively — Wildtype must not be
-  double-negated: -> SmallVariant[gene=A] | SmallVariant[gene=B] (or the alteration type the source implies).
+- "NOT(gene A and gene B wild-type)" means at least one IS altered. State that positively — Wildtype must NEVER
+  appear inside a NOT(): -> SmallVariant[gene=A] | SmallVariant[gene=B] (or the alteration type the source
+  implies). This holds however the negation is spelled: "NOT(KIT and PDGFRA wild-type)" is
+  SmallVariant[gene=KIT] | SmallVariant[gene=PDGFRA], never NOT(Wildtype[gene=KIT] & Wildtype[gene=PDGFRA]).
+- Wildtype[gene=X] already asserts that X carries NO alteration, so never AND it with a negated alteration in the
+  SAME gene: write Wildtype[gene=EGFR], not Wildtype[gene=EGFR] & NOT(SmallVariant[gene=EGFR]). The second
+  conjunct adds nothing and makes two equivalent criteria look different.
 
 GENE FAMILIES / PANELS / PATHWAY TOKENS:
 - A recognised gene FAMILY (not a single gene) -> expand to its member genes OR'd, applying the SAME variant to
@@ -182,8 +172,10 @@ GENE FAMILIES / PANELS / PATHWAY TOKENS:
   or examples ("MAPK pathway mutations (eg, RAS, RAF, and MAPKK mutations)"), that enumeration IS the gene set —
   expand the named families and ignore the pathway word. Return "" only for a signalling pathway with no members
   named anywhere and no established gene list ("RAS/MAPK pathway alteration", "PI3K signalling alteration").
-  ⚠ PRECEDENCE — this enumeration rule applies to INCLUSIONS ONLY. See "POLARITY PRECEDENCE" under NEGATION: inside
-  NOT(), naming example genes does NOT make an actionability-qualified clause expressible.
+  ⚠ PRECEDENCE — an enumerated family is expanded in BOTH polarities. In an INCLUSION, expand it freely. Inside
+  NOT(), an enumerated gene list is still a NAMED referent and is still KEPT (see "POLARITY PRECEDENCE" under
+  NEGATION); the only thing omitted inside NOT() is a part that names NOTHING — an open "any/other actionable
+  alteration" remainder.
 
 "INCLUDING" — does the list DEFINE the criterion, or merely illustrate it? Decide from the HEAD:
 - head is already a COMPLETE expressible event -> KEEP THE HEAD, and do NOT replace it with the example. The list
@@ -227,14 +219,28 @@ NEGATION — NOT(...):
        & NOT(SmallVariant[gene=EGFR & transcriptImpact.hgvsProteinImpact=p.L861Q])
        & NOT(SmallVariant[gene=EGFR & transcriptImpact.hgvsProteinImpact=p.S768I])
      NEVER collapse such a class to the bare gene (NOT(SmallVariant[gene=EGFR])) — that WOULD over-exclude.
-  3. ONLY when the excluded set is an AVAILABILITY or ACTIONABILITY judgement over an UNSPECIFIED set, with no
-     named member and no established membership, is the clause OMITTED ENTIRELY: "NOT(any actionable alteration
-     with approved therapy)", "NOT(other genomic alterations for which targeted therapy is available)",
-     "NOT(a validated driver causing resistance to <drug>)", "NOT(known concomitant second oncogenic driver)".
-     Here the criterion is "has an alteration a therapy exists for" and finding-model has no field for it; dropping
-     the qualifier would leave a whole-gene exclusion that rejects patients carrying harmless variants, silently
-     denying them a trial they qualify for. An omitted exclusion is recoverable by the reviewing clinician; an
-     over-exclusion is invisible. So: OMIT — and OMIT ONLY THIS CASE.
+  3. OMIT the clause ONLY when NOTHING IS NAMED under the judgement — no gene, no alteration, no class with
+     established membership: "NOT(any actionable alteration with approved therapy)", "NOT(other genomic
+     alterations for which targeted therapy is available)", "NOT(known concomitant second oncogenic driver)".
+     There the criterion is "has an alteration that some therapy exists for", and finding-model has no field for
+     it, so nothing can be written down.
+     ⚠ AN ENUMERATED GENE LIST IS NAMED, AND IS KEPT. The test is WHETHER anything is named, NOT how specific the
+     name is — a bare gene under an actionability judgement is still a named referent. "NOT(documented actionable
+     mutations or genomic alterations in EGFR, ALK, ROS1, HER2, MET, BRAF, RET, or NTRK)" states exactly which
+     genes the trial means, so exclude each one:
+       NOT(SmallVariant[gene=EGFR]) & NOT(Fusion[geneStart=ALK | geneEnd=ALK]) & ... (one per named gene).
+     Map each member at the level the source gives it: the named EVENT where there is one ("MET amplification" ->
+     NOT(GainDeletion[gene=MET & type=GAIN])), otherwise the gene's alteration. Dropping such a clause matches the
+     trial to the driver-positive patients it explicitly refuses — and unlike an over-exclusion, that error is
+     never recovered downstream, because the patient simply appears as a candidate.
+     A LIST THAT MIXES named members with an open remainder is SPLIT: keep every named member, omit only the
+     remainder. "NOT(actionable alterations, including EGFR mutations, ALK rearrangements, OR OTHER alterations
+     for which therapy is available)" keeps EGFR and ALK and drops the "other".
+     A RESISTANCE MECHANISM is decided by rule 2, not here: "RB1 mutations or deletions conferring resistance to
+     CDK4/6i" has an established referent (RB1 loss of function) and is KEPT, whereas "known MET kinase inhibitor
+     resistance mutation" is an OPEN set of secondary mutations and is OMITTED. Note the second also has to be
+     omitted for a structural reason: such trials REQUIRE a MET alteration for entry, so a whole-gene MET exclusion
+     would contradict the entry criterion and leave nothing satisfiable.
   A mixed clause is split: keep the named part, omit the open-ended part. "NOT(sensitizing EGFR mutation) AND
   NOT(ALK rearrangement) AND NOT(other alterations for which targeted therapy exists)" keeps the first two and
   drops only the third.
@@ -250,6 +256,12 @@ NEGATION — NOT(...):
 CO-OCCURRENCE IS REAL — keep it. When the source requires TWO alterations together ("MYC and BCL2 rearrangements",
 "EGFR ex19del AND MET amplification", "FLT3-ITD with concurrent NPM1"), AND them. Do NOT drop one, do NOT turn the
 AND into an OR. Parenthesise an OR-group before ANDing onto it: "(A | B) & C", NEVER "A | B & C".
+
+ADMINISTRATIVE FRAMING IS PACKAGING, NOT CONTENT. Trial-process wording wrapped around a criterion — "eligible
+with/without X", "only with sponsor approval", "enrolment to cohort B requires X", "per protocol amendment 3",
+"stratified by X" — is inexpressible, but the CRITERION INSIDE IT usually is not. Strip the framing, keep the
+polarity, and map what remains: "eligible without documented PIK3CA mutation only with sponsor approval" ->
+NOT(SmallVariant[gene=PIK3CA]). Returning "" here discards a criterion the source states plainly.
 
 `""` — LAST RESORT. Return empty ONLY when the value carries NO molecular alteration: a pure clinical / risk /
 phenotype descriptor ("adverse cytogenetics", "high-risk disease", "measurable residual disease"), a
@@ -328,9 +340,21 @@ Set faithful=true only if ALL hold; otherwise faithful=false with concrete, acti
    NOT(SmallVariant[gene=BCL2 & …p.G101V])). A named CLASS WITH ESTABLISHED MEMBERSHIP must be kept and expanded —
    "sensitizing / activating EGFR mutation" is such a class (exon 19 deletion, L858R, G719X, L861Q, S768I), NOT an
    availability judgement, so omitting it is a FAULT and so is collapsing it to NOT(SmallVariant[gene=EGFR]).
-   Only an AVAILABILITY/ACTIONABILITY judgement over an UNSPECIFIED set is correctly OMITTED ("NOT(other
-   alterations for which targeted therapy exists)"). A mixed clause keeps its named parts and drops only the
-   open-ended part.
+   ⚠ For an ACTIONABILITY / AVAILABILITY / RESISTANCE-qualified exclusion the test is simply WHETHER ANYTHING IS
+   NAMED — not how specific the name is. AN ENUMERATED GENE LIST IS NAMED AND MUST BE KEPT: "NOT(actionable
+   alterations in EGFR, ALK, ROS1, HER2, MET, BRAF, RET, NTRK)" excludes each of those genes, and dropping it is a
+   FAULT — the commonest one in this column — because it matches the trial to the driver-positive patients it
+   explicitly refuses. Omission is correct ONLY where NOTHING is named ("NOT(other alterations for which targeted
+   therapy exists)"), and a mixed clause keeps its named parts and drops only the open remainder. A resistance
+   mechanism follows the established-membership test: RB1 loss (the known CDK4/6i resistance mechanism) is KEPT;
+   an open set of "MET kinase inhibitor resistance mutations" is OMITTED — and keeping the latter whole-gene would
+   also contradict the MET alteration such trials require for entry.
+11. WILDTYPE COMBINATIONS — Wildtype never appears inside NOT() ("NOT(KIT and PDGFRA wild-type)" is
+   SmallVariant[gene=KIT] | SmallVariant[gene=PDGFRA]), and Wildtype[gene=X] is never ANDed with a negated
+   alteration in the SAME gene (it already implies it).
+12. ADMINISTRATIVE FRAMING — trial-process wording ("eligible without X", "only with sponsor approval", "required
+   for cohort B") is packaging. The criterion inside it must still be mapped; "" is a FAULT when a gene and a
+   polarity are both recoverable.
 7. CO-OCCURRENCE PRESERVED — when the source requires two alterations TOGETHER ("MYC and BCL2 rearrangements",
    "EGFR ex19del AND MET amplification"), both are present and ANDed. Dropping one, or turning the AND into an OR,
    is a fault. Do NOT flag a co-occurrence conjunction as "too complex".
@@ -379,94 +403,6 @@ CORRECT REFERENCE MAPPINGS — accept a proposal that maps this way (note the qu
 - "adverse cytogenetics"               -> (empty)
 """
 
-# --------------------------------------------------------------------------- #
-# STAGE 2a — per-value repair, given that value's own deterministic defect list.
-# --------------------------------------------------------------------------- #
-_GENE_REPAIR_RULES = """\
-You are given ONE gene-alteration value: its SOURCE wording, its CURRENT finding-model expression, and a list of
-DEFECTS a deterministic validator found in that expression. Return the corrected expression.
-
-RULES
-- Fix ONLY the listed defects. Preserve every part of the expression they do not concern — CHARACTER FOR CHARACTER.
-- You are NOT re-mapping the source. Do not re-read the source looking for terms the current expression lacks: a
-  clause the current expression omits was omitted ON PURPOSE (an actionability-qualified exclusion such as
-  "NOT(known ACTIONABLE EGFR mutation)" is deliberately dropped, because dropping the qualifier "actionable" would
-  over-exclude). Adding such terms back is a REGRESSION and will be rejected.
-- You may REMOVE a term the defect says is redundant. You may never INTRODUCE a gene the current expression does
-  not already mention. A mechanical check enforces this and will reject the repair.
-- The SOURCE is the authority. When a defect says a term is redundant or a stand-in, decide from the source what
-  the criterion actually requires, then state exactly that.
-- Never "fix" a defect by deleting meaning. If a co-occurrence (A & B) is flagged as complex, keep it.
-- If the correct repair is to drop a whole clause because its entire content is inexpressible (a resistance
-  MECHANISM, an actionability judgement), drop it — and if nothing expressible remains, return "".
-- Give a one-line `rationale` naming the defect you fixed.
-"""
-
-GENE_REPAIR_REVIEWER_INSTRUCTIONS = """\
-You audit a REPAIR of one gene-alteration finding-model expression. You are given the SOURCE wording, the defect
-list that prompted the repair, and the proposed corrected expression.
-
-faithful=true only if: every listed defect is genuinely resolved; nothing the defects did not concern was changed;
-no meaning was lost to make a defect go away (a co-occurrence conjunction must survive); and the result is what the
-SOURCE supports. Otherwise faithful=false with concrete problems.
-
-Do not demand stylistic changes beyond the defects. Do not treat a correctly dropped inexpressible qualifier, or a
-correctly dropped whole inexpressible clause, as a fault.
-"""
-
-# --------------------------------------------------------------------------- #
-# STAGE 2b — group reconciliation: equivalent SOURCES must map identically.
-# --------------------------------------------------------------------------- #
-_GENE_RECONCILE_RULES = """\
-You reconcile a GROUP of gene-alteration values whose source wordings describe the SAME underlying requirement but
-whose current finding-model expressions differ. Return, for EVERY member, the FINAL expression it should carry.
-
-THE PRINCIPLE: two criteria that mean the same thing must be spelled the same way. A downstream matching engine
-may compare these expressions structurally or literally; a gratuitous difference in spelling becomes a difference
-in which patients match.
-
-DECIDE, per group:
-- Members that are genuinely EQUIVALENT (their sources differ only by inexpressible qualifiers — "activating",
-  "documented", "germline", assay/timing wording — or by pure phrasing) get ONE shared expression: the most
-  faithful rendering of that shared meaning.
-- Members that are genuinely DIFFERENT keep their own expression. Real distinctions to PRESERVE:
-  a specific variant vs the gene generally; a mutation vs an amplification vs a fusion; a whole gene wild-type vs a
-  specific codon wild-type; a co-occurrence requirement vs a single alteration; different gene sets.
-- ⚠ NEVER unify by collapsing a NAMED CLASS to the bare gene. "Sensitizing / activating EGFR mutation" is NOT the
-  same criterion as "EGFR mutation": the former means the classical sensitising set (exon 19 deletion, L858R,
-  G719X, L861Q, S768I) and the latter means any EGFR sequence variant. Treating "sensitizing"/"activating" as a
-  droppable qualifier and merging the two is a FAULT — and inside NOT() it is worse, because
-  NOT(sensitizing EGFR mutation) -> NOT(SmallVariant[gene=EGFR]) over-excludes every patient with a harmless EGFR
-  variant. If the only difference between members is such a word, they are NOT equivalent: leave them apart.
-- When unifying, prefer the expression that is MOST FAITHFUL to the shared source meaning — not the shortest, and
-  not the most elaborate. Never unify by widening one member to swallow another's meaning.
-
-SPELLING CONVENTIONS to converge on:
-- A whole gene stated wild-type -> Wildtype[gene=X]. A specific codon/variant stated wild-type ->
-  NOT(SmallVariant[gene=X & <that change>]). Never both spellings for the same shape; never a double-negated Wildtype.
-- One gene as a fusion partner, orientation unknown -> the single term Fusion[geneStart=X | geneEnd=X].
-- An unspecified alteration in a CANONICAL FUSION DRIVER (ALK, ROS1, RET, NTRK1/2/3, NRG1) does NOT include
-  type=GAIN.
-- SPLICE is a codingEffect, never an effect.
-
-Copy each member's `input` verbatim. Give a brief `rationale` naming which members you unified and which you kept
-apart, and why.
-"""
-
-FINDINGMODEL_RECONCILE_REVIEWER_INSTRUCTIONS = """\
-You audit a reconciliation of a group of gene-alteration mappings. You are given the group (each member's source
-wording and its current expression) and the proposed FINAL expression per member.
-
-faithful=true only if: every member that is genuinely equivalent to another now shares its expression; every
-member that is genuinely different kept its own; no member's meaning was widened or narrowed to force agreement;
-and every returned expression is valid finding-model faithful to that member's source. Otherwise faithful=false
-with concrete problems naming the member(s) at fault.
-
-Unifying two members that differ only by an inexpressible qualifier is CORRECT and must not be flagged. Keeping
-apart a specific variant and its gene-level generalisation is CORRECT and must not be flagged.
-"""
-
-
 def build_gene_alteration_mapper(client: LlmClient, *, model: str | None = None) -> Agent[FindingModelMapping]:
     return Agent(
         name="gene_alteration_mapper",
@@ -487,48 +423,8 @@ def build_gene_alteration_reviewer(client: LlmClient, *, model: str | None = Non
     )
 
 
-def build_gene_repairer(client: LlmClient, *, model: str | None = None) -> Agent[GeneAlterationRepair]:
-    return Agent(
-        name="gene_alteration_repairer",
-        instructions=_GENE_REPAIR_RULES + "\n" + GRAMMAR_REFERENCE,
-        output_schema=GeneAlterationRepair,
-        client=client,
-        model=model,
-    )
 
 
-def build_gene_repair_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
-    return Agent(
-        name="gene_alteration_repair_reviewer",
-        instructions=GENE_REPAIR_REVIEWER_INSTRUCTIONS + "\n" + GRAMMAR_REFERENCE,
-        output_schema=ReviewVerdict,
-        client=client,
-        model=model,
-    )
 
 
-def build_gene_reconciler(client: LlmClient, *, model: str | None = None) -> Agent[GroupReconciliation]:
-    return Agent(
-        name="gene_alteration_reconciler",
-        instructions=_GENE_RECONCILE_RULES + "\n" + GRAMMAR_REFERENCE,
-        output_schema=GroupReconciliation,
-        client=client,
-        model=model,
-    )
-
-
-def build_gene_reconcile_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
-    return Agent(
-        name="gene_alteration_reconcile_reviewer",
-        instructions=FINDINGMODEL_RECONCILE_REVIEWER_INSTRUCTIONS + "\n" + GRAMMAR_REFERENCE,
-        output_schema=ReviewVerdict,
-        client=client,
-        model=model,
-    )
-
-
-LIVE_AGENT_BUILDERS = [
-    build_gene_alteration_mapper, build_gene_alteration_reviewer,
-    build_gene_repairer, build_gene_repair_reviewer,
-    build_gene_reconciler, build_gene_reconcile_reviewer,
-]
+LIVE_AGENT_BUILDERS = [build_gene_alteration_mapper, build_gene_alteration_reviewer]

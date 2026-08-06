@@ -199,10 +199,18 @@ def semantic_problems(source: str, expression: str) -> list[Finding]:
     if re.search(r"NOT\(\s*Wildtype\[[^\]]*\]\s*&\s*Wildtype\[", e):
         add("double_negated_wildtype", "NOT(Wildtype[A] & Wildtype[B]) == 'A or B altered'")
 
+    # The check targets ONE thing: an UNSPECIFIED "alteration" in a canonical fusion driver being over-expanded to
+    # include amplification. Two narrowings added 2026-08-06 after the corpus audit found it misfiring on both:
+    #   · a NEGATED gain — "NOT(NTRK gene amplification)" is the source's own words, and excluding an amplification
+    #     cannot over-expand anything;
+    #   · an EXPLICITLY STATED amplification — "ROS1 amplification" must map to type=GAIN. The rule is about what
+    #     an unspecified alteration expands to, never about a source that names the event.
+    negated = _negated_terms(e)
+    src_amplified = bool(_AMPLIFICATION_WORD.search(src))
     for cls, body in _terms(e):
         if cls == "GainDeletion" and "type=GAIN" in body:
             g = dict(p.strip().partition("=")[::2] for p in body.split("&") if "=" in p).get("gene", "")
-            if g in _FUSION_DRIVERS:
+            if g in _FUSION_DRIVERS and f"{cls}[{body}]" not in negated and not src_amplified:
                 add("fusion_driver_with_gain", f"{g} amplification — expected the fusion (and named mutations) only")
 
     for gene in sorted(E.genes_of(e)):
@@ -221,7 +229,11 @@ def semantic_problems(source: str, expression: str) -> list[Finding]:
         else:
             add("unknown_gene_symbol", f"'{gene}' is unattested; confirm it is a real HGNC symbol")
 
-    n_arm = sum(1 for cls, _ in _terms(e) if cls == "Arm")
+    # POSITIVE Arm terms only (narrowed 2026-08-06). The compound form exists to represent ONE lesion affecting
+    # several arms (a 1p/19q co-deletion); it says nothing about an EXCLUSION that lists several distinct events.
+    # "NOT(TP53 mutation, del17p or monosomy 17)" is correctly three terms — del17p and monosomy 17 are different
+    # events — and the check flagged it as a defect.
+    n_arm = sum(1 for cls, body in _terms(e) if cls == "Arm" and f"{cls}[{body}]" not in negated)
     if n_arm > 1 and top_level_has(e, "&"):
         add("arm_terms_not_compound", f"{n_arm} Arm terms — use one compound Arm[(...) & (...)]")
 
@@ -278,6 +290,19 @@ def _not_bodies(e: str) -> list[str]:
             j += 1
         out.append(e[i + 4:j])
         i = j + 1
+
+
+#: An amplification the SOURCE states outright, so mapping it to type=GAIN is faithful rather than over-expansion.
+_AMPLIFICATION_WORD = re.compile(r"\b(amplif\w*|copy[- ]number gain|\bgain of\b)", re.I)
+
+
+def _negated_terms(e: str) -> set[str]:
+    """Every rendered `Class[body]` term that sits inside a NOT(...). Polarity matters to several checks: a rule
+    about over-expanding an INCLUSION says nothing about an exclusion, where the same term narrows nothing."""
+    out: set[str] = set()
+    for body in _not_bodies(e):
+        out |= {f"{cls}[{b}]" for cls, b in _terms(body)}
+    return out
 
 
 def _same_term(a: str, b: str) -> bool:

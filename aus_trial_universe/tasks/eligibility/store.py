@@ -84,27 +84,15 @@ class EligStore:
         # its plain field names — only the on-disk column names carry the stage — so nothing downstream had to move.
         # The legacy `cancer_type_map.tsv` is still read as a fallback, which is what lets an ARCHIVED snapshot
         # written before the restructure still load.
-        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import tables as CT_TABLES
-        ct_rows = _read_tsv(vdir / CT_TABLES.INITIAL_FILE)
-        if ct_rows:
-            for row in ct_rows:
-                m = CancerTypeMap(cancer_type=row.get("cancer_type", ""),
-                                  oncotree_code=row.get("oncotree_code_initial", ""))
-                if m.cancer_type:
-                    store.cancer_map[m.cancer_type] = m
-        else:
-            for row in _read_tsv(vdir / TABLE_FILES["cancer_type_map"]):
-                m = CancerTypeMap(**{k: row.get(k, "") for k in CANCER_TYPE_MAP_COLUMNS})
-                if m.cancer_type:
-                    store.cancer_map[m.cancer_type] = m
-        for row in _read_tsv(vdir / TABLE_FILES["gene_alteration_map"]):
-            m = GeneAlterationMap(**{k: row.get(k, "") for k in GENE_ALTERATION_MAP_COLUMNS})
-            if m.gene_alteration:
-                store.gene_map[m.gene_alteration] = m
-        for row in _read_tsv(vdir / TABLE_FILES["molecular_signature_map"]):
-            m = MolecularSignatureMap(**{k: row.get(k, "") for k in MOLECULAR_SIGNATURE_MAP_COLUMNS})
-            if m.molecular_signature:
-                store.signature_map[m.molecular_signature] = m
+        # Every column loads its STAGE-1 table through the one shared spec, which also carries the retired
+        # filename as a read-only fallback — that is what lets a pre-restructure ARCHIVE still load.
+        from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
+        for value, code in ST.CANCER_TYPE.load(vdir, "initial").items():
+            store.cancer_map[value] = CancerTypeMap(cancer_type=value, oncotree_code=code)
+        for value, fm in ST.GENE_ALTERATION.load(vdir, "initial").items():
+            store.gene_map[value] = GeneAlterationMap(gene_alteration=value, finding_model=fm)
+        for value, fm in ST.MOLECULAR_SIGNATURE.load(vdir, "initial").items():
+            store.signature_map[value] = MolecularSignatureMap(molecular_signature=value, finding_model=fm)
         for row in _read_tsv(vdir / TABLE_FILES["arm_scope"]):
             s = ArmScope(**{k: row.get(k, "") for k in ARM_SCOPE_COLUMNS})
             if s.trial_arm_id:
@@ -185,18 +173,17 @@ class EligStore:
     def _write_maps(self, vdir: Path) -> None:
         """Write the 3 value->vocab map tables (ONLY when populated — an extract-only run leaves just the 2 core
         tables rather than creating empty map placeholders)."""
-        # cancer_type writes the STAGE-1 table via its own module, so the stage-suffixed columns and the derived
-        # `oncotree_name_initial` have exactly one definition. gene_alteration / molecular_signature keep the flat
-        # layout: neither has a three-stage pipeline (user scoped the restructure to OncoTree, 2026-08-06).
-        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import tables as CT_TABLES
-        if self.cancer_map:
-            CT_TABLES.write_initial(vdir, {v: m.oncotree_code for v, m in self.cancer_map.items()})
-        for key, cols, rows in (
-            ("gene_alteration_map", GENE_ALTERATION_MAP_COLUMNS, [asdict(m) for m in self.gene_map.values()]),
-            ("molecular_signature_map", MOLECULAR_SIGNATURE_MAP_COLUMNS, [asdict(m) for m in self.signature_map.values()]),
+        # Every column writes its STAGE-1 table through the one shared spec, so the stage-suffixed columns (and
+        # cancer_type's derived `oncotree_name_initial`) have exactly one definition. Stages 2 and 3 are written
+        # later by the reconcile pass and must not be clobbered with empties here.
+        from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
+        for spec, mapping in (
+            (ST.CANCER_TYPE, {v: m.oncotree_code for v, m in self.cancer_map.items()}),
+            (ST.GENE_ALTERATION, {v: m.finding_model for v, m in self.gene_map.items()}),
+            (ST.MOLECULAR_SIGNATURE, {v: m.finding_model for v, m in self.signature_map.items()}),
         ):
-            if rows:
-                _write_tsv(vdir / TABLE_FILES[key], cols, rows)
+            if mapping:
+                spec.write_initial(vdir, mapping)
 
     def save(self, run_dir: Path) -> Path:
         """Write the full current state as a snapshot into ``run_dir`` (the run's timestamp dir)."""

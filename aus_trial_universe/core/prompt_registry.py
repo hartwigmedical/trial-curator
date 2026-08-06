@@ -43,14 +43,10 @@ def live_agents(client: LlmClient | None = None):
         mp_ct.build_oncotree_reconcile_reviewer(client),
         mp_sig.build_findingmodel_reconciler(client),
         mp_sig.build_findingmodel_reconcile_reviewer(client),
+        # gene_alteration is stage 1 ONLY. Its stage-2 repairer and group reconciler (and their reviewers) were
+        # DELETED 2026-08-06: stage 2 is now deterministic, so the column makes no API calls after mapping.
         mp_ga.build_gene_alteration_mapper(client),
         mp_ga.build_gene_alteration_reviewer(client),
-        # gene_alteration stage 2 (new 2026-08-04): a per-value repairer and a group reconciler, each with its
-        # reviewer. Unregistered agents have their cached responses GC'd as stale and silently re-billed.
-        mp_ga.build_gene_repairer(client),
-        mp_ga.build_gene_repair_reviewer(client),
-        mp_ga.build_gene_reconciler(client),
-        mp_ga.build_gene_reconcile_reviewer(client),
         mp_sig.build_molecular_signature_mapper(client),
         mp_sig.build_molecular_signature_reviewer(client),
         # drug utility

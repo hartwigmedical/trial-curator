@@ -92,21 +92,9 @@ FINALISED_MAPPED_ELIGIBILITY_FILE = "finalised_mapped_eligibility.tsv"   # Step-
 MAPPED_APPROVALS_FILE = "mapped_drug_regulatory_approval.tsv"  # drug approvals ⋈ vocab maps -> joined/drug_annotations/
 # The Step-2 finalised map-table set (Step-1 cols + a `*_FINAL` col). These are still 3NF single-key LOOKUP tables
 # (same kind as the Step-1 maps), so they live in the 3NF store (current_output/), NOT in joined/.
-#: OncoTree mapping is THREE stages, so it has three tables — outputs mirror the process (user, 2026-08-06).
-#: Columns accrete, so `_finalised` carries the whole provenance chain. Definitions in
-#: `mapping/cancer_type/tables.py`; `_finalised` is what ships.
-CANCER_TYPE_STAGE_FILES = {
-    "initial": "cancer_type_map_initial.tsv",
-    "reconciled": "cancer_type_map_reconciled.tsv",
-    "finalised": "cancer_type_map_finalised.tsv",
-}
-
-#: gene_alteration / molecular_signature keep the two-file layout: neither has a three-stage pipeline, and the
-#: 2026-08-06 restructure was scoped to OncoTree only. Revisit if either grows a stage 2.
-FINALISED_MAP_FILES = {
-    "gene_alteration_map": "finalised_gene_alteration_map.tsv",
-    "molecular_signature_map": "finalised_molecular_signature_map.tsv",
-}
+#: Stage-table FILENAMES are NOT defined here. Every vocabulary column's tables — their names, their
+#: accreting columns and the legacy fallbacks — are owned by `tasks/eligibility/mapping/stage_tables.py`,
+#: which is the single definition for all three columns. Import the spec from there.
 
 # --- TRANSIENT + operational ------------------------------------------------ #
 LOG_DIR = TRANSIENT / "log"

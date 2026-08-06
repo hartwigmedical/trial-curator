@@ -133,11 +133,10 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
     elig_dir = ELIGIBILITY_OUTPUT / CURRENT_VERSION
     # Seeds from the eligibility side's SHIPPING mapping (stage 3). Renamed with the 2026-08-06 three-stage
     # restructure; this is a cross-path dependency, so it moves with it.
-    from aus_trial_universe.core.paths import CANCER_TYPE_STAGE_FILES
-    seed_ct = (_read_map(elig_dir / CANCER_TYPE_STAGE_FILES["finalised"], "cancer_type",
-                         "oncotree_code_finalised") if seed else {})
-    seed_ga = _read_map(elig_dir / "finalised_gene_alteration_map.tsv", "gene_alteration", "finding_model_FINAL") if seed else {}
-    seed_sig = _read_map(elig_dir / "finalised_molecular_signature_map.tsv", "molecular_signature", "finding_model_FINAL") if seed else {}
+    from aus_trial_universe.tasks.eligibility.mapping import stage_tables as _ST
+    seed_ct = _ST.CANCER_TYPE.load(elig_dir, "finalised") if seed else {}
+    seed_ga = _ST.GENE_ALTERATION.load(elig_dir, "finalised") if seed else {}
+    seed_sig = _ST.MOLECULAR_SIGNATURE.load(elig_dir, "finalised") if seed else {}
     logger.info("")
     logger.info(stage("APPROVAL-MAP · symmetric-match vocab"))
     logger.info(line(f"cancer_type {summary.ct_total} · biomarker {summary.bm_total} distinct · seed={seed} "

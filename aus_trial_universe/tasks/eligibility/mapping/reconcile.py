@@ -374,25 +374,36 @@ def _write_tsv(path: Path, columns: list[str], rows: list[dict]) -> None:
 
 
 def write_finalised_maps(store, maps_dir: Path, ct_final, ga_final, sig_final) -> None:
-    """The finalised map-table SET (still 3NF single-key lookups) — each = the Step-1 map columns + an appended
-    `*_FINAL` column. Written into the 3NF store dir (current_output/) alongside the Step-1 maps, NOT joined/."""
-    from aus_trial_universe.core.paths import FINALISED_MAP_FILES
-    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2, tables as ct_tables
+    """Write every column's STAGE TABLES into the 3NF store dir (current_version/), beside the stage-1 maps.
 
-    # cancer_type gets its THREE stage tables. Stage 2 is recomputed here rather than threaded through the call
-    # chain — it is a pure function of stage 1, so recomputing is free and cannot disagree with what stage 3 saw.
+    Each column goes through the one shared `stage_tables` spec, so the file names, the accreting columns and
+    cancer_type's derived name column have exactly one definition (user, 2026-08-06: *"the idea is not to have
+    duplicate code"*).
+
+    The RECONCILED stage is recomputed here rather than threaded through the call chain: for both three-stage
+    columns it is a pure deterministic function of stage 1, so recomputing is free and cannot disagree with what
+    stage 3 saw. molecular_signature has no stage 2 at all, so its `finalised` sits directly on `initial`.
+    """
+    from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2 as ct_stage2
+    from aus_trial_universe.tasks.eligibility.mapping.gene_alteration.reconcile import run_stage2 as ga_stage2
+
     ct_initial = {v: m.oncotree_code for v, m in store.cancer_map.items()}
-    ct_reconciled, _ = stage2.run(ct_initial)
-    ct_tables.write_all(Path(maps_dir), ct_initial, ct_reconciled,
-                        {v: ct_final.get(v, ct_reconciled[v]) for v in ct_initial})
-    _write_tsv(Path(maps_dir) / FINALISED_MAP_FILES["gene_alteration_map"],
-               ["gene_alteration", "finding_model", "finding_model_FINAL"],
-               [{"gene_alteration": v, "finding_model": m.finding_model,
-                 "finding_model_FINAL": ga_final.get(v, m.finding_model)} for v, m in store.gene_map.items()])
-    _write_tsv(Path(maps_dir) / FINALISED_MAP_FILES["molecular_signature_map"],
-               ["molecular_signature", "finding_model", "finding_model_FINAL"],
-               [{"molecular_signature": v, "finding_model": m.finding_model,
-                 "finding_model_FINAL": sig_final.get(v, m.finding_model)} for v, m in store.signature_map.items()])
+    ct_reconciled, _ = ct_stage2.run(ct_initial)
+    ST.CANCER_TYPE.write_all(
+        Path(maps_dir), initial=ct_initial, reconciled=ct_reconciled,
+        finalised={v: ct_final.get(v, ct_reconciled[v]) for v in ct_initial})
+
+    ga_initial = {v: m.finding_model for v, m in store.gene_map.items()}
+    ga_reconciled = {v: o.after_canon for v, o in ga_stage2(ga_initial).items()}
+    ST.GENE_ALTERATION.write_all(
+        Path(maps_dir), initial=ga_initial, reconciled=ga_reconciled,
+        finalised={v: ga_final.get(v, ga_reconciled[v]) for v in ga_initial})
+
+    sig_initial = {v: m.finding_model for v, m in store.signature_map.items()}
+    ST.MOLECULAR_SIGNATURE.write_all(
+        Path(maps_dir), initial=sig_initial,
+        finalised={v: sig_final.get(v, e) for v, e in sig_initial.items()})
 
 
 def write_finalised_mapped_eligibility(store, joined_dir: Path, ct_final, ga_final, sig_final) -> None:

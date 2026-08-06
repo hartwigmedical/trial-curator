@@ -39,8 +39,8 @@ def rows(name):
 
 
 ct = rows("cancer_type_map_finalised.tsv")
-ga = rows("finalised_gene_alteration_map.tsv")
-sig = rows("finalised_molecular_signature_map.tsv")
+ga = rows("gene_alteration_map_finalised.tsv")
+sig = rows("molecular_signature_map_finalised.tsv")
 print(f"corpus: cancer_type={len(ct)} gene={len(ga)} signature={len(sig)}")
 
 # --------------------------------------------------------------- C1 unbounded patterns
@@ -92,11 +92,11 @@ for r in ct:
     idem(CV.normalise_code_expression, r["oncotree_code_finalised"], "ct", "C2_ct_normalise_not_idempotent")
     idem(CT_CONS.canonical_key, r["cancer_type"], "ct", "C2_ct_canonical_key_not_idempotent")
 for r in ga:
-    idem(GE.canonicalise, r["finding_model_FINAL"], "ga", "C2_gene_canonicalise_not_idempotent")
+    idem(GE.canonicalise, r["finding_model_finalised"], "ga", "C2_gene_canonicalise_not_idempotent")
     idem(GR.concept_key, r["gene_alteration"], "ga", "C2_gene_concept_key_not_idempotent")
-    idem(lambda e: GR.mechanical_fixes(e)[0], r["finding_model_FINAL"], "ga", "C2_gene_mechanical_not_idempotent")
+    idem(lambda e: GR.mechanical_fixes(e)[0], r["finding_model_finalised"], "ga", "C2_gene_mechanical_not_idempotent")
 for r in sig:
-    idem(GE.canonicalise, r["finding_model_FINAL"], "sig", "C2_sig_canonicalise_not_idempotent")
+    idem(GE.canonicalise, r["finding_model_finalised"], "sig", "C2_sig_canonicalise_not_idempotent")
 
 # --------------------------------------------------------------- C3 no invention
 for r in ct:
@@ -112,7 +112,7 @@ for r in ct:
 
 _TERM = re.compile(r"([A-Za-z][A-Za-z0-9]*)\[([^\]]*)\]")
 for r in ga + sig:
-    src = r["finding_model_FINAL"]
+    src = r["finding_model_finalised"]
     if not src.strip():
         continue
     try:
@@ -151,7 +151,7 @@ for r in ct:
 # --------------------------------------------------------------- C6 key collisions
 for label, data, keyfn, kcol, vcol in (
         ("ct", ct, CT_CONS.canonical_key, "cancer_type", "oncotree_code_finalised"),
-        ("gene", ga, GR.concept_key, "gene_alteration", "finding_model_FINAL")):
+        ("gene", ga, GR.concept_key, "gene_alteration", "finding_model_finalised")):
     by = collections.defaultdict(set)
     for r in data:
         by[keyfn(r[kcol])].add(r[vcol])

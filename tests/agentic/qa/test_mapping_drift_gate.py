@@ -10,10 +10,11 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from aus_trial_universe.core.paths import ARCHIVE, CANCER_TYPE_STAGE_FILES, CURRENT_VERSION
+from aus_trial_universe.core.paths import ARCHIVE, CURRENT_VERSION
+from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
 from aus_trial_universe.qa.gates import FAIL, PASS, WARN, GateReport, _mapping_drift_gate
 
-CT_FILE = CANCER_TYPE_STAGE_FILES["finalised"]
+CT_FILE = ST.CANCER_TYPE.file("finalised")
 
 
 def _write(path: Path, rows: list[tuple[str, str]]) -> None:

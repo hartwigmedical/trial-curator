@@ -194,13 +194,16 @@ def test_write_mapped_approvals_joined_view(tmp_path):
 
 def test_seeding_reuses_trial_final_and_skips_mapper(monkeypatch):
     """A cancer_type / gene value shared with the trial FINAL maps reuses the FINAL code and never reaches a mapper."""
-    def fake_read_map(path, key_col, val_col):
-        if key_col == "cancer_type":
+    # map_approvals reads the trial FINAL maps through the shared stage-table spec, so that is the seam.
+    from aus_trial_universe.tasks.eligibility.mapping import stage_tables as ST
+
+    def fake_load(self, store_dir, stage):
+        if self.column == "cancer_type":
             return {"breast cancer": "BREAST"}
-        if key_col == "gene_alteration":
+        if self.column == "gene_alteration":
             return {"BRAF V600E mutation": _BRAF_FM}
         return {}
-    monkeypatch.setattr(export_mod, "_read_map", fake_read_map)
+    monkeypatch.setattr(ST.StageTables, "load", fake_load)
 
     store = _store_with_indications([("breast cancer", "BRAF V600E mutation"), ("NSCLC", "MSI-H")])
     client = _FakeClient(

@@ -161,9 +161,7 @@ TABLE_FILES = {
     "arm_eligibility_raw": "arm_eligibility_raw.tsv",
     "interpreted_eligibility": "interpreted_eligibility.tsv",
     "arm_scope": "arm_scope.tsv",
-    # cancer_type's stage tables are named in `mapping/cancer_type/tables.py` (three stages, 2026-08-06)
-    "cancer_type_map": "cancer_type_map.tsv",      # LEGACY: read-only fallback for pre-restructure archives
-    "gene_alteration_map": "gene_alteration_map.tsv",
-    "molecular_signature_map": "molecular_signature_map.tsv",
+    # Every column's value->vocab STAGE TABLES are named by `mapping/stage_tables.py`, which also carries the
+    # retired flat filenames as read-only fallbacks. They are deliberately absent here: one definition only.
     "mapped_eligibility": "mapped_eligibility.tsv",
 }

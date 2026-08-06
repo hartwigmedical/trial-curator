@@ -16,7 +16,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2, stage3, tables
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2, stage3
+from aus_trial_universe.tasks.eligibility.mapping.stage_tables import CANCER_TYPE as tables
 
 
 def _read(path: Path) -> list[dict]:
@@ -82,8 +83,8 @@ def test_the_three_tables_carry_the_whole_provenance_chain(tmp_path):
     initial = {"v": "PRAD AND NOT(PRSCC)"}
     reconciled, _ = stage2.run(initial)
     finalised = {"v": "PRNE"}                      # pretend a ruling fired
-    tables.write_all(tmp_path, initial, reconciled, finalised)
-    row = _read(tmp_path / tables.FINALISED_FILE)[0]
+    tables.write_all(tmp_path, initial=initial, reconciled=reconciled, finalised=finalised)
+    row = _read(tmp_path / tables.file("finalised"))[0]
     assert row["oncotree_code_initial"] == "PRAD AND NOT(PRSCC)"
     assert row["oncotree_code_reconciled"] == "PRAD"          # stage 2 dropped the vacuous exclusion
     assert row["oncotree_code_finalised"] == "PRNE"           # stage 3 overrode it
@@ -91,8 +92,8 @@ def test_the_three_tables_carry_the_whole_provenance_chain(tmp_path):
     assert row["oncotree_name_finalised"] == "Prostate Neuroendocrine Carcinoma"
     assert row["oncotree_name_reconciled"] == "Prostate Adenocarcinoma"
     # the earlier stages' own tables agree with the accreted columns
-    assert _read(tmp_path / tables.INITIAL_FILE)[0]["oncotree_code_initial"] == "PRAD AND NOT(PRSCC)"
-    assert _read(tmp_path / tables.RECONCILED_FILE)[0]["oncotree_code_reconciled"] == "PRAD"
+    assert _read(tmp_path / tables.file("initial"))[0]["oncotree_code_initial"] == "PRAD AND NOT(PRSCC)"
+    assert _read(tmp_path / tables.file("reconciled"))[0]["oncotree_code_reconciled"] == "PRAD"
 
 
 def test_every_reader_points_at_the_stage_it_should():
@@ -105,7 +106,7 @@ def test_every_reader_points_at_the_stage_it_should():
 
     # the export ships STAGE 3, and strips provenance before the lookup (the bug that dropped two rows)
     src = inspect.getsource(export.build_export_rows)
-    assert 'CANCER_TYPE_STAGE_FILES["finalised"]' in src and '"oncotree_code_finalised"' in src
+    assert 'CANCER_TYPE.load(elig_dir, "finalised")' in src
     assert "strip_provenance(e.cancer_type_interpreted)" in src
     # the drift gate diffs the shipping mapping
     assert '"oncotree_code_finalised"' in inspect.getsource(gates._mapping_drift_gate)
@@ -199,9 +200,9 @@ def test_interpreted_text_through_all_three_stages_to_the_export(tmp_path, monke
     cur = store_root / "current_version"
 
     # ---- the three stage tables, traced from the interpreted text ----------------------------------------
-    init = {r["cancer_type"]: r for r in _read(cur / tables.INITIAL_FILE)}
-    reco = {r["cancer_type"]: r for r in _read(cur / tables.RECONCILED_FILE)}
-    fin = {r["cancer_type"]: r for r in _read(cur / tables.FINALISED_FILE)}
+    init = {r["cancer_type"]: r for r in _read(cur / tables.file("initial"))}
+    reco = {r["cancer_type"]: r for r in _read(cur / tables.file("reconciled"))}
+    fin = {r["cancer_type"]: r for r in _read(cur / tables.file("finalised"))}
     assert set(init) == set(reco) == set(fin), "every stage must cover exactly the same value set"
 
     assert init["prostate adenocarcinoma excluding squamous"]["oncotree_code_initial"] == "PRAD AND NOT(PRSCC)"
