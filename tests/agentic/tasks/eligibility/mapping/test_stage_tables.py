@@ -116,3 +116,60 @@ def test_the_store_writes_stage_one_for_all_three_columns():
     assert src.count("write_initial") == 1, "one shared call, not one per column"
     for name in ("CANCER_TYPE", "GENE_ALTERATION", "MOLECULAR_SIGNATURE"):
         assert f"ST.{name}" in src
+
+
+# --------------------------------------------------------------------------- #
+# molecular_signature's stage 2 is a declared PASS-THROUGH. Pinned because "does nothing" is only safe if it is
+# also "cannot do anything": the column used to fall through to the legacy branch's LLM group adjudicator, which
+# never fired on the live corpus and so went unnoticed for months. An unfired hazard looks exactly like no hazard.
+# --------------------------------------------------------------------------- #
+def test_signature_stage_two_is_a_pass_through_and_needs_no_client():
+    from aus_trial_universe.tasks.eligibility.mapping.reconcile import MOLECULAR_SIGNATURE, reconcile_column
+    mapping = {"MSI-H": "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]", "adverse biology": ""}
+    final, unresolved, groups = reconcile_column(
+        None, mapping, column=MOLECULAR_SIGNATURE, workers=2, max_attempts=3, use_reviewer=True)
+    assert final == mapping, "stage 2 must not change any value"
+    assert unresolved == [] and groups == 0, "no residue, and no cross-value grouping"
+
+
+def test_signature_stage_three_still_applies_an_approved_ruling(monkeypatch):
+    """A pass-through stage 2 must not disable stage 3 — the register is the column's only correction channel."""
+    from aus_trial_universe.tasks.eligibility.mapping import reconcile as rec
+    from aus_trial_universe.qa.adjudications import Adjudication
+    monkeypatch.setattr(rec.adjudications, "for_column",
+                        lambda _c: {"adverse biology": Adjudication(
+                            value="adverse biology", final="tumorMutationBurden[Status=HIGH]",
+                            rationale="test", approved="test")})
+    final, _u, _g = rec.reconcile_column(None, {"adverse biology": ""}, column=rec.MOLECULAR_SIGNATURE,
+                                         workers=1, max_attempts=1, use_reviewer=False)
+    assert final["adverse biology"] == "tumorMutationBurden[Status=HIGH]"
+
+
+def test_an_empty_string_is_a_legitimate_signature_ruling(monkeypatch):
+    """`''` is the CORRECT answer for most values in this column, so a ruling to `''` must be applied rather than
+    treated as absent. Callers must test membership, never truthiness."""
+    from aus_trial_universe.tasks.eligibility.mapping import reconcile as rec
+    from aus_trial_universe.qa.adjudications import Adjudication
+    monkeypatch.setattr(rec.adjudications, "for_column",
+                        lambda _c: {"MSI-H": Adjudication(value="MSI-H", final="", rationale="t", approved="t")})
+    final, _u, _g = rec.reconcile_column(None, {"MSI-H": "MicrosatelliteStability[PurpleMicrosatelliteStatus=MSI]"},
+                                         column=rec.MOLECULAR_SIGNATURE, workers=1, max_attempts=1,
+                                         use_reviewer=False)
+    assert final["MSI-H"] == ""
+
+
+def test_the_judge_uses_each_column_s_own_canonical_form():
+    """`equivalent()` decides WHICH values a human has to review, so a wrong canonical form either buries a real
+    change or floods the review with algebraic noise. cancer_type has its own algebra and must not be routed
+    through the finding-model one."""
+    from aus_trial_universe.qa.prompt_harness import review_judge as J
+    # finding-model: De Morgan and term order are noise, not a difference.
+    a = "NOT(SmallVariant[gene=A] | SmallVariant[gene=B])"
+    b = "NOT(SmallVariant[gene=B]) & NOT(SmallVariant[gene=A])"
+    assert J.equivalent(a, b, "gene_alteration")
+    assert J.equivalent(a, b, "molecular_signature")
+    # cancer_type: same idea, its own vocabulary.
+    assert J.equivalent("BREAST AND NOT(IDC)", "BREAST AND NOT(IDC)", "cancer_type")
+    assert not J.equivalent("BREAST", "PRAD", "cancer_type")
+    # a genuine difference stays a difference in every column
+    assert not J.equivalent("SmallVariant[gene=A]", "SmallVariant[gene=B]", "gene_alteration")

@@ -41,8 +41,6 @@ def live_agents(client: LlmClient | None = None):
         mp_ct.build_oncotree_repair_reviewer(client),
         mp_ct.build_oncotree_reconciler(client),
         mp_ct.build_oncotree_reconcile_reviewer(client),
-        mp_sig.build_findingmodel_reconciler(client),
-        mp_sig.build_findingmodel_reconcile_reviewer(client),
         # gene_alteration is stage 1 ONLY. Its stage-2 repairer and group reconciler (and their reviewers) were
         # DELETED 2026-08-06: stage 2 is now deterministic, so the column makes no API calls after mapping.
         mp_ga.build_gene_alteration_mapper(client),

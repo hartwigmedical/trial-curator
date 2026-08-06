@@ -328,13 +328,36 @@ guard:
 Enriches the DNF rows. Every procedure is an LLM **mapper/curator → reviewer** (§2.5), grounded in the legacy
 resources per the hold-out rule (§8.4).
 
-**Layout (restructured 2026-08-04):** `mapping/` is split **per vocabulary column** — `cancer_type/`,
-`gene_alteration/`, `molecular_signature/`, each owning its agents/prompts and (where it has them) its expression
-parser, canonical form and defect catalogue. `finding_model.py` sits at the `mapping/` level because BOTH
-finding-model columns share that grammar; `schema.py` / `workflow.py` / `reconcile.py` are the shared driver.
-`tasks/eligibility/tools/` is GONE — its four modules moved into the owning column. `reconcile_column` takes a
-`column:` discriminator, not an `is_oncotree` boolean (gene_alteration and molecular_signature are no longer
-interchangeable — see §8.2).
+**Layout.** `mapping/` is split **per vocabulary column** — `cancer_type/`, `gene_alteration/`,
+`molecular_signature/`, each owning its agents/prompts and (where it has them) its expression parser, canonical
+form and defect catalogue. `finding_model.py` sits at the `mapping/` level because BOTH finding-model columns
+share that grammar; `schema.py` / `workflow.py` / `reconcile.py` are the shared driver, and
+**`stage_tables.py` is the single definition of every column's output tables** (§9). `reconcile_column` takes a
+`column:` discriminator, not an `is_oncotree` boolean.
+
+### 8.0 THREE STAGES, and the same three for every column (locked 2026-08-06)
+
+| stage | what it does | may it use an LLM? | may it look at other values? |
+|---|---|---|---|
+| **1 · translate** | the most faithful expression of ONE value, keeping the source's own logical shape | **yes** — mapper → reviewer | **no** |
+| **2 · canonicalise** | mechanical rewriting into the form the consumer requires | **no — deterministic only** | **no** |
+| **3 · finalise** | apply approved rulings from `qa/adjudications/<column>.py`, LAST | **no** | **no** |
+
+**THE LOAD-BEARING PROPERTY: every stage is a function of a SINGLE value.** So a value cannot be perturbed by
+other values entering the corpus, and churn becomes *structurally impossible* rather than merely mitigated. This
+was learned the expensive way — earlier designs gave stage 2 an LLM cross-value consistency pass, and on
+2026-08-05 it silently re-rolled 7 unrelated cancer_type values, undoing two reviewed improvements. Every column
+has now had that pass **deleted**: cancer_type's on 2026-08-06, gene_alteration's the same day (its R2 per-value
+repair had exactly stage 1's information set, and its R4 group adjudicator found 0 groups over 913 values), and
+molecular_signature's when it was dispatched off the legacy branch it had been silently falling through.
+
+Cross-value divergence is still **detected and reported** as residue; what is gone is the automatic LLM
+re-decision. Anything the detector surfaces is fixed in stage 1's prompt, or ruled on in stage 3.
+
+**Stage 3 is a LIABILITY, not an asset.** Every entry admits a prompt or rule is still too weak, so the register
+is meant to SHRINK, and an entry the pipeline reaches unaided should be retired
+(`qa/prompt_harness/export_review.py` reports that as `ruling_status=retirable`). Current counts: cancer_type 58,
+gene_alteration 9, **molecular_signature 0** — the target state.
 
 ### 8.1 cancer_type → OncoTree
 Mapper → `oncotree_name` + `oncotree_code`, mapping tumour terms; grounded in the OncoTree ontology
@@ -374,19 +397,27 @@ level, a VAF threshold, an anatomic location, a tumour context — the mapper ma
 and **drops** the qualifier. This loss of specificity is **correct, not a fault**: neither mapper nor reviewer
 may flag a dropped unrepresentable qualifier.
 
-**gene_alteration STAGE 2 (new 2026-08-04).** Until then the gene column had **no** Step-2 reconciliation — it
-short-circuited (`refined[value] = code`), so stage-1 output shipped unreconciled. It now runs its own pipeline in
-`mapping/gene_alteration/reconcile.py`, deterministic-first:
+**gene_alteration STAGE 2 — DETERMINISTIC ONLY (rewritten 2026-08-06).** `mapping/gene_alteration/reconcile.py`:
 
 | | | |
 |---|---|---|
 | R0a | deterministic | MECHANICAL substitutions — a defect whose fix is a pure rewrite must never reach an LLM |
 | R0b | deterministic | canonical **negation-factored DNF** — De Morgan, absorption, dedup, term/field/OR ordering; idempotent |
-| R1 | deterministic | the semantic defect catalogue (`gene_alteration/checks.py`) |
-| R2 | LLM | per-value repair, given ONLY that value's own defects, with a **scope guard** (may remove literals, may never introduce a gene the expression lacks) |
-| R3 | deterministic | group values whose SOURCE CONCEPTS agree but whose expressions differ |
-| R4 | LLM | adjudicate a group |
-| R5 | deterministic | canonicalise again + the syntax gate; idempotence asserted corpus-wide |
+| R1 | deterministic | the semantic defect catalogue (`gene_alteration/checks.py`) — REPORTED, never auto-repaired |
+| R3 | deterministic | divergent source-concept groups — REPORTED as residue for stage 1 or the register |
+| R5 | deterministic | canonicalise to a fixed point + the syntax gate; idempotence asserted corpus-wide |
+
+The former **R2** (per-value LLM repair) and **R4** (LLM group adjudication) are DELETED. Measured contribution
+before removal, over 913 live values: R2 fired once — on a value the register overrode anyway — and R4 found no
+groups. Removing both changed the shipped corpus by **zero** rows.
+
+What stage 2 actually buys here is a canonical SPELLING: 187 of 913 values are rewritten, all meaning-preserving,
+and distinct expressions fall 501 → 483 because seventeen canonical forms were being spelled two ways.
+
+**molecular_signature has no stage-2 work to do**, and carries a pass-through `_reconciled` table anyway so the
+plumbing matches (user, 2026-08-06: *"a deterministic stage may come later"*). Its three tables are therefore
+identical for all 171 values — which is what a healthy column looks like: stage 1 got it right and nothing
+downstream intervened.
 
 Grouping is by **source concept** (the wording with inexpressible qualifiers stripped), NOT by shared gene: a
 gene-overlap rule was measured, produced 14 groups spanning 173 values that were mostly unrelated criteria, and was
@@ -430,9 +461,18 @@ finalised (Step-2) map tables + `arm_scope` (§12.1) = 9 pure-3NF tables**, each
   criteria replicated onto each arm). The audit anchor.
 - **`interpreted_eligibility.tsv`** — PK `(trial_arm_id, conj_id)` → the 5 interpreted DNF cells (inline `NOT()`;
   rows sharing `trial_arm_id` are ORed). `conj_id` numbers the OR-conjunctions within an arm.
-- **`cancer_type_map.tsv`** — `cancer_type` value → `oncotree_name, oncotree_code` (deduped, universe-wide cache);
-  Step-2 adds **`finalised_cancer_type_map.tsv`** (+ an `oncotree_code_FINAL` col). Analogous `finalised_*` for gene/signature.
-- **`gene_alteration_map.tsv`** / **`molecular_signature_map.tsv`** — value → `finding_model` (deduped).
+- **`<column>_map_{initial,reconciled,finalised}.tsv`** — THREE tables per vocabulary column, one per stage, so
+  the OUTPUTS MIRROR THE PROCESS. Keyed on the value (deduped, universe-wide cache). **Columns ACCRETE**, so each
+  file carries the whole provenance chain up to its own stage and a reader sees what every stage did to a value
+  without joining anything; a difference between `_reconciled` and `_finalised` IS an approved override, visibly.
+  `_finalised` is what ships. All nine tables are produced by the ONE spec in `mapping/stage_tables.py`; only four
+  things vary per column and they are DATA, not code (key column, value stem, stage count, derived column).
+  ⚠ `oncotree_name_*` is DERIVED from the code at write time and never authored — that is what makes name/code
+  disagreement unreachable (46 rows once disagreed when the two were independent LLM outputs).
+  The retired flat layout (`cancer_type_map.tsv` + `finalised_*_map.tsv`) is still READ as a fallback so
+  pre-restructure archives load. **A renamed table FAILS OPEN** — a reader on an old name finds nothing, returns
+  `{}` and ships blanks with every gate green — so every consumer is pinned by
+  `tests/…/mapping/test_stage_tables.py`.
 
 **The matching-engine EXPORT (2026-07-28)** is built SEPARATELY by `export.py` (`make agentic-export`), not by
 `run.py`. TWO sets: **Set A** = the denormalized flat **`data/agentic/export/trial_eligibility.tsv`** (38 cols, one
@@ -481,7 +521,7 @@ half the universe, and a POTTR-fetch precondition must succeed first; `--dry-run
 lookups, no web search) → `map_approvals` → `export`. **Incremental by construction:** unchanged trials re-hit the
 response cache (no API) and known drugs skip the web-search step. Latest acceptance run (2026-07-29): expired 32,
 curated 71 new trials, drug researched=34 / reused=73, export 2,020 trials, arm-consistency CONSISTENT, 0 failures;
-179 unit tests green.
+439 unit tests green.
 
 The package was also **flattened**: `aus_trial_universe/agentic/*` moved up to `aus_trial_universe/*` (no more
 `agentic/` layer — imports are now `aus_trial_universe.run` / `aus_trial_universe.tasks.…`; the DATA root stays
@@ -504,7 +544,8 @@ aus_trial_universe/
     shared/        cohorts.py agents.py schema.py store.py  # PATH-NEUTRAL arm identification: Cohort,
     #                trial_arm_id() slug, ANZCTR drug agents, anzctr_regimes, TrialArm + TrialArmStore
     eligibility/   extraction/ (loaders,agents,schema,workflow)
-    #              mapping/ (schema,workflow,reconcile,finding_model + cancer_type/ gene_alteration/ molecular_signature/)
+    #              mapping/ (schema,workflow,reconcile,finding_model,consistency,STAGE_TABLES
+    #                        + cancer_type/ gene_alteration/ molecular_signature/, each stage1/2/3)
     #              (eligibility/qa/ REMOVED 2026-08-05: validate_output.py + arm_consistency.py -> top-level qa/,
     #               mapping_consistency.py -> mapping/consistency.py; tools/ REMOVED 2026-08-04)
     drug_utility/  schema.py store.py rxnorm.py pottr.py agents.py workflow.py build.py migrate_trial_arms.py
@@ -513,7 +554,10 @@ Arm identification is the ONE thing genuinely shared by both paths → it lives 
 it; do NOT reintroduce a backwards drug→eligibility import). The legacy `eligibility_path/`, `drug_utility_path/`,
 and `trials_to_remove` were **DELETED** and the old drug_utility→eligibility RxNorm coupling severed (ANZCTR arm
 drugs are now re-derived by the shared LLM cohort step, §6.1). `ui/` deleted; `actin_curator/`, `pydantic_curator/`,
-`trialcurator/`, `qa/` retire as v2 supersedes each.
+`trialcurator/` retire as v2 supersedes each. The top-level **`qa/`** is v2's own and stays:
+`gates.py` · `invariants.py` · `validate_output.py` · `arm_consistency.py` · `engine_port.py` +
+`engine_conformance.py` · `waivers.py` · `adjudications/` (one register per column) ·
+**`prompt_harness/`** (the standing, column-generic tooling for changing a mapping prompt safely).
 
 ## 12. Verification
 
@@ -549,7 +593,7 @@ residue. **Deliberately NOT a deterministic excuse: "the arm's raw row is empty"
 rather than explaining it, and while it was a rule it auto-absolved 7 arms of which 2 were real misses.
 
 ### 12.2 Test + validator layers
-- **Code (orchestration/consolidate/validators/gates):** unit-tested with fake clients — no API (**350 tests**).
+- **Code (orchestration/consolidate/validators/gates):** unit-tested with fake clients — no API (**439 tests**).
   The gate tests assert the FAILURE directions specifically: a gate that cannot fail is decoration.
 - **Agents:** the schema contract is tested with fakes; live behaviour is verified by real runs on sample trials.
 - **Independent output validator (`make agentic-validate`, `qa/validate_output.py`):** a deterministic

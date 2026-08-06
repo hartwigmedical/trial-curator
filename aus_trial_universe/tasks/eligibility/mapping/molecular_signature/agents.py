@@ -1,19 +1,15 @@
 """Molecular-signature mapping agents: mapper -> reviewer, plus the shared finding-model Step-2 reconciler.
 
 Split out of the former single `mapping/agents.py` so each vocabulary column owns its own prompts.
-`build_findingmodel_reconciler` lives here because molecular_signature is its only remaining consumer once
-gene_alteration gains its own reconciler; the shared stage-2 driver imports it per column.
+The stage-2 group reconciler that used to live here was DELETED 2026-08-06 along with its last caller: this
+column's stage 2 is now an explicit pass-through, so nothing adjudicates groups with an LLM any more.
 ⚠ Prompt text is byte-identical to the pre-split version — it is hashed into the response-cache key.
 """
 from __future__ import annotations
 
 from aus_trial_universe.core.agent import Agent
 from aus_trial_universe.core.client import LlmClient
-from aus_trial_universe.tasks.eligibility.mapping.schema import (
-    FindingModelMapping,
-    GroupReconciliation,
-    ReviewVerdict,
-)
+from aus_trial_universe.tasks.eligibility.mapping.schema import FindingModelMapping, ReviewVerdict
 from aus_trial_universe.tasks.eligibility.mapping.finding_model import GRAMMAR_REFERENCE
 
 _SIGNATURE_RULES = """\
@@ -140,35 +136,3 @@ def build_molecular_signature_reviewer(client: LlmClient, *, model: str | None =
         client=client,
         model=model,
     )
-_FINDINGMODEL_RECONCILE_RULES = """\
-You reconcile the finding-model mapping of a GROUP of gene-alteration / molecular-signature phrasings that a
-consistency check flagged as ONE underlying concept but which received DIFFERENT finding-model expressions when each
-was mapped independently. Return the FINAL finding-model expression for EACH member.
-
-- EQUIVALENT members (same alteration, differing only in phrasing / synonym / dropped inexpressible qualifier) MUST
-  share ONE final expression (the correct one, per the grammar conventions). e.g. two phrasings of the same fusion
-  that got different orientations -> the one correct rendering.
-- GENUINELY-DISTINCT members (a real difference the grammar DOES encode — different gene, variant, exon,
-  copy-number type, fusion orientation) MUST keep their own correct expression; do NOT collapse a real distinction.
-- Fix any expression that is simply wrong while you are here; obey the mapper's conventions (mutation -> SmallVariant
-  only; families/panels expanded; notation normalised). Preserve each member's AND / OR / NOT() structure.
-
-Return every input from the group exactly once, with its FINAL finding-model expression.
-"""
-
-FINDINGMODEL_RECONCILE_REVIEWER_INSTRUCTIONS = """\
-You audit a reconciliation decision for a flagged group of gene/signature phrasings (each with its FINAL
-finding-model expression). Set faithful=true only if: EQUIVALENT members now share ONE expression (phrasing noise
-unified); GENUINELY-DISTINCT members kept apart with their own correct expression (a real grammar-encodable
-difference NOT collapsed); every expression is valid finding-model following the mapper conventions; AND / OR / NOT()
-structure preserved. Otherwise faithful=false with concrete problems. `suggested_fix` only under "[ESCALATION-MODE]".
-"""
-def build_findingmodel_reconciler(client: LlmClient, *, model: str | None = None) -> Agent[GroupReconciliation]:
-    return Agent(name="findingmodel_reconciler", instructions=_FINDINGMODEL_RECONCILE_RULES + GRAMMAR_REFERENCE,
-                 output_schema=GroupReconciliation, client=client, model=model)
-
-
-def build_findingmodel_reconcile_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
-    return Agent(name="findingmodel_reconcile_reviewer",
-                 instructions=FINDINGMODEL_RECONCILE_REVIEWER_INSTRUCTIONS + "\n" + GRAMMAR_REFERENCE,
-                 output_schema=ReviewVerdict, client=client, model=model)

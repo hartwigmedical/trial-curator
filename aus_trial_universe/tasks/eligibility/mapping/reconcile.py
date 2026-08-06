@@ -147,17 +147,13 @@ def reconcile_group(client, members: list[tuple[str, str]], problems_by_value: d
         build_oncotree_reconcile_reviewer,
         build_oncotree_reconciler,
     )
-    from aus_trial_universe.tasks.eligibility.mapping.molecular_signature.agents import (
-        build_findingmodel_reconcile_reviewer,
-        build_findingmodel_reconciler,
-    )
     from aus_trial_universe.tasks.eligibility.mapping.schema import GroupReconciliation, ReviewVerdict
 
-    is_oncotree = column == CANCER_TYPE
-    build_doer = build_oncotree_reconciler if is_oncotree else build_findingmodel_reconciler
-    build_rev = build_oncotree_reconcile_reviewer if is_oncotree else build_findingmodel_reconcile_reviewer
-    doer = build_doer(client)
-    reviewer = build_rev(client) if use_reviewer else None
+    # Only the DRUG path reaches this now (cancer_type with three_stage=False), so the adjudicator is always the
+    # OncoTree one. The finding-model variants were deleted 2026-08-06 with their last caller.
+    is_oncotree = True
+    doer = build_oncotree_reconciler(client)
+    reviewer = build_oncotree_reconcile_reviewer(client) if use_reviewer else None
     inputs = sorted(v for v, _ in members)
 
     lines = ["GROUP (a consistency check flagged these as ONE concept; reconcile AND repair their mappings):"]
@@ -274,6 +270,24 @@ def reconcile_column(
         from aus_trial_universe.tasks.eligibility.mapping.gene_alteration import reconcile as ga_reconcile
         return ga_reconcile.reconcile_column(
             client, mapping, workers=workers, max_attempts=max_attempts, use_reviewer=use_reviewer)
+
+    if column == MOLECULAR_SIGNATURE:
+        # STAGE 2 IS A PASS-THROUGH, then stage 3. No LLM, no cross-value work — a function of a single value.
+        #
+        # Until 2026-08-06 this column fell through to the legacy R0-R8 body below, which would group values by
+        # `find_inconsistencies` and hand each group to an LLM adjudicator. That is the same cross-value churn
+        # mechanism deleted from cancer_type and gene_alteration: a value with no defect of its own could be
+        # rewritten because an unrelated value entered the corpus. It happened never to fire here (0 groups over
+        # the 171 live values), which is precisely why it survived unnoticed — an unfired hazard looks identical
+        # to no hazard. The column is now explicit about doing nothing rather than accidentally doing nothing.
+        #
+        # There IS no deterministic work to do yet: over the live corpus the finding-model canonical form changes
+        # nothing. The slot exists so a real stage 2 can land here later without touching the plumbing.
+        rulings = adjudications.for_column(column)
+        finalised = {v: (rulings[v].final if v in rulings else (e or "")) for v, e in mapping.items()}
+        logger.info("molecular_signature · stage 2 pass-through · stage 3 overrode %d",
+                    sum(1 for v in mapping if v in rulings and rulings[v].final != (mapping[v] or "")))
+        return finalised, [], 0
 
     # ---- R0-R3 -----------------------------------------------------------------
     refined: dict[str, str] = {}

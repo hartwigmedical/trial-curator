@@ -28,7 +28,7 @@ test asserting `ruling.final.strip()` had to be relaxed on 2026-08-06 for exactl
 
 THE REGISTER IS A LIABILITY, NOT AN ASSET. Every entry is an admission that a prompt or a deterministic rule is
 still too weak, so the entry count is the quality metric for the correction and the register is meant to SHRINK. An
-entry the pipeline reaches unaided should be RETIRED — `qa/prompt_harness/export_comparison.py` reports exactly that
+entry the pipeline reaches unaided should be RETIRED — `qa/prompt_harness/export_review.py` reports exactly that
 as `ruling_status=retirable`. 21 entries were retired on this basis on 2026-08-06; 17 were added the same day to
 hold the qualifier-variant inconsistency stage 2 no longer owns (handover to-do B6).
 """

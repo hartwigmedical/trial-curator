@@ -55,11 +55,14 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
     maps_before = {f: (cur / f).read_bytes() for f in
                    ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map_initial.tsv")}
 
-    # NB no adjudicator patch for cancer_type any more: stages 2 and 3 are deterministic and make no LLM calls
-    # (2026-08-06). The gene/signature columns still use the group adjudicator, so it stays patched for them.
-    def fake_adjudicate(client, members, problems, *, column, max_attempts, use_reviewer):
-        return {v: c for v, c in members}
-    monkeypatch.setattr(rec, "reconcile_group", fake_adjudicate)
+    # NO COLUMN MAY REACH THE LLM GROUP ADJUDICATOR any more (2026-08-06). cancer_type's stages 2/3 are
+    # deterministic, gene_alteration's stage 2 is deterministic, and molecular_signature's is a pass-through — so
+    # a `--reconcile` run makes no cross-value LLM call at all. This used to be a stub returning the members
+    # unchanged, which would silently keep passing if a column regained the adjudicator; it is now a tripwire,
+    # because cross-value re-decision is the churn mechanism all three columns were rewritten to remove.
+    def _must_not_run(*a, **kw):
+        raise AssertionError("reconcile_group was called: a column has regained cross-value LLM adjudication")
+    monkeypatch.setattr(rec, "reconcile_group", _must_not_run)
 
     rc = run.main(["--reconcile", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])
     assert rc == 0

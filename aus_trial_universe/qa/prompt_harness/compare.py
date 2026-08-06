@@ -2,9 +2,6 @@
 
     python -m aus_trial_universe.qa.prompt_harness.compare --column gene_alteration
 
-Supersedes the pair `compare_runs.py` / `export_comparison.py` for new work. Those two are kept because they carry
-the OncoTree review's 1,015 lines of recorded per-value hand judgements, which are column-specific data rather than
-machinery; nothing here needs to re-derive them.
 
 WHAT IT MEASURES, and the two measurements it refuses to conflate:
 

@@ -326,14 +326,14 @@
           <p class="role map"><span class="rlab">doer</span><span>expression &rarr; OncoTree name + code (e.g. "metastatic NSCLC" &rarr; NSCLC). Only 3 non-OncoTree terms allowed: <span class="inline-code">Pan-cancer</span> / <span class="inline-code">solid tumour</span> / <span class="inline-code">Haematological malignancy</span> (no <span class="inline-code">[None]</span>).</span></p>
           <p class="role chk"><span class="rlab">code check</span><span>reject invalid codes and logic errors: <span class="inline-code">X AND X</span>, <span class="inline-code">X AND NOT(X)</span>, a broad term ANDed with its subtype, a subtype ANDed with its parent (hierarchy via <span class="inline-code">is_subcode</span>).</span></p>
           <p class="role rev"><span class="rlab">reviewer</span><span>right node + granularity; structure preserved; NOT(cancer type) kept minimal.</span></p>
-          <p class="ground">grounds: OncoTree ontology as a single-source nested YAML resource &mdash; an indented <span class="inline-code">Name (CODE)</span> hierarchy that aids granularity (tools/oncotree.py) + a few held-out ConditionsCurationResource examples</p>
+          <p class="ground">grounds: OncoTree ontology as a single-source nested YAML resource &mdash; an indented <span class="inline-code">Name (CODE)</span> hierarchy that aids granularity (mapping/cancer_type/vocab.py) + a few held-out ConditionsCurationResource examples</p>
         </div>
         <div class="proc">
           <div class="ph"><h4>gene_alteration / molecular_signature &rarr; finding-model</h4></div>
           <p class="role map"><span class="rlab">doer</span><span>&rarr; finding-model syntax: <span class="inline-code">SmallVariant[gene=BRAF &amp; &hellip;=p.V600E]</span>, <span class="inline-code">Fusion[geneEnd=ALK]</span>, <span class="inline-code">MicrosatelliteStability[&hellip;=MSI]</span>.</span></p>
           <p class="role chk"><span class="rlab">code check</span><span>full finding-model grammar validation &mdash; fields / enums / scope + HGVS shape per class (<span class="inline-code">CLASS_SPEC</span>), not just brackets; no duplicate terms, no <span class="inline-code">X &amp; NOT(X)</span>. The hard <b>syntax gate</b>, so the reviewer judges only semantics.</span></p>
           <p class="role rev"><span class="rlab">reviewer</span><span>faithful + valid grammar (strict); a NOT() qualified by something inexpressible (e.g. a location) is <b>omitted</b>, not negated.</span></p>
-          <p class="ground">grounds: finding-model grammar (tools/finding_model.py) + GeneAlteration/MolecularSignature examples</p>
+          <p class="ground">grounds: finding-model grammar (mapping/finding_model.py) + GeneAlteration/MolecularSignature examples</p>
         </div>
         <div class="proc">
           <div class="ph"><h4>drug &rarr; main/aux + class + TGA/PBS</h4></div>
@@ -342,7 +342,12 @@
           <p class="ground">grounds: POTTR dataset + live web research (Responses API web_search)</p>
         </div>
       </div>
-      <div class="codecheck" style="margin-top:14px"><span class="cc-lab">consistency</span><span>a deterministic cross-value check (<span class="inline-code">qa/mapping_consistency.py</span>) &mdash; semantically-equivalent inputs must never map to different codes; the full guarantee is a <b>Step-2 reconciliation</b> pass over the built map tables.</span></div>
+      <div class="codecheck" style="margin-top:14px"><span class="cc-lab">three stages</span><span>every column runs the SAME three, and each is a function of a <b>single value</b> &mdash; so a mapping cannot be perturbed by other values entering the corpus, and churn is structurally impossible rather than merely mitigated.
+        <b>1 &middot; translate</b> (LLM doer&rarr;reviewer, above) &rarr;
+        <b>2 &middot; canonicalise</b> (<i>deterministic only</i> &mdash; De Morgan, absorption, dedup, term/field ordering; a spelling normaliser that never changes meaning) &rarr;
+        <b>3 &middot; finalise</b> (approved rulings from <span class="inline-code">qa/adjudications/&lt;column&gt;.py</span>, applied LAST).</span></div>
+      <div class="codecheck"><span class="cc-lab">no cross-value LLM</span><span>stage 2 <b>used to</b> hand groups of &ldquo;equivalent&rdquo; values to an LLM to unify. That pass silently re-rolled 7 unrelated values in one run, undoing two reviewed improvements &mdash; so it was <b>deleted from all three columns</b>. Divergence is still detected and reported as residue; what is gone is the automatic re-decision. Anything it surfaces is fixed in stage 1&rsquo;s prompt, or ruled on in stage 3.</span></div>
+      <div class="codecheck"><span class="cc-lab">outputs mirror it</span><span>three tables per column &mdash; <span class="inline-code">&lt;column&gt;_map_{initial,reconciled,finalised}.tsv</span> &mdash; with <b>columns that accrete</b>, so one row shows the whole chain and a difference between <span class="inline-code">_reconciled</span> and <span class="inline-code">_finalised</span> <i>is</i> an approved override, visibly. All nine come from one spec (<span class="inline-code">mapping/stage_tables.py</span>).</span></div>
     </section>
     <div class="conn"></div>
 
@@ -392,7 +397,8 @@
       <div class="layer"><span class="name">review.py</span><p>The <b>shared</b> <span class="inline-code">review_refine</span> doer&rarr;reviewer loop &mdash; ONE mechanism across extraction, mapping &amp; drug (verdict-agnostic; each reviewer schema stays stage-local).</p></div>
       <div class="layer"><span class="name">cache_prune.py + prompt_registry.py</span><p>Cache pruning &mdash; see the <b>Response cache &amp; pruning</b> panel below.</p></div>
       <div class="layer"><span class="name">logfmt.py</span><p>Shared run-log formatting: stage banners + doer/reviewer blocks (one field per line, spelled-out PASS/FAIL).</p></div>
-      <div class="layer"><span class="name">tools/</span><p>oncotree.py (YAML vocab + validator + hierarchy/is_subcode, 3 sentinels) &middot; finding_model.py (full field/enum/scope/HGVS grammar validator &mdash; the hard syntax gate).</p></div>
+      <div class="layer"><span class="name">mapping/ per column</span><p><span class="inline-code">cancer_type/</span> vocab.py (YAML OncoTree + validator + hierarchy/is_subcode, 3 sentinels) &middot; expr.py &middot; stage1/2/3.py &nbsp;|&nbsp; <span class="inline-code">gene_alteration/</span> expr.py (canonical DNF) &middot; checks.py (semantic catalogue) &nbsp;|&nbsp; shared: finding_model.py (the hard syntax gate), consistency.py, stage_tables.py.</p></div>
+      <div class="layer"><span class="name">qa/</span><p>gates.py (10 production gates) &middot; invariants.py (corpus-wide sweep over every deterministic helper) &middot; adjudications/ (one register per column) &middot; engine_port + engine_conformance (the matching engine&rsquo;s own parser, transcribed) &middot; prompt_harness/ (change a mapping prompt safely).</p></div>
     </div>
   </div>
 </div>

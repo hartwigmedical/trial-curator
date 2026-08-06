@@ -1,14 +1,14 @@
 """PER-COLUMN CONFIGURATION for the prompt harness — what actually differs between vocabulary columns.
 
-Added 2026-08-06, when gene_alteration became the harness's second customer. Only four things vary; everything
-else in `compare_runs` is column-independent once these are injected:
+Added 2026-08-06, when gene_alteration became the harness's second customer. Only a few things vary per
+column; every entry point in this package is column-independent once these are injected:
 
     the table shape   which TSV, which key column, which FINAL column
     the baselines     which reviewed states the candidate must beat
     `errs`            the deterministic defect signal for that vocabulary
     `direction`       how a CLEAN-but-CHANGED value is classified — the regression class a defect count cannot see
 
-DIRECTION IS NOT THE SAME QUESTION IN THE TWO COLUMNS, and forcing one implementation on both would silently
+DIRECTION IS NOT THE SAME QUESTION IN EVERY COLUMN, and forcing one implementation on both would silently
 mis-grade one of them. OncoTree has an ONTOLOGY, so "broader" means an ancestor node and the dangerous case is
 broadening to a sentinel. Finding-model has NO hierarchy; "broader" means a term with FEWER fields (term
 subsumption), and — crucially — the danger flips with POLARITY:

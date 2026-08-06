@@ -26,7 +26,6 @@ from aus_trial_universe.core.paths import ANALYSIS_DIR
 from aus_trial_universe.qa.engine_port import GeneticAlterationParser, TrialGeneticsParser
 
 ENGINE_COMMIT = "a97142938 (oncoact, branch trial_matching, 2026-05-22)"
-DEFAULT_INPUT = ANALYSIS_DIR / "gene_alteration_comparison.tsv"
 DEFAULT_OUTPUT = ANALYSIS_DIR / "gene_alteration_engine_dry_run.md"
 
 # finding id -> (owner, gap/defect id, one-line effect on matching)

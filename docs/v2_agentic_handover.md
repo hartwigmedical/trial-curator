@@ -24,6 +24,36 @@
 > its tables are identical; that is what a healthy column looks like.
 > Record: `data/agentic/analysis/molecular_signature_stage1_review/` (start at its `README.md`).
 >
+> ### Tidy-up done in the same session (after the user's commit)
+> - **Harness pruned**: `compare_runs.py` + `export_comparison.py` DELETED (superseded by `compare.py` /
+>   `export_review.py`); `judgements.py` (1,015 lines of cancer_type per-value hand verdicts) retired to
+>   `analysis/cancer_type_stage1_review/judgements_as_reviewed.py` — column-specific DATA for a finished review,
+>   not machinery. Harness is now 966 lines, all column-generic.
+> - **A dead LLM path found and cut**: molecular_signature was still falling through to the LEGACY R0-R8 branch,
+>   which could hand groups to an LLM adjudicator. It never fired (0 groups over 171 values) — which is exactly
+>   why it survived: *an unfired hazard looks identical to no hazard*. Now dispatched to an explicit pass-through
+>   + register. `build_findingmodel_reconciler` and its reviewer are deleted with their last caller, so the legacy
+>   branch has ONE caller left: the drug path's pinned `three_stage=False` cancer_type call.
+> - **Orphaned analysis artifacts** moved to `data/backups/retired_analysis_20260806/` (MOVED, not deleted —
+>   `data/` is gitignored, so a delete there is unrecoverable): `gene_alteration_comparison.tsv` (its
+>   `DEFAULT_INPUT` constant was defined and never used), the session-9 review log and pre-production dry run, the
+>   `t2i_migration_*` one-off outputs, and four unreferenced cohort id lists.
+> - **Tests 430 → 439.** Added: the `apply_reviewed` migration GUARDS (both directions — refuses the bad case,
+>   permits the good one), molecular_signature's pass-through stage 2 + its stage-3 ruling application incl. `''`
+>   as a legitimate ruling, and the judge's per-column canonical form. Converted a dead monkeypatch stub in
+>   `test_reconcile.py` into a TRIPWIRE: `reconcile_group` must never be called during `--reconcile`, so a column
+>   silently regaining cross-value LLM adjudication now fails the suite.
+> - Docs: spec §8 gained **§8.0 the three-stage model** (with the single-value property and why the cross-value
+>   pass was deleted from all three columns), §8.2 rewritten for the deterministic gene stage 2, §9 rewritten for
+>   the stage tables, §11 layout + test counts refreshed.
+>
+> ### ⚠ ONE JUDGEMENT CALL LEFT FOR THE USER
+> `analysis/cancer_type_stage1_review/archive_iterations/` is **6.1 MB of superseded prompt iterations** (v2/v3/v4)
+> from the completed OncoTree review. A previous session kept them deliberately ("each cost ~13 min of live API and
+> cannot be reproduced"). The review has since SHIPPED and its final artifact, folded prompt and run log are all
+> retained, so they are arguably no longer needed — but `data/` is gitignored, so deleting is irreversible. LEFT IN
+> PLACE pending a decision.
+>
 > ### ▶ WHAT'S NEXT — the mapping work is done, so pick up the A-group backlog
 > **A2 (remaining)**: the `pipeline/` + `outputs/` top-level regroup → **A3** legacy code removal (74 files,
 > ~6,200 lines) → **A4/A4b/A5**. Then **F1** (curated masters into git — still the highest-value quick win in this
