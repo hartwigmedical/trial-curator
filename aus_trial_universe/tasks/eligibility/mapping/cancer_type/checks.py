@@ -9,8 +9,12 @@ LAYERS
   syn_*  syntax    — is the expression well-formed & canonical? -> deterministic repair
   log_*  logic     — is it satisfiable, minimal, non-redundant? -> deterministic detect, some need judgement
   src_*  fidelity  — does it say what the SOURCE said?          -> needs the source cell (+ LLM to repair)
-  xf_*   cross-field  — do name and code agree?                 -> deterministic
   cov_*  coverage  — is anything missing entirely?              -> deterministic
+
+There is deliberately no `xf_*` cross-field layer. It held one id, `xf_name_code_mismatch`, and nothing has been
+able to emit it since `oncotree_name` became a value DERIVED from `oncotree_code` (2026-08-03) — a name cannot
+disagree with the code it is rendered from. The only remaining way to decouple them is to hand-edit a map TSV,
+which bypasses this module entirely; `qa/invariants.py` C5 is the backstop for that.
 
 SEVERITY
   error  — must never ship (a wrong or unusable value)
@@ -41,7 +45,6 @@ from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import (
 from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     SENTINELS,
     is_subcode,
-    name_to_code,
     oncotree_vocab,
 )
 
@@ -85,7 +88,6 @@ CATALOGUE: dict[str, tuple[str, str, str]] = {
     # enumeration; leaving it as a warning would fire benignly on every flattened value, and a warning that is
     # always noise is how people learn to ignore warnings.
     "log_vacuous_exclusion":         ("logic",   "warn",   "an excluded code is disjoint from every positive code — a no-op"),
-    "xf_name_code_mismatch":         ("cross-field", "error", "oncotree_name does not mirror oncotree_code term-for-term"),
     "src_nontumour_exclusion":       ("fidelity", "review", "every source exclusion was non-tumour-type (history / CNS / mets / synchronous) yet a NOT() survived"),
     "src_qualifier_in_interpreted":  ("fidelity", "review", "the interpreted cell still carries inexpressible clinical text"),
     "src_empty_for_cancer":          ("coverage", "review", "mapping is empty though the source names a cancer"),
@@ -529,7 +531,9 @@ def check_against_source(source: str, expr: str) -> ValueReport:
 
     vocab = oncotree_vocab()
     named = sorted(
-        code for code, name in ((c, n) for n, c in name_to_code().items())
+        # Iterate the FORWARD vocab, not the reverse map: the reverse map holds one entry per NAME and omits any
+        # name shared by several codes, so it could only ever find 9 of the 24 organ-specific germ-cell nodes.
+        code for code, name in vocab.items()
         if code not in SENTINELS and len(name) >= _MIN_NAME_LEN
         and name.lower() not in _GENERIC_NAMES and name.lower() in pos_src
     )

@@ -28,4 +28,9 @@ def test_approved_adjudications_are_wellformed():
     assert adjudications.for_column("cancer_type"), "the register should not be silently empty"
     for key, ruling in adjudications.for_column("cancer_type").items():
         assert ruling.value == key
-        assert ruling.final.strip() and ruling.rationale.strip() and ruling.approved.strip()
+        # `final` is checked for being a STRING, not for being truthy: `''` is a legitimate ruling — it is the
+        # correct mapping for a value that states no current tumour type (a prior-malignancy or screening cohort),
+        # and the register's own docstring says so. Asserting truthiness here forbade a valid verdict, which is the
+        # same truthiness trap `reconcile.py` documents at its ruling lookup.
+        assert isinstance(ruling.final, str)
+        assert ruling.rationale.strip() and ruling.approved.strip()

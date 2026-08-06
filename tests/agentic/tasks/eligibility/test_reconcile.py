@@ -53,11 +53,12 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
     _seed(store_root)
     cur = store_root / "current_version"
     maps_before = {f: (cur / f).read_bytes() for f in
-                   ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map.tsv")}
+                   ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map_initial.tsv")}
 
-    # patch the adjudicator: unify each flagged oncotree group to BREAST
+    # NB no adjudicator patch for cancer_type any more: stages 2 and 3 are deterministic and make no LLM calls
+    # (2026-08-06). The gene/signature columns still use the group adjudicator, so it stays patched for them.
     def fake_adjudicate(client, members, problems, *, column, max_attempts, use_reviewer):
-        return {v: ("BREAST" if column == rec.CANCER_TYPE else c) for v, c in members}
+        return {v: c for v, c in members}
     monkeypatch.setattr(rec, "reconcile_group", fake_adjudicate)
 
     rc = run.main(["--reconcile", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])
@@ -65,15 +66,23 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
 
     joined = store_root.parent / "joined" / "eligibility"
     # the finalised map-table SET is 3NF -> it lives in the store (current_version/), NOT joined/
-    by = {r["cancer_type"]: r for r in _read(cur / "finalised_cancer_type_map.tsv")}
-    assert by["metastatic breast cancer"]["oncotree_code"] == "IDC"           # Step-1 preserved
-    assert by["metastatic breast cancer"]["oncotree_code_FINAL"] == "BREAST"  # reconciled in the added col
-    assert by["breast cancer"]["oncotree_code_FINAL"] == "BREAST"
-    assert not (joined / "finalised_cancer_type_map.tsv").exists()            # NOT in joined/
+    # the three stage tables are 3NF -> they live in the store (current_version/), NOT joined/
+    by = {r["cancer_type"]: r for r in _read(cur / "cancer_type_map_finalised.tsv")}
+    # columns accrete, so one row shows the whole chain. Stage 2 is deterministic: IDC is already canonical, so
+    # `_reconciled` equals `_initial` and nothing overrides it — the LLM group-unification behaviour this test used
+    # to assert no longer exists for cancer_type.
+    assert by["metastatic breast cancer"]["oncotree_code_initial"] == "IDC"
+    assert by["metastatic breast cancer"]["oncotree_code_reconciled"] == "IDC"
+    assert by["metastatic breast cancer"]["oncotree_code_finalised"] == "IDC"
+    assert by["metastatic breast cancer"]["oncotree_name_finalised"] == "Breast Invasive Ductal Carcinoma"
+    for f in ("cancer_type_map_initial.tsv", "cancer_type_map_reconciled.tsv", "cancer_type_map_finalised.tsv"):
+        assert (cur / f).exists() and not (joined / f).exists()
 
     # only the DENORMALIZED flat view is in joined/
     flat = _read(joined / "finalised_mapped_eligibility.tsv")
-    assert flat[0]["oncotree_code"] == "IDC" and flat[0]["oncotree_code_FINAL"] == "BREAST"
+    # cancer_type stage 2 is deterministic, so IDC (already canonical) passes through unchanged. This used to
+    # assert BREAST, i.e. the LLM group adjudicator unifying "metastatic breast cancer" with "breast cancer".
+    assert flat[0]["oncotree_code"] == "IDC" and flat[0]["oncotree_code_FINAL"] == "IDC"
 
     # the Step-1 3NF tables are byte-for-byte untouched (finalised_* are NEW additions)
     for f, b in maps_before.items():

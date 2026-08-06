@@ -1,12 +1,105 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (updated 2026-08-05, end of session 10)
+## ▶ NEXT SESSION — START HERE (updated 2026-08-06, end of session 11)
+
+> **✅ ONCOTREE (cancer_type) MAPPING IS COMPLETE — ALL THREE STAGES, restructured and shipped.** The stage that
+> made the user distrust the mapping ("*the deterministic parts are particularly brittle… the reconciliation stage
+> is actually making me less confident*") has been re-specced from first principles and is now **deterministic
+> only**. **412 tests green · 0 defects · 0 divergent groups · gates WARN / 0 FAIL · UNCOMMITTED (the user commits).**
+>
+> **▶ YOUR NEXT TASK: repeat this whole treatment for `gene_alteration`, then `molecular_signature`** (user,
+> 2026-08-06, after a `/clear`). Read this block and to-do **B6** first; then the playbook below.
+>
+> ### The three-stage architecture (the thing to copy)
+> `tasks/eligibility/mapping/cancer_type/` now owns every OncoTree-specific stage, with genuinely shared machinery
+> left in `mapping/workflow.py` for the other two columns:
+>
+> | stage | module | what it does | live volume |
+> |---|---|---|---:|
+> | 1 · translate | `stage1.py` (moved from `workflow.py`) | LLM mapper + reviewer, faithful to the source's own shape | 4,978 values |
+> | 2 · canonicalise | `stage2.py` | **deterministic only** — De Morgan/distribute/absorb, factor NOTs, sort, dedupe, drop vacuous NOT() | changes 424 |
+> | 3 · finalise | `stage3.py` | approved rulings from `qa/adjudications/cancer_type.py`, applied LAST | overrides 37 |
+>
+> Outputs mirror the process, columns accrete (`tables.py`), so a reader sees the whole chain per value:
+> `cancer_type_map_initial.tsv` → `_reconciled.tsv` → `_finalised.tsv` (**what ships**). The old
+> `cancer_type_map.tsv` + `finalised_cancer_type_map.tsv` are retired to
+> `data/backups/retired_legacy_cancer_type_maps_20260806/`; `EligStore.load` still falls back to the old names so
+> pre-restructure ARCHIVES load.
+>
+> ### The decision that mattered most
+> Stage 2 was going to include an LLM cross-value consistency pass. It was **dropped**, and that is the key insight
+> to carry into gene_alteration: *a function of a SINGLE value cannot be perturbed by other values entering the
+> corpus, so churn becomes structurally impossible rather than merely mitigated.* The old reconciler re-decided
+> whole groups when membership shifted, which silently re-rolled 7 unrelated values. Measured before dropping it:
+> of **20** divergent groups, the deterministic pass dissolves **8** as pure OR-ordering noise, and the surviving
+> **12** are held by 17 rulings → **20 → 12 → 0**. Eleven of the twelve are stage 1 answering `Recurrent X` and
+> `Refractory X` differently, so the root fix is stage 1's — to-do **B6**.
+>
+> ### Results
+> Reviewed against **two** baselines (28 Jul + 4 Aug), 4,978 values, every changed value judged by hand:
+> **226 improvements · 0 stage-1-owned regressions · 0 deterministic defects** (28 Jul had 51, 4 Aug 5, live 1).
+> Register **41 → 58**: 21 retired because the refined prompt reaches them unaided, 17 added for B6. Record:
+> `data/agentic/analysis/cancer_type_stage1_review/` (start at its `README.md`; the deliverable is
+> `three_way_review.tsv`).
+>
+> ### Four traps found the hard way — do NOT rediscover these
+> 1. **The refine loop is NOT reproducible from cache.** A byte-identical prompt does not give identical output: one
+>    missed cache entry mid-chain diverges every call after it. **179 of 4,978** values differed on a re-run of an
+>    unchanged prompt, and 3 gene values drifted the same way (one badly: `PIK3CA` → the class-II `PIK3C2A|2B|2G`).
+>    **So APPLY a reviewed artifact to the store; never re-derive it by re-running and hoping it matches.**
+> 2. **`--map-only` / `--reconcile` were whole-store commands.** A cancer-type-only migration re-rolled
+>    gene_alteration. Fixed: **`--columns cancer_type,…`** now scopes both. Use it.
+> 3. **The drug path shares the cancer_type reconciler.** `map_approvals.py` calls
+>    `reconcile_column(column=CANCER_TYPE, three_stage=False)` — pinned to the LEGACY path on purpose, because
+>    `approval_cancer_type_map` is a different reviewed table. Do the same for gene_alteration if it shares anything.
+> 4. **A renamed table fails OPEN.** A reader left on an old filename reads nothing and ships blanks. Every consumer
+>    is now asserted by `tests/agentic/tasks/eligibility/mapping/test_oncotree_three_stages.py` — the PLUMBING test,
+>    which also drives interpreted text → all three stages → export end to end. Copy that file for the next column.
+>
+> ### Two bugs fixed on the way (both pre-existing)
+> - **`export.py` joined the cancer_type map on the RAW interpreted cell**, not the provenance-stripped key. Two
+>   rows shipped `oncotree_code=""` for values that HAD a mapping — the cell ends `… (SCLC) [T any, N any, M1 a/b/c]`
+>   where the bracket is TNM detail, not a provenance tag.
+> - **`vocab.name_to_code()` guessed** when an OncoTree NAME maps to several codes (9 names, 24 codes — the
+>   germ-cell/teratoma entities). It resolved `Choriocarcinoma` to *brain* by YAML order, turning a flagged
+>   `lex_leaked_name` error into a clean WRONG-ORGAN code. Now omitted, so the operand reports as unresolvable.
+>
+> ### Loose ends
+> - `mapping_drift` reports *"no archived version contains cancer_type_map_finalised.tsv"* — correct but inert for
+>   one cycle, until the next refresh archives a version under the new name.
+> - The 49 values whose reviewer never signed off (`faithful=False`) still ship **unmarked**: the map tables carry no
+>   verdict column. All 37 cancer_type ones were checked and are correct — the reviewer was over-strict, not the
+>   mapper wrong — but persisting the stage-1 verdict remains the right fix.
+> - Backups: `pre_oncotree_stage1_migration_20260805_2257` · `pre_stage23_build_20260806_0135`.
+>
+> ---
+> *Session 10's START-HERE follows.*
+
+## ▶ SESSION 10 (superseded, kept for provenance) — updated 2026-08-05
 
 > **WHERE THINGS STAND (2026-08-05, session 10).** Matching-engine feedback named **26 trials** it could not parse.
 > Investigated, then audited **ALL 4,971 cancer_type + 909 gene_alteration mappings**. Result: the engine's own
 > complaints were already fixed by B1 (leaked OncoTree NAMES, 8 of the 26), but the audit found **29 genuine
-> defects of ours**, now corrected via `qa/adjudications.py`. **378 tests green · gates WARN · 0 FAIL.
-> UNCOMMITTED — the user does ALL commits.**
+> defects of ours**, now corrected via the `qa/adjudications/` registers. A full **e2e refresh then ran clean
+> (exit 0)**. **402 tests green · gates WARN · 0 FAIL. UNCOMMITTED — the user does ALL commits.**
+>
+> **🔴 READ THIS BEFORE TOUCHING STAGE 2 — A REDESIGN CONVERSATION IS OPEN AND UNRESOLVED (user, 2026-08-05).**
+> The user's position, in their words: *"I am not convinced the current reconciliation workflow from R0 to R8 is
+> the best arrangement. It seems to me the deterministic parts are particularly brittle and prone to error. The net
+> effect is that the reconciliation stage is actually making me less confident on the quality and accuracy of the
+> mapping outputs."* Their framing for the redesign is to **first spec out what reconciliation is for**, in two
+> categories — (a) error spotting and fixing, (b) syntax manipulations — with the guiding principle that stage 2
+> should take **only** what the stage-1 doer/reviewer genuinely cannot or should not do (stage 1 should translate
+> the raw text as faithfully as possible and not be burdened with boolean algebra; anything needing a check ACROSS
+> several mappings belongs to stage 2). Stage 1 itself is assessed as *"working reasonably well"*. Scope: cancer
+> type first, then extend the same treatment to gene_alteration.
+> ⚠ **An earlier attempt to answer this by restating the user's categories in different terminology was rejected —
+> do not do that. Let the user drive the spec.** Evidence gathered so far that the discussion may want (facts, not
+> conclusions): of 4,978 cancer_type values, **FINAL differs from Step-1 in 1,083**, of which the deterministic
+> rewrite alone accounts for **1,043** — R0 operand-normalise fires on **1** value, R1 structural-canonical on
+> **599**, R2 drop-vacuous-exclusion on **820**. Also relevant: `oncotree_name` is a **derived property** of
+> `oncotree_code` (`CancerTypeMap.__post_init__`, made structural 2026-08-03 after 46 mismatched rows), so
+> name/code cannot decouple unless a writer bypasses the dataclass.
 >
 > **The engine is NOT ground truth (user, standing).** It is mid-refactor and has its own bugs; we must never
 > degrade our output to satisfy it. Its biggest hole: `TrialReader.parseOncology` is single-code-per-line with NO
@@ -15,20 +108,49 @@
 > to-do **D5**.
 >
 > **What shipped:**
-> - **`qa/adjudications.py` now has TWO registers** — `APPROVED` (cancer_type, applied at `reconcile.py` R7) and
->   the new **`APPROVED_GENE`** (gene_alteration, applied at `gene_alteration/reconcile.py` **R5**). 28 + 2 rulings.
->   `""` is a LEGITIMATE ruling, so callers must test `is not None`, never truthiness.
+> - **`qa/adjudications/` is now a PACKAGE, one register per vocabulary column** (user, 2026-08-05):
+>   `cancer_type.py` (**29** rulings, applied at `reconcile.py` R7) · `gene_alteration.py` (**2**, applied at
+>   `gene_alteration/reconcile.py` R5) · `molecular_signature.py` (empty, but it EXISTS so `for_column()` needs no
+>   special case). One shared `Adjudication(value, final, rationale, approved)`; resolve with
+>   **`adjudications.for_column(column)`**. `""` is a LEGITIMATE ruling, so test `is not None`, never truthiness.
+>   R7 now applies rulings for EVERY column, not just oncotree.
 > - **Three new checks**, each pinned to a real defect by `tests/agentic/qa/test_audit_20260805_checks.py`:
 >   `log_unjustified_sentinel` (cancer_type, error — needs the source, so it lives in the new source-aware
 >   `checks.check_against_source()`), `MT` added to `CATCHALL_NODES` (a paediatric brain tumour was mapped to
 >   OncoTree's "Malignant Tumor" catch-all and nothing fired), and `acronym_as_gene` (error — `AGA negative` in an
 >   NSCLC trial means *actionable genomic alteration*, but AGA is also a real HGNC symbol, so no vocabulary check
 >   could catch it).
-> - **New `mapping_drift` gate** (`qa/gates.py`) — diffs each finalised map against the newest ARCHIVED version and
->   **FAILs on any value that broadened** without an approved ruling; WARNs on narrowing. This is the gate that
->   closes the class: B1's review artifact reported defects FIXED and REMAINING but never quality **LOST**, so a
->   value that changed while fixing nothing was invisible across 4,971 rows.
-> - Export re-built: **17,830 rows unchanged, 71 rows / 24 trials changed, 0 rows unexplained by a ruling.**
+> - **New `mapping_drift` gate** (`qa/gates.py`) — diffs each finalised map against the newest ARCHIVED version.
+>   Severity tracks CERTAINTY, via the shared `expr.broadening()` predicate: **FAIL** on `BROADEN_SENTINEL`
+>   (specific codes → a sentinel — never a legitimate unification), **WARN** on `BROADEN_ANCESTOR` and on narrowing
+>   (`IDC` → `BREAST` is the correct repair of an over-specification, and unifying members that differ in
+>   specificity necessarily lands on a parent, so it cannot be blocked). Adjudicated values are exempt.
+>   This closes the class B1's review artifact could not see: it reported defects FIXED and REMAINING but never
+>   quality **LOST**, so a value that changed while fixing nothing was invisible across 4,971 rows.
+> - **Anti-broadening GUARD at R6** (`mapping/reconcile.py`) — rejects a group adjudication that would broaden a
+>   member to a sentinel, keeping its prior value. Same predicate as the gate, so enforcement and checking cannot
+>   drift apart. Scoped to the sentinel kind only, for the reason above.
+> - **`paths.snapshot_current_version()`** — a COPY-based per-cycle baseline for the eligibility store, taken as
+>   refresh stage 0. Copy, not move (`archive_current_version`), because the store ACCUMULATES: moving it would
+>   leave `EligStore.load()` with no `current_version/` and it would silently fall through to an old snapshot dir.
+>   This is what makes `mapping_drift` a genuine run-to-run diff instead of a comparison against an ever-staler
+>   state, and it gives the LLM-curated masters a rollback point per cycle. Deliberately NOT pruned.
+> - **Two bugs fixed in `mapping/consistency.py:canonical_key`** — it stripped numeric GRADE (so `WHO grade 2/3/4
+>   glioma` collapsed to one key and the adjudicator was asked to give ASTR2/ASTR3/glioblastoma one code — it did
+>   once), and its stage pattern `[0-9ivabc/,\-\s]*` ate the next word's leading letter (`stage III breast cancer`
+>   → `reast cancer`, **775 of 4,978 values mangled**, silently preventing the very comparison it exists for).
+>   Divergent groups went **4 → 0**, all four having been grade false positives.
+> - **Two bugs fixed in `gene_alteration/reconcile.py:concept_key`** — unbounded `str.replace` per droppable, which
+>   mangled 23 values including two MEANING INVERSIONS (`ineligible`→`in`, `unknown`→`un`); now word-bounded,
+>   longest-alternative-first. Both keys now iterate to a **fixed point** (a pass can expose a pattern the previous
+>   pass could not see, e.g. punctuation removal turning `stage <=2` into `stage 2`), so both are idempotent.
+> - Export re-built and then refreshed: see the refresh line below. The adjudication pass alone moved **71 rows /
+>   24 trials, 0 rows unexplained by a ruling**, with row count unchanged.
+>
+> **E2E REFRESH (2026-08-05 02:08, 21.4 min, exit 0, gates WARN).** **8 trials expired · 6 new curated** · universe
+> 2,041 → **2,039** · export **17,778 rows · 2,021 trials · 33 cols** · `status: ok`. The drift triage came back
+> clean: 1,433 existing rows changed and every one was trial METADATA from the fresh download (dates, statuses,
+> sites, titles) — **no curated column moved**. Report: `run_report/refresh_20260805_020805.md`.
 >
 > **⚠ THE LESSON THAT COST THE MOST — `--reconcile` CHURNS.** Applying the rulings changed the grouping, which
 > re-rolled 7 unrelated values; two of them **reverted genuine B1 improvements** (graded glioma codes
@@ -37,11 +159,14 @@
 > for a decision. **Never assume a store-wide re-run is inert: snapshot, then diff and require every changed row
 > to be explained.**
 >
-> **▶ YOUR NEXT TASK: unchanged — the A-group.** A2 remaining (`pipeline/` + `outputs/` + `qa/` regroup) → A3
-> legacy removal → A4/A4b/A5. Then B4/B5 (below), then the C/D/F backlog. **F1 (curated masters into git) remains
-> the highest-value quick win in this doc.**
+> **▶ YOUR NEXT TASK: the STAGE-2 REDESIGN CONVERSATION above — it is open and the user is driving it.** Do not
+> start implementing, and do not restate their spec in other words. After that: the A-group (A2 remaining
+> `pipeline/` + `outputs/` regroup → A3 legacy removal → A4/A4b/A5), then B4/B5, then the C/D/F backlog.
+> **F1 (curated masters into git) remains the highest-value quick win in this doc.**
 >
-> Backup: `data/backups/pre_adjudications_20260805_0132/` (store + export + joined + MD5SUMS).
+> Backups: `data/backups/pre_adjudications_20260805_0132/` (store + export + joined) and
+> `data/backups/pre_refresh_20260805_0206/` (masters + export + MD5SUMS). Per-cycle store baseline now also at
+> `masters/eligibility/archive/05082026/`.
 >
 > ---
 > *Historical context from earlier sessions follows.*
@@ -257,6 +382,27 @@ connection, not just the imports.
 ### B. Needs a DEDICATED SESSION — prompt/vocab work (sign-off → cache invalidation → full re-run)
 **⚠ ORDER CHANGED 2026-07-30 — the user moved B1 (OncoTree) to TOP PRIORITY, ahead of the A-group restructure.**
 B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cache invalidation and one re-run.
+
+- **🔴 B6 — FIX THE QUALIFIER-VARIANT INCONSISTENCY AT ITS ROOT IN STAGE 1, THEN RETIRE 17 REGISTER ENTRIES
+  (user, 2026-08-06: *"that is ok. it's temporary. we will go back to stage 1 and fix it at the root. Just not
+  now."*).** Stage 2 is specced DETERMINISTIC-ONLY, which leaves cross-value consistency unowned. Of the 20
+  divergent cancer_type groups, the deterministic pass dissolves 8 as pure OR-ordering noise; the surviving **12
+  are held by 17 register entries** (see the "STAGE-2 CONSISTENCY RESIDUE" block in
+  `qa/adjudications/cancer_type.py`). Verified end-to-end: **20 groups → 12 after stage 2 → 0 after stage 3.**
+  **Eleven of the twelve are stage 1 answering the SAME question two ways on a qualifier variant** — `Recurrent
+  Ewing Sarcoma` → `ES` but `Refractory Ewing Sarcoma` → `ES OR ESST`; `Recurrent Rhabdoid Tumor` → `MRT` but
+  `Refractory` → `ATRT OR MRT OR MRTL`; `Stage III melanoma` → `MEL` but `Stage IV` → the 7-code enumeration. So
+  the root fix is a single stage-1 rule: **a disease-state qualifier (recurrent / refractory / relapsed / advanced /
+  metastatic / unresectable / newly diagnosed) never changes which node is chosen.** That is a principle, not a
+  patch, so it passes the admission test in memory `feedback-prompt-change-regression-method`.
+  ⚠ It re-fingerprints the mapper and re-rolls the column, so it must go through the review harness
+  (`qa/prompt_harness/`) with the 28 Jul + 4 Aug baselines and a zero stage-1-regression gate. When it lands, the
+  harness's `ruling_status` column reports the 17 as **retirable** automatically — that is the exit condition.
+  One entry is a genuine clinical correction and must NOT be lost if the block is retired wholesale: `CM`
+  (Conjunctival Melanoma) sits at `EYE > OM > CM`, so stage 1 including it in a *non-ocular* melanoma expression
+  was self-contradicting. The canonical non-ocular set is
+  `ARMM OR ESMM OR HNMUCM OR MEL OR PCNSM OR URMM OR VMM` — no `NOT()` needed, because the ocular nodes sit under
+  `EYE` and nothing in the positive set, so an ocular exclusion is vacuous and stage 2 would drop it.
 - **✅ B1 — ONCOTREE CODE-EXPRESSION DEFECTS — DONE 2026-08-04.** Reviewed, approved and migrated to
   production; see `docs/planning/archive/v2_oncotree_correction_spec.md`. Export now carries 0 error defects and a new
   `oncotree_expressions` gate keeps it that way. Backup: `data/backups/known_good_20260804_post_oncotree/`.
@@ -269,7 +415,7 @@ B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cac
   `known_good_20260804_post_oncotree`.
   ➜ **The successor task is `B1b` (gene_alteration), above.**
 
-- **🔴 B4 — FIX AT THE ROOT THE DEFECTS THE ADJUDICATIONS ARE HOLDING (user, 2026-08-05).** `qa/adjudications.py`
+- **🔴 B4 — FIX AT THE ROOT THE DEFECTS THE ADJUDICATIONS ARE HOLDING (user, 2026-08-05).** `qa/adjudications/`
   now carries 30 rulings. **Every one is an `override`, i.e. an admission that a prompt or deterministic rule is
   still too weak** — the register's own docstring says the override count is the quality metric for the
   correction, and an entry that flips to `match` should be RETIRED. Work through them by class and decide what
@@ -360,6 +506,18 @@ B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cac
   crudeness (e.g. same-type histology+stage AND — satisfiable and faithful) vs (ii) real defects. Feeds C4.
 - **D4 — reconcile + approval vocab re-run in FULL every cycle** (~10 of 17 min) even with zero churn. A
   fingerprint over the distinct-value set would skip them. Optimisation, not a defect.
+- **D6 — `qa/invariants.py` — THE INVARIANT SWEEP (NEW 2026-08-05). Run it after any change to a mapping helper.**
+  `python -m aus_trial_universe.qa.invariants` (exit 1 on any violation). Six invariant classes over the whole live
+  corpus (4,978 cancer_type + 837 gene + 171 signature), deterministic, no LLM: **C1** a normaliser must not
+  truncate a WORD · **C2** every deterministic transform is idempotent · **C3** canonicalisation must not INVENT a
+  code/term · **C4** parse→render round-trips · **C5** the name mirrors `oncotree_code_FINAL` · **C6** two values
+  sharing a concept key must map to the same code. Currently **0 violations**.
+  **Why it exists:** every defect found on 2026-08-05 was in a *deterministic helper* inside stage 2, and each was
+  found by accident. The helpers are pure functions over a known corpus, so they can be swept exhaustively instead.
+  Its first run found 37 violations in 3 classes — 23 word-truncations in the gene `concept_key` (unbounded
+  `str.replace`, including the meaning inversions "ineligible"→"in" and "unknown"→"un") and 13 non-idempotent keys
+  (a normalisation pass exposing a pattern the previous pass could not see). Extend it whenever a new deterministic
+  helper lands; a violation here is a bug in OUR code, never in the data.
 - **D5 — REVIEW `qa/` AGAINST THE PORTED MATCHING-ENGINE LOGIC (user, 2026-08-05).** Revisit the whole `qa/`
   package now that `engine_port.py` + `engine_conformance.py` encode the engine's parser: which of our checks
   duplicate it, which contradict it, and which of its constraints we should NOT adopt. **Standing principle from
@@ -700,6 +858,14 @@ See `combined_agentic_run.md` §"The matching-engine export" for the full column
   extracted_trials/ctgov_field_extractions.csv` is not read by agentic (CTGov reads `input_trials/` + `download_state/`).
 
 ## Gotchas
+- **⚠ `tests/agentic/test_refresh_exit_codes.py` DRIVES `refresh.main()` FOR REAL and only monkeypatches the stages
+  it knows about — so ANY new side effect added to `refresh.main()` silently mutates PRODUCTION data when the test
+  suite runs.** Found the hard way 2026-08-05: adding the stage-0 baseline snapshot made `make agentic-tests` write
+  **nine** spurious `masters/eligibility/archive/05082026*` dirs into the live store (removed after verifying each
+  was byte-identical to `current_version`). If you add a stage to `refresh.main()`, patch it in that test's fixture
+  in the same commit.
+- **A hand-edited map TSV bypasses `CancerTypeMap.__post_init__`,** so the derived `oncotree_name` goes stale while
+  the code changes. `qa/invariants.py` C5 is the backstop; if you must edit a map directly, re-render the name.
 - **SDK:** `openai 2.44.0`. `.parse()` uses `chat.completions.parse`; `.research()` uses the Responses API
   `web_search` tool (`client.responses.parse(tools=[{"type":"web_search"}], text_format=<pydantic>)`).
 - **Env:** conda `trial_curator` (`/opt/anaconda3/envs/trial_curator/bin/python`); default `python3` lacks the deps.

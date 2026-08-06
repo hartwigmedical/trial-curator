@@ -45,7 +45,12 @@ def _tables():
     for table, kind in ((sents, "sentinel"), (codes, "code"), (names, "name")):
         for key in table:
             lower.setdefault(key.lower(), (kind, key))
-    names_desc = sorted((n for n in names if n not in sents), key=len, reverse=True)
+    # Masking covers EVERY vocabulary name; only RESOLUTION is restricted to the unambiguous ones (`name_to_code`
+    # omits a name shared by several codes). Building this list from `names` would couple the two: a name that
+    # cannot be resolved would also stop being protected from the parser, and names legitimately contain commas,
+    # parentheses and a lowercase "and". None of the 9 currently-ambiguous names happens to contain one, so that
+    # coupling is harmless today — but by accident, not by construction.
+    names_desc = sorted((n for n in set(oncotree_vocab().values()) if n not in sents), key=len, reverse=True)
     return codes, names, sents, names_desc, lower
 
 
@@ -451,3 +456,78 @@ def canonical_string(expr: str, *, drop_vacuous: bool = False) -> str:
     except ParseError:
         return expr
     return render(canonicalise(node, table, drop_vacuous=drop_vacuous))
+
+
+def positive_codes(expression: str) -> set[str] | None:
+    """The codes an expression asserts POSITIVELY, or None if it does not parse."""
+    if not (expression or "").strip():
+        return set()
+    try:
+        node, table = parse(expression)
+    except ParseError:
+        return None
+    return {classify(a.text, table)[1] or a.text for a, negated in atoms(node) if not negated}
+
+
+#: The two ways a mapping can get broader, in DESCENDING order of certainty that it is wrong.
+BROADEN_SENTINEL = "sentinel"   # specific code(s) -> a sentinel. Never a legitimate unification outcome.
+BROADEN_ANCESTOR = "ancestor"   # code -> its own OncoTree ancestor. SOMETIMES legitimate (see below).
+
+
+def broadening(old: str, new: str) -> tuple[str, str] | None:
+    """Is `new` a broader population than `old`? Returns `(kind, reason)` or None.
+
+    The one predicate shared by the reconciler's R6 guard and the `mapping_drift` gate, so the rule the pipeline
+    enforces and the rule the gate checks cannot drift apart. The KIND matters because our confidence differs, and
+    severity should track confidence rather than flatten it:
+
+    `BROADEN_SENTINEL` is unambiguous. Group reconciliation unifies to the most specific code COVERING every
+    member, and a sentinel is never that unless a member already is one (in which case this does not fire). Every
+    one of the nine regressions the 2026-08-05 audit found was of this kind (`ACYC` -> `Solid tumour`,
+    `CERVIX OR OVARY OR UTERUS OR VULVA` -> `Solid tumour`). So it is rejected in-loop AND fails the gate.
+
+    `BROADEN_ANCESTOR` is genuinely ambiguous: `IDC` -> `BREAST` for the value "metastatic breast cancer" is the
+    CORRECT repair of an over-specification, and unifying a group whose members differ in specificity necessarily
+    lands on a parent. But it is also how grade was lost (`ASTR2 OR ASTR3 OR ODG2 OR ODG3` -> `ASTR OR ODG`).
+    Deciding needs the source wording, which no deterministic rule has — so it is allowed through and REPORTED
+    (gate WARN) rather than blocked, and the guard never rejects it.
+
+    Only broadening is policed at all: our locked Step-2 rule is to unify to the most specific covering code, so a
+    move to something narrower may be a real refinement (`DIFG` -> `DMG`), whereas broadening an INCLUSION
+    silently manufactures false matches.
+    """
+    op, np_ = positive_codes(old), positive_codes(new)
+    if op is None or np_ is None or not op:
+        return None                      # unparseable, or nothing to compare against
+    if (np_ & set(SENTINELS)) and not (op & set(SENTINELS)):
+        return (BROADEN_SENTINEL,
+                f"specific code(s) {sorted(op)} replaced by sentinel {sorted(np_ & set(SENTINELS))}")
+    ancestors = [(o, n) for o in op for n in np_
+                 if n not in SENTINELS and o != n and is_subcode(o, n)]
+    if ancestors:
+        return (BROADEN_ANCESTOR,
+                "; ".join(f"{o} replaced by its ancestor {n}" for o, n in sorted(ancestors)))
+    return None
+
+
+def broadens(old: str, new: str) -> str | None:
+    """The reason `new` broadens `old`, of ANY kind, else None. Convenience wrapper over `broadening`."""
+    found = broadening(old, new)
+    return found[1] if found else None
+
+
+def narrows(old: str, new: str) -> str | None:
+    """Is `new` a strictly NARROWER population than `old`? Returns a reason, else None.
+
+    Reported but never blocking: dropping an OR branch (`NSGCT OR SEM` -> `SEM`) restricts the population, which
+    may be a genuine refinement or may be over-restriction. It is recoverable — a reviewing clinician sees the
+    free text — whereas broadening silently manufactures matches, so only `broadens` gates."""
+    op, np_ = positive_codes(old), positive_codes(new)
+    if op is None or np_ is None or not op or broadening(old, new):
+        return None
+    orphaned = [o for o in op
+                if o not in SENTINELS
+                and not any(n in SENTINELS or n == o or is_subcode(o, n) for n in np_)]
+    if orphaned:
+        return f"positive code(s) {sorted(orphaned)} no longer covered"
+    return None

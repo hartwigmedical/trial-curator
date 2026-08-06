@@ -79,10 +79,24 @@ class EligStore:
             e.conjunction_index = int(e.conjunction_index or 0)
             if e.trial_arm_id:
                 store.interpreted.setdefault(trial_id_of(e.trial_arm_id), []).append(e)
-        for row in _read_tsv(vdir / TABLE_FILES["cancer_type_map"]):
-            m = CancerTypeMap(**{k: row.get(k, "") for k in CANCER_TYPE_MAP_COLUMNS})
-            if m.cancer_type:
-                store.cancer_map[m.cancer_type] = m
+        # STAGE 1 of OncoTree mapping now lives in `cancer_type_map_initial.tsv` with stage-suffixed columns, so
+        # the store's files mirror the three-stage process (user, 2026-08-06). The in-memory `CancerTypeMap` keeps
+        # its plain field names — only the on-disk column names carry the stage — so nothing downstream had to move.
+        # The legacy `cancer_type_map.tsv` is still read as a fallback, which is what lets an ARCHIVED snapshot
+        # written before the restructure still load.
+        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import tables as CT_TABLES
+        ct_rows = _read_tsv(vdir / CT_TABLES.INITIAL_FILE)
+        if ct_rows:
+            for row in ct_rows:
+                m = CancerTypeMap(cancer_type=row.get("cancer_type", ""),
+                                  oncotree_code=row.get("oncotree_code_initial", ""))
+                if m.cancer_type:
+                    store.cancer_map[m.cancer_type] = m
+        else:
+            for row in _read_tsv(vdir / TABLE_FILES["cancer_type_map"]):
+                m = CancerTypeMap(**{k: row.get(k, "") for k in CANCER_TYPE_MAP_COLUMNS})
+                if m.cancer_type:
+                    store.cancer_map[m.cancer_type] = m
         for row in _read_tsv(vdir / TABLE_FILES["gene_alteration_map"]):
             m = GeneAlterationMap(**{k: row.get(k, "") for k in GENE_ALTERATION_MAP_COLUMNS})
             if m.gene_alteration:
@@ -171,8 +185,13 @@ class EligStore:
     def _write_maps(self, vdir: Path) -> None:
         """Write the 3 value->vocab map tables (ONLY when populated — an extract-only run leaves just the 2 core
         tables rather than creating empty map placeholders)."""
+        # cancer_type writes the STAGE-1 table via its own module, so the stage-suffixed columns and the derived
+        # `oncotree_name_initial` have exactly one definition. gene_alteration / molecular_signature keep the flat
+        # layout: neither has a three-stage pipeline (user scoped the restructure to OncoTree, 2026-08-06).
+        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import tables as CT_TABLES
+        if self.cancer_map:
+            CT_TABLES.write_initial(vdir, {v: m.oncotree_code for v, m in self.cancer_map.items()})
         for key, cols, rows in (
-            ("cancer_type_map", CANCER_TYPE_MAP_COLUMNS, [asdict(m) for m in self.cancer_map.values()]),
             ("gene_alteration_map", GENE_ALTERATION_MAP_COLUMNS, [asdict(m) for m in self.gene_map.values()]),
             ("molecular_signature_map", MOLECULAR_SIGNATURE_MAP_COLUMNS, [asdict(m) for m in self.signature_map.values()]),
         ):

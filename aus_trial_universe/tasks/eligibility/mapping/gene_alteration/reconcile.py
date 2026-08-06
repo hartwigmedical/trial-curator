@@ -143,17 +143,32 @@ _DROPPABLE = [
 ]
 _PUNCT = re.compile(r"[^a-z0-9+*:]+")
 
+# WORD-BOUNDED, and longest-alternative-first so "likely pathogenic" wins over "pathogenic".
+# The previous implementation used a bare `s.replace(w, " ")` per droppable, i.e. an UNBOUNDED substring match, and
+# the 2026-08-05 invariant sweep found it mangling 23 live values — including two meaning inversions, which is the
+# dangerous kind: "ineligible" -> "in" (dropping "eligible") and "unknown" -> "un" (dropping "known"). A value
+# saying a marker is UNKNOWN could therefore collide with one saying it is KNOWN.
+_DROPPABLE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in sorted(_DROPPABLE, key=len, reverse=True)) + r")\b")
+
+#: Same fixed-point reasoning as `consistency._MAX_NORMALISE_PASSES`: removing one droppable can make two others
+#: adjacent ("by central NGS" -> "by NGS" -> ""), so a single pass is not stable.
+_MAX_NORMALISE_PASSES = 4
+
 
 def concept_key(source: str) -> str:
     """Normalise a source wording to its inexpressible-qualifier-free 'concept'.
 
     Two values with the SAME concept key must map identically — that is the whole basis of grouping rule A.
+    Idempotent: applied to its own output it is a no-op.
     """
     s = (source or "").lower()
-    for w in _DROPPABLE:
-        s = s.replace(w, " ")
-    s = _PUNCT.sub(" ", s)
-    return " ".join(s.split())
+    for _ in range(_MAX_NORMALISE_PASSES):
+        nxt = " ".join(_PUNCT.sub(" ", _DROPPABLE_RE.sub(" ", s)).split())
+        if nxt == s:
+            break
+        s = nxt
+    return s
 
 
 def find_groups(mapped: dict[str, str]) -> list[tuple[str, list[str]]]:

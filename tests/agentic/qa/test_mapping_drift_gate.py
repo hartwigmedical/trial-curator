@@ -10,19 +10,23 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from aus_trial_universe.core.paths import ARCHIVE, CURRENT_VERSION, FINALISED_MAP_FILES
+from aus_trial_universe.core.paths import ARCHIVE, CANCER_TYPE_STAGE_FILES, CURRENT_VERSION
 from aus_trial_universe.qa.gates import FAIL, PASS, WARN, GateReport, _mapping_drift_gate
 
-CT_FILE = FINALISED_MAP_FILES["cancer_type_map"]
+CT_FILE = CANCER_TYPE_STAGE_FILES["finalised"]
 
 
 def _write(path: Path, rows: list[tuple[str, str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, delimiter="\t", lineterminator="\n")
-        w.writerow(["cancer_type", "oncotree_name", "oncotree_code", "oncotree_code_FINAL"])
+        w.writerow(["cancer_type", "oncotree_name_initial", "oncotree_code_initial",
+                    "oncotree_name_reconciled", "oncotree_code_reconciled",
+                    "oncotree_name_finalised", "oncotree_code_finalised"])
         for value, final in rows:
-            w.writerow([value, "", final, final])
+            # rows carry all three stages; the gate reads `_finalised`. Here every stage holds the same
+            # value, since these tests are about the DIFF between versions, not between stages.
+            w.writerow([value, "", final, "", final, "", final])
 
 
 def _store(tmp_path: Path, before: list[tuple[str, str]], after: list[tuple[str, str]]) -> Path:
@@ -52,15 +56,18 @@ def test_fails_on_the_real_b1_regression(tmp_path):
     )
     status, detail = _verdict(root)
     assert status == FAIL, detail
-    assert "BROADENED" in detail
+    assert "SENTINEL" in detail
     assert "2 value(s)" in detail
 
 
-def test_fails_when_a_code_is_replaced_by_its_own_ancestor(tmp_path):
-    """`BLCA` -> `BLADDER` is the organ bucket swallowing the histology — the NMIBC defect."""
+def test_warns_but_does_not_fail_on_ancestor_broadening(tmp_path):
+    """`BLCA` -> `BLADDER` is the organ bucket swallowing the histology — but the SAME shape (`IDC` -> `BREAST`
+    for "metastatic breast cancer") is the correct repair of an over-specification, and unifying group members
+    that differ in specificity necessarily lands on a parent. Deciding needs the source wording, which no
+    deterministic rule has — so it is reported for review, never blocking. See expr.broadening."""
     root = _store(tmp_path, [("high grade NMIBC", "BLCA")], [("high grade NMIBC", "BLADDER")])
     status, detail = _verdict(root)
-    assert status == FAIL, detail
+    assert status == WARN, detail
     assert "ancestor" in detail
 
 
@@ -69,7 +76,7 @@ def test_warns_on_narrowing(tmp_path):
     root = _store(tmp_path, [("germ cell tumour", "NSGCT OR SEM")], [("germ cell tumour", "SEM")])
     status, detail = _verdict(root)
     assert status == WARN, detail
-    assert "narrowed" in detail
+    assert "no longer covered" in detail
 
 
 def test_passes_when_nothing_moved(tmp_path):

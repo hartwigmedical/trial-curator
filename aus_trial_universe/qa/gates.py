@@ -160,12 +160,12 @@ def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> No
     An approved ruling in `qa/adjudications/` is the sanctioned way to change a mapping, so adjudicated values
     are exempt — otherwise the gate would fail on the very fix it is meant to protect.
     """
-    from aus_trial_universe.core.paths import ARCHIVE, CURRENT_VERSION, ELIGIBILITY_OUTPUT, FINALISED_MAP_FILES
+    from aus_trial_universe.core.paths import (ARCHIVE, CANCER_TYPE_STAGE_FILES, CURRENT_VERSION,
+                                              ELIGIBILITY_OUTPUT)
     from aus_trial_universe.qa import adjudications
-    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import expr as ct_expr
-    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import SENTINELS, is_subcode
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import BROADEN_SENTINEL, broadening, narrows
 
-    ct_file = FINALISED_MAP_FILES["cancer_type_map"]
+    ct_file = CANCER_TYPE_STAGE_FILES["finalised"]
     root = Path(store_root or ELIGIBILITY_OUTPUT)
     live, arch_root = root / CURRENT_VERSION, root / ARCHIVE
     if not live.exists() or not arch_root.exists():
@@ -188,41 +188,36 @@ def _mapping_drift_gate(rep: "GateReport", store_root: Path | None = None) -> No
         with open(path, newline="", encoding="utf-8") as fh:
             return {r[key]: (r.get(col) or "").strip() for r in csv.DictReader(fh, delimiter="\t") if r.get(key)}
 
-    def positives(e: str) -> set[str] | None:
-        if not e.strip():
-            return set()
-        try:
-            node, table = ct_expr.parse(e)
-        except Exception:                      # noqa: BLE001 — unparseable is the expression gate's business
-            return None
-        return {ct_expr.classify(a.text, table)[1] or a.text for a, neg in ct_expr.atoms(node) if not neg}
-
     broadened: list[str] = []
     narrowed: list[str] = []
-    now = load(live / ct_file, "cancer_type", "oncotree_code_FINAL")
-    was = load(previous / ct_file, "cancer_type", "oncotree_code_FINAL")
+    now = load(live / ct_file, "cancer_type", "oncotree_code_finalised")
+    was = load(previous / ct_file, "cancer_type", "oncotree_code_finalised")
+    exempt = adjudications.for_column("cancer_type")
     for value, new in now.items():
         old = was.get(value)
-        if old is None or old == new or value in adjudications.for_column("cancer_type"):
+        if old is None or old == new or value in exempt:
             continue
-        np, op = positives(new), positives(old)
-        if np is None or op is None or not op:
-            continue
-        if (np & set(SENTINELS)) and not (op & set(SENTINELS)):
-            broadened.append(f"{value[:48]!r}: {old[:40]} -> {new[:40]}")
-        elif any(o != n and is_subcode(o, n) for o in op for n in np if n not in SENTINELS):
-            broadened.append(f"{value[:48]!r}: {old[:40]} -> ancestor {new[:40]}")
-        elif op - np and not (np & set(SENTINELS)) and len(np) < len(op):
-            narrowed.append(f"{value[:48]!r}: {old[:40]} -> {new[:40]}")
+        # ONE predicate, shared with the reconciler's own guard (expr.broadens), so the rule the pipeline
+        # enforces and the rule this gate checks cannot drift apart.
+        found = broadening(old, new)
+        if found and found[0] == BROADEN_SENTINEL:
+            broadened.append(f"{value[:48]!r}: {found[1]}")
+        elif found:
+            # ancestor-broadening is ambiguous — see expr.broadening. Reported, never blocking.
+            narrowed.append(f"{value[:48]!r}: {found[1]}")
+        else:
+            why = narrows(old, new)
+            if why:
+                narrowed.append(f"{value[:48]!r}: {why}")
 
     detail_tail = f" (vs archive/{previous.name}; {len(now):,} values)"
     if broadened:
         rep.add("mapping_drift", FAIL,
-                f"{len(broadened)} value(s) BROADENED without an approved adjudication{detail_tail}: "
+                f"{len(broadened)} value(s) broadened TO A SENTINEL without an approved adjudication{detail_tail}: "
                 + " · ".join(broadened[:3]) + (" …" if len(broadened) > 3 else ""))
     elif narrowed:
         rep.add("mapping_drift", WARN,
-                f"{len(narrowed)} value(s) narrowed{detail_tail}: "
+                f"{len(narrowed)} value(s) changed specificity (ancestor/narrowing — review){detail_tail}: "
                 + " · ".join(narrowed[:3]) + (" …" if len(narrowed) > 3 else ""))
     else:
         rep.add("mapping_drift", PASS, f"no value broadened or narrowed{detail_tail}")

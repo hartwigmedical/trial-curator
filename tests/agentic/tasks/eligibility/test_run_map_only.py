@@ -50,8 +50,9 @@ def test_map_only_writes_maps_and_preserves_content(tmp_path, monkeypatch):
     assert rc == 0
 
     # the 3 map tables
-    assert _read(cur / "cancer_type_map.tsv") == [
-        {"cancer_type": "advanced NSCLC", "oncotree_name": "Non-Small Cell Lung Cancer", "oncotree_code": "NSCLC"}]
+    assert _read(cur / "cancer_type_map_initial.tsv") == [
+        {"cancer_type": "advanced NSCLC", "oncotree_name_initial": "Non-Small Cell Lung Cancer",
+         "oncotree_code_initial": "NSCLC"}]
     assert _read(cur / "gene_alteration_map.tsv")[0]["finding_model"].startswith("SmallVariant[gene=EGFR")
     assert _read(cur / "molecular_signature_map.tsv")[0]["molecular_signature"] == "MSI-H"
 

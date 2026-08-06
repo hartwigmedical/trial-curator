@@ -83,6 +83,10 @@ def test_a_merely_unattested_symbol_still_only_warns():
 
 # --------------------------------------------------------------------------- the registers
 def test_both_registers_are_populated_and_wellformed():
+    # ⚠ These are FLOORS on the entry count, which will break when the register is CLEANED: every entry is an
+    # admission that a prompt or rule is too weak, so the register is meant to shrink. Retiring the 21 cancer_type
+    # entries the refined stage-1 prompt now reaches unaided drops this below 28 — i.e. it fails on success. Relax
+    # to a non-empty check at that point.
     assert len(adjudications.for_column("cancer_type")) >= 28
     assert len(adjudications.for_column("gene_alteration")) >= 2
     # molecular_signature is deliberately empty, but the register must EXIST so for_column needs no special case

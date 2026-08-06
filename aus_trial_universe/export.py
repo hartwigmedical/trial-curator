@@ -104,7 +104,13 @@ def build_export_rows(elig_store, arm_store, drug_store, trial_info, *, elig_dir
     from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import oncotree_vocab
 
     vocab = oncotree_vocab()
-    ct_final = _read_map(elig_dir / "finalised_cancer_type_map.tsv", "cancer_type", "oncotree_code_FINAL")
+    # The export's `oncotree_code`/`oncotree_name` are the SHIPPING mapping, i.e. stage 3's output (user,
+    # 2026-08-06). Column names here stay as they are: the matching engine consumes this file, so renaming
+    # them would be a breaking change for a downstream consumer.
+    from aus_trial_universe.core.paths import CANCER_TYPE_STAGE_FILES
+    from aus_trial_universe.tasks.eligibility.mapping.workflow import strip_provenance
+    ct_final = _read_map(elig_dir / CANCER_TYPE_STAGE_FILES["finalised"],
+                         "cancer_type", "oncotree_code_finalised")
     ga_final = _read_map(elig_dir / "finalised_gene_alteration_map.tsv", "gene_alteration", "finding_model_FINAL")
     sig_final = _read_map(elig_dir / "finalised_molecular_signature_map.tsv", "molecular_signature", "finding_model_FINAL")
     arm_by_id = {a.trial_arm_id: a for arms in arm_store.arms.values() for a in arms}
@@ -118,7 +124,13 @@ def build_export_rows(elig_store, arm_store, drug_store, trial_info, *, elig_dir
             ti = trial_info.get(tid)
             if e.trial_arm_id not in drug_cache:
                 drug_cache[e.trial_arm_id] = _arm_drug_facts(drug_store, e.trial_arm_id)
-            code = ct_final.get(e.cancer_type_interpreted, "")
+            # ⚠ STRIP PROVENANCE BEFORE THE LOOKUP. The map is keyed on the provenance-stripped value — that is the
+            # key every other join in the pipeline uses — but this call passed the RAW cell. It silently missed for
+            # any cell ending in a bracketed tail, and shipped `oncotree_code=""` for a value that HAS a mapping.
+            # Found 2026-08-06 on NCT06211036, where the tail is TNM detail rather than a provenance tag:
+            #   "…stage IV small-cell lung cancer (SCLC) [T any, N any, M1 a/b/c]"  ->  map has SCLC, export had ""
+            # Two export rows were dropping their tumour type entirely. Pre-dates the three-stage restructure.
+            code = ct_final.get(strip_provenance(e.cancer_type_interpreted), "")
             row = {
                 "trial_arm_id": e.trial_arm_id, "conjunction_index": e.conjunction_index,
                 "trialId": tid, "registry": a.registry if a else "",

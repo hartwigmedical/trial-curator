@@ -22,19 +22,62 @@ _QUALIFIERS = re.compile(
     r"partially|adequately|first[- ]line|second[- ]line|frontline|not\s+curable|curable|measurable)\b",
     re.I,
 )
-_STAGE = re.compile(r"\bstage\s*[0-9ivabc/,\-\s]*", re.I)
-_GRADE = re.compile(r"\bgrade\s*[0-9]+\b", re.I)
+# ⚠ The stage pattern is DELIBERATELY bounded (rewritten 2026-08-05). It used to be
+#     r"\bstage\s*[0-9ivabc/,\-\s]*"
+# whose character class contains a, b, c, i and v — so, case-insensitively, it ate into the FOLLOWING WORD:
+#     "stage III breast cancer"    -> "reast cancer"       (the 'b' consumed)
+#     "stage IV colorectal cancer" -> "olorectal cancer"
+#     "stage I-IVA cervical cancer"-> "ervical cancer"
+# 775 of 4,978 live values were being mangled. That silently DEFEATS the consistency check it feeds: the mangled
+# key no longer equals the un-staged phrasing's key, so "stage III breast cancer" and "breast cancer" were never
+# compared. Now the numeral run is matched explicitly, an optional A/B/C sub-stage must end on a word boundary,
+# and ranges ("I-IVA", "II/III") are handled — so nothing beyond the stage token is consumed.
+# It is also correctly conservative about non-numeric uses: "extensive-stage" (a real SCLC distinction) and TNM
+# ("clinical tumour stage T2-T4a") keep the word, because neither is followed by a plain stage numeral.
+_STAGE = re.compile(r"\bstage\s*[0-9ivx]+[abc]?(?:\s*[-/,]\s*[0-9ivx]+[abc]?)*\b", re.I)
+
+# ⚠ NUMERIC GRADE IS NO LONGER STRIPPED (2026-08-05). It used to be, alongside stage — and that was a real defect:
+# `WHO grade 2 glioma`, `WHO grade 3 glioma` and `WHO grade 4 glioma` all collapsed to the key `who glioma`, so the
+# consistency check reported them as ONE concept mapping to three different codes and handed them to the LLM to
+# unify. But grade IS the discriminating feature for gliomas — grade 2/3 are ASTR2/ASTR3/ODG2/ODG3 and grade 4 is
+# glioblastoma — so "unifying" them can only destroy a real distinction. It did: a grade-2/3 glioma value was
+# flattened from `ASTR2 OR ASTR3 OR ODG2 OR ODG3` to `ASTR OR ODG`. All four groups the check still reported were
+# this same false positive (the worst pairing LGGNOS with HGGNOS).
+#
+# Why removal is strictly safe, not a trade-off: grouping only ever ACTS when members map to DIFFERENT codes.
+# Where grade does not change the code (`grade 3 breast cancer` and `breast cancer` are both BREAST) the members
+# agree, so no group forms and nothing was gained by merging them. Where grade DOES change the code, merging is
+# actively harmful. So stripping grade could only ever cause harm.
+#
+# NB `_QUALIFIERS` deliberately keeps the WORD forms too ("high-grade", "low-grade"), for the same reason.
 
 
-def canonical_key(value: str) -> str:
-    """Normalise a cancer_type value to a canonical concept key by dropping qualifier / stage / grade noise and
-    punctuation (meaningful tumour words and NOT(...) bodies are kept, so genuinely different scopes stay apart)."""
-    v = (value or "").lower()
+#: A normalisation pass can EXPOSE a pattern the previous pass could not see — stripping punctuation turns
+#: "stage <=2" into "stage 2", which `_STAGE` then matches. So one pass is not a fixed point, and a key that
+#: depends on how many times you call it is not a key: two values that differ only in punctuation would land on
+#: different keys and never be compared. Found by the 2026-08-05 invariant sweep (12 live values). Iterating to a
+#: fixed point makes `canonical_key` idempotent by construction; 4 is far above the observed need (2).
+_MAX_NORMALISE_PASSES = 4
+
+
+def _normalise_once(v: str) -> str:
     v = _STAGE.sub(" ", v)
-    v = _GRADE.sub(" ", v)
     v = _QUALIFIERS.sub(" ", v)
     v = re.sub(r"[^a-z0-9]+", " ", v)
     return " ".join(v.split())
+
+
+def canonical_key(value: str) -> str:
+    """Normalise a cancer_type value to a canonical concept key by dropping qualifier / stage noise and
+    punctuation (meaningful tumour words, GRADE and NOT(...) bodies are kept, so genuinely different scopes and
+    grades stay apart). Idempotent: applied to its own output it is a no-op."""
+    v = (value or "").lower()
+    for _ in range(_MAX_NORMALISE_PASSES):
+        nxt = _normalise_once(v)
+        if nxt == v:
+            break
+        v = nxt
+    return v
 
 
 def find_inconsistencies(mapping: dict[str, str]) -> dict[str, dict[str, list[str]]]:

@@ -40,6 +40,7 @@ from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     normalise_code_expression,
     render_name_expression,
 )
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.expr import BROADEN_SENTINEL, broadening
 from aus_trial_universe.tasks.eligibility.mapping.workflow import strip_provenance
 from aus_trial_universe.tasks.eligibility.mapping.finding_model import finding_model_problems
 
@@ -228,11 +229,18 @@ def reconcile_group(client, members: list[tuple[str, str]], problems_by_value: d
 # --------------------------------------------------------------------------- #
 def reconcile_column(
     client, mapping: dict[str, str], *, column: str, workers: int, max_attempts: int, use_reviewer: bool,
+    three_stage: bool = True,
 ) -> tuple[dict[str, str], list[tuple[str, str, list[str]]], int]:
     """Refine one column's {value -> Step-1 code}. Returns (final {value -> FINAL}, unresolved, n_groups).
 
     `unresolved` lists values with an operand that could not be resolved to a real code — the residue for a
     human. It replaces the old name->code repair's failure list.
+
+    `three_stage` selects the ELIGIBILITY cancer_type path: stage 2 (deterministic canonicalisation) + stage 3
+    (approved rulings), no LLM. The DRUG path passes `three_stage=False` and keeps the legacy R0-R8 behaviour,
+    because its `approval_cancer_type_map` is a different table with its own signed-off values, and the
+    2026-08-06 restructure was scoped to eligibility OncoTree mapping only. Changing the drug side silently would
+    re-roll data nobody reviewed — which is exactly the accident this flag exists to prevent.
     """
     from aus_trial_universe.tasks.eligibility.mapping.consistency import find_inconsistencies
 
@@ -240,6 +248,28 @@ def reconcile_column(
     # dispatched rather than squeezed through the OncoTree pipeline below. Until 2026-08-04 the gene column had no
     # stage 2 at all — it short-circuited to `refined[value] = code`, which is why stage-1 output shipped
     # unreconciled. See `mapping/gene_alteration/reconcile.py`.
+    # OncoTree mapping is now THREE explicit stages, all owned by `mapping/cancer_type/` (user, 2026-08-06):
+    # stage 2 = deterministic canonicalisation, stage 3 = approved rulings. Neither uses an LLM, so this branch
+    # makes no API calls at all. The old R4 (per-value LLM repair) and R5/R6 (regex detection + LLM group
+    # adjudication) are GONE for cancer_type: R4 had exactly stage 1's information set, and R5/R6 were the source
+    # of the cross-value churn — a function of a single value cannot be perturbed by other values arriving.
+    if column == CANCER_TYPE and three_stage:
+        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2, stage3
+        reconciled, failures = stage2.run(mapping)
+        if failures:
+            for value, probs in list(failures.items())[:5]:
+                logger.error("stage-2 POSTCONDITION failed for %r: %s", value[:70],
+                             "; ".join(str(p) for p in probs))
+            logger.error("stage 2 produced %d defective value(s) — this is a bug in the rewrite, not the data",
+                         len(failures))
+        finalised, overridden = stage3.run(reconciled)
+        orphans = stage3.orphaned_rulings(reconciled)
+        if orphans:
+            logger.info("stage 3 · %d ruling(s) no longer match any value (prune candidates)", len(orphans))
+        logger.info("cancer_type · stage 2 changed %d · stage 3 overrode %d",
+                    sum(1 for v in mapping if mapping[v] != reconciled[v]), len(overridden))
+        return finalised, [], 0
+
     if column == GENE_ALTERATION:
         from aus_trial_universe.tasks.eligibility.mapping.gene_alteration import reconcile as ga_reconcile
         return ga_reconcile.reconcile_column(
@@ -278,9 +308,30 @@ def reconcile_column(
                                                               max_attempts=max_attempts,
                                                               use_reviewer=use_reviewer), {})
                             for m in members], max_workers=workers)
+        rejected = 0
         for verdict in verdicts:
-            if verdict:
-                refined.update(verdict)
+            if not verdict:
+                continue
+            if is_oncotree:
+                # ANTI-BROADENING GUARD, scoped to the kind we are CERTAIN about. Group adjudication is the one
+                # place an LLM rewrites a value that had no defect of its own, and it is how the 2026-08-05
+                # regressions happened. But it is also how a genuine over-specification is repaired (`IDC` ->
+                # `BREAST` for "metastatic breast cancer"), and unifying members that differ in specificity
+                # necessarily lands on a parent — so rejecting every broadening would defeat the stage's purpose.
+                # Only BROADEN_SENTINEL is rejected: unifying to a sentinel is never the most specific covering
+                # code, so it is always wrong. Ancestor-broadening is allowed through and surfaced by the gate as
+                # a WARN for review. See expr.broadening for the full argument.
+                for value, proposed in list(verdict.items()):
+                    found = broadening(refined.get(value, ""), proposed)
+                    if found and found[0] == BROADEN_SENTINEL:
+                        logger.warning("R6 adjudication REJECTED for %r: would broaden to a sentinel — %s",
+                                       value[:70], found[1])
+                        verdict.pop(value)
+                        rejected += 1
+            refined.update(verdict)
+        if rejected:
+            logger.info("R6 · %d adjudication(s) rejected (would broaden to a sentinel); prior mapping kept",
+                        rejected)
 
     # ---- R7: converge (oncotree only), then apply any approved hand-ruling ------
     # The ruling is applied for EVERY column this function handles, not just oncotree: the register is looked up by
@@ -326,14 +377,14 @@ def write_finalised_maps(store, maps_dir: Path, ct_final, ga_final, sig_final) -
     """The finalised map-table SET (still 3NF single-key lookups) — each = the Step-1 map columns + an appended
     `*_FINAL` column. Written into the 3NF store dir (current_output/) alongside the Step-1 maps, NOT joined/."""
     from aus_trial_universe.core.paths import FINALISED_MAP_FILES
-    _write_tsv(Path(maps_dir) / FINALISED_MAP_FILES["cancer_type_map"],
-               ["cancer_type", "oncotree_name", "oncotree_code", "oncotree_code_FINAL"],
-               # `oncotree_name` here mirrors oncotree_code_FINAL — the value that actually ships. The Step-1
-               # table keeps its own name, mirroring its own (faithful, pre-refinement) code.
-               [{"cancer_type": v, "oncotree_code": m.oncotree_code,
-                 "oncotree_code_FINAL": ct_final.get(v, m.oncotree_code),
-                 "oncotree_name": render_name_expression(ct_final.get(v, m.oncotree_code))}
-                for v, m in store.cancer_map.items()])
+    from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2, tables as ct_tables
+
+    # cancer_type gets its THREE stage tables. Stage 2 is recomputed here rather than threaded through the call
+    # chain — it is a pure function of stage 1, so recomputing is free and cannot disagree with what stage 3 saw.
+    ct_initial = {v: m.oncotree_code for v, m in store.cancer_map.items()}
+    ct_reconciled, _ = stage2.run(ct_initial)
+    ct_tables.write_all(Path(maps_dir), ct_initial, ct_reconciled,
+                        {v: ct_final.get(v, ct_reconciled[v]) for v in ct_initial})
     _write_tsv(Path(maps_dir) / FINALISED_MAP_FILES["gene_alteration_map"],
                ["gene_alteration", "finding_model", "finding_model_FINAL"],
                [{"gene_alteration": v, "finding_model": m.finding_model,

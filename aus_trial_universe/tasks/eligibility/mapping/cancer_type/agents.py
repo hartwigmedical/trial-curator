@@ -109,22 +109,108 @@ hierarchy — always use the MOST SPECIFIC one that covers the trial's scope:
 If a value is genuinely NOT an oncological condition (a non-cancer disease, a procedure, a therapy, a lab value),
 return "" (empty). Difficulty is NOT a reason to bail: a real cancer ALWAYS has at least a sentinel.
 
+A SENTINEL IS THE LAST RESORT, NOT THE EASY ANSWER. It is correct only where the SOURCE ITSELF states a scope that
+broad ("advanced solid tumours", "any malignancy"). Work down this order and stop at the first that applies:
+  1. The source NAMES a tumour type that has a node -> use that node, even if the source also says "solid
+     tumours". A broad phrase followed by a colon, a dash or "AND <specific type>" is a COHORT HEADING, not the
+     criterion: map what follows it.
+     Before answering with a node ABOVE the one the source names, read what that node is CALLED and ask what else
+     it lets in. A super-class whose name is broader than the source's term is the wrong answer:
+       MBN is "Mature B-Cell Neoplasms" — it admits CLL/SLL, mantle cell, marginal zone and plasma-cell myeloma, so
+         it is NEVER the answer for "diffuse large B-cell lymphoma" (-> DLBCLNOS) or for a source that enumerates
+         LBCL subtypes (-> those subtypes, OR'd).
+       LNM is "Lymphoid Neoplasm" — it admits the lymphoid LEUKAEMIAS and plasma-cell neoplasms, so it is not the
+         answer for "lymphoma" (-> HL OR NHL).
+     The same check applies to any parent: use it only when it covers the stated set and little else.
+     WHEN YOU NAME TWO COMPONENTS, JOIN THEM WITH OR. A source describing one disease as COEXISTENT WITH, ARISING
+     FROM or TRANSFORMED FROM another names two histologies in one patient — but the vocabulary carries one tumour
+     type per patient, so ANDing them is unsatisfiable and a patient recorded under EITHER code satisfies the
+     criterion: "DLBCL coexistent with gastric MALT lymphoma" -> DLBCLNOS OR EMALT, never DLBCLNOS AND EMALT.
+     Naming both components is right; ANDing them is not.
+     Where the source ENUMERATES subtypes, map the ENUMERATION — never substitute a parent that also admits
+     types the source did not name: "large B-cell lymphomas (DLBCL, grade 3b follicular lymphoma, primary
+     mediastinal B-cell lymphoma)" -> DLBCLNOS OR FL OR PMBL, not MBN with exclusions bolted on. A parent is right
+     only where it covers EXACTLY the named set and nothing else — "nodal, splenic, or extranodal marginal zone
+     lymphoma" -> MZL is correct, because MZL's children are exactly those three.
+  2. OncoTree has no SITE-AGNOSTIC node for the named entity but has site-specific ones -> enumerate the
+     clinically relevant sites, OR'd, rather than retreating upward ("malignant mesothelioma" -> PEMESO OR PLMESO).
+     CHECK FOR A SINGLE COVERING NODE FIRST, and do not enumerate if one exists: "adenoid cystic carcinoma" -> ACYC
+     alone, because ACYC *is* the site-agnostic node — listing its site variants is both redundant and wrong.
+     And enumerate only CLINICALLY MATERIAL sites: mesothelioma is peritoneal and pleural; testicular mesothelioma
+     is vanishingly rare and adding it misrepresents the trial's population.
+     Some OncoTree NAMES exist under several organ trees (the germ-cell and teratoma entities), so the name alone
+     does not determine the code. Take the site FROM THE SOURCE wherever it gives one ("ovarian mature teratoma" ->
+     OMT). Only where the source states no site at all, enumerate every site variant — never pick one arbitrarily,
+     since the vocabulary gives you no basis for choosing, and never retreat to a broad term.
+  3. The tumour sits in a TISSUE that has a node -> use the tissue node ("spine cancer" -> BONE).
+  4. Otherwise, the most specific broad term covering the stated scope. An UNSPECIFIC COHORT LABEL that still
+     denotes a MALIGNANT population — "additional tumour type", "other tumour types", "specific indications",
+     "rare tumour types" — names no entity but is a cancer cohort, so it takes the broad term appropriate to the
+     trial rather than "".
+     THIS DOES NOT MAKE EVERY VAGUE PHRASE A CANCER. Return "" when the value states no malignant diagnosis at all,
+     however cancer-adjacent its wording: a SCREENING or PREVENTION cohort ("colorectal cancer screening", "ovarian
+     cancer prevention") describes people who may not have the disease; an explicitly BENIGN or PRE-MALIGNANT lesion
+     ("benign tumour", "atypical naevus") is not a malignancy. Naming a cancer is not the same as having one.
+A bare broad term for a source that names a specific entity is a hard error: it silently admits every unrelated
+tumour type in the body, and every one of those is a false trial match.
+
 GRANULARITY — map only as specific as the SOURCE WORDING supports (no broader, no narrower):
+- A stated WHO GRADE is a narrowing attribute exactly like a histology, and the vocabulary carries it: ASTR2 /
+  ASTR3 / ASTR4, LGGNOS vs HGGNOS. So do not answer with the grade-agnostic node when the source states a grade:
+  "WHO Grade 2 glioma" -> LGGNOS, not GNOS; "grade 3 astrocytoma" -> ASTR3.
+  A STATED GRADE BOUNDS THE ANSWER IN BOTH DIRECTIONS. It selects the matching node AND rules out every node of a
+  grade the source does not state — so never widen a graded source into a set that reaches past it. "glioma, grade 2
+  or 3 at initial diagnosis" -> the grade-2/3 nodes ONLY; including ASTR4 or any grade-4 node contradicts the source,
+  and does so invisibly, since the expression stays well-formed.
 - Go as granular as the stated subtype/histology allows: "lung adenocarcinoma" -> LUAD; "clear cell RCC" -> CCRCC;
   "high-grade serous ovarian" -> HGSOC; "PDAC" (ductal adenocarcinoma) -> PAAD.
 - When the source names an organ cancer WITHOUT a histology, do NOT infer one — map to the ORGAN node:
   "prostate cancer" -> PROSTATE; "pancreatic cancer" -> PANCREAS; "breast cancer" -> BREAST.
   (Named exception: "colorectal cancer" -> COADREAD.)
+  BUT CHECK THE NODE'S NAME FIRST: a few organ nodes name TWO organs — STOMACH is "Esophagus/Stomach", OVARY is
+  "Ovary/Fallopian Tube", VULVA is "Vulva/Vagina", BLADDER is "Bladder/Urinary Tract", BRAIN is "CNS/Brain". Such a
+  node is NOT the node for either organ alone, because using it silently admits the other one. Where the source
+  names just one of them, use the conventional histology node for that organ instead — the same convention as
+  colorectal: "gastric cancer" -> STAD (Stomach Adenocarcinoma), never STOMACH; "oesophageal cancer" -> the
+  oesophageal nodes, never STOMACH.
 - When OncoTree has NO finer node for a stated subtype, use the closest ancestor rather than inventing one:
   "eyelid squamous cell carcinoma" -> SKIN.
-- An ANATOMIC / REGIONAL scope OncoTree has no node for — "abdominal", "pelvic", "thoracic", "CNS-located",
-  "GASTROINTESTINAL / GI", "upper GI", "hepatobiliary", "genitourinary / GU", "head and neck region" — is an
-  INEXPRESSIBLE qualifier: map to the appropriate broad SENTINEL **ALONE**. Do NOT approximate the region by
-  enumerating the organs inside it: "advanced GI tumour" -> Solid tumour, NEVER
-  "STOMACH OR BOWEL OR LIVER OR PANCREAS OR BILIARY_TRACT OR AMPULLA_OF_VATER". Enumerating is both broader and
-  narrower than the source at once, and it invents a list the protocol never wrote. This holds INSIDE NOT() as
-  well: "any cancer except GI cancers" -> Pan-cancer (the region is inexpressible, so the exclusion is omitted),
-  never Pan-cancer AND NOT(<the organ list>).
+- The converse of the organ-node rule above: when the source states an organ AND a histology, answer the HISTOLOGY
+  node — do not let the organ bucket swallow it ("non-muscle-invasive bladder urothelial carcinoma" -> BLCA, not
+  BLADDER). The organ node is for a source that states no histology. (BREAST below is the one exception, where the
+  histology node is only a near-synonym of the organ.)
+  A HISTOLOGY IS STATED whenever the source uses any histological word at all, not only a named subtype:
+  "carcinoma", "adenocarcinoma", "squamous cell", "epithelial", "non-epithelial", "sarcoma", "melanoma",
+  "lymphoma", "urothelial", "serous", "endometrioid", "clear cell", "small cell", "neuroendocrine". Counterexamples
+  that the organ bucket must NOT swallow:
+      "esophageal carcinoma"            -> the oesophageal CARCINOMA nodes, never STOMACH
+      "epithelial fallopian tube cancer"-> OVT (Ovarian Epithelial Tumor), never the OVARY organ node
+      "diffuse large B-cell lymphoma"   -> DLBCLNOS, never its parent MBN
+      "Richter's transformation"        -> the transformed lymphoma's own node, never the LNM super-class
+  Only a bare organ phrase with no histological word gets the organ node ("prostate cancer" -> PROSTATE).
+- A term that is a WHO ENTITY NAME carries its molecular qualifier as part of that name, so using it is stating,
+  not inferring: a source that writes "diffuse midline glioma" HAS specified H3 K27-altered disease (-> DMG), just
+  as one writing "astrocytoma, IDH-mutant" has specified IDH status (-> ASTR). The reverse also holds: where the
+  source gives only a descriptive or anatomic picture, do NOT infer the molecular entity — a bare "astrocytoma" is
+  not ASTR, and a bare "DIPG" is not DMG.
+- TIE-BREAK when two candidates both look defensible: choose the one whose PATIENT POPULATION matches the
+  source's, neither broader nor narrower. That is what faithfulness means when the vocabulary and the source do not
+  use the same words.
+- A REGIONAL / ANATOMIC scope with no single OncoTree node. Ask ONE question: does the wording name a set of
+  organs that clinical practice treats as DEFINITE and standard?
+    NO — the region cuts across organs with no settled membership ("abdominal", "intra-abdominal", "pelvic",
+      "thoracic", "CNS-located", "any site"). It is an INEXPRESSIBLE qualifier: use the broad term ALONE and do not
+      invent an organ list, because a list you construct is both broader and narrower than the source at once.
+      "abdominal or pelvic malignancy" -> Solid tumour. Inside NOT() such a region cannot be excluded at all, so
+      the exclusion is omitted: "any cancer except GI cancers" -> Pan-cancer.
+    YES — it is a conventional ORGAN SYSTEM whose membership is standard. Then it IS expressible: enumerate the
+      organ nodes it covers, OR'd. A broad term here is wrong, because it admits every other tumour type in the
+      body. "gynaecological cancer" -> CERVIX OR OVARY OR UTERUS OR VULVA (those four nodes span the female
+      reproductive tract: OVARY covers the fallopian tube, VULVA covers the vagina).
+  Two consequences of the same reasoning: if OncoTree HAS a node for the region, that node wins over any
+  enumeration ("head and neck cancer" -> HEAD_NECK); and an UNKNOWN PRIMARY is its own diagnosis that outranks any
+  region, since a SUSPECTED site is not a stated one ("nodal metastases from an unknown primary, suspected head and
+  neck origin" -> CUP).
 - BREAST is a special case. `BRCA` is NAMED "Invasive Breast Carcinoma", so a source saying "invasive breast
   carcinoma" looks like an exact match for it. It is NOT: BRCA is a near-synonym of the organ node and only
   fragments matching. Generic breast cancer / breast carcinoma / INVASIVE BREAST CARCINOMA / invasive breast
@@ -136,8 +222,19 @@ GRANULARITY — map only as specific as the SOURCE WORDING supports (no broader,
 - Genuinely different tumour types stated as alternatives are OR-branches: "AML/MDS" -> AML OR MDS.
 - When a NOT() excludes a broad tumour CATEGORY ("sarcomas", "lymphomas", "neuroendocrine tumours"), exclude the
   BROAD node(s) covering it, never a narrow "..., NOS" subtype: "NOT(sarcomas)" -> NOT(SOFT_TISSUE OR BONE).
-- An exclusion of a type that could not have matched your positive scope anyway is harmless — state it if the
-  source states it. Do NOT invent one.
+- WHICH EXCLUSIONS BELONG HERE follows from what this field IS: the cancer type(s) the trial is interested in,
+  i.e. the cancer the patient CURRENTLY has. So a NOT() belongs here only if it narrows THAT. Two consequences:
+    - A PRIOR illness is out of scope entirely. "history of X", "prior diagnosis of X", "previous X" describes a
+      different disease at a different time; it is a separate eligibility criterion and never a tumour-type
+      carve-out. Drop it. Only wording about the present disease can narrow the present disease — "concurrent X",
+      "the primary tumour is X", "signs or symptoms of X", or X named as an ineligible subtype.
+    - An exclusion the positive scope could not have contained is a no-op. Only a DESCENDANT of your positive term
+      could otherwise satisfy your own inclusion; a sibling or unrelated tumour could not, so excluding it changes
+      nothing ("NMIBC urothelial carcinoma, excluding upper-tract urothelial carcinoma" -> BLCA, since UTUC is a
+      sibling of BLCA under BLADDER).
+  Where the source ENUMERATES excluded types, map the list ITEM BY ITEM: a dropped item silently admits patients
+  the protocol excludes, and nothing downstream can see that it is gone. Also drop a disease SITE ("CNS involvement
+  of myeloma"), a treatment history, and anything OncoTree cannot express. Never invent an exclusion.
 
 EXAMPLES (source -> oncotree_code):
 - "metastatic NSCLC"                                     -> NSCLC
@@ -165,6 +262,10 @@ EXAMPLES (source -> oncotree_code):
 - "relapsed/refractory multiple myeloma; exclude ongoing MDS or B-cell malignancy other than myeloma; exclude
    recurrent malignancy other than myeloma; exclude CNS involvement of myeloma"   -> PCM
    (all three exclusions are second-malignancy or disease-site, not tumour-type carve-outs)
+- "gynaecological cancer"                                -> CERVIX OR OVARY OR UTERUS OR VULVA
+- "invasive breast carcinoma; exclude concurrent DCIS; exclude prior diagnosis of breast carcinoma"
+                                                         -> BREAST AND NOT(DCIS)
+   (concurrent narrows the present disease; the prior-diagnosis clause is a different criterion and is dropped)
 - "Rett syndrome"                                        -> (empty)
 - "history of malignancy except non-melanoma skin cancer excised >2 years prior" -> (empty)
    (this states no tumour type of its own — it is a prior-malignancy exclusion)
@@ -198,8 +299,15 @@ Set faithful=true only if ALL of the following hold; otherwise faithful=false wi
    more-specific node would require INFERRING an attribute the source does not state (a molecular status such as
    IDH-mutant or H3 K27-altered, or a histology), then the ancestor is CORRECT and is NOT under-granular. Under-
    granularity applies only when the source itself states the narrowing attribute and a node captures exactly it.
-     "DIPG ... WHO grade 2-4 glioma" -> DIFG is CORRECT; DMG would infer H3 K27-altered, which the source
-       never states. Do not demand DMG.
+     A WHO ENTITY NAME carries its molecular qualifier, so using it STATES that qualifier rather than inferring
+       it; a purely descriptive or anatomic phrase does not. Judge which one the source used:
+         "DIPG ... WHO grade 2-4 glioma" is the radiological picture with no entity name, so DMG would infer H3
+           K27-altered. Do not demand DMG; PDIFHG (Pediatric-Type Diffuse High-Grade Glioma) is the right scope,
+           spanning both H3-altered (DMG) and H3-wildtype (DPHGG) disease.
+         "diffuse midline glioma" / "H3 K27-altered" IS the WHO CNS5 entity name, so REQUIRE DMG where the source
+           writes it — including "radiologically diagnosed diffuse midline glioma that is DIPG".
+       DIFG (Diffuse Glioma) is too broad for either case: it also covers every adult astrocytoma and
+       oligodendroglioma.
      "transformed large B-cell lymphoma" -> the closest supported ancestor is CORRECT; DLBCLNOS would assert a
        specific subtype the source does not name.
    If you have already objected that a value is over-granular, you may not then object that its ancestor is
@@ -215,6 +323,26 @@ Set faithful=true only if ALL of the following hold; otherwise faithful=false wi
    that states no tumour type of its own (a pure prior-malignancy or CNS-involvement exclusion).
 6. EXCLUSIONS ARE TUMOUR-TYPE CARVE-OUTS — fail any NOT() that encodes a prior/second/other malignancy, a CNS or
    metastasis SITE, a synchronous primary, or a carve-out conditioned on stage/grade/age. Those must be dropped.
+6b. BUT RULE 6 IS ABOUT A DIFFERENT DISEASE, AND OVER-APPLYING IT IS THE MORE DAMAGING DIRECTION. This field holds
+   the cancer the patient CURRENTLY has, so rule 6 removes exclusions concerning some OTHER disease — a prior or
+   second malignancy, a metastasis site. It does not license removing an exclusion that narrows the CURRENT
+   enrolling population. Before accepting a dropped NOT(), check both: does the source present the entity as
+   present disease ("concurrent X", "the primary tumour is X", "signs or symptoms of X", an ineligible subtype)
+   rather than as history; and is the entity a DESCENDANT of the positive scope, so that it could otherwise have
+   satisfied the inclusion? If both hold, the exclusion must be there — fail the mapping.
+     SOURCE "advanced solid cancer; exclude where the PRIMARY TUMOUR is HER2-amplified breast or gastric
+     adenocarcinoma", proposed "Solid tumour AND NOT(STAD)"
+       -> half of a stated present-disease exclusion was dropped. fix "Solid tumour AND NOT(BREAST OR STAD)"
+   Conversely, a sibling exclusion is correctly dropped, and so is a "history of" clause.
+6c. STATED HISTOLOGY BEATS THE ORGAN BUCKET — fail an organ node where the source states the histology
+   ("non-muscle-invasive bladder urothelial carcinoma" -> BLCA, not BLADDER). BREAST is the one exception.
+6d. BROAD-TERM MISUSE — fail a bare sentinel where the source names an entity that has a node, or names a scope
+   that an exact SET of nodes covers. A sentinel is correct only where the source itself states a scope that broad.
+   This applies to SUPER-CLASS NODES as well as to the three sentinels: read the node's NAME and ask what it admits
+   beyond what the source named. Fail MBN ("Mature B-Cell Neoplasms", which admits CLL, mantle cell, marginal zone
+   and myeloma) for a source naming large B-cell lymphoma or its subtypes; fail LNM ("Lymphoid Neoplasm", which
+   admits the lymphoid leukaemias) for a source naming "lymphoma", where HL OR NHL is exact. Also fail a
+   grade-agnostic node where the source states a WHO grade the vocabulary can express (LGGNOS, not GNOS).
 7. STRUCTURE — no two co-exclusive types ANDed; no broad term together with its own subtype (AND *or* OR); no
    excluded ancestor of an included code; no OR-branch excluded by a sibling; no negation-only expression; no
    negated sentinel; nesting only for SKIN AND NOT(MEL) or NSCLC AND NOT(LUSC).

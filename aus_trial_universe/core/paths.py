@@ -92,8 +92,18 @@ FINALISED_MAPPED_ELIGIBILITY_FILE = "finalised_mapped_eligibility.tsv"   # Step-
 MAPPED_APPROVALS_FILE = "mapped_drug_regulatory_approval.tsv"  # drug approvals ⋈ vocab maps -> joined/drug_annotations/
 # The Step-2 finalised map-table set (Step-1 cols + a `*_FINAL` col). These are still 3NF single-key LOOKUP tables
 # (same kind as the Step-1 maps), so they live in the 3NF store (current_output/), NOT in joined/.
+#: OncoTree mapping is THREE stages, so it has three tables — outputs mirror the process (user, 2026-08-06).
+#: Columns accrete, so `_finalised` carries the whole provenance chain. Definitions in
+#: `mapping/cancer_type/tables.py`; `_finalised` is what ships.
+CANCER_TYPE_STAGE_FILES = {
+    "initial": "cancer_type_map_initial.tsv",
+    "reconciled": "cancer_type_map_reconciled.tsv",
+    "finalised": "cancer_type_map_finalised.tsv",
+}
+
+#: gene_alteration / molecular_signature keep the two-file layout: neither has a three-stage pipeline, and the
+#: 2026-08-06 restructure was scoped to OncoTree only. Revisit if either grows a stage 2.
 FINALISED_MAP_FILES = {
-    "cancer_type_map": "finalised_cancer_type_map.tsv",
     "gene_alteration_map": "finalised_gene_alteration_map.tsv",
     "molecular_signature_map": "finalised_molecular_signature_map.tsv",
 }
@@ -149,6 +159,37 @@ def prune_archive(root: Path, *, keep: int = ARCHIVE_KEEP) -> list[Path]:
         shutil.rmtree(d, ignore_errors=True)
         removed.append(d)
     return removed
+
+
+def snapshot_current_version(root: Path, label: str) -> Path | None:
+    """COPY ``root/current_version`` → ``root/archive/<label>/``, leaving the live version in place.
+
+    The copy-vs-move counterpart of `archive_current_version`, for the ACCUMULATING stores. A versioned input
+    resource is replaced wholesale each cycle, so moving it aside is right; the eligibility store is loaded,
+    upserted and written back, so moving it would leave `EligStore.load()` with no `current_version/` and silently
+    fall through to an old snapshot dir. Hence copy.
+
+    Added 2026-08-05 so the eligibility store gets what every other versioned store already had: a per-cycle
+    baseline. Two things depend on it — the `mapping_drift` gate compares the live maps against the newest archive,
+    so without a per-cycle snapshot it diffs against an ever-staler state and reports CUMULATIVE drift instead of
+    "what this cycle changed"; and a cycle that goes wrong has a rollback point for the one dataset that costs
+    hours of LLM curation to re-derive.
+
+    Deliberately NOT pruned — `prune_archive` documents that masters' archives are curation history. ~28 MB of TSV
+    per cycle, which is also exactly the history the F1 "masters into git" plan wants to keep.
+    """
+    cur = Path(root) / CURRENT_VERSION
+    if not cur.exists():
+        return None
+    archive_root = Path(root) / ARCHIVE
+    archive_root.mkdir(parents=True, exist_ok=True)
+    dest = archive_root / label
+    seq = 2
+    while dest.exists():
+        dest = archive_root / f"{label}_{seq}"
+        seq += 1
+    shutil.copytree(cur, dest)
+    return dest
 
 
 def archive_current_version(root: Path, label: str) -> Path | None:

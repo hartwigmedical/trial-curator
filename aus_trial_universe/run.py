@@ -131,7 +131,8 @@ def _compute_new_maps(client, elig_store, elig_rows, strip_provenance, kw):
     return ct, ga, sig
 
 
-def _run_map_only(client, elig_store, run_dir, joined_dir, *, workers, max_attempts, use_reviewer, log) -> int:
+def _run_map_only(client, elig_store, run_dir, joined_dir, *, workers, max_attempts, use_reviewer, log,
+                  columns: frozenset[str] = frozenset()) -> int:
     """MAPPING-ONLY pass (Step 1): map every DISTINCT interpreted cell across ALL THREE columns in ONE concurrent
     pool, then write the outputs — the 3 value->vocab map tables (3NF) into ``run_dir`` (current_output/), and the
     DENORMALIZED per-row `mapped_eligibility.tsv` into ``joined_dir`` (the top-level joined/ view dir; keeps the
@@ -145,11 +146,17 @@ def _run_map_only(client, elig_store, run_dir, joined_dir, *, workers, max_attem
     rows = [e for elist in elig_store.interpreted.values() for e in elist]
     log.info(stage(f"MAPPING (map-only) · {len(rows)} interpreted row(s) · single pool · {workers} workers"))
 
+    # An out-of-scope column is fed an EMPTY cell list, so it is neither mapped nor written and its existing table
+    # is left exactly as it was. Blanking the input is safer than filtering the output: nothing can be recomputed
+    # and then accidentally persisted.
+    want = (lambda c: not columns or c in columns)
+    if columns:
+        log.info(stage(f"COLUMN SCOPE · {', '.join(sorted(columns))} (others untouched)"))
     ct, ga, sig = map_all_columns(
         client,
-        [r.cancer_type_interpreted for r in rows],
-        [r.gene_alteration_interpreted for r in rows],
-        [r.molecular_signature_interpreted for r in rows],
+        [r.cancer_type_interpreted for r in rows] if want("cancer_type") else [],
+        [r.gene_alteration_interpreted for r in rows] if want("gene_alteration") else [],
+        [r.molecular_signature_interpreted for r in rows] if want("molecular_signature") else [],
         max_attempts=max_attempts, use_reviewer=use_reviewer, workers=workers,
     )
     for v, r in ct.items():
@@ -173,7 +180,8 @@ def _run_map_only(client, elig_store, run_dir, joined_dir, *, workers, max_attem
     return 0
 
 
-def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_attempts, use_reviewer, log) -> int:
+def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_attempts, use_reviewer, log,
+                   columns: frozenset[str] = frozenset()) -> int:
     """MAPPING STEP 2 — cross-value reconciliation. Reads the store's 3 map tables, reconciles each column
     (deterministic name->code repair + OR-order normalise, then LLM-adjudicate the remaining semantic groups),
     and writes: the finalised map-table SET (still 3NF single-key lookups) into ``maps_dir`` (the store,
@@ -192,12 +200,39 @@ def _run_reconcile(client, elig_store, maps_dir, joined_dir, *, workers, max_att
     ga_before = len(find_inconsistencies({v: m.finding_model for v, m in elig_store.gene_map.items()}))
     sig_before = len(find_inconsistencies({v: m.finding_model for v, m in elig_store.signature_map.items()}))
 
-    ct_final, ct_unres, ct_groups = reconcile_column(
-        client, {v: m.oncotree_code for v, m in elig_store.cancer_map.items()}, column=CANCER_TYPE, **kw)
-    ga_final, _gu, ga_groups = reconcile_column(
-        client, {v: m.finding_model for v, m in elig_store.gene_map.items()}, column=GENE_ALTERATION, **kw)
-    sig_final, _su, sig_groups = reconcile_column(
-        client, {v: m.finding_model for v, m in elig_store.signature_map.items()}, column=MOLECULAR_SIGNATURE, **kw)
+    want = (lambda c: not columns or c in columns)
+    if columns:
+        log.info(stage(f"COLUMN SCOPE · {', '.join(sorted(columns))} (others keep their existing finalised values)"))
+
+    def _keep(existing_file: str, key_col: str, val_col: str, fallback: dict[str, str]) -> dict[str, str]:
+        """An out-of-scope column's finalised values, read back from disk so the writer re-emits them unchanged."""
+        import csv as _csv
+        p = Path(maps_dir) / existing_file
+        if not p.exists():
+            return fallback
+        with open(p, newline="", encoding="utf-8") as fh:
+            return {r[key_col]: r.get(val_col, "") for r in _csv.DictReader(fh, delimiter="\t") if r.get(key_col)}
+
+    ct_step1 = {v: m.oncotree_code for v, m in elig_store.cancer_map.items()}
+    ga_step1 = {v: m.finding_model for v, m in elig_store.gene_map.items()}
+    sig_step1 = {v: m.finding_model for v, m in elig_store.signature_map.items()}
+
+    if want("cancer_type"):
+        ct_final, ct_unres, ct_groups = reconcile_column(client, ct_step1, column=CANCER_TYPE, **kw)
+    else:
+        from aus_trial_universe.tasks.eligibility.mapping.cancer_type import tables as _ct_tables
+        ct_final, ct_unres, ct_groups = _keep(_ct_tables.FINALISED_FILE, "cancer_type",
+                                              "oncotree_code_finalised", ct_step1), [], 0
+    if want("gene_alteration"):
+        ga_final, _gu, ga_groups = reconcile_column(client, ga_step1, column=GENE_ALTERATION, **kw)
+    else:
+        ga_final, ga_groups = _keep("finalised_gene_alteration_map.tsv", "gene_alteration",
+                                    "finding_model_FINAL", ga_step1), 0
+    if want("molecular_signature"):
+        sig_final, _su, sig_groups = reconcile_column(client, sig_step1, column=MOLECULAR_SIGNATURE, **kw)
+    else:
+        sig_final, sig_groups = _keep("finalised_molecular_signature_map.tsv", "molecular_signature",
+                                      "finding_model_FINAL", sig_step1), 0
 
     write_finalised_maps(elig_store, maps_dir, ct_final, ga_final, sig_final)   # 3NF lookups -> the store
     write_finalised_mapped_eligibility(elig_store, joined_dir, ct_final, ga_final, sig_final)   # flat view -> joined/
@@ -237,6 +272,13 @@ def main(argv: list[str] | None = None) -> int:
                              "value->vocabulary tables (cancer_type/gene_alteration/molecular_signature), then save. "
                              "Skips extraction, drug top-up and combined; the raw + interpreted content tables are "
                              "left untouched. Every distinct value is mapped afresh (no reliance on prior maps).")
+    # ⚠ SCOPE GUARD, added 2026-08-06 after a cancer-type-only migration silently re-rolled gene_alteration.
+    # `--map-only` and `--reconcile` are whole-store commands; without this every column-scoped change risks the
+    # other two, and the refine loop is NOT reproducible from cache (one missed entry mid-chain diverges the rest),
+    # so a re-roll is not a no-op even with an unchanged prompt. 3 gene values drifted that way, one badly.
+    parser.add_argument("--columns", default="",
+                        help="Restrict --map-only/--reconcile to these vocabulary columns (comma-separated: "
+                             "cancer_type,gene_alteration,molecular_signature). Default: all three.")
     parser.add_argument("--reconcile", action="store_true",
                         help="MAPPING Step 2 — cross-value reconciliation over the EXISTING store's map tables: "
                              "detect same-concept/different-code groups, deterministic name->code repair + OR-order "
@@ -314,6 +356,11 @@ def main(argv: list[str] | None = None) -> int:
     kw = dict(max_attempts=args.max_attempts, use_reviewer=not args.no_review)
     log = logging.getLogger("agentic.pipeline")
 
+    VOCAB_COLUMNS = ("cancer_type", "gene_alteration", "molecular_signature")
+    scoped = frozenset(c.strip() for c in args.columns.split(",") if c.strip())
+    if bad := (scoped - set(VOCAB_COLUMNS)):
+        raise SystemExit(f"--columns: unknown column(s) {sorted(bad)}; valid: {', '.join(VOCAB_COLUMNS)}")
+
     # GC cache entries from outdated prompts before we start (only stale entries; never live/legacy).
     if cache is not None and not args.no_cache_prune:
         from aus_trial_universe.core.cache_prune import prune_cache, summary_line
@@ -327,10 +374,10 @@ def main(argv: list[str] | None = None) -> int:
     elig_store = EligStore.load(store_root)   # load the latest EXISTING snapshot before creating this run's dir
     run_dir.mkdir(parents=True, exist_ok=True)
     if args.reconcile:   # Step 2: reconcile the map tables -> finalised 3NF maps (current_output) + flat view (joined)
-        return _run_reconcile(client, elig_store, run_dir, joined_dir, workers=args.workers,
+        return _run_reconcile(client, elig_store, run_dir, joined_dir, columns=scoped, workers=args.workers,
                               max_attempts=args.max_attempts, use_reviewer=not args.no_review, log=log)
     if args.map_only:   # MAPPING-only: map the store's interpreted cells -> 3 map tables; content tables untouched
-        return _run_map_only(client, elig_store, run_dir, joined_dir, workers=args.workers,
+        return _run_map_only(client, elig_store, run_dir, joined_dir, columns=scoped, workers=args.workers,
                              max_attempts=args.max_attempts, use_reviewer=not args.no_review, log=log)
     arm_store = TrialArmStore.load(trial_arms_root)   # the SHARED arm registry (accumulates across both paths + runs)
     if args.resume:   # process only the not-yet-done trials (the per-trial checkpoint makes this safe)

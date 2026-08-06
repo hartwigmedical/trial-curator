@@ -70,12 +70,24 @@ def valid_codes() -> frozenset[str]:
 
 @functools.lru_cache(maxsize=1)
 def name_to_code() -> dict[str, str]:
-    """Reverse of ``oncotree_vocab``: ``{name: code}`` for every node + the sentinels (which map to themselves).
-    Used by the Step-2 name->code repair to fix a code expression where the mapper leaked a NAME into the code
-    field (e.g. ``Diffuse Large B-Cell Lymphoma, NOS`` -> ``DLBCLNOS``). First name wins on the rare name collision."""
-    rev: dict[str, str] = {}
+    """Reverse of ``oncotree_vocab``: ``{name: code}`` for every UNAMBIGUOUSLY-named node + the sentinels (which
+    map to themselves). Used by the Step-2 name->code repair to fix a code expression where the mapper leaked a
+    NAME into the code field (e.g. ``Diffuse Large B-Cell Lymphoma, NOS`` -> ``DLBCLNOS``).
+
+    A name shared by several codes is OMITTED rather than resolved. 9 of the 897 names are germ-cell / teratoma
+    entities that recur under different organ trees (``Choriocarcinoma`` is BCCA in BRAIN, TCCA in TESTIS, UCCA in
+    UTERUS), so no code is inferable from the name alone. Picking one — this used to be "first name wins" — turned
+    a flagged ``lex_leaked_name`` into a clean, WRONG-ORGAN code, and because the display name is rendered back
+    FROM that code, the export then showed the very name the source used, so the substitution was invisible in the
+    one column a human would check. Omitted, the operand is ``lex_unknown_operand``: still an error, still blocking
+    at the stage-1 gate, but carrying NO suggested substitution — so the mapper is never TOLD to write the wrong
+    organ (`checks.py` folds the resolved code into the `lex_leaked_name` message, which becomes the doer's
+    revision feedback).
+    """
+    by_name: dict[str, list[str]] = {}
     for code, name in oncotree_vocab().items():
-        rev.setdefault(name, code)
+        by_name.setdefault(name, []).append(code)
+    rev = {name: codes[0] for name, codes in by_name.items() if len(codes) == 1}
     for s in SENTINELS:
         rev.setdefault(s, s)
     return rev
@@ -246,6 +258,18 @@ def expression_problems(expression: str) -> list[Problem]:
     """Every defect in one code expression. THE shared gate — used by the mapper's check, the refinement's
     check, `qa/validate_output.py` and the `oncotree_expressions` production gate."""
     report = _checks().check_expression(expression or "")
+    return [Problem(f.defect, f.severity, f.detail) for f in report.findings]
+
+
+def source_problems(source: str, expression: str) -> list[Problem]:
+    """Every defect visible only by comparing the mapping with the SOURCE value it was made from.
+
+    Companion to `expression_problems`, which is deliberately expression-only so it can be reused where no source
+    is at hand. Kept separate for that reason, not because the source is optional: wherever the source IS
+    available — the stage-1 mapper's own gate above all — both should run. Until 2026-08-05 these checks ran only
+    in `qa/gates.py`, i.e. after the value had already shipped.
+    """
+    report = _checks().check_against_source(source or "", expression or "")
     return [Problem(f.defect, f.severity, f.detail) for f in report.findings]
 
 

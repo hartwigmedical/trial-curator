@@ -60,7 +60,8 @@ def test_save_then_load_round_trips_all_tables(tmp_path):
     # the eligibility store holds ONLY its two content tables + the map tables (no trial_arms — that's shared)
     assert not (run_dir / "trial_arms.tsv").exists()
     assert (run_dir / "arm_eligibility_raw.tsv").exists() and (run_dir / "interpreted_eligibility.tsv").exists()
-    assert (run_dir / "cancer_type_map.tsv").exists()
+    # stage 1 of OncoTree mapping (2026-08-06): the three-stage table set, stage-suffixed columns
+    assert (run_dir / "cancer_type_map_initial.tsv").exists()
 
     loaded = EligStore.load(tmp_path)
     assert {r.trial_arm_id for r in loaded.raw["NCT01"]} == {

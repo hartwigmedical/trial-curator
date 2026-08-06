@@ -42,6 +42,7 @@ from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import (
     expression_problems,
     is_subcode,
     render_name_expression,
+    source_problems,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,89 +55,16 @@ def strip_provenance(cell: str) -> str:
     return _PROVENANCE_RE.sub("", cell or "").strip()
 
 
-@dataclass
-class OncotreeResult:
-    source: str
-    oncotree_name: str
-    oncotree_code: str
-    faithful: bool
-    attempts: int
-    problems: list[str]
-
-
-def map_oncotree(
-    client: LlmClient, source_expr: str, *, max_attempts: int = 3, use_reviewer: bool = True
-) -> OncotreeResult:
-    """Map ONE cancer-type expression to OncoTree name+code (mapper -> validate+review -> refine)."""
-    mapper = build_oncotree_mapper(client)
-    reviewer = build_oncotree_reviewer(client) if use_reviewer else None
-
-    def produce(feedback: str = "", prior: OncotreeMapping | None = None) -> OncotreeMapping:
-        if not feedback:
-            return mapper(source_expr)
-        # Byte-identical to the form the approved 2026-08-04 run used — this string is hashed into the
-        # response-cache key, so any drift orphans every cached refine step behind that output.
-        prior_txt = f"\n\n[Your previous mapping]:\noncotree_code: {prior.oncotree_code}" if prior else ""
-        return mapper(f"{source_expr}{prior_txt}\n\n[Reviewer feedback — fix ONLY these]:\n{feedback}")
-
-    def check(m: OncotreeMapping, escalate: bool = False) -> CheckResult:
-        # `syn_nested_not` is NOT blocking here: "X other than Y" is faithfully written as a nested NOT and the
-        # refinement flattens it deterministically (mapper translates, refinement reduces — the same split as
-        # vacuous exclusions). It stays an error on the FINAL value, which is what ships.
-        errors = [str(p) for p in expression_problems(m.oncotree_code)
-                  if p.severity == "error" and p.defect != "syn_nested_not"]
-        if errors:
-            return CheckResult(ok=False, problems=errors)
-        if reviewer is not None:
-            v: ReviewVerdict = reviewer(_review_input(source_expr, m) + (_ESCALATION if escalate else ""))
-            if not v.faithful:
-                probs = v.problems or ["reviewer flagged the mapping"]
-                if escalate and (v.suggested_fix or "").strip():
-                    probs = probs + [f"SUGGESTED FIX: {v.suggested_fix.strip()}"]
-                return CheckResult(ok=False, problems=probs)
-        return CheckResult(ok=True)
-
-    result = review_refine(produce, check, max_attempts=max_attempts, escalate=use_reviewer)
-    m = result.value
-    return OncotreeResult(
-        source=source_expr,
-        oncotree_name=render_name_expression(m.oncotree_code.strip()),   # DERIVED — the name/code invariant
-        oncotree_code=m.oncotree_code.strip(),
-        faithful=result.ok,
-        attempts=result.attempts,
-        problems=result.problems,
-    )
-
-
-def _review_input(source_expr: str, m: OncotreeMapping) -> str:
-    return (
-        f"SOURCE cancer-type expression:\n{source_expr}\n\n"
-        f"PROPOSED oncotree_code: {m.oncotree_code}"
-    )
-
-
-def map_cancer_types(
-    client: LlmClient, cancer_cells: list[str], *, max_attempts: int = 3, use_reviewer: bool = True,
-    workers: int = 8,
-) -> dict[str, OncotreeResult]:
-    """Map the DISTINCT (provenance-stripped) cancer-type values, concurrently.
-
-    Returns {stripped_value -> OncotreeResult}. Empty values are skipped. `workers` sets the fan-out width (the
-    client's global --max-concurrency semaphore is the true API ceiling); raise it for a large map-only build.
-    """
-    distinct = list(dict.fromkeys(strip_provenance(c) for c in cancer_cells if strip_provenance(c)))
-    if not distinct:
-        return {}
-    logger.info("")
-    logger.info("oncotree · %d value(s)", len(distinct))
-    results = fan_out(
-        [(lambda v=v: map_oncotree(client, v, max_attempts=max_attempts, use_reviewer=use_reviewer)) for v in distinct],
-        max_workers=workers,
-    )
-    out = {v: r for v, r in zip(distinct, results)}
-    _log_doer_reviewer(distinct, results, use_reviewer=use_reviewer, render=lambda r: r.oncotree_code or "?")
-    return out
-
+# --- STAGE 1 of OncoTree mapping now lives in `cancer_type/stage1.py` (moved 2026-08-06) --------------------- #
+# Re-exported here so every existing caller keeps working unchanged: `map_all_columns` below, `run.py`, the tests.
+# The move was structural only — all three OncoTree stages now sit in `mapping/cancer_type/`, while the shared
+# harness (provenance stripping, the three-column pool, the doer/reviewer log) stays here for gene and signature.
+# New code should import from `cancer_type.stage1`.
+from aus_trial_universe.tasks.eligibility.mapping.cancer_type.stage1 import (  # noqa: E402,F401
+    OncotreeResult,
+    map_cancer_types,
+    map_oncotree,
+)
 
 def _log_doer_reviewer(distinct, results, *, use_reviewer, render) -> None:
     """Log a mapping procedure as doer (value → result) then reviewer (verdict per value)."""

@@ -33,6 +33,11 @@ def stub_stages(monkeypatch, tmp_path):
     store = EligStore()
     store.raw = {"NCT1": []}
     monkeypatch.setattr(EligStore, "load", classmethod(lambda cls, *a, **k: store))
+    # The baseline snapshot writes to the REAL masters tree, so it MUST be patched here: refresh.main() is
+    # driven end-to-end in these tests and an unpatched side effect silently mutates production data (it did —
+    # an unguarded first run created a spurious archive/<today> in the live store).
+    snapshots: list = []
+    monkeypatch.setattr(R, "snapshot_current_version", lambda root, label: snapshots.append((root, label)) or None)
     monkeypatch.setattr(expiry_mod, "compute_kept_ids", lambda *, log: {"NCT1"})
     monkeypatch.setattr(expiry_mod, "run_expiry", lambda **k: ExpiryReport(applied=True))
     monkeypatch.setattr(run_mod, "main", lambda argv: 0)

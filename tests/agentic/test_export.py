@@ -27,9 +27,14 @@ def test_render_oncotree_name():
 
 def _write_finalised_maps(elig_dir):
     elig_dir.mkdir(parents=True, exist_ok=True)
-    with open(elig_dir / "finalised_cancer_type_map.tsv", "w", newline="") as f:
-        w = csv.writer(f, delimiter="\t"); w.writerow(["cancer_type", "oncotree_name", "oncotree_code", "oncotree_code_FINAL"])
-        w.writerow(["advanced NSCLC", "Non-Small Cell Lung Cancer", "NSCLC", "NSCLC"])
+    with open(elig_dir / "cancer_type_map_finalised.tsv", "w", newline="") as f:
+        w = csv.writer(f, delimiter="\t")
+        # the three-stage table (2026-08-06): columns accrete, and `_finalised` is what the export reads
+        w.writerow(["cancer_type", "oncotree_name_initial", "oncotree_code_initial",
+                    "oncotree_name_reconciled", "oncotree_code_reconciled",
+                    "oncotree_name_finalised", "oncotree_code_finalised"])
+        NAME = "Non-Small Cell Lung Cancer"
+        w.writerow(["advanced NSCLC", NAME, "NSCLC", NAME, "NSCLC", NAME, "NSCLC"])
     with open(elig_dir / "finalised_gene_alteration_map.tsv", "w", newline="") as f:
         w = csv.writer(f, delimiter="\t"); w.writerow(["gene_alteration", "finding_model", "finding_model_FINAL"])
         w.writerow(["EGFR L858R", "SmallVariant[gene=EGFR]", "SmallVariant[gene=EGFR & proteinChange=p.L858R]"])

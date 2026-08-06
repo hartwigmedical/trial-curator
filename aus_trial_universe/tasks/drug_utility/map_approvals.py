@@ -131,7 +131,11 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
 
     # Trial FINAL (Step-2 reconciled) maps — the seed source for cross-domain consistency.
     elig_dir = ELIGIBILITY_OUTPUT / CURRENT_VERSION
-    seed_ct = _read_map(elig_dir / "finalised_cancer_type_map.tsv", "cancer_type", "oncotree_code_FINAL") if seed else {}
+    # Seeds from the eligibility side's SHIPPING mapping (stage 3). Renamed with the 2026-08-06 three-stage
+    # restructure; this is a cross-path dependency, so it moves with it.
+    from aus_trial_universe.core.paths import CANCER_TYPE_STAGE_FILES
+    seed_ct = (_read_map(elig_dir / CANCER_TYPE_STAGE_FILES["finalised"], "cancer_type",
+                         "oncotree_code_finalised") if seed else {})
     seed_ga = _read_map(elig_dir / "finalised_gene_alteration_map.tsv", "gene_alteration", "finding_model_FINAL") if seed else {}
     seed_sig = _read_map(elig_dir / "finalised_molecular_signature_map.tsv", "molecular_signature", "finding_model_FINAL") if seed else {}
     logger.info("")
@@ -165,8 +169,12 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
 
     # 4) Step-2 cancer_type reconciliation — REUSE the eligibility shared logic (no rewrite): unify
     #    semantically-equivalent drug cancer_type values to ONE code, keeping genuine grade/subtype distinctions apart.
+    # `three_stage=False` keeps the LEGACY reconciler for the drug side. The eligibility cancer_type column moved to
+    # a deterministic three-stage pipeline on 2026-08-06; `approval_cancer_type_map` is a separate table with its own
+    # reviewed values and was explicitly out of scope, so it must not change behaviour here.
     ct_final, _unresolved, summary.ct_reconciled_groups = reconcile_column(
-        client, ct_step1, column=CANCER_TYPE, workers=workers, max_attempts=max_attempts, use_reviewer=use_reviewer)
+        client, ct_step1, column=CANCER_TYPE, workers=workers, max_attempts=max_attempts,
+        use_reviewer=use_reviewer, three_stage=False)
     logger.info(line(f"cancer_type reconciliation · {summary.ct_reconciled_groups} group(s) adjudicated"))
 
     vocab = oncotree_vocab()

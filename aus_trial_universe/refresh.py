@@ -24,6 +24,8 @@ import argparse
 import logging
 from datetime import datetime
 
+from aus_trial_universe.core.paths import ELIGIBILITY_OUTPUT, snapshot_current_version
+
 
 def _scope_pass(log: logging.Logger, *, workers: int, max_concurrency: int | None) -> dict[str, int]:
     """Give every empty arm a scope verdict (`arm_scope`), so the gate can tell "legitimately out of scope" from
@@ -98,6 +100,15 @@ def main(argv: list[str] | None = None) -> int:
     started = datetime.now()
     notes: list[str] = []
     before = run_report.snapshot()   # countable master state BEFORE anything moves (for the report's deltas)
+
+    # 0) BASELINE the eligibility store. A copy (not a move) — the store accumulates, so it must stay in place.
+    #    This is what makes `mapping_drift` a genuine run-to-run diff instead of a comparison against an
+    #    ever-staler snapshot, and it gives the LLM-curated masters a per-cycle rollback point.
+    baseline = snapshot_current_version(ELIGIBILITY_OUTPUT, datetime.now().strftime("%d%m%Y"))
+    if baseline is not None:
+        log.info("refresh · eligibility baseline snapshot → %s", baseline)
+    else:
+        log.info("refresh · no eligibility current_version to baseline (first build)")
 
     # 1) INGEST both registries (full download → current_version/; previous archived).
     if not args.skip_ingest:
