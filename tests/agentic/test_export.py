@@ -125,3 +125,59 @@ def test_run_export_writes_setA_and_snapshot(tmp_path, monkeypatch):
     assert (snap / "trial_eligibility.tsv").exists() and (snap / "MANIFEST.md").exists()
     for name in EX.DRUG_TABLES:
         assert (snap / name).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Newline flattening in the metadata block (user, 2026-08-06). Registry prose arrives with embedded newlines —
+# 49 `official_title` cells held one when this landed — and `csv` QUOTES such a field, so the TSV stays
+# technically valid while silently breaking any consumer that splits on lines. Removing it at the source is the
+# only fix that helps a naive reader.
+# --------------------------------------------------------------------------- #
+def test_the_flattened_block_is_columns_A_to_W():
+    """The user specified columns A-W inclusive; the code anchors to `trial_url`. Pin that the two agree, so a
+    reordering that silently changes the block fails here rather than in someone's spreadsheet."""
+    from aus_trial_universe.export import EXPORT_COLUMNS, NEWLINE_FREE_COLUMNS
+    assert len(NEWLINE_FREE_COLUMNS) == 23                      # A..W
+    assert NEWLINE_FREE_COLUMNS == EXPORT_COLUMNS[:23]
+    assert NEWLINE_FREE_COLUMNS[0] == "trial_arm_id" and NEWLINE_FREE_COLUMNS[-1] == "trial_url"
+
+
+def test_a_newline_becomes_a_space_and_a_full_stop():
+    from aus_trial_universe.export import flatten_newlines
+    assert flatten_newlines("Line one\nLine two") == "Line one. Line two"
+    assert flatten_newlines("crlf\r\nhere") == "crlf. here"
+    assert flatten_newlines("bare\rcr") == "bare. cr"
+    assert flatten_newlines("no newline") == "no newline"
+    assert flatten_newlines("") == ""
+
+
+def test_a_run_of_newlines_collapses_to_one_replacement():
+    """A blank line inside a title is ONE break. Per-character replacement would give 'Title. . . Subtitle'."""
+    from aus_trial_universe.export import flatten_newlines
+    assert flatten_newlines("Title\n\n\nSubtitle") == "Title. Subtitle"
+
+
+def test_the_written_file_has_no_newline_inside_a_metadata_cell(tmp_path):
+    """End to end: a row whose title spans lines must produce a file with exactly header + 1 data line."""
+    import csv as _csv
+    from aus_trial_universe.export import EXPORT_COLUMNS, _write_tsv
+    row = {c: "" for c in EXPORT_COLUMNS}
+    row["trial_arm_id"] = "NCT1::A"
+    row["official_title"] = "A Study of X\nin Patients With Y"
+    row["cancer_type_interpreted"] = "kept\nas-is"          # column X+ — deliberately NOT flattened
+    dest = tmp_path / "e.tsv"
+    _write_tsv(dest, [row])
+
+    raw = dest.read_text(encoding="utf-8")
+    assert "A Study of X. in Patients With Y" in raw
+    out = list(_csv.DictReader(open(dest, encoding="utf-8"), delimiter="\t"))
+    assert len(out) == 1
+    assert "\n" not in out[0]["official_title"]
+    assert out[0]["cancer_type_interpreted"] == "kept\nas-is", "columns X+ are pipeline-owned and left alone"
+
+
+def test_a_non_string_cell_passes_through_untouched():
+    """`conjunction_index` is an int. Coercing it here would change the writer's type contract for no gain."""
+    from aus_trial_universe.export import flatten_newlines
+    assert flatten_newlines(3) == 3
+    assert flatten_newlines(None) is None

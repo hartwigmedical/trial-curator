@@ -151,11 +151,42 @@ def build_export_rows(elig_store, arm_store, drug_store, trial_info, *, elig_dir
     return rows
 
 
+#: Columns A-W of the export: identity + trial metadata, i.e. everything up to and including `trial_url`.
+#: Anchored to that column rather than to the ordinal 23 so inserting a metadata field keeps the block correct;
+#: `tests/agentic/test_export.py` pins the two to agree.
+NEWLINE_FREE_COLUMNS = EXPORT_COLUMNS[:EXPORT_COLUMNS.index("trial_url") + 1]
+
+#: What a newline becomes. The break is sentence-like, so a full stop THEN a space reads as prose
+#: ("…of X. in Patients"); the reverse renders as "…of X .in Patients" (user, 2026-08-06).
+NEWLINE_REPLACEMENT = ". "
+_NEWLINE_RUN = re.compile(r"[\r\n]+")
+
+
+def flatten_newlines(value):
+    """Replace every run of CR/LF in one cell with `NEWLINE_REPLACEMENT`.
+
+    A RUN collapses to a single replacement — a blank line inside a title is one break, not two, and
+    "Title . .Subtitle" helps nobody.
+
+    WHY ONLY THE METADATA BLOCK. These columns carry registry prose verbatim (49 `official_title` values held an
+    embedded newline at the time this landed), and a newline mid-cell is a hazard for any consumer that splits the
+    file on lines rather than running a real CSV parser. `csv` quotes such a field, so the TSV stays technically
+    valid and the breakage is silent — which is exactly why it is worth removing at the source. Columns X onward
+    are pipeline-authored eligibility values and are left untouched: they are ours to keep clean, and rewriting a
+    curated cell to fix someone else's parser would be the wrong trade.
+    """
+    # Non-strings pass through untouched: `conjunction_index` is an int, and coercing it here would
+    # quietly change the writer's type contract for no gain (csv stringifies on write anyway).
+    if not isinstance(value, str):
+        return value
+    return _NEWLINE_RUN.sub(NEWLINE_REPLACEMENT, value)
+
+
 def _write_tsv(path: Path, rows: list[dict]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=EXPORT_COLUMNS, delimiter="\t", lineterminator="\n", extrasaction="ignore")
         w.writeheader()
-        w.writerows(rows)
+        w.writerows({**r, **{c: flatten_newlines(r.get(c, "")) for c in NEWLINE_FREE_COLUMNS}} for r in rows)
 
 
 def _manifest(rows: list[dict], *, stamp: str, drug_dir: Path, bundled: bool) -> str:
