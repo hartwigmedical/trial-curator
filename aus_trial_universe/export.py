@@ -189,6 +189,55 @@ def _write_tsv(path: Path, rows: list[dict]) -> None:
         w.writerows({**r, **{c: flatten_newlines(r.get(c, "")) for c in NEWLINE_FREE_COLUMNS}} for r in rows)
 
 
+#: Set C = every column of `drug_regulatory_approvals` in its own order, then the mapped vocabulary appended.
+#: The source columns are NOT subset: an approved indication carries clinical qualifiers (stage, line of therapy,
+#: prior therapy, combination, setting) that a matcher needs alongside the codes, and the existing
+#: `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` view drops them.
+APPROVAL_MAPPED_COLUMNS = ["oncotree_name", "oncotree_code", "gene_alteration", "gene_alteration_findingmodel",
+                           "molecular_signature", "molecular_signature_findingmodel", "molecular_biomarker"]
+
+
+def build_approvals_export_rows(drug_store) -> tuple[list[str], list[dict]]:
+    """Every approval row ⋈ its cancer_type / biomarker vocabulary mapping. Returns (columns, rows).
+
+    ⚠ THE MAPPED COLUMNS ARE FINALISED VALUES, produced by the SAME three-stage pipeline as the trial side — that
+    is the whole point of this file. `oncotree_code` here and `oncotree_code` in Set A are directly comparable
+    because both are stage-3 output of one code path; before 2026-08-06 the drug side ran a different reconciler
+    and the two could disagree in spelling while meaning the same thing, which silently broke the match.
+    """
+    from aus_trial_universe.tasks.drug_utility.schema import DRUG_REGULATORY_APPROVALS_COLUMNS
+    src = list(DRUG_REGULATORY_APPROVALS_COLUMNS)
+    columns = src + [c for c in APPROVAL_MAPPED_COLUMNS if c not in src]
+    rows: list[dict] = []
+    for inds in drug_store.indications.values():
+        for ind in inds:
+            ct = drug_store.approval_cancer_type_map.get(ind.cancer_type)
+            bm = drug_store.approval_biomarker_map.get(ind.biomarker)
+            row = {c: getattr(ind, c, "") for c in src}
+            row.update({
+                "oncotree_name": ct.oncotree_name if ct else "",
+                "oncotree_code": ct.oncotree_code if ct else "",
+                "gene_alteration": bm.gene_alteration if bm else "",
+                "gene_alteration_findingmodel": bm.gene_alteration_findingmodel if bm else "",
+                "molecular_signature": bm.molecular_signature if bm else "",
+                "molecular_signature_findingmodel": bm.molecular_signature_findingmodel if bm else "",
+                "molecular_biomarker": bm.molecular_biomarker if bm else "",
+            })
+            # Same newline treatment as Set A, and applied to EVERY column here: these are registry/web-research
+            # prose (`indication_raw`, `patient_population`) plus short vocabulary codes, none of which has a
+            # legitimate embedded newline. A quoted newline keeps the TSV valid while breaking any consumer that
+            # splits on lines — silent, so worth removing at the source.
+            rows.append({c: flatten_newlines(v) for c, v in row.items()})
+    return columns, rows
+
+
+def _write_approvals_export(path: Path, columns: list[str], rows: list[dict]) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=columns, delimiter="\t", lineterminator="\n", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
 def _manifest(rows: list[dict], *, stamp: str, drug_dir: Path, bundled: bool) -> str:
     from aus_trial_universe.core.paths import REPO_ROOT
     n_arms = len({r["trial_arm_id"] for r in rows})
@@ -229,12 +278,13 @@ Tables: {", ".join(DRUG_TABLES)}
 
 Symmetric-match vocab (drug-approval side, so its indications match Set A on the SAME axes):
 ```
-drug_regulatory_approvals.cancer_type -> approval_cancer_type_map -> oncotree_code_FINAL  [match vs Set A oncotree_code]
+drug_regulatory_approvals.cancer_type -> mapped_approval_cancer_type -> oncotree_code  [match vs Set A oncotree_code]
 drug_regulatory_approvals.biomarker   -> approval_biomarker_map   -> gene_alteration_findingmodel /
                                                                      molecular_signature_findingmodel
                                                                     [match vs Set A *_findingmodel]
 ```
-(`oncotree_code_FINAL` is the Step-2-reconciled cancer code — the same reconciliation the trial side ran. The flat
+(the drug side's `oncotree_code` is the FINALISED value — the SAME three-stage pipeline the trial side runs, so the
+two are directly comparable; the `_finalised` suffix is implicit there. The flat
 join view `joined/drug_annotations/mapped_drug_regulatory_approval.tsv` denormalizes all of the above per indication.)
 
 NB: TGA/PBS approval is **indication-specific** — matching a trial's cancer type to a drug's approved indication is
@@ -277,6 +327,12 @@ def run_export(*, snapshot: bool = False,
     (export_root / "MANIFEST.md").write_text(_manifest(rows, stamp=stamp, drug_dir=drug_dir, bundled=False),
                                              encoding="utf-8")
     logger.info("export · Set A → %s (%d rows) · Set B referenced at %s", export_root / EXPORT_FILE, len(rows), drug_dir)
+
+    from aus_trial_universe.core.paths import APPROVALS_EXPORT_FILE
+    ap_cols, ap_rows = build_approvals_export_rows(drug_store)
+    _write_approvals_export(export_root / APPROVALS_EXPORT_FILE, ap_cols, ap_rows)
+    logger.info("export · Set C → %s (%d rows · %d cols)",
+                export_root / APPROVALS_EXPORT_FILE, len(ap_rows), len(ap_cols))
 
     if snapshot:
         ts = datetime.now().strftime("%Y%m%d_%H%M")

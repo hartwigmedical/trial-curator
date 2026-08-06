@@ -148,14 +148,21 @@ class TrialArmDrugRole:
 # eligibility side's value->vocab maps. The 5 core drug tables + `trial_arm_drug_role` are unchanged.
 @dataclass
 class ApprovalCancerTypeMap:
-    """One distinct approval `cancer_type` free-text value -> OncoTree (mirrors eligibility `finalised_cancer_type_map`).
-    Carries the Step-1 code AND the Step-2 reconciled `oncotree_code_FINAL` (semantically-equivalent drug cancer_type
-    values share ONE code); still 3NF single-key (keyed by cancer_type)."""
+    """One distinct approval `cancer_type` free-text value -> OncoTree. 3NF single-key (keyed by cancer_type).
+
+    ⚠ EVERY MAPPED COLUMN HERE IS THE **FINALISED** VALUE — the output of the full three-stage pipeline
+    (1 translate -> 2 canonicalise -> 3 apply the approved register), the same code path and the same register the
+    eligibility side uses. The `_finalised` suffix is deliberately NOT repeated in the column names: on this side
+    there is only ever one answer per value, so a suffix would be noise. It is implicit, and it is what the
+    matching engine compares against `oncotree_code_finalised` on the trial side.
+
+    The intermediate stages are deliberately NOT persisted here. Eligibility keeps all three tables because its
+    values are reviewed and the provenance chain is what a reviewer reads; the drug side is not separately
+    reviewed, so only the shipped answer is stored."""
 
     cancer_type: str = ""            # the lookup key: the free-text value as stated in drug_regulatory_approvals
-    oncotree_name: str = ""          # OncoTree name expression rendered from oncotree_code_FINAL (AND/OR/NOT preserved)
-    oncotree_code: str = ""          # Step-1 OncoTree code expression (per-value mapping, pre-reconciliation)
-    oncotree_code_FINAL: str = ""    # Step-2 reconciled code — the matchable key (== trial-side FINAL oncotree_code)
+    oncotree_name: str = ""          # OncoTree name expression, rendered FROM oncotree_code (never authored)
+    oncotree_code: str = ""          # the FINALISED code expression — the matchable key
 
 
 @dataclass
@@ -164,7 +171,10 @@ class ApprovalBiomarkerMap:
     the gene/signature parts rendered in finding-model. `molecular_biomarker` (protein-expression / IHC: PD-L1, CD20,
     hormone-receptor, HER2-IHC) has no finding-model representation and stays free text — symmetric with the trial
     side, whose `molecular_biomarker` column is likewise never vocab-mapped. All columns are a function of the single
-    `biomarker` key -> 3NF single-key lookup."""
+    `biomarker` key -> 3NF single-key lookup.
+
+    ⚠ Like the cancer_type map, the finding-model columns are the **FINALISED** values (the three-stage output);
+    the `_finalised` suffix is implicit rather than repeated in every column name."""
 
     biomarker: str = ""                         # the lookup key: the free-text value as stated
     gene_alteration: str = ""                   # the gene-alteration part of the split ("" if none)
@@ -194,8 +204,8 @@ TABLE_FILES = {
     "drug_target_actions": "drug_target_actions.tsv",
     "drug_regulatory_approvals": "drug_regulatory_approvals.tsv",
     "trial_arm_drug_role": "trial_arm_drug_role.tsv",
-    "approval_cancer_type_map": "approval_cancer_type_map.tsv",
-    "approval_biomarker_map": "approval_biomarker_map.tsv",
+    "approval_cancer_type_map": "mapped_approval_cancer_type.tsv",
+    "approval_biomarker_map": "mapped_approval_biomarker.tsv",
 }
 
 

@@ -117,7 +117,8 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
     new map tables into `store` (mutated in place). Seeds from the trial FINAL maps unless `seed=False`."""
     from aus_trial_universe.export import _read_map, _render_oncotree_name
     from aus_trial_universe.core.paths import CURRENT_VERSION, ELIGIBILITY_OUTPUT
-    from aus_trial_universe.tasks.eligibility.mapping.reconcile import CANCER_TYPE, reconcile_column
+    from aus_trial_universe.tasks.eligibility.mapping.reconcile import (
+        CANCER_TYPE, GENE_ALTERATION, MOLECULAR_SIGNATURE, reconcile_column)
     from aus_trial_universe.tasks.eligibility.mapping.workflow import map_all_columns
     from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import oncotree_vocab
 
@@ -166,42 +167,60 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
             ct_step1[ct] = r.oncotree_code if r else ""
             summary.ct_mapped += 1
 
-    # 4) Step-2 cancer_type reconciliation — REUSE the eligibility shared logic (no rewrite): unify
-    #    semantically-equivalent drug cancer_type values to ONE code, keeping genuine grade/subtype distinctions apart.
-    # `three_stage=False` keeps the LEGACY reconciler for the drug side. The eligibility cancer_type column moved to
-    # a deterministic three-stage pipeline on 2026-08-06; `approval_cancer_type_map` is a separate table with its own
-    # reviewed values and was explicitly out of scope, so it must not change behaviour here.
+    # 4) Stages 2 + 3 — THE SAME CALL THE ELIGIBILITY SIDE MAKES (user, 2026-08-06: *"both eligibility + drug
+    #    approval use the exact SAME mapping logic ... any other mapping logic needs to be removed"*).
+    #
+    # Until then this passed `three_stage=False`, which routed the drug side down a LEGACY reconciler with an LLM
+    # group adjudicator while eligibility used the deterministic three-stage pipeline. Two mapping logics over one
+    # vocabulary is a correctness bug, not just duplication: these tables exist for SYMMETRIC MATCHING — a trial's
+    # criterion compared against a drug's approved indication — so if the two sides canonicalise differently, the
+    # same criterion is spelled two ways and the match silently fails. That flag, and the legacy branch behind it,
+    # are gone.
+    #
+    # Stage 3 reads the SAME register as eligibility. That is deliberate: a ruling is about a VALUE, so the answer
+    # cannot depend on which side of the join the value arrived from.
     ct_final, _unresolved, summary.ct_reconciled_groups = reconcile_column(
         client, ct_step1, column=CANCER_TYPE, workers=workers, max_attempts=max_attempts,
-        use_reviewer=use_reviewer, three_stage=False)
-    logger.info(line(f"cancer_type reconciliation · {summary.ct_reconciled_groups} group(s) adjudicated"))
+        use_reviewer=use_reviewer)
 
+    # Gene / signature go through their own stages 2 + 3 as well — previously they had NONE, so a novel drug-side
+    # expression shipped in whatever spelling stage 1 produced, uncanonicalised, and could not match its trial-side
+    # twin. Both are deterministic and make no API calls.
+    ga_final, _gu, _gg = reconcile_column(client, {v: (r.finding_model if r else "") for v, r in ga_res.items()},
+                                          column=GENE_ALTERATION, workers=workers, max_attempts=max_attempts,
+                                          use_reviewer=use_reviewer)
+    sig_final, _su, _sg = reconcile_column(client, {v: (r.finding_model if r else "") for v, r in sig_res.items()},
+                                           column=MOLECULAR_SIGNATURE, workers=workers,
+                                           max_attempts=max_attempts, use_reviewer=use_reviewer)
+    logger.info(line("stages 2+3 · deterministic, shared with eligibility · "
+                     f"cancer_type {len(ct_final)} · gene {len(ga_final)} · signature {len(sig_final)}"))
+
+    # Only the FINALISED value is persisted (the `_finalised` suffix is implicit — see ApprovalCancerTypeMap).
     vocab = oncotree_vocab()
     for ct in ct_values:
-        code1 = ct_step1[ct]
-        codeF = ct_final.get(ct, code1)
+        codeF = ct_final.get(ct, ct_step1[ct])
         store.put_approval_cancer_type(ApprovalCancerTypeMap(
-            cancer_type=ct, oncotree_code=code1, oncotree_code_FINAL=codeF,
-            oncotree_name=_render_oncotree_name(codeF, vocab)))
+            cancer_type=ct, oncotree_code=codeF, oncotree_name=_render_oncotree_name(codeF, vocab)))
         if not codeF:
             summary.ct_empty += 1
 
     # 5) Assemble approval_biomarker_map (the split + the two finding-model renderings). Gene/signature are NOT
     #    reconciled: the consistency detector is cancer_type-tuned, and seeding from the trial FINAL gene/sig maps
     #    already gives cross-domain identity for shared sub-cells.
-    def _fm(cell: str, seed_map, res_map) -> str:
+    def _fm(cell: str, seed_map, final_map) -> str:
+        """The FINALISED finding-model for one sub-cell: the trial side's shipped answer where the value is shared,
+        otherwise this run's own three-stage output. Either way it is a finalised value, so the two sides agree."""
         if not cell:
             return ""
         if cell in seed_map:
             summary.seeded_fm += 1
             return seed_map[cell]
-        r = res_map.get(cell)
-        return r.finding_model if r else ""
+        return final_map.get(cell, "")
 
     for bm in bm_values:
         s = splits.get(bm) or BiomarkerSplit()
-        ga_fm = _fm(s.gene_alteration, seed_ga, ga_res)
-        sig_fm = _fm(s.molecular_signature, seed_sig, sig_res)
+        ga_fm = _fm(s.gene_alteration, seed_ga, ga_final)
+        sig_fm = _fm(s.molecular_signature, seed_sig, sig_final)
         store.put_approval_biomarker(ApprovalBiomarkerMap(
             biomarker=bm, gene_alteration=s.gene_alteration, molecular_signature=s.molecular_signature,
             molecular_biomarker=s.molecular_biomarker,
@@ -216,7 +235,7 @@ def map_approvals(client: LlmClient, store: DrugRefStore, *, workers: int = 8, m
 # Joined view (denormalized; NOT 3NF -> lives in joined/drug_annotations/, not the store)
 # --------------------------------------------------------------------------- #
 MAPPED_APPROVALS_COLUMNS = [
-    "canonical_id", "indication_id", "cancer_type", "oncotree_name", "oncotree_code", "oncotree_code_FINAL",
+    "canonical_id", "indication_id", "cancer_type", "oncotree_name", "oncotree_code",
     "biomarker", "gene_alteration", "gene_alteration_findingmodel", "molecular_signature",
     "molecular_signature_findingmodel", "molecular_biomarker", "tga_status", "pbs_status",
 ]
@@ -236,7 +255,6 @@ def write_mapped_approvals(store: DrugRefStore, joined_dir: Path) -> Path:
                 "cancer_type": ind.cancer_type,
                 "oncotree_name": ct.oncotree_name if ct else "",
                 "oncotree_code": ct.oncotree_code if ct else "",
-                "oncotree_code_FINAL": ct.oncotree_code_FINAL if ct else "",
                 "biomarker": ind.biomarker,
                 "gene_alteration": bm.gene_alteration if bm else "",
                 "gene_alteration_findingmodel": bm.gene_alteration_findingmodel if bm else "",

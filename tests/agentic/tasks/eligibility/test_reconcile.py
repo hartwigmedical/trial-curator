@@ -55,14 +55,13 @@ def test_reconcile_writes_finalised_and_leaves_store_untouched(tmp_path, monkeyp
     maps_before = {f: (cur / f).read_bytes() for f in
                    ("interpreted_eligibility.tsv", "arm_eligibility_raw.tsv", "cancer_type_map_initial.tsv")}
 
-    # NO COLUMN MAY REACH THE LLM GROUP ADJUDICATOR any more (2026-08-06). cancer_type's stages 2/3 are
-    # deterministic, gene_alteration's stage 2 is deterministic, and molecular_signature's is a pass-through — so
-    # a `--reconcile` run makes no cross-value LLM call at all. This used to be a stub returning the members
-    # unchanged, which would silently keep passing if a column regained the adjudicator; it is now a tripwire,
-    # because cross-value re-decision is the churn mechanism all three columns were rewritten to remove.
-    def _must_not_run(*a, **kw):
-        raise AssertionError("reconcile_group was called: a column has regained cross-value LLM adjudication")
-    monkeypatch.setattr(rec, "reconcile_group", _must_not_run)
+    # THE GROUP ADJUDICATOR NO LONGER EXISTS. This began as a stub, became a tripwire, and is now a structural
+    # assertion — the strongest of the three, because a runtime guard only fires if the path is exercised whereas
+    # an absent symbol cannot be called at all. Cross-value LLM re-decision is the churn mechanism every column
+    # was rewritten to remove: a value with no defect of its own could be rewritten because an unrelated value
+    # entered the corpus. Re-introducing it would fail here immediately.
+    assert not hasattr(rec, "reconcile_group"), "cross-value LLM adjudication has been re-introduced"
+    assert not hasattr(rec, "repair_value"), "per-value LLM repair belongs to stage 1, not stage 2"
 
     rc = run.main(["--reconcile", "--store-root", str(store_root), "--no-cache", "--no-cache-prune", "--workers", "2"])
     assert rc == 0

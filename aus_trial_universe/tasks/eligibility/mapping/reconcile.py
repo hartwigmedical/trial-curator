@@ -65,178 +65,25 @@ def deterministic_pass(code_expression: str, *, drop_vacuous: bool = True) -> st
 
 
 # --------------------------------------------------------------------------- #
-# R4 / R6 — LLM hooks (Phase 1)
-# --------------------------------------------------------------------------- #
-def repair_value(client, cancer_type: str, code_expression: str, problems: list[Problem], *,
-                 max_attempts: int = 4, use_reviewer: bool = True, trace=None) -> tuple[str, bool]:
-    """R4 — per-value LLM repair, on the shared doer->reviewer harness.
-
-    The doer sees the SOURCE cell, the current expression and its EXACT defects, so it repairs rather than
-    re-derives. Returns (expression, ok). On failure the ORIGINAL is returned untouched — a repair that cannot be
-    validated must never be shipped in place of a known-bad value we can still see.
-    """
-    from aus_trial_universe.core.review import review_refine
-    from aus_trial_universe.core.workflow import CheckResult
-    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.agents import (
-        build_oncotree_repair_reviewer,
-        build_oncotree_repairer,
-    )
-    from aus_trial_universe.tasks.eligibility.mapping.schema import OncotreeRepair, ReviewVerdict
-
-    doer = build_oncotree_repairer(client)
-    reviewer = build_oncotree_repair_reviewer(client) if use_reviewer else None
-    defect_lines = "\n".join(f"  - {p}" for p in problems) or "  - (none reported)"
-    base = (f"SOURCE cancer-type wording:\n{cancer_type}\n\n"
-            f"CURRENT oncotree_code:\n{code_expression}\n\n"
-            f"DEFECTS the validator reported:\n{defect_lines}\n\n"
-            f"Return the corrected oncotree_code.")
-
-    _say = trace or (lambda _t: None)
-    _say("  R4 repair  defects: " + "; ".join(str(p) for p in problems))
-
-    def produce(feedback: str = "", prior: OncotreeRepair | None = None) -> OncotreeRepair:
-        if not feedback:
-            out = doer(base)
-        else:
-            prior_txt = f"\n\n[Your previous repair]:\n{prior.oncotree_code}" if prior is not None else ""
-            out = doer(f"{base}{prior_txt}\n\n[Reviewer feedback — fix ONLY these]:\n{feedback}")
-        _say(f"    repair doer     {out.oncotree_code or '(empty)'}"
-             + (f"   ({out.rationale.strip()})" if (out.rationale or '').strip() else ""))
-        return out
-
-    def check(cand: OncotreeRepair, escalate: bool = False) -> CheckResult:
-        candidate = deterministic_pass(cand.oncotree_code)
-        remaining = expression_problems(candidate)
-        if has_error(remaining):
-            errs = [str(p) for p in remaining if p.severity == "error"]
-            _say("    repair check    FAIL: " + "; ".join(errs))
-            return CheckResult(ok=False, problems=errs)
-        if reviewer is not None:
-            v: ReviewVerdict = reviewer(
-                f"{base}\n\nPROPOSED REPAIR:\n{candidate}" + (_ESCALATION if escalate else ""))
-            if not v.faithful:
-                probs = v.problems or ["reviewer flagged the repair"]
-                if escalate and (v.suggested_fix or "").strip():
-                    probs = probs + [f"SUGGESTED FIX: {v.suggested_fix.strip()}"]
-                _say("    repair review   FAIL: " + "; ".join(probs))
-                return CheckResult(ok=False, problems=probs)
-            _say("    repair review   ok")
-        return CheckResult(ok=True)
-
-    result = review_refine(produce, check, max_attempts=max_attempts, escalate=use_reviewer)
-    if not result.ok:
-        return code_expression, False
-    return deterministic_pass(result.value.oncotree_code), True
-
-
-_ESCALATION = ("\n\n[ESCALATION-MODE] Earlier attempts did not resolve the problems. In ADDITION to `problems`, "
-               "fill `suggested_fix` with the concrete corrected mapping you would expect (the exact value).")
-
-
-def reconcile_group(client, members: list[tuple[str, str]], problems_by_value: dict[str, list[Problem]], *,
-                    column: str = CANCER_TYPE, max_attempts: int = 4, use_reviewer: bool = True,
-                    trace=None) -> dict[str, str]:
-    """R6 — adjudicate one divergent group, now also given each member's defect list.
-
-    `members` is [(source_value, current_code)]. Returns {source_value -> FINAL code}; a member the model drops
-    keeps its pre-adjudication value.
-    """
-    from aus_trial_universe.core.review import review_refine
-    from aus_trial_universe.core.workflow import CheckResult
-    from aus_trial_universe.tasks.eligibility.mapping.cancer_type.agents import (
-        build_oncotree_reconcile_reviewer,
-        build_oncotree_reconciler,
-    )
-    from aus_trial_universe.tasks.eligibility.mapping.schema import GroupReconciliation, ReviewVerdict
-
-    # Only the DRUG path reaches this now (cancer_type with three_stage=False), so the adjudicator is always the
-    # OncoTree one. The finding-model variants were deleted 2026-08-06 with their last caller.
-    is_oncotree = True
-    doer = build_oncotree_reconciler(client)
-    reviewer = build_oncotree_reconcile_reviewer(client) if use_reviewer else None
-    inputs = sorted(v for v, _ in members)
-
-    lines = ["GROUP (a consistency check flagged these as ONE concept; reconcile AND repair their mappings):"]
-    for value, code in members:
-        lines.append(f'  - "{value}"  ->  {code or "(empty)"}')
-        for p in problems_by_value.get(value, []):
-            lines.append(f"        defect: {p}")
-    lines.append("\nReturn the FINAL value for EACH input above, exactly once.")
-    base = "\n".join(lines)
-
-    _say = trace or (lambda _v, _t: None)
-    for value, code in members:
-        _say(value, f"  R6 group   with {len(members) - 1} sibling(s): "
-                    + "; ".join(f'{c or "(empty)"}' for v2, c in members if v2 != value)[:150])
-
-    def produce(feedback: str = "", prior: GroupReconciliation | None = None) -> GroupReconciliation:
-        if not feedback:
-            out = doer(base)
-        else:
-            prior_txt = ""
-            if prior is not None:
-                prior_txt = "\n\n[Your previous decision]:\n" + "\n".join(
-                    f'  "{m.input}" -> {m.final_value}' for m in prior.members)
-            out = doer(f"{base}{prior_txt}\n\n[Reviewer feedback — fix ONLY these]:\n{feedback}")
-        for m in out.members:
-            _say(m.input, f"    group doer      {m.final_value or '(empty)'}")
-        if (out.rationale or "").strip():
-            for value, _c in members:
-                _say(value, f"    rationale       {out.rationale.strip()[:200]}")
-        return out
-
-    def check(cand: GroupReconciliation, escalate: bool = False) -> CheckResult:
-        problems: list[str] = []
-        if sorted(m.input for m in cand.members) != inputs:
-            problems.append("must return EXACTLY the group's inputs, once each")
-        for m in cand.members:
-            if is_oncotree:
-                for p in expression_problems(deterministic_pass(m.final_value)):
-                    if p.severity == "error":
-                        problems.append(f'"{m.input[:40]}": {p}')
-            else:
-                fp = finding_model_problems(m.final_value)
-                if fp:
-                    problems.append(f'"{m.input[:40]}": {fp[0]}')
-        if problems:
-            return CheckResult(ok=False, problems=problems)
-        if reviewer is not None:
-            proposed = "\n\nPROPOSED:\n" + "\n".join(f'  "{m.input}" -> {m.final_value}' for m in cand.members)
-            v: ReviewVerdict = reviewer(base + proposed + (_ESCALATION if escalate else ""))
-            if not v.faithful:
-                probs = v.problems or ["reviewer flagged the reconciliation"]
-                if escalate and (v.suggested_fix or "").strip():
-                    probs = probs + [f"SUGGESTED FIX: {v.suggested_fix.strip()}"]
-                for value, _c in members:
-                    _say(value, "    group review    FAIL: " + "; ".join(probs)[:200])
-                return CheckResult(ok=False, problems=probs)
-            for value, _c in members:
-                _say(value, "    group review    ok")
-        return CheckResult(ok=True)
-
-    result = review_refine(produce, check, max_attempts=max_attempts, escalate=use_reviewer)
-    out = {m.input: (deterministic_pass(m.final_value) if is_oncotree else m.final_value)
-           for m in result.value.members}
-    return {v: out.get(v, code) for v, code in members}
-
-
-# --------------------------------------------------------------------------- #
 # Per-column driver — the entry point run.py calls
 # --------------------------------------------------------------------------- #
 def reconcile_column(
     client, mapping: dict[str, str], *, column: str, workers: int, max_attempts: int, use_reviewer: bool,
-    three_stage: bool = True,
 ) -> tuple[dict[str, str], list[tuple[str, str, list[str]]], int]:
     """Refine one column's {value -> Step-1 code}. Returns (final {value -> FINAL}, unresolved, n_groups).
 
     `unresolved` lists values with an operand that could not be resolved to a real code — the residue for a
     human. It replaces the old name->code repair's failure list.
 
-    `three_stage` selects the ELIGIBILITY cancer_type path: stage 2 (deterministic canonicalisation) + stage 3
-    (approved rulings), no LLM. The DRUG path passes `three_stage=False` and keeps the legacy R0-R8 behaviour,
-    because its `approval_cancer_type_map` is a different table with its own signed-off values, and the
-    2026-08-06 restructure was scoped to eligibility OncoTree mapping only. Changing the drug side silently would
-    re-roll data nobody reviewed — which is exactly the accident this flag exists to prevent.
+    ⚠ THERE IS EXACTLY ONE MAPPING PATH PER COLUMN, and every caller takes it — eligibility and the drug
+    approvals alike (user, 2026-08-06). The drug side used to pass `three_stage=False` and get a LEGACY
+    reconciler with an LLM group adjudicator; that flag and that branch are DELETED. Two logics over one
+    vocabulary is a correctness bug, because these maps exist to be compared with each other.
+
+    No column reaches an LLM here. cancer_type and gene_alteration run deterministic canonicalisation, and
+    molecular_signature's stage 2 is a pass-through; all three then apply their register. `client`, `workers`,
+    `max_attempts` and `use_reviewer` are accepted and IGNORED — kept only so every caller can invoke this the
+    same way.
     """
     from aus_trial_universe.tasks.eligibility.mapping.consistency import find_inconsistencies
 
@@ -249,7 +96,7 @@ def reconcile_column(
     # makes no API calls at all. The old R4 (per-value LLM repair) and R5/R6 (regex detection + LLM group
     # adjudication) are GONE for cancer_type: R4 had exactly stage 1's information set, and R5/R6 were the source
     # of the cross-value churn — a function of a single value cannot be perturbed by other values arriving.
-    if column == CANCER_TYPE and three_stage:
+    if column == CANCER_TYPE:
         from aus_trial_universe.tasks.eligibility.mapping.cancer_type import stage2, stage3
         reconciled, failures = stage2.run(mapping)
         if failures:
@@ -288,93 +135,6 @@ def reconcile_column(
         logger.info("molecular_signature · stage 2 pass-through · stage 3 overrode %d",
                     sum(1 for v in mapping if v in rulings and rulings[v].final != (mapping[v] or "")))
         return finalised, [], 0
-
-    # ---- R0-R3 -----------------------------------------------------------------
-    refined: dict[str, str] = {}
-    problems: dict[str, list[Problem]] = {}
-    unresolved: list[tuple[str, str, list[str]]] = []
-    is_oncotree = column == CANCER_TYPE
-    for value, code in mapping.items():
-        refined[value] = deterministic_pass(code) if is_oncotree else (code or "")
-        problems[value] = expression_problems(refined[value]) if is_oncotree else []
-        bad = [p.detail for p in problems[value] if p.defect == "lex_unknown_operand"]
-        if bad:
-            unresolved.append((value, code, bad))
-
-    # ---- R4: repair every value still carrying an error -------------------------
-    if is_oncotree:
-        broken = [v for v, ps in problems.items() if has_error(ps)]
-        if broken:
-            repairs = fan_out([_soft(lambda v=v: repair_value(client, v, refined[v], problems[v],
-                                                              max_attempts=max_attempts,
-                                                              use_reviewer=use_reviewer), (refined[v], False))
-                               for v in broken], max_workers=workers)
-            for value, res in zip(broken, repairs):
-                if res:
-                    refined[value] = res[0]
-                    problems[value] = expression_problems(refined[value])
-
-    # ---- R5/R6: adjudicate divergent groups -------------------------------------
-    groups = find_inconsistencies(refined)
-    members = [[(v, refined[v]) for _c, vs in codes.items() for v in vs] for codes in groups.values()]
-    if members:
-        verdicts = fan_out([_soft(lambda m=m: reconcile_group(client, m, problems, column=column,
-                                                              max_attempts=max_attempts,
-                                                              use_reviewer=use_reviewer), {})
-                            for m in members], max_workers=workers)
-        rejected = 0
-        for verdict in verdicts:
-            if not verdict:
-                continue
-            if is_oncotree:
-                # ANTI-BROADENING GUARD, scoped to the kind we are CERTAIN about. Group adjudication is the one
-                # place an LLM rewrites a value that had no defect of its own, and it is how the 2026-08-05
-                # regressions happened. But it is also how a genuine over-specification is repaired (`IDC` ->
-                # `BREAST` for "metastatic breast cancer"), and unifying members that differ in specificity
-                # necessarily lands on a parent — so rejecting every broadening would defeat the stage's purpose.
-                # Only BROADEN_SENTINEL is rejected: unifying to a sentinel is never the most specific covering
-                # code, so it is always wrong. Ancestor-broadening is allowed through and surfaced by the gate as
-                # a WARN for review. See expr.broadening for the full argument.
-                for value, proposed in list(verdict.items()):
-                    found = broadening(refined.get(value, ""), proposed)
-                    if found and found[0] == BROADEN_SENTINEL:
-                        logger.warning("R6 adjudication REJECTED for %r: would broaden to a sentinel — %s",
-                                       value[:70], found[1])
-                        verdict.pop(value)
-                        rejected += 1
-            refined.update(verdict)
-        if rejected:
-            logger.info("R6 · %d adjudication(s) rejected (would broaden to a sentinel); prior mapping kept",
-                        rejected)
-
-    # ---- R7: converge (oncotree only), then apply any approved hand-ruling ------
-    # The ruling is applied for EVERY column this function handles, not just oncotree: the register is looked up by
-    # the `column` discriminator, so molecular_signature gets the hook for free the day it needs one.
-    rulings = adjudications.for_column(column)
-    for value, code in list(refined.items()):
-        if is_oncotree:
-            for _ in range(MAX_CONVERGENCE_PASSES):
-                nxt = deterministic_pass(code)
-                if nxt == code:
-                    break
-                code = nxt
-        ruling = rulings.get(value)
-        # NB `""` is a legitimate ruling — test identity, not truthiness.
-        refined[value] = ruling.final if ruling is not None else code
-    return refined, unresolved, len(members)
-
-
-def _soft(fn, fallback):
-    """One item's failure must not discard the pool: `fan_out` re-raises, so a single call that exhausts its
-    retries against a rate-limit storm would throw away every completed value alongside it."""
-    def wrapped():
-        try:
-            return fn()
-        except Exception as exc:                     # noqa: BLE001 — deliberate: isolate, record, continue
-            logger.warning("refinement item failed, left unchanged: %s", exc)
-            return fallback
-    return wrapped
-
 
 # --------------------------------------------------------------------------- #
 # Writers (into the joined/ view dir)

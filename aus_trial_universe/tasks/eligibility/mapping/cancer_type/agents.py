@@ -9,9 +9,7 @@ from __future__ import annotations
 from aus_trial_universe.core.agent import Agent
 from aus_trial_universe.core.client import LlmClient
 from aus_trial_universe.tasks.eligibility.mapping.schema import (
-    GroupReconciliation,
     OncotreeMapping,
-    OncotreeRepair,
     ReviewVerdict,
 )
 from aus_trial_universe.tasks.eligibility.mapping.cancer_type.vocab import vocab_reference
@@ -444,15 +442,6 @@ def build_oncotree_reviewer(client: LlmClient, *, model: str | None = None) -> A
                  output_schema=ReviewVerdict, client=client, model=model)
 
 
-def build_oncotree_repairer(client: LlmClient, *, model: str | None = None) -> Agent[OncotreeRepair]:
-    return Agent(name="oncotree_repairer", instructions=_ONCOTREE_REPAIR_RULES + vocab_reference(),
-                 output_schema=OncotreeRepair, client=client, model=model)
-
-
-def build_oncotree_repair_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
-    return Agent(name="oncotree_repair_reviewer",
-                 instructions=ONCOTREE_REPAIR_REVIEWER_INSTRUCTIONS + vocab_reference(),
-                 output_schema=ReviewVerdict, client=client, model=model)
 # --------------------------------------------------------------------------- #
 # R4 — per-value repair (the path that does not exist in the production stage)
 # --------------------------------------------------------------------------- #
@@ -560,12 +549,5 @@ code, why):
 
 ONCOTREE VOCABULARY (an indented tree — indentation shows the subtype hierarchy; each node is `Name (CODE)`):
 """
-def build_oncotree_reconciler(client: LlmClient, *, model: str | None = None) -> Agent[GroupReconciliation]:
-    return Agent(name="oncotree_reconciler", instructions=_ONCOTREE_RECONCILE_RULES + vocab_reference(),
-                 output_schema=GroupReconciliation, client=client, model=model)
 
 
-def build_oncotree_reconcile_reviewer(client: LlmClient, *, model: str | None = None) -> Agent[ReviewVerdict]:
-    return Agent(name="oncotree_reconcile_reviewer",
-                 instructions=ONCOTREE_RECONCILE_REVIEWER_INSTRUCTIONS + vocab_reference(),
-                 output_schema=ReviewVerdict, client=client, model=model)

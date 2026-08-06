@@ -20,9 +20,7 @@ from aus_trial_universe.tasks.drug_utility.schema import (
 from aus_trial_universe.tasks.drug_utility.store import DrugRefStore
 from aus_trial_universe.tasks.eligibility.mapping.schema import (
     FindingModelMapping,
-    GroupReconciliation,
     OncotreeMapping,
-    ReconciledMember,
     ReviewVerdict as MapReviewVerdict,
 )
 
@@ -36,12 +34,11 @@ class _FakeClient:
     test can assert a seeded value never reached a mapper. `unfaithful_once` makes the split reviewer reject the
     first attempt to exercise refine."""
 
-    def __init__(self, *, split=None, onco=None, fm=None, unfaithful_once=False, reconcile_to="BREAST"):
+    def __init__(self, *, split=None, onco=None, fm=None, unfaithful_once=False):
         self.split = split or {}
         self.onco = onco or {}
         self.fm = fm or {}
         self.unfaithful_once = unfaithful_once
-        self.reconcile_to = reconcile_to      # code every member of a flagged group is unified to
         self.asked = {"onco": [], "fm": [], "split": [], "review": 0, "reconcile": 0}
         self._split_seen: set[str] = set()
 
@@ -75,12 +72,6 @@ class _FakeClient:
                 self._split_seen.add(phrase)
                 return self._r(DrugReviewVerdict(faithful=False, problems=["route it again"]))
             return self._r(DrugReviewVerdict(faithful=True))
-        if output_schema is GroupReconciliation:                        # the cancer_type Step-2 adjudicator
-            self.asked["reconcile"] += 1
-            import re
-            members = re.findall(r'- "(.+?)"  ->', user_input)
-            return self._r(GroupReconciliation(
-                members=[ReconciledMember(input=m, final_value=self.reconcile_to) for m in members]))
         if output_schema is MapReviewVerdict:                           # the oncotree / finding-model reviewers
             self.asked["review"] += 1
             return self._r(MapReviewVerdict(faithful=True))
@@ -148,7 +139,8 @@ def test_map_approvals_assembles_both_tables():
     ct = store.approval_cancer_type_map
     assert ct["breast cancer"].oncotree_code == "BREAST" and ct["NSCLC"].oncotree_code == "NSCLC"
     # no divergent group here -> FINAL == Step-1 code, and oncotree_name renders from the FINAL code
-    assert ct["breast cancer"].oncotree_code_FINAL == "BREAST" and ct["breast cancer"].oncotree_name == "Breast"
+    # Only the FINALISED value is stored, in `oncotree_code` — the `_finalised` suffix is implicit.
+    assert ct["breast cancer"].oncotree_name == "Breast"
     assert summary.ct_total == 4 and summary.ct_seeded == 0 and summary.ct_mapped == 4
     assert summary.ct_reconciled_groups == 0
 
@@ -161,19 +153,45 @@ def test_map_approvals_assembles_both_tables():
     assert summary.bm_with_gene == 1 and summary.bm_with_signature == 1 and summary.bm_with_expression == 1
 
 
-def test_cancer_type_reconciliation_unifies_divergent_via_shared_logic():
-    """Two phrasings of ONE concept that mapped to DIFFERENT codes are reconciled to one FINAL code (Step-1
-    codes preserved). Proves the reused eligibility `reconcile_column` runs on the drug side."""
+def test_the_drug_side_takes_THE_SAME_three_stage_path_with_no_llm_adjudicator():
+    """The drug approvals and the eligibility maps must run ONE mapping logic (user, 2026-08-06).
+
+    This test replaces one that asserted the OPPOSITE: it used to prove that two phrasings mapping to different
+    codes were UNIFIED by an LLM group adjudicator. That behaviour is deleted. Cross-value re-decision is the
+    churn mechanism removed from every column — a value with no defect of its own could be rewritten because an
+    unrelated value entered the corpus — so each value now keeps its own deterministic answer, and genuine
+    unification is the register's job, not an adjudicator's.
+
+    Why it matters here specifically: these tables exist for SYMMETRIC MATCHING against the trial side. Two
+    mapping logics over one vocabulary means the same criterion is spelled two ways and the match silently fails.
+    """
     store = _store_with_indications([("breast cancer", ""), ("metastatic breast cancer", "")])
-    client = _FakeClient(onco={"breast cancer": "BREAST", "metastatic breast cancer": "IDC"}, reconcile_to="BREAST")
+    client = _FakeClient(onco={"breast cancer": "BREAST", "metastatic breast cancer": "IDC"})
     summary = MA.map_approvals(client, store, seed=False)
 
     ct = store.approval_cancer_type_map
-    assert summary.ct_reconciled_groups == 1 and client.asked["reconcile"] >= 1
-    assert ct["breast cancer"].oncotree_code == "BREAST"                 # Step-1 preserved
-    assert ct["metastatic breast cancer"].oncotree_code == "IDC"         # Step-1 preserved
-    assert ct["breast cancer"].oncotree_code_FINAL == "BREAST"           # unified
-    assert ct["metastatic breast cancer"].oncotree_code_FINAL == "BREAST"
+    assert summary.ct_reconciled_groups == 0, "no cross-value grouping on any column"
+    assert client.asked.get("reconcile", 0) == 0, "the group adjudicator must never be reached"
+    # Each value keeps its OWN mapping; only the FINALISED value is stored (the suffix is implicit).
+    assert ct["breast cancer"].oncotree_code == "BREAST"
+    assert ct["metastatic breast cancer"].oncotree_code == "IDC"
+    assert not hasattr(ct["breast cancer"], "oncotree_code_FINAL"), "no stage columns on the drug side"
+
+
+def test_the_drug_side_applies_the_SAME_register_as_eligibility(monkeypatch):
+    """Stage 3 reads one register per column, shared across both paths. A ruling is about a VALUE, so the answer
+    cannot depend on which side of the join the value arrived from — that is the whole point of sharing it."""
+    from aus_trial_universe.tasks.eligibility.mapping import adjudications, reconcile as rec
+    from aus_trial_universe.tasks.eligibility.mapping.adjudications import Adjudication
+    monkeypatch.setattr(adjudications, "for_column",
+                        lambda c: ({"breast cancer": Adjudication(value="breast cancer", final="PRAD",
+                                                                  rationale="t", approved="t")}
+                                   if c == "cancer_type" else {}))
+    monkeypatch.setattr(rec.adjudications, "for_column", adjudications.for_column)
+    store = _store_with_indications([("breast cancer", "")])
+    summary = MA.map_approvals(_FakeClient(onco={"breast cancer": "BREAST"}), store, seed=False)
+    assert store.approval_cancer_type_map["breast cancer"].oncotree_code == "PRAD"
+    assert summary.ct_total == 1
 
 
 def test_write_mapped_approvals_joined_view(tmp_path):
@@ -187,7 +205,7 @@ def test_write_mapped_approvals_joined_view(tmp_path):
     rows = list(_csv.DictReader(open(path), delimiter="\t"))
     assert len(rows) == 1
     r = rows[0]
-    assert r["cancer_type"] == "NSCLC" and r["oncotree_code_FINAL"] == "NSCLC"
+    assert r["cancer_type"] == "NSCLC" and r["oncotree_code"] == "NSCLC"
     assert r["biomarker"] == "BRAF V600E mutation" and r["gene_alteration_findingmodel"] == _BRAF_FM
     assert set(MA.MAPPED_APPROVALS_COLUMNS) == set(r.keys())
 
@@ -228,14 +246,14 @@ def test_save_approval_maps_writes_only_two_tables(tmp_path):
     MA.map_approvals(client, store, seed=False)
     vdir = store.save_approval_maps(tmp_path)
     written = sorted(p.name for p in vdir.iterdir())
-    assert written == ["approval_biomarker_map.tsv", "approval_cancer_type_map.tsv"]
+    assert written == ["mapped_approval_biomarker.tsv", "mapped_approval_cancer_type.tsv"]
 
 
 def test_plain_store_save_emits_no_approval_files(tmp_path):
     """A store with no approval maps (a plain drug build) must not emit empty approval-map files."""
     DrugRefStore().save(tmp_path)
     names = {p.name for p in (tmp_path / "current_version").iterdir()}
-    assert "approval_cancer_type_map.tsv" not in names and "approval_biomarker_map.tsv" not in names
+    assert "mapped_approval_cancer_type.tsv" not in names and "mapped_approval_biomarker.tsv" not in names
 
 
 def test_round_trip_load(tmp_path):

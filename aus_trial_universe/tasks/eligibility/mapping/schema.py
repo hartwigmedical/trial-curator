@@ -33,15 +33,6 @@ class OncotreeMapping(BaseModel):
     )
 
 
-class OncotreeRepair(BaseModel):
-    """Refinement R4 output — one value's corrected code expression, given its own defect list."""
-
-    oncotree_code: str = Field(description="The corrected OncoTree CODE expression for this value.")
-    rationale: str = Field(
-        default="", description="One line: which defect was fixed and why this is what the source supports."
-    )
-
-
 class FindingModelMapping(BaseModel):
     """Mapper output for one gene-alteration or molecular-signature expression."""
 
@@ -59,13 +50,6 @@ class ReconciledMember(BaseModel):
         description="The reconciled FINAL mapping for this input (an OncoTree code expression, or a finding-model "
                     "expression). Equivalent members share ONE value; genuinely-distinct members keep their own."
     )
-
-
-class GroupReconciliation(BaseModel):
-    """Adjudicator output for one flagged consistency group — the FINAL value for every member."""
-
-    members: list[ReconciledMember] = Field(default_factory=list)
-    rationale: str = Field(default="", description="Brief why: which members were unified vs kept distinct, and why.")
 
 
 class ReviewVerdict(BaseModel):

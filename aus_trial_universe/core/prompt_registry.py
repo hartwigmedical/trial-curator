@@ -34,13 +34,10 @@ def live_agents(client: LlmClient | None = None):
         # eligibility · mapping — one module per vocabulary column
         mp_ct.build_oncotree_mapper(client),
         mp_ct.build_oncotree_reviewer(client),
-        # ...and the refinement's own agents. Registering these is not cosmetic: `cache_prune` classifies any
-        # (agent, prompt) it cannot find here as STALE and deletes it, so an unregistered agent has its cached
-        # responses GC'd on the next prune and silently re-billed on the next run.
-        mp_ct.build_oncotree_repairer(client),
-        mp_ct.build_oncotree_repair_reviewer(client),
-        mp_ct.build_oncotree_reconciler(client),
-        mp_ct.build_oncotree_reconcile_reviewer(client),
+        # cancer_type is stage 1 ONLY. Its repairer and group reconciler (and their reviewers) were DELETED
+        # 2026-08-06 with the legacy branch's last caller: stages 2 and 3 are deterministic, so the column makes
+        # no API call after mapping. Registering LIVE agents is not cosmetic — `cache_prune` deletes any cached
+        # (agent, prompt) it cannot find here — but a deleted agent must NOT be listed.
         # gene_alteration is stage 1 ONLY. Its stage-2 repairer and group reconciler (and their reviewers) were
         # DELETED 2026-08-06: stage 2 is now deterministic, so the column makes no API calls after mapping.
         mp_ga.build_gene_alteration_mapper(client),

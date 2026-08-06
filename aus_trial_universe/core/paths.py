@@ -76,6 +76,10 @@ TRIAL_INFO_FILE = "trial_info.tsv"
 # self-contained bundle (Set A + a frozen copy of the drug tables) minted on demand for hand-off.
 EXPORT_ROOT = DERIVED / "export"
 EXPORT_FILE = "trial_eligibility.tsv"
+#: Set C — every drug_regulatory_approvals row with its vocabulary mapping appended, so an approved
+#: indication is directly comparable to a trial criterion in Set A (both carry FINALISED values from
+#: the same three-stage pipeline).
+APPROVALS_EXPORT_FILE = "drug_approvals_mapped.tsv"
 
 # DENORMALIZED / JOINED views (mapped_eligibility, finalised_*, mapped_drug_regulatory_approval) are NOT 3NF
 # masters, so they live under `derived/joined/` — keeping the masters/ stores strictly 3NF. `joined/` is split per
