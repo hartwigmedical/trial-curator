@@ -1,6 +1,62 @@
 # v2 Agentic Pipeline — Handover
 
-## ▶ NEXT SESSION — START HERE (2026-08-06, end of session 12)
+## ▶ NEXT SESSION — START HERE (2026-08-07, end of session 13)
+
+> **STATE: green.** 479 tests (445 + 34 new) · production untouched · two new deliverables under
+> `data/agentic/analysis/pottr/`. **UNCOMMITTED** (the user does ALL commits). Full spec:
+> **`docs/planning/v2_pottr_crosscheck_spec.md`** — read it before touching either component.
+>
+> Session 13 delivered backlog item **C2** (cross-check against POTTR) plus a NEW capability it inspired. Both
+> live in a new `analysis/` workspace: `aus_trial_universe/analysis/pottr/` + `data/agentic/analysis/pottr/`.
+> **Nothing in `masters/`, `derived/`, the gates or the invariants changed** — the only production edits are
+> three additive ones (a `pottr` subcommand in `pipeline.sh`, 3 make targets, and registering the 4 new agents
+> in `prompt_registry` so `cache_prune` does not bin their responses).
+>
+> ### COMPONENT 2 — the disease-derived gene alteration (NEW capability; run FIRST)
+> POTTR records genetics a trial's DISEASE implies rather than states. We now do too:
+> `cancer_type_interpreted` → `derived_alteration` (free text) → `finding_model`, via the production gene mapper.
+> **292 of 4,880 distinct cancer types fire (6.0%).** Keyed on the INTERPRETED text, because OncoTree destroys
+> exactly the content it reads ("VHL disease associated tumors" → `Solid tumour`; "wild-type GIST" → `GIST`).
+>
+> 🔴 **THE LESSON THAT COST A FULL RE-ROLL — the two polarities need DIFFERENT tests.**
+> - INCLUDED entity → **necessity**: does the diagnosis require the alteration? (`MCL` → CCND1 rearrangement.)
+> - EXCLUDED entity → **sufficiency / pathognomonicity**: `NOT(disease)` entails `NOT(alteration)` only if
+>   essentially nothing else carries it. `NOT(APL)` → `NOT(PML::RARA)` ✅. `NOT(Burkitt)` → `NOT(MYC
+>   rearrangement)` ❌ — necessary for Burkitt, but MYC rearrangements also occur in DLBCL, so it discards
+>   patients the trial recruits.
+>
+>   v1 fired 411 (8.4%) including the Burkitt form **33 times**; the fix retracted 128. Same asymmetry already
+>   locked for gene_alteration: dropping a qualifier broadens an INCLUSION (safe) but narrows an EXCLUSION.
+>   Also note the prompt risk is INVERTED from every other mapper — `""` is correct ~94% of the time, so the
+>   failure mode is over-firing, not laziness.
+>
+> ### COMPONENT 1 — the comparison (269 shared trials; all of POTTR's are in our universe)
+> **7 identical · 262 differ · DNF shape matches on 131 · 1,296 detail rows.** Verdicts over 800 substantive
+> differences: `pottr_omission` 532 · `neither_wrong` 127 · **`pottr_wrong` 70** · `ours_omission` 33 ·
+> **`ours_wrong` 30** · 8 other.
+>
+> 🔴 **SEPARATING OMISSION FROM ERROR IS LOAD-BEARING.** The first pass returned `pottr_wrong` **418** — 382 of
+> them on `ours_only` rows, i.e. the judge reading a POTTR *omission* as a POTTR *error*. A whole-column coverage
+> gap is now settled deterministically with no LLM opinion, and the judge has explicit `*_omission` verdicts.
+> Any future comparison of two curations needs this split or its headline number is noise.
+>
+> **Four confirmed defects on OUR side** (spec §5 lists them with the source wording): a lost six-way OR in
+> `ACTRN12622001003763`, a wrong HER2-positive definition in `NCT05872295`, a dropped mastocytosis subtype in
+> `NCT04996875`, a narrowed disjunctive requirement in `NCT05503797`. **These are the actionable output.**
+>
+> ### ▶ WHAT TO DO NEXT
+> 1. **Review the two drafts** — `disease_derived_alteration_hits.tsv` (292 rows) and
+>    `pottr_comparison_by_trial.tsv` (269 rows). Component 2's bar is a PROMPT, so only human review can sign it
+>    off; borderline calls to look at first are `NOT(BCR::ABL1 fusion)` (×11 — BCR::ABL1 occurs in Ph+ ALL as
+>    well as CML, so it is weaker than pathognomonic) and `JAK2 mutation` for post-PV myelofibrosis (×15).
+> 2. **Fix the four confirmed defects** — they are extraction misses, so they belong with **B3**.
+> 3. ⚠ `analysis/` is a WORKING directory that may be emptied. Component 2's output is expensive to regenerate;
+>    if it is kept, it must migrate to a real store with its own stage tables.
+>
+> The A-group (A2 regroup → A3 legacy removal → A4/A4b/A5) and **F1** are untouched and remain next after this.
+> The session-12 block follows.
+
+## ▶ SESSION 12 — START HERE (2026-08-06)
 
 > **STATE: green and coherent.** 445 tests · 0 invariant violations · gates WARN / 0 FAIL · engine dry run
 > OURS=0 · two clean e2e refreshes today. **UNCOMMITTED since the tidy-up** (the user does ALL commits).
@@ -276,7 +332,12 @@ B1 layer L1+L2 need no LLM at all and can ship first; B1-L3 and B3 share one cac
   still on disk — A3 deletes only CODE, not `data/`). Per-trial / per-column agreement + a diff of disagreements, so
   v2-vs-v1 regressions are visible rather than assumed. NB the v1 grain differs (no `trial_arm_id` spine), so the
   join key needs deciding — probably (trialId, cancer_type) with manual adjudication of the tail.
-- **C2 — CROSS-CHECK AGAINST POTTR / REGISTRY GROUND TRUTH.** For a trial present in **POTTR eligibility**, compare
+- **✅ C2 — CROSS-CHECK AGAINST POTTR — FIRST DRAFT DONE 2026-08-07 (session 13).** All 269 POTTR trials are in
+  our universe. Full record: **`docs/planning/v2_pottr_crosscheck_spec.md`**; results summarised in the
+  START-HERE block. Every disagreement is adjudicated against the **registry source text**, not against POTTR —
+  POTTR is a peer with its own defects (its wt-GIST row names PDGFRB where the entity is defined by PDGFRA;
+  `catype:cytotoxic_chemotherapy` files a therapy as a cancer type). Awaiting the user's review of the draft.
+  *Original entry follows for provenance.* — For a trial present in **POTTR eligibility**, compare
   our curated eligibility against POTTR's; where POTTR has no entry, compare against the **registry files**
   themselves. This is the closest thing to an external gold standard the project has.
 - **C3 — A DE-DUPLICATED JOINED TABLE (on MAPPED values).** An additional joined table at the very end that

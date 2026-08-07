@@ -59,7 +59,21 @@ def live_agents(client: LlmClient | None = None):
         dr.build_approval_reviewer(client),
     ]
     agents += [a for _spec, a in ex.build_reviewer_agents(client)]  # the extraction reviewer panel
+    agents += _analysis_agents(client)
     return agents
+
+
+def _analysis_agents(client: LlmClient):
+    """Agents owned by `analysis/` workspaces.
+
+    They are not pipeline stages, but they DO share the one physical response cache — and `cache_prune` deletes
+    any cached (agent, prompt) it cannot find here. Leaving them out would silently bin their responses and
+    re-bill them on the next run, which is exactly what happened to the drug splitter pair. Registration is not
+    an endorsement of a workspace as production; it is cache bookkeeping.
+    """
+    from aus_trial_universe.analysis.pottr import agents as pottr
+
+    return [b(client) for b in pottr.LIVE_AGENT_BUILDERS]
 
 
 def live_prompt_shas(client: LlmClient | None = None) -> dict[str, str]:

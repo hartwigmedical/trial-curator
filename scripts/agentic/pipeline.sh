@@ -134,6 +134,21 @@ case "${CMD}" in
   tests)
     exec "${PYTHON_BIN}" -m pytest tests/agentic -q
     ;;
+  pottr)
+    # ANALYSIS WORKSPACE — the POTTR cross-check + the disease-derived alteration inference.
+    # Reads the export and the stores; writes ONLY under data/agentic/analysis/pottr/. Not a pipeline stage.
+    # Subcommand (infer|crosswalk|compare) plus flags are forwarded verbatim.
+    args=("$@")
+    if [[ -n "${WORKERS:-}" ]]; then args+=(--workers "${WORKERS}"); fi
+    if [[ -n "${MAX_CONCURRENCY:-}" ]]; then args+=(--max-concurrency "${MAX_CONCURRENCY}"); fi
+    if [[ -n "${MODEL:-}" ]]; then args+=(--model "${MODEL}"); fi
+    if [[ -n "${NO_REVIEW:-}" ]]; then args+=(--no-review); fi
+    if [[ -n "${REFRESH:-}" ]]; then args+=(--refresh); fi
+    if [[ -n "${LIMIT:-}" ]]; then args+=(--limit "${LIMIT}"); fi
+    if [[ -n "${ONLY:-}" ]]; then args+=(--only "${ONLY}"); fi
+    if [[ -n "${NO_ADJUDICATE:-}" ]]; then args+=(--no-adjudicate); fi
+    exec "${PYTHON_BIN}" -m aus_trial_universe.analysis.pottr "${args[@]}"
+    ;;
   gates)
     # Production gates on the current on-disk state (exit 1 on any FAIL). Deterministic, no API.
     exec "${PYTHON_BIN}" -m aus_trial_universe.qa.gates

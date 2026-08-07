@@ -1,4 +1,4 @@
-.PHONY: agentic-run agentic-ingest agentic-refresh agentic-gates agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
+.PHONY: pottr-infer pottr-crosswalk pottr-compare agentic-run agentic-ingest agentic-refresh agentic-gates agentic-demo agentic-clean agentic-tests agentic-cache-prune agentic-arm-consistency agentic-export agentic-drug-migrate-trial-arms agentic-validate drug-ref-build drug-ref-map-approvals drug-ref-refresh-pottr
 
 # --- v2 agentic pipeline (aus_trial_universe) — the only pipeline; legacy eligibility_path/drug_utility_path retired ---
 # Full pipeline (extract -> map -> drug); the pure-3NF store in masters/eligibility/current_version/ + the joined
@@ -118,3 +118,23 @@ drug-ref-map-approvals:
 drug-ref-refresh-pottr:
 	scripts/agentic/pipeline.sh drug-ref-refresh-pottr
 
+
+# --- ANALYSIS: the POTTR cross-check + the disease-derived alteration it inspired -------------------------- #
+# An analysis WORKSPACE, not a pipeline stage: it reads the export and the stores, and writes only under
+# data/agentic/analysis/pottr/. No production table, gate or invariant is touched. Run in order.
+#   make pottr-infer      COMPONENT 2 — cancer_type -> derived gene alteration -> finding model (whole corpus)
+#   make pottr-crosswalk  COMPONENT 1a — POTTR's terms -> our controlled vocabularies
+#   make pottr-compare    COMPONENT 1b — the comparison over the 269 shared trials
+#   optional: WORKERS=<n>  MAX_CONCURRENCY=<n>  REFRESH=1  NO_REVIEW=1  MODEL=<name>
+#             LIMIT=<n> / ONLY="<value>||<value>" (pottr-infer smoke tests)  NO_ADJUDICATE=1 (pottr-compare)
+POTTR_ENV = WORKERS="$(WORKERS)" MAX_CONCURRENCY="$(MAX_CONCURRENCY)" MODEL="$(MODEL)" \
+            NO_REVIEW="$(NO_REVIEW)" REFRESH="$(REFRESH)"
+
+pottr-infer:
+	$(POTTR_ENV) LIMIT="$(LIMIT)" ONLY="$(ONLY)" scripts/agentic/pipeline.sh pottr infer
+
+pottr-crosswalk:
+	$(POTTR_ENV) scripts/agentic/pipeline.sh pottr crosswalk
+
+pottr-compare:
+	$(POTTR_ENV) NO_ADJUDICATE="$(NO_ADJUDICATE)" scripts/agentic/pipeline.sh pottr compare
