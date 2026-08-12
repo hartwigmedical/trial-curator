@@ -47,14 +47,14 @@ fi
 export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
 
-# Pick the first Python that actually has the v2 deps (openai + pydantic), so
+# Pick the first Python that actually has the v2 deps (fireworks.client + pydantic), so
 # `make` works whether or not the trial_curator conda env is activated.
 pick_python() {
   local cand
   for cand in "${PYTHON_BIN:-}" python "${HOME}/anaconda3/envs/trial_curator/bin/python" \
               /opt/anaconda3/envs/trial_curator/bin/python python3; do
     [[ -n "${cand}" ]] || continue
-    if command -v "${cand}" >/dev/null 2>&1 && "${cand}" -c "import openai, pydantic" >/dev/null 2>&1; then
+    if command -v "${cand}" >/dev/null 2>&1 && "${cand}" -c "import fireworks.client, pydantic" >/dev/null 2>&1; then
       echo "${cand}"
       return 0
     fi
@@ -63,7 +63,7 @@ pick_python() {
 }
 
 if ! PYTHON_BIN="$(pick_python)"; then
-  echo "ERROR: no Python with openai+pydantic found. Activate the 'trial_curator' conda env or set PYTHON_BIN." >&2
+  echo "ERROR: no Python with fireworks.client+pydantic found. Activate the 'trial_curator' conda env or set PYTHON_BIN." >&2
   exit 1
 fi
 echo "using python: ${PYTHON_BIN}" >&2

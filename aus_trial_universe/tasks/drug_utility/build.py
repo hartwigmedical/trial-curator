@@ -7,14 +7,14 @@ canonical is a pure lookup; only new (or --refresh) drugs are researched.
   python -m aus_trial_universe.tasks.drug_utility.build --from-trials NCT07099898,NCT05009992 --limit 5
   options: --refresh-drugs  --refresh-days N  --no-review  --model <name>
 
-Writes data/agentic/drug_annotations/current_version/. Requires OPENAI_API_KEY. Run via `make drug-ref-build`.
+Writes data/agentic/drug_annotations/current_version/. Requires FIREWORKS_API_KEY (+ PARALLEL_API_KEY for web search). Run via `make drug-ref-build`.
 """
 from __future__ import annotations
 
 import argparse
 import logging
 
-from aus_trial_universe.run import _load_openai_key
+from aus_trial_universe.run import _load_api_key
 from aus_trial_universe.tasks.shared.cohorts import trial_arm_id
 from aus_trial_universe.tasks.shared.schema import TrialArm
 
@@ -143,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-concurrency", type=int, default=None,
                         help="GLOBAL cap on concurrent LLM API calls (set to the account's empirical rate-limit "
                              "ceiling and raise --workers freely). Default: uncapped.")
-    parser.add_argument("--model", default=None, help="Override the OpenAI model.")
+    parser.add_argument("--model", default=None, help="Override the Fireworks AI model (default: deepseek-v4-flash-0731).")
     parser.add_argument("--no-cache", action="store_true",
                         help="Disable the on-disk LLM response cache (default: cache under data/agentic/cache/, so "
                              "a re-run after an interruption resumes near-instantly on the drugs already researched).")
@@ -155,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     for _n in ("httpx", "openai", "urllib3", "numexpr"):
         logging.getLogger(_n).setLevel(logging.WARNING)
-    _load_openai_key()
+    _load_api_key()
 
     from aus_trial_universe.core.client import DiskCache, LlmClient
     from aus_trial_universe.core.paths import CACHE_DIR

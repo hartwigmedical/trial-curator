@@ -1,31 +1,31 @@
-"""Unified OpenAI client for the v2 agentic pipeline (spec §4).
+"""Unified LLM client for the v2 agentic pipeline (spec §4).
 
 The single door to the LLM: give it a pydantic output schema and a prompt, get
 back a *validated* object. It also owns reliability (retries + backoff), a
 response cache, and per-call tracing.
 
-Structured outputs go through the Chat Completions parse helper
-(`client.chat.completions.parse`, falling back to `client.beta.chat.completions.parse`
-on older SDKs). Targets openai >= 2.x, where `chat.completions.parse` is stable. The
-Responses API is also available at 2.x, but Chat Completions parse is proven and
-sufficient here, so the client stays on it.
+LLM calls go through the Fireworks AI Python SDK (``fireworks-ai``). The
+`research()` path (web_search agents) uses Parallel AI for live web search
+and then feeds the results to the LLM.
 
 Design notes
 ------------
 - Model choice is configuration, never hard-coded in a task/agent.
-- `openai` is imported lazily, so this module — and unit tests that inject a fake
-  client — import fine without the SDK installed.
+- ``fireworks.client`` is imported lazily, so this module — and unit tests that
+  inject a fake client — import fine without the SDK installed.
 - Determinism: the response **cache** is the primary deterministic layer
   (identical request -> identical output, even across process runs with a
   DiskCache). `temperature`/`seed` are optional and *omitted by default*, because
-  current reasoning models (e.g. gpt-5.x) reject `temperature`; set them per-agent
-  only for models that support them.
+  many models reject `temperature`; set them per-agent only for models that support them.
+- API key: FIREWORKS_API_KEY (LLM) + PARALLEL_API_KEY (web search), auto-loaded
+  from .env / .env.local by the entry points.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from contextlib import nullcontext
@@ -38,8 +38,12 @@ from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
-# Matches current repo usage; override per-agent. Kept here as the single default.
-DEFAULT_MODEL = "gpt-5.5"
+# Fireworks AI API config
+DEFAULT_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731"
+
+# Parallel AI web search config
+PARALLEL_BASE_URL = "https://api.parallel.ai/v1/search"
+
 DEFAULT_MAX_RETRIES = 6
 DEFAULT_INITIAL_DELAY = 2.0
 DEFAULT_MAX_DELAY = 60.0
@@ -176,13 +180,13 @@ class LlmResult(Generic[T]):
 # Client
 # --------------------------------------------------------------------------- #
 class LlmClient:
-    """Reliable, cached, schema-validated wrapper over OpenAI chat-completions parse."""
+    """Reliable, cached, schema-validated wrapper over Fireworks AI chat completions."""
 
     def __init__(
         self,
         *,
         model: str = DEFAULT_MODEL,
-        openai_client: Any | None = None,
+        fireworks_client: Any | None = None,
         cache: ResponseCache | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         initial_delay: float = DEFAULT_INITIAL_DELAY,
@@ -192,7 +196,7 @@ class LlmClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.model = model
-        self._client = openai_client
+        self._client = fireworks_client
         self.cache: ResponseCache = cache if cache is not None else InMemoryCache()
         self.max_retries = max_retries
         self.initial_delay = initial_delay
@@ -288,8 +292,10 @@ class LlmClient:
         max_completion_tokens: int | None = None,
         agent_name: str | None = None,
     ) -> LlmResult[T]:
-        """Like parse(), but answers via the Responses API with the web_search tool.
+        """Like parse(), but augments the prompt with live web search results.
 
+        Uses Parallel AI for web search, then feeds the results into the LLM
+        (an ordinary chat-completions call with JSON-schema response_format).
         For research tasks (e.g. TGA/PBS regulatory status) that need live web lookups.
         Cached on (mode, model, instructions, input, schema) for run-to-run reproducibility.
         `agent_name` is recorded as cache provenance (for prompt-aware pruning).
@@ -332,36 +338,66 @@ class LlmClient:
         self, *, output_schema: type[T], model: str, instructions: str,
         user_input: str, max_completion_tokens: int | None,
     ) -> tuple[T, str, dict[str, Any] | None, int]:
-        client = self._ensure_client()
-        transient = _transient_errors()
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "instructions": instructions,
-            "input": user_input,
-            "tools": [{"type": "web_search"}],
-            "text_format": output_schema,
-        }
-        if max_completion_tokens is not None:
-            kwargs["max_output_tokens"] = max_completion_tokens
+        """Do web search via Parallel AI, then call the LLM with search results as context.
 
-        delay = self.initial_delay
-        last_err: Exception | None = None
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                response = client.responses.parse(**kwargs)
-            except transient as err:  # rate limit / timeout / connection / 5xx
-                last_err = err
-                logger.warning("Transient research error (attempt %d/%d): %s", attempt, self.max_retries, err)
-                if attempt < self.max_retries:
-                    self._sleep(min(delay, self.max_delay))
-                    delay *= 2
-                continue
-            parsed = getattr(response, "output_parsed", None)
-            if parsed is None:
-                raw = getattr(response, "output_text", "") or ""
-                raise LlmParseError(f"No parsable research output for {output_schema.__name__}: {raw[:200]!r}")
-            return parsed, parsed.model_dump_json(), _usage_dict(response), attempt
-        raise LlmError(f"Research call failed after {self.max_retries} attempts") from last_err
+        Search failures are non-fatal: the LLM is called without search results,
+        falling back to its training knowledge.
+        """
+        try:
+            search_results = self._parallel_search(user_input)
+            augmented_instructions = f"{instructions}\n\n**Web Search Results:**\n{search_results}"
+        except Exception as exc:
+            logger.warning("Web search failed (proceeding without search): %s", exc)
+            augmented_instructions = instructions
+        return self._call_with_retries(
+            output_schema=output_schema, model=model,
+            instructions=augmented_instructions, user_input=user_input,
+            temperature=None, seed=None,
+            max_completion_tokens=max_completion_tokens,
+        )
+
+    def _parallel_search(self, query: str) -> str:
+        """Perform web search via Parallel AI API. Returns formatted search results text."""
+        api_key = os.environ.get("PARALLEL_API_KEY")
+        if not api_key:
+            raise LlmError(
+                "PARALLEL_API_KEY not set for web search (research path). "
+                "Set it in your environment or .env / .env.local."
+            )
+        base_url = os.environ.get("PARALLEL_BASE_URL", PARALLEL_BASE_URL)
+
+        try:
+            import httpx
+        except ImportError as err:
+            raise ImportError(
+                "The `httpx` package is required for web search (`pip install httpx`)."
+            ) from err
+
+        payload: dict[str, Any] = {"search_queries": [query]}
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        logger.debug("parallel search query=%s", query[:120])
+        response = httpx.post(base_url, headers=headers, json=payload, timeout=30.0)
+        response.raise_for_status()
+        data = response.json()
+
+        results = data.get("results", [])
+        if not results:
+            return "(no search results found)"
+
+        formatted: list[str] = []
+        for i, r in enumerate(results[:8], 1):
+            url = r.get("url", "")
+            title = r.get("title", "")
+            excerpts = r.get("excerpts", [])
+            snippet = excerpts[0] if isinstance(excerpts, list) and excerpts else ""
+            parts = [f"[{i}] {title}"] if title else [f"[{i}]"]
+            if snippet:
+                parts.append(f"   {snippet[:500]}")
+            if url:
+                parts.append(f"   Source: {url}")
+            formatted.append("\n".join(parts))
+        return "\n\n".join(formatted) if formatted else "(no search results found)"
 
     def _call_with_retries(
         self,
@@ -374,13 +410,26 @@ class LlmClient:
         seed: int | None,
         max_completion_tokens: int | None,
     ) -> tuple[T, str, dict[str, Any] | None, int]:
+        """Call the LLM with JSON-schema response_format and parse the response manually.
+
+        Uses ``chat.completions.create()`` (NOT ``.parse()``) so it works with any
+        OpenAI-compatible API (e.g. Fireworks AI). The response content is validated
+        against the Pydantic schema after the call.
+        """
         client = self._ensure_client()
-        parse_fn = _resolve_parse(client)
         transient = _transient_errors()
+        json_schema = output_schema.model_json_schema()
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": _messages(instructions, user_input),
-            "response_format": output_schema,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": output_schema.__name__,
+                    "schema": json_schema,
+                    "strict": True,
+                },
+            },
         }
         if temperature is not None:
             kwargs["temperature"] = temperature
@@ -393,7 +442,7 @@ class LlmClient:
         last_err: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                response = parse_fn(**kwargs)
+                response = client.chat.completions.create(**kwargs)
             except transient as err:  # rate limit / timeout / connection / 5xx
                 last_err = err
                 logger.warning(
@@ -408,26 +457,39 @@ class LlmClient:
             refusal = getattr(message, "refusal", None)
             if refusal:
                 raise LlmParseError(f"Model refused for {output_schema.__name__}: {refusal}")
-            parsed = getattr(message, "parsed", None)
-            if parsed is None:
-                raw = getattr(message, "content", "") or ""
+            content = message.content
+            if not content:
                 raise LlmParseError(
-                    f"No parsable output for {output_schema.__name__}: {raw[:200]!r}"
+                    f"No parsable output for {output_schema.__name__}: empty response"
                 )
-            raw_text = getattr(message, "content", None) or parsed.model_dump_json()
-            return parsed, raw_text, _usage_dict(response), attempt
+            try:
+                parsed = output_schema.model_validate_json(content)
+            except ValidationError as err:
+                raise LlmParseError(
+                    f"Response failed Pydantic validation for {output_schema.__name__}: {err}"
+                ) from err
+            return parsed, content, _usage_dict(response), attempt
 
         raise LlmError(f"LLM call failed after {self.max_retries} attempts") from last_err
 
     def _ensure_client(self) -> Any:
         if self._client is None:
             try:
-                import openai
+                from fireworks.client import Fireworks
             except ImportError as err:  # pragma: no cover - env-dependent
                 raise ImportError(
-                    "The `openai` package is required to call the API (`pip install openai`)."
+                    "The `fireworks-ai` package is required to call the API (`pip install fireworks-ai`)."
                 ) from err
-            self._client = openai.OpenAI()
+            api_key = os.environ.get("FIREWORKS_API_KEY")
+            if not api_key:
+                raise LlmError(
+                    "FIREWORKS_API_KEY not set. Set it in your environment or .env / .env.local "
+                    "(or pass a pre-configured `fireworks_client` to the constructor)."
+                )
+            base_url = os.environ.get(
+                "FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1"
+            )
+            self._client = Fireworks(api_key=api_key, base_url=base_url)
         return self._client
 
     def _emit_trace(self, key: str, result: LlmResult[Any], *, latency_ms: float) -> None:
@@ -464,23 +526,6 @@ def _messages(instructions: str, user_input: str) -> list[dict[str, str]]:
     return messages
 
 
-def _resolve_parse(client: Any) -> Callable[..., Any]:
-    """Return the chat-completions parse helper, preferring stable over beta."""
-    chat = getattr(client, "chat", None)
-    stable = getattr(getattr(chat, "completions", None), "parse", None)
-    if callable(stable):
-        return stable
-    beta = getattr(client, "beta", None)
-    beta_chat = getattr(beta, "chat", None)
-    beta_parse = getattr(getattr(beta_chat, "completions", None), "parse", None)
-    if callable(beta_parse):
-        return beta_parse
-    raise LlmError(
-        "The installed openai SDK exposes no chat.completions.parse "
-        "(need openai>=2.0 for structured outputs)."
-    )
-
-
 def _fingerprint(request: dict[str, Any]) -> str:
     blob = json.dumps(request, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -488,14 +533,15 @@ def _fingerprint(request: dict[str, Any]) -> str:
 
 def _transient_errors() -> tuple[type[BaseException], ...]:
     try:
-        import openai
+        from fireworks.client import error as fwe
     except ImportError:  # pragma: no cover - env-dependent
         return ()
     candidates = (
-        getattr(openai, "RateLimitError", None),
-        getattr(openai, "APITimeoutError", None),
-        getattr(openai, "APIConnectionError", None),
-        getattr(openai, "InternalServerError", None),
+        getattr(fwe, "RateLimitError", None),
+        getattr(fwe, "APITimeoutError", None),
+        getattr(fwe, "BadGatewayError", None),
+        getattr(fwe, "InternalServerError", None),
+        getattr(fwe, "ServiceUnavailableError", None),
     )
     return tuple(c for c in candidates if isinstance(c, type))
 

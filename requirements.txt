@@ -7,9 +7,10 @@ requests         # ClinicalTrials.gov API download
 urllib3          # imported directly for the retry policy on that download (not just via requests)
 
 # v2 agentic pipeline (LLM workflows) — see docs/v2_agentic_pipeline_spec.md
-openai>=2.0            # structured outputs via chat.completions.parse(response_format=<pydantic>)
-pydantic>=2.7          # schema-first output models
-python-dotenv>=1.0     # load OPENAI_API_KEY from .env
+fireworks-ai           # Fireworks AI SDK for LLM calls
+pydantic>=2.7          # schema-first output models; validate LLM JSON against Pydantic schemas
+httpx                  # Parallel AI web search for drug research agents
+python-dotenv>=1.0     # load API keys from .env
 PyYAML>=6.0            # tools/oncotree.py reads the OncoTree vocabulary from oncotree.yaml
 
 # presentation build (scripts/build_external_deck.py) — HTML -> PNG -> official Hartwig .pptx.

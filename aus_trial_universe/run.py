@@ -19,7 +19,7 @@ SEPARATE `aus_trial_universe.export` module (`make agentic-export`), not here.
   python -m aus_trial_universe.run                          # ALL trials
 Options: --model · --no-judge (skip extraction panel) · --no-review (skip mapping reviewers) ·
          --extract-only (extraction only) · --skip-drug (skip the drug-annotation top-up) · --out-dir · --max-attempts
-Requires OPENAI_API_KEY (auto-loaded from .env / .env.local). Run via `make agentic-run`.
+Requires FIREWORKS_API_KEY (auto-loaded from .env / .env.local). Run via `make agentic-run`.
 """
 from __future__ import annotations
 
@@ -37,16 +37,38 @@ from aus_trial_universe.core.paths import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _load_openai_key() -> None:
-    if os.environ.get("OPENAI_API_KEY"):
+def _load_api_key() -> None:
+    """Load FIREWORKS_API_KEY (and PARALLEL_API_KEY) from env or .env / .env.local.
+
+    Also loads OPENAI_API_KEY as a fallback for FIREWORKS_API_KEY, to ease
+    migration when both variables might be set.
+    """
+    _load_from_env("FIREWORKS_API_KEY", fallback="OPENAI_API_KEY")
+    _load_from_env("PARALLEL_API_KEY")
+
+
+def _load_from_env(var: str, fallback: str | None = None) -> None:
+    """Set *var* from environment or .env / .env.local (first wins).
+
+    If *fallback* is given and *var* is not set, try that env var instead.
+    """
+    if os.environ.get(var):
+        return
+    if fallback and os.environ.get(fallback):
+        os.environ[var] = os.environ[fallback]
         return
     for fname in (".env", ".env.local"):
         path = REPO_ROOT / fname
-        if path.exists():
-            for line in path.read_text().splitlines():
-                s = line.strip()
-                if s.startswith("OPENAI_API_KEY=") and not s.startswith("#"):
-                    os.environ["OPENAI_API_KEY"] = s.split("=", 1)[1].strip().strip('"').strip("'")
+        if not path.exists():
+            continue
+        for line in path.read_text().splitlines():
+            s = line.strip()
+            if s.startswith(f"{var}=") and not s.startswith("#"):
+                os.environ[var] = s.split("=", 1)[1].strip().strip('"').strip("'")
+                return
+            if fallback and s.startswith(f"{fallback}=") and not s.startswith("#"):
+                os.environ[var] = s.split("=", 1)[1].strip().strip('"').strip("'")
+                return
 
 
 def _arm_rows(trial_id, registry, result):
@@ -262,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Accumulating store root (default: data/agentic/eligibility/). Load reads its newest "
                              "snapshot; the run writes a new one under it.")
     parser.add_argument("--out-dir", help="Explicit snapshot dir for this run (default: <store-root>/<timestamp>/).")
-    parser.add_argument("--model", default=None, help="Override the OpenAI model.")
+    parser.add_argument("--model", default=None, help="Override the Fireworks AI model (default: deepseek-v4-flash-0731).")
     parser.add_argument("--no-judge", action="store_true", help="Skip the extraction reviewer panel (cheaper).")
     parser.add_argument("--no-review", action="store_true", help="Skip the mapping reviewers (cheaper).")
     parser.add_argument("--extract-only", action="store_true",
@@ -314,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     for _noisy in ("httpx", "openai", "urllib3", "numexpr"):
         logging.getLogger(_noisy).setLevel(logging.WARNING)
-    _load_openai_key()
+    _load_api_key()
 
     from aus_trial_universe.core.client import DiskCache, LlmClient
     from aus_trial_universe.core.logfmt import FAIL, PASS, stage

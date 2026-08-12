@@ -24,20 +24,20 @@ export PYTHONDONTWRITEBYTECODE="${PYTHONDONTWRITEBYTECODE:-1}"
 # chronological order when merged through `tee` — essential for walking an audience through the log live.
 export PYTHONUNBUFFERED=1
 
-# Pick the first Python that actually has the v2 deps (openai + pydantic).
+# Pick the first Python that actually has the v2 deps (openai + pydantic + httpx).
 pick_python() {
   local cand
   for cand in "${PYTHON_BIN:-}" python "${HOME}/anaconda3/envs/trial_curator/bin/python" \
               /opt/anaconda3/envs/trial_curator/bin/python python3; do
     [[ -n "${cand}" ]] || continue
-    if command -v "${cand}" >/dev/null 2>&1 && "${cand}" -c "import openai, pydantic" >/dev/null 2>&1; then
+    if command -v "${cand}" >/dev/null 2>&1 && "${cand}" -c "import fireworks.client, pydantic" >/dev/null 2>&1; then
       echo "${cand}"; return 0
     fi
   done
   return 1
 }
 if ! PYTHON_BIN="$(pick_python)"; then
-  echo "ERROR: no Python with openai+pydantic found. Activate the 'trial_curator' conda env or set PYTHON_BIN." >&2
+  echo "ERROR: no Python with openai+pydantic+httpx found. Activate the 'trial_curator' conda env or set PYTHON_BIN." >&2
   exit 1
 fi
 echo "using python: ${PYTHON_BIN}" >&2

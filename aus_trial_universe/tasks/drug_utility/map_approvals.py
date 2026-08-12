@@ -21,7 +21,7 @@ Purely ADDITIVE: writes only the two new tables via `DrugRefStore.save_approval_
   python -m aus_trial_universe.tasks.drug_utility.map_approvals --workers 80 --max-concurrency 500
   options: --no-review  --no-seed  --limit N  --model <name>  --no-cache  --no-cache-prune
 
-Run via `make drug-ref-map-approvals`. Requires OPENAI_API_KEY.
+Run via `make drug-ref-map-approvals`. Requires FIREWORKS_API_KEY.
 """
 from __future__ import annotations
 
@@ -282,7 +282,7 @@ def _drug_joined_dir() -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from aus_trial_universe.run import _load_openai_key
+    from aus_trial_universe.run import _load_api_key
 
     parser = argparse.ArgumentParser(description="Map drug-approval cancer_type/biomarker into the eligibility vocab "
                                                  "(symmetric matching); additive — writes only the 2 approval-map tables.")
@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Do NOT seed from the trial FINAL maps — map every value fresh (loses guaranteed "
                              "cross-domain code identity; slower).")
     parser.add_argument("--limit", type=int, default=None, help="Cap distinct cancer_type/biomarker values (smoke test).")
-    parser.add_argument("--model", default=None, help="Override the OpenAI model.")
+    parser.add_argument("--model", default=None, help="Override the Fireworks AI model (default: deepseek-v4-flash-0731).")
     parser.add_argument("--no-cache", action="store_true", help="Disable the on-disk LLM response cache.")
     parser.add_argument("--no-cache-prune", action="store_true",
                         help="Skip the automatic prune of cache entries from OUTDATED prompts at start.")
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     for _n in ("httpx", "openai", "urllib3", "numexpr"):
         logging.getLogger(_n).setLevel(logging.WARNING)
-    _load_openai_key()
+    _load_api_key()
 
     from aus_trial_universe.core.client import DiskCache
     from aus_trial_universe.core.paths import CACHE_DIR
